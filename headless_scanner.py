@@ -28,23 +28,31 @@ st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="cente
 
 def init_firestore():
     try:
-        # Извлекаем данные из окружения
+        # Извлекаем данные из системного окружения
         app_id = os.environ.get("__app_id", "default-app-id")
         fb_config_str = os.environ.get("__firebase_config", "{}")
         fb_config = json.loads(fb_config_str)
         project_id = fb_config.get("projectId")
 
+        # Если project_id не найден в конфиге, попробуем использовать app_id или переменную окружения
+        if not project_id:
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
         try:
             firebase_admin.get_app()
         except ValueError:
-            # Инициализация с явным указанием Project ID для решения ошибки
+            # Инициализация приложения
             if project_id:
                 firebase_admin.initialize_app(options={'projectId': project_id})
             else:
-                # Попытка стандартной инициализации, если ID не найден
                 firebase_admin.initialize_app()
         
-        db = firestore.client()
+        # Явно передаем project_id в клиент firestore, чтобы избежать ошибки
+        if project_id:
+            db = firestore.client(project=project_id)
+        else:
+            db = firestore.client()
+            
         # Путь согласно ПРАВИЛУ 1: /artifacts/{appId}/public/data/{collectionName}
         users_ref = db.collection('artifacts').document(app_id).collection('public').document('data').collection('users')
         return users_ref
