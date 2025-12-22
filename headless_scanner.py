@@ -185,7 +185,6 @@ def perform_scan(chat_id, is_manual=False):
 
     status_msg = None
     try:
-        # Отправляем сообщение о начале И прикрепляем клавиатуру, чтобы она была видна
         status_msg = bot.send_message(chat_id, 
             f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
             parse_mode="HTML",
@@ -204,13 +203,22 @@ def perform_scan(chat_id, is_manual=False):
             SETTINGS["IS_SCANNING"] = False
             return
         
+        # --- ОБНОВЛЕНИЕ ПРОГРЕССА (Каждые 10 тикеров) ---
         if i % 10 == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
                 bar = "▓" * (progress_pct // 10) + "░" * (10 - (progress_pct // 10))
                 new_text = f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ {i}/{total_tickers} ({progress_pct}%)\n[{bar}]"
-                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML")
-            except: pass 
+                
+                bot.edit_message_text(
+                    chat_id=chat_id, 
+                    message_id=status_msg.message_id, 
+                    text=new_text, 
+                    parse_mode="HTML",
+                    reply_markup=get_main_keyboard() # Сохраняем кнопки
+                )
+            except Exception as e:
+                print(f"Error updating progress: {e}")
 
         res = check_ticker(t)
         if res:
