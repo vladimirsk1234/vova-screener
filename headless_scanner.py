@@ -37,7 +37,7 @@ if not TG_TOKEN:
 
 # Создаем сессию для yfinance, чтобы избежать блокировок (Anti-bot)
 def get_session():
-    session = requests.get_session() if hasattr(requests, 'get_session') else requests.Session()
+    session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
     })
@@ -69,12 +69,12 @@ bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 def get_shared_state():
     return {
         "LENGTH_MAJOR": 200, 
-        "MAX_ATR_PCT": 5.0, 
-        "ADX_THRESH": 20,   
+        "MAX_ATR_PCT": 10.0, # Ослаблено для получения результатов
+        "ADX_THRESH": 15,    # Ослаблено для получения результатов
         "AUTO_SCAN_INTERVAL": 3600, 
         "IS_SCANNING": False, 
         "STOP_SCAN": False,
-        "SHOW_ONLY_NEW": True, 
+        "SHOW_ONLY_NEW": False, # По умолчанию показываем всё
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), "APPROVED_IDS": fetch_approved_ids(), 
         "NOTIFIED_TODAY": set(), "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -152,7 +152,7 @@ def check_ticker(ticker, verbose=False):
         dx = 100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus'])
         df['ADX'] = pine_rma(dx, 14)
         
-        # 4. SEQUENCE LOGIC (ОГРАНИЧЕНИЕ ОКНА ДО 300 БАРОВ)
+        # 4. SEQUENCE LOGIC
         df_seq = df.tail(300).copy()
         seq_states = []
         seqState = 0; seqHigh = df_seq['High'].iloc[0]; seqLow = df_seq['Low'].iloc[0]; criticalLevel = df_seq['Low'].iloc[0]
@@ -209,8 +209,8 @@ def check_ticker(ticker, verbose=False):
             return result_data
 
         if all_green_cur and pass_atr:
-            if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
-                return result_data
+            # В ручном скане возвращаем всё зеленое, в авто - фильтруем по SHOW_ONLY_NEW
+            return result_data
                 
     except Exception as e:
         if verbose: print(f"Error {ticker}: {e}")
@@ -268,7 +268,8 @@ def perform_scan(chat_id=None, is_manual=False):
             
             res = check_ticker(t)
             if res:
-                # Фильтрация только для АВТО-скана
+                # В ручном поиске показываем все сигналы (all_green), 
+                # в авто-скане фильтруем по новизне если нужно
                 if not is_manual and SETTINGS["SHOW_ONLY_NEW"] and not res['is_new']:
                     continue
                 
@@ -375,7 +376,7 @@ def get_status(message):
 @bot.message_handler(func=lambda m: m.text == 'ATR 📉')
 def open_atr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('3.0 %', '5.0 %', '7.0 %', '10.0 %', '🔙 Назад')
+    markup.add('5.0 %', '7.0 %', '10.0 %', '15.0 %', '🔙 Назад')
     bot.send_message(message.chat.id, "📉 Выберите Max ATR:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'SMA 📈')
