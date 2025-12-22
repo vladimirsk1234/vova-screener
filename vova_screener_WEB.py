@@ -39,6 +39,22 @@ with st.expander("⚙️ Настройки и Уведомления", expanded
         tg_token = st.text_input("Bot Token", placeholder="123456:ABC-DEF...", type="password", help="Получить у @BotFather")
         tg_chat_id = st.text_input("Chat ID", placeholder="12345678", help="Ваш ID или ID канала")
         check_interval = st.number_input("Интервал проверки (мин)", value=60, min_value=15, step=15)
+        
+        # --- КНОПКА ПРОВЕРКИ ---
+        if st.button("📨 Проверить связь (Тест)"):
+            if tg_token and tg_chat_id:
+                try:
+                    url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+                    payload = {"chat_id": tg_chat_id, "text": "👋 <b>Тест прошел успешно!</b>\nБот готов к работе.", "parse_mode": "HTML"}
+                    res = requests.post(url, json=payload)
+                    if res.status_code == 200:
+                        st.success("✅ Сообщение отправлено! Проверьте Telegram.")
+                    else:
+                        st.error(f"❌ Ошибка Telegram: {res.text}")
+                except Exception as e:
+                    st.error(f"❌ Ошибка сети: {e}")
+            else:
+                st.warning("⚠️ Сначала введите Token и Chat ID!")
 
     st.divider()
     
