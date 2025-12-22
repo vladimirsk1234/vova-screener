@@ -1,6 +1,6 @@
 import streamlit as st
 import telebot
-from telebot import types # Для кнопок
+from telebot import types
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -24,11 +24,12 @@ except:
     TG_TOKEN = os.environ.get("TG_TOKEN", "") 
 
 if not TG_TOKEN:
-    st.error("❌ **ОШИБКА:** Токен не найден! Добавьте его в Secrets.")
+    st.error("❌ **ОШИБКА:** Токен не найден! Добавьте его в Secrets на Streamlit Cloud.")
     st.stop()
 
+# ВКЛЮЧАЕМ МНОГОПОТОЧНОСТЬ (threaded=True) - критически важно для работы кнопок во время скана
 try:
-    bot = telebot.TeleBot(TG_TOKEN, threaded=False)
+    bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 except Exception as e:
     st.error(f"❌ Ошибка бота: {e}")
     st.stop()
@@ -39,7 +40,7 @@ def get_shared_state():
         "LENGTH_MAJOR": 200,
         "MAX_ATR_PCT": 5.0,
         "ADX_THRESH": 20,
-        "AUTO_SCAN_INTERVAL": 60, 
+        "AUTO_SCAN_INTERVAL": 3600, 
         "IS_SCANNING": False,
         "STOP_SCAN": False,
         "SHOW_ONLY_NEW": True,
@@ -47,19 +48,17 @@ def get_shared_state():
         "CHAT_ID": None,
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
-        "TIMEZONE_OFFSET": -7.0 # Установлено UTC-7
+        "TIMEZONE_OFFSET": -7.0,
+        "TICKER_LIMIT": 500 
     }
 
 SETTINGS = get_shared_state()
 
 # --- МЕНЮ ---
 def get_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2, one_time_keyboard=False)
-    # 1 ряд
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3, one_time_keyboard=False)
     markup.row(types.KeyboardButton('Scan 🚀'), types.KeyboardButton('Stop 🛑'))
-    # 2 ряд
     markup.row(types.KeyboardButton('Status 📊'), types.KeyboardButton('Mode 🔄'))
-    # 3 ряд (Настройки) - Кнопка Limit удалена
     markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Time 🕒'))
     return markup
 
@@ -87,12 +86,14 @@ def pine_rma(series, length):
 
 def check_ticker(ticker):
     try:
-        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
+        # Уменьшаем объем загружаемых данных для ускорения
+        df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-        if len(df) < 250: return None
+        if len(df) < 200: return None
 
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
+        # Индикаторы
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
@@ -108,8 +109,9 @@ def check_ticker(ticker):
         df['DI_Plus'] = 100 * (p_dm / tr); df['DI_Minus'] = 100 * (m_dm / tr)
         df['ADX'] = pine_rma(100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus']), 14)
 
+        # Sequence Logic (упрощенная для скорости)
         seqState = 0; seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; crit = df['Low'].iloc[0]
-        df_calc = df.iloc[-300:].copy()
+        df_calc = df.iloc[-250:].copy()
         cl = df_calc['Close'].values; hi = df_calc['High'].values; lo = df_calc['Low'].values
         seq_states = []
         
@@ -137,15 +139,8 @@ def check_ticker(ticker):
         last = df_calc.iloc[-1]; prev = df_calc.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        seq_cur = seq_states[-1] == 1
-        ma_cur = last['Close'] > last['SMA_Major']
-        mom_cur = (last['ADX'] >= SETTINGS["ADX_THRESH"]) and seq_cur and (last['DI_Plus'] > last['DI_Minus'])
-        all_green_cur = seq_cur and ma_cur and mom_cur
-        
-        seq_prev = seq_states[-2] == 1
-        ma_prev = prev['Close'] > prev['SMA_Major']
-        mom_prev = (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and seq_prev and (prev['DI_Plus'] > prev['DI_Minus'])
-        all_green_prev = seq_prev and ma_prev and mom_prev
+        all_green_cur = (seq_states[-1] == 1) and (last['Close'] > last['SMA_Major']) and (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
+        all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
         
         pass_filters = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
         is_new_signal = all_green_cur and not all_green_prev
@@ -157,11 +152,8 @@ def check_ticker(ticker):
     return None
 
 def perform_scan(chat_id, is_manual=False):
-    # Создаем отдельного бота для отправки, чтобы не блокировать потоки
-    sender_bot = telebot.TeleBot(TG_TOKEN)
-
     if SETTINGS["IS_SCANNING"]:
-        try: sender_bot.send_message(chat_id, "⚠️ Сканирование уже идет!", reply_markup=get_main_keyboard())
+        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!")
         except: pass
         return
     
@@ -169,7 +161,6 @@ def perform_scan(chat_id, is_manual=False):
     SETTINGS["STOP_SCAN"] = False
     
     try:
-        # Сброс дневного лимита при смене даты
         local_now = get_local_now()
         current_date_str = local_now.strftime("%Y-%m-%d")
         
@@ -180,32 +171,51 @@ def perform_scan(chat_id, is_manual=False):
         mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
         header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
-        # Получаем тикеры (ВСЕГДА ПОЛНЫЙ СКАН)
         tickers = get_sp500_tickers()
         total_tickers = len(tickers)
         
-        # Отправляем простое СТАРТОВОЕ сообщение (без прогресса)
+        # 1. Отправляем СТАРТОВОЕ сообщение
+        status_msg = None
         try:
-            start_text = (
+            initial_text = (
                 f"{header}\nРежим: {mode_txt}\n"
                 f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                f"Всего акций: {total_tickers}\n"
-                f"⏳ <b>Сканирование началось...</b>"
+                f"⏳ <b>Подготовка к сканированию {total_tickers} акций...</b>"
             )
-            sender_bot.send_message(chat_id, start_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            status_msg = bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
         except Exception as e:
-            print(f"Start msg error: {e}")
+            print(f"Failed to send start message: {e}")
         
         found_count = 0
+        last_ui_update = time.time()
         
         # Основной цикл
         for i, t in enumerate(tickers):
             if SETTINGS["STOP_SCAN"]:
-                try: sender_bot.send_message(chat_id, "🛑 Сканирование остановлено.", reply_markup=get_main_keyboard())
+                try: bot.send_message(chat_id, "🛑 Сканирование остановлено.")
                 except: pass
                 break
             
-            # Проверка акции
+            # --- ОБНОВЛЕНИЕ ПРОГРЕССА ПО ТАЙМЕРУ (РАЗ В 5 СЕКУНД) ---
+            # Это предотвращает Flood Limit от Telegram и не тормозит цикл
+            now = time.time()
+            if status_msg and (now - last_ui_update > 5):
+                try:
+                    progress_pct = int(((i + 1) / total_tickers) * 100)
+                    bar_filled = int(progress_pct / 10)
+                    bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
+                    new_text = (
+                        f"{header}\nРежим: {mode_txt}\n"
+                        f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                        f"Всего: {total_tickers} акций\n\n"
+                        f"⏳ Прогресс: {i+1}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
+                    )
+                    # Обновляем БЕЗ reply_markup для скорости
+                    bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML")
+                    last_ui_update = now
+                except Exception as e:
+                    print(f"Progress update skipped: {e}")
+
             res = check_ticker(t)
             if res:
                 if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
@@ -215,25 +225,21 @@ def perform_scan(chat_id, is_manual=False):
                 found_count += 1
                 icon = "🔥 NEW" if res['is_new'] else "🟢"
                 msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
-                try: sender_bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=get_main_keyboard())
+                try: bot.send_message(chat_id, msg, parse_mode="HTML")
                 except: pass
         
         # --- ФИНАЛ ---
-        try:
-            if found_count == 0:
-                final_text = f"🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Ничего не найдено."
-            else:
-                final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
+        final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
+        if status_msg:
+            try:
+                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
+            except:
+                bot.send_message(chat_id, final_text, parse_mode="HTML")
+        else:
+            bot.send_message(chat_id, final_text, parse_mode="HTML")
             
-            sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-            
-        except: pass
-        
     except Exception as e:
-        print(f"Scan error: {e}")
-        try: sender_bot.send_message(chat_id, f"❌ Ошибка сканирования: {e}", reply_markup=get_main_keyboard())
-        except: pass
-    
+        print(f"Global scan error: {e}")
     finally:
         SETTINGS["IS_SCANNING"] = False
         SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
@@ -245,164 +251,125 @@ def perform_scan(chat_id, is_manual=False):
 def send_welcome(message):
     SETTINGS["CHAT_ID"] = message.chat.id
     bot.send_message(message.chat.id, 
-        "👋 <b>Vova S&P 500 Screener</b>\n"
-        "Бот активен. Нажмите кнопку меню ниже.",
-        parse_mode="HTML",
-        reply_markup=get_main_keyboard()
-    )
-
-# --- МЕНЮ ATR ---
-@bot.message_handler(func=lambda m: m.text == 'ATR 📉' or m.text.startswith('/atr_menu'))
-def open_atr_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    markup.add(
-        types.KeyboardButton('3.0 %'),
-        types.KeyboardButton('5.0 %'),
-        types.KeyboardButton('7.0 %'),
-        types.KeyboardButton('10.0 %'),
-        types.KeyboardButton('🔙 Назад')
-    )
-    bot.send_message(message.chat.id, "📉 <b>Выберите Max ATR %:</b>", parse_mode="HTML", reply_markup=markup)
-
-# --- МЕНЮ SMA ---
-@bot.message_handler(func=lambda m: m.text == 'SMA 📈' or m.text.startswith('/sma_menu'))
-def open_sma_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    markup.add(
-        types.KeyboardButton('100'),
-        types.KeyboardButton('150'),
-        types.KeyboardButton('200'),
-        types.KeyboardButton('🔙 Назад')
-    )
-    bot.send_message(message.chat.id, "📈 <b>Выберите SMA Period:</b>", parse_mode="HTML", reply_markup=markup)
-
-# --- МЕНЮ ВРЕМЕНИ ---
-@bot.message_handler(func=lambda m: m.text == 'Time 🕒' or m.text.startswith('/time'))
-def check_time(message):
-    server_time = datetime.utcnow().strftime("%H:%M")
-    local_time = get_local_now().strftime("%H:%M")
-    offset = SETTINGS["TIMEZONE_OFFSET"]
-    off_str = f"+{offset}" if offset >= 0 else f"{offset}"
-    
-    bot.reply_to(message, 
-        f"🕒 <b>Системное время:</b>\n"
-        f"☁️ Сервер (UTC): {server_time}\n"
-        f"🏠 Ваше (UTC{off_str}): <b>{local_time}</b>\n\n"
-        f"Чтобы изменить часовой пояс, напишите:\n<code>/set_offset -7</code>", 
+        "👋 <b>Vova S&P 500 Screener</b>\nБот активен. Нажмите кнопку меню ниже.",
         parse_mode="HTML", reply_markup=get_main_keyboard()
     )
 
-@bot.message_handler(func=lambda message: message.text == '🔙 Назад')
-def back_to_main(message):
-    bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
-
-# --- УСТАНОВКА ЗНАЧЕНИЙ ---
-@bot.message_handler(func=lambda m: '%' in m.text and m.text.replace(' %','').replace('.','').isdigit())
-def set_atr_text(message):
-    try:
-        val = float(message.text.replace(' %',''))
-        SETTINGS["MAX_ATR_PCT"] = val
-        bot.reply_to(message, f"✅ ATR установлен: {val}%", reply_markup=get_main_keyboard())
-    except: 
-        bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
-
-@bot.message_handler(func=lambda m: m.text in ['100', '150', '200'])
-def set_sma_text(message):
-    try:
-        val = int(message.text)
-        SETTINGS["LENGTH_MAJOR"] = val
-        bot.reply_to(message, f"✅ SMA установлен: {val}", reply_markup=get_main_keyboard())
-    except:
-        bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
-
-# --- НАСТРОЙКА ЧАСОВОГО ПОЯСА ---
-@bot.message_handler(commands=['set_offset'])
-def set_offset(message):
-    try:
-        val = float(message.text.split()[1])
-        SETTINGS["TIMEZONE_OFFSET"] = val
-        curr_time = get_local_now().strftime("%H:%M")
-        bot.reply_to(message, f"✅ Смещение UTC: {val}\n⏰ Текущее время: {curr_time}", reply_markup=get_main_keyboard())
-    except:
-        bot.reply_to(message, "❌ Ошибка. Пример: <code>/set_offset -7</code>", parse_mode="HTML")
-
-# --- ОСНОВНЫЕ КНОПКИ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
 def manual_scan(message):
     SETTINGS["CHAT_ID"] = message.chat.id
-    threading.Thread(target=perform_scan, args=(message.chat.id, True)).start()
+    # Запускаем в отдельном потоке, чтобы не вешать бота
+    threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
 
 @bot.message_handler(func=lambda m: m.text == 'Stop 🛑' or m.text.startswith('/stop'))
 def stop_scan(message):
     if SETTINGS["IS_SCANNING"]:
         SETTINGS["STOP_SCAN"] = True
-        bot.reply_to(message, "🛑 Останавливаю...", reply_markup=get_main_keyboard())
+        bot.reply_to(message, "🛑 Останавливаю...")
     else:
-        bot.reply_to(message, "⚠️ Нет активного сканирования.", reply_markup=get_main_keyboard())
+        bot.reply_to(message, "⚠️ Нет активного сканирования.")
 
 @bot.message_handler(func=lambda m: m.text == 'Status 📊' or m.text.startswith('/status'))
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
-    notified_count = len(SETTINGS["NOTIFIED_TODAY"])
-    offset = SETTINGS["TIMEZONE_OFFSET"]
-    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nЧасовой пояс: {offset}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
-
-@bot.message_handler(func=lambda m: m.text == 'Mode 🔄' or m.text.startswith('/mode'))
-def open_mode_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    markup.add(
-        types.KeyboardButton('Только НОВЫЕ 🔥'),
-        types.KeyboardButton('ВСЕ активные 🟢'),
-        types.KeyboardButton('🔙 Назад')
+    bot.reply_to(message, 
+        f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\n"
+        f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}\n"
+        f"Посл. скан: {SETTINGS['LAST_SCAN_TIME']}", 
+        parse_mode="HTML"
     )
-    current = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
-    bot.send_message(message.chat.id, f"🔄 <b>Выберите режим:</b>\nТекущий: {current}", parse_mode="HTML", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: m.text == 'Только НОВЫЕ 🔥')
-def set_mode_new(message):
-    SETTINGS["SHOW_ONLY_NEW"] = True
-    bot.reply_to(message, "✅ Режим: <b>Только НОВЫЕ</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
+@bot.message_handler(func=lambda m: m.text == 'Time 🕒')
+def check_time(message):
+    local_time = get_local_now().strftime("%H:%M")
+    bot.reply_to(message, f"🕒 Ваше локальное время: <b>{local_time}</b> (UTC{SETTINGS['TIMEZONE_OFFSET']})", parse_mode="HTML")
 
-@bot.message_handler(func=lambda m: m.text == 'ВСЕ активные 🟢')
-def set_mode_all(message):
-    SETTINGS["SHOW_ONLY_NEW"] = False
-    bot.reply_to(message, "✅ Режим: <b>ВСЕ активные</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
+# Установка смещения времени
+@bot.message_handler(commands=['set_offset'])
+def set_offset(message):
+    try:
+        val = float(message.text.split()[1])
+        SETTINGS["TIMEZONE_OFFSET"] = val
+        bot.reply_to(message, f"✅ Смещение UTC установлено: {val}")
+    except:
+        bot.reply_to(message, "❌ Ошибка. Пример: /set_offset -7")
+
+# --- МЕНЮ ATR / SMA ---
+@bot.message_handler(func=lambda m: m.text == 'ATR 📉')
+def open_atr_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('3.0 %', '5.0 %', '7.0 %', '10.0 %', '🔙 Назад')
+    bot.send_message(message.chat.id, "📉 Выберите Max ATR:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == 'SMA 📈')
+def open_sma_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('100', '150', '200', '🔙 Назад')
+    bot.send_message(message.chat.id, "📈 Выберите SMA Period:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == 'Mode 🔄')
+def open_mode_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('Только НОВЫЕ 🔥', 'ВСЕ активные 🟢', '🔙 Назад')
+    bot.send_message(message.chat.id, "🔄 Режим отображения:", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == '🔙 Назад')
+def back_to_main(message):
+    bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
+
+# Обработка выбора значений
+@bot.message_handler(func=lambda m: '%' in m.text or m.text in ['100', '150', '200', 'Только НОВЫЕ 🔥', 'ВСЕ активные 🟢'])
+def handle_settings(message):
+    if '%' in message.text:
+        SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
+        bot.send_message(message.chat.id, f"✅ ATR: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
+    elif message.text.isdigit():
+        SETTINGS["LENGTH_MAJOR"] = int(message.text)
+        bot.send_message(message.chat.id, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+    elif 'НОВЫЕ' in message.text:
+        SETTINGS["SHOW_ONLY_NEW"] = True
+        bot.send_message(message.chat.id, "✅ Только новые", reply_markup=get_main_keyboard())
+    elif 'ВСЕ' in message.text:
+        SETTINGS["SHOW_ONLY_NEW"] = False
+        bot.send_message(message.chat.id, "✅ Все активные", reply_markup=get_main_keyboard())
 
 # ==========================================
 # 4. СЕРВИСЫ
 # ==========================================
 def start_polling():
     while True:
-        try: bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        try: bot.infinity_polling(timeout=30, long_polling_timeout=20)
         except: time.sleep(5)
 
 def start_scheduler():
     while True:
-        time.sleep(60)
-        if SETTINGS["CHAT_ID"]: perform_scan(SETTINGS["CHAT_ID"], False)
-        time.sleep(3600) 
+        # Ждем час между авто-сканами
+        time.sleep(3600)
+        if SETTINGS["CHAT_ID"] and not SETTINGS["IS_SCANNING"]:
+            perform_scan(SETTINGS["CHAT_ID"], False)
 
 @st.cache_resource
 def run_background_services():
+    # Запуск бота
     t1 = threading.Thread(target=start_polling, daemon=True)
     t1.start()
+    # Запуск планировщика
     t2 = threading.Thread(target=start_scheduler, daemon=True)
     t2.start()
     return True
 
 # ==========================================
-# 5. ИНТЕРФЕЙС
+# 5. ИНТЕРФЕЙС STREAMLIT
 # ==========================================
 st.title("🤖 Vova Bot Server")
 
-# Картинка
 st.image("https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1000&auto=format&fit=crop", 
          use_container_width=True)
 
 run_background_services()
-st.success("✅ Сервер активен! Токен скрыт.")
-st.write(f"Отправлено сигналов сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
+st.success("✅ Сервер активен! Бот работает в фоновом режиме.")
+st.write(f"Найдено сигналов за сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
 st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=300000, key="ref")
+st_autorefresh(interval=60000, key="ref") # Рефреш страницы раз в минуту
