@@ -9,24 +9,32 @@ import threading
 import requests
 
 # ==========================================
-# 1. НАСТРОЙКИ (Глобальные)
+# 1. ГЛОБАЛЬНОЕ СОСТОЯНИЕ (С памятью)
 # ==========================================
 TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"
 
-# Инициализируем бота ГЛОБАЛЬНО
+# Инициализируем бота
 bot = telebot.TeleBot(TG_TOKEN, threaded=False)
 
-SETTINGS = {
-    "LENGTH_MAJOR": 200,
-    "MAX_ATR_PCT": 5.0,
-    "ADX_THRESH": 20,
-    "AUTO_SCAN_INTERVAL": 60, 
-    "IS_SCANNING": False,
-    "STOP_SCAN": False,
-    "SHOW_ONLY_NEW": True,
-    "LAST_SCAN_TIME": "Никогда",
-    "CHAT_ID": None
-}
+# Используем кэш, чтобы настройки не сбрасывались при обновлении страницы
+@st.cache_resource
+def get_shared_state():
+    return {
+        "LENGTH_MAJOR": 200,
+        "MAX_ATR_PCT": 5.0,
+        "ADX_THRESH": 20,
+        "AUTO_SCAN_INTERVAL": 60, 
+        "IS_SCANNING": False,
+        "STOP_SCAN": False,
+        "SHOW_ONLY_NEW": True,
+        "LAST_SCAN_TIME": "Никогда",
+        "CHAT_ID": None,
+        # Новые поля для защиты от спама
+        "NOTIFIED_TODAY": set(),          # Тикеры, о которых уже сообщили сегодня
+        "LAST_DATE": time.strftime("%Y-%m-%d") # Дата последней очистки
+    }
+
+SETTINGS = get_shared_state()
 
 # ==========================================
 # 2. ФУНКЦИИ АНАЛИЗА
@@ -117,7 +125,8 @@ def check_ticker(ticker):
     except: return None
     return None
 
-def perform_scan(chat_id):
+# Добавлен параметр is_manual
+def perform_scan(chat_id, is_manual=False):
     if SETTINGS["IS_SCANNING"]:
         try: bot.send_message(chat_id, "⚠️ Сканирование уже идет! Введите /stop.")
         except: pass
@@ -126,17 +135,28 @@ def perform_scan(chat_id):
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
+    # --- ЛОГИКА СБРОСА ДНЯ ---
+    current_date = time.strftime("%Y-%m-%d")
+    if SETTINGS["LAST_DATE"] != current_date:
+        SETTINGS["NOTIFIED_TODAY"] = set() # Очищаем память, если наступил новый день
+        SETTINGS["LAST_DATE"] = current_date
+    # -------------------------
+    
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
     
-    # 1. Отправляем начальное сообщение (которое будем обновлять)
+    # Заголовок зависит от типа запуска
+    if is_manual:
+        header = "🚀 <b>Ручной поиск S&P 500</b>"
+    else:
+        header = "⏰ <b>Авто-проверка (Бот онлайн)</b>"
+
     status_msg = None
     try:
         status_msg = bot.send_message(chat_id, 
-            f"🚀 <b>Старт сканирования S&P 500</b>\n"
+            f"{header}\n"
             f"Режим: {mode_txt}\n"
-            f"SMA: {SETTINGS['LENGTH_MAJOR']}\n"
-            f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
-            f"⏳ Подготовка списка...", 
+            f"SMA: {SETTINGS['LENGTH_MAJOR']} | Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+            f"⏳ Подготовка...", 
             parse_mode="HTML"
         )
     except: pass
@@ -152,38 +172,43 @@ def perform_scan(chat_id):
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # 2. ОБНОВЛЯЕМ ПРОГРЕСС-БАР КАЖДЫЕ 20 ТИКЕРОВ
-        if i % 20 == 0 and status_msg:
+        # Обновление прогресса
+        if i % 25 == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
-                # Рисуем полоску: 10 квадратиков
                 bar_filled = int(progress_pct / 10)
                 bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
-                
                 new_text = (
-                    f"🚀 <b>Сканирование S&P 500</b>\n"
+                    f"{header}\n"
                     f"Режим: {mode_txt}\n"
-                    f"SMA: {SETTINGS['LENGTH_MAJOR']}\n"
-                    f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
-                    f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n"
+                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+                    f"⏳ {i}/{total_tickers} ({progress_pct}%)\n"
                     f"[{bar_str}]"
                 )
-                
                 bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML")
             except: pass 
 
         res = check_ticker(t)
         if res:
+            # --- ЛОГИКА УВЕДОМЛЕНИЙ ---
+            # 1. Если это АВТО-СКАН (is_manual=False):
+            #    Проверяем, отправляли ли уже сегодня. Если да -> ПРОПУСКАЕМ.
+            if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
+                continue
+            
+            # 2. Добавляем в список "уже видели" (чтобы авто-скан потом не спамил)
+            SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
+            
+            # 3. Отправляем сообщение
             found_count += 1
             icon = "🔥 NEW" if res['is_new'] else "🟢"
             msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
             try: bot.send_message(chat_id, msg, parse_mode="HTML")
             except: pass
     
-    # 3. ФИНАЛЬНОЕ ОБНОВЛЕНИЕ СООБЩЕНИЯ
     try:
         if found_count == 0:
-            final_text = "🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Ничего не найдено."
+            final_text = f"🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Новых сигналов нет."
         else:
             final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
             
@@ -197,19 +222,25 @@ def perform_scan(chat_id):
     SETTINGS["LAST_SCAN_TIME"] = time.strftime("%H:%M:%S")
 
 # ==========================================
-# 3. ОБРАБОТЧИКИ КОМАНД (ГЛОБАЛЬНЫЕ)
+# 3. ОБРАБОТЧИКИ КОМАНД
 # ==========================================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     SETTINGS["CHAT_ID"] = message.chat.id
     bot.reply_to(message, 
         "👋 <b>Vova S&P 500 Screener</b>\n\n"
-        "🔍 <b>Управление:</b>\n"
-        "/scan - 🚀 Старт поиска\n"
-        "/stop - 🛑 Стоп\n"
-        "/mode - 🔄 Режим (Новые/Все)\n"
-        "/status - 📊 Настройки\n\n"
-        "🛠 <b>Фильтры:</b>\n"
+        "Я ищу акции с 3 зелеными сигналами:\n"
+        "1. 🟢 Price > SMA\n"
+        "2. 🟢 Sequence (Bullish)\n"
+        "3. 🟢 Trend (ADX)\n\n"
+        "🛡 <b>Анти-спам активен:</b>\n"
+        "Я присылаю сигнал по акции только 1 раз в день (автоматически).\n"
+        "Если запустить вручную (/scan) - покажу всё, что активно сейчас.\n\n"
+        "<b>Команды:</b>\n"
+        "/scan - Старт поиска\n"
+        "/stop - Стоп\n"
+        "/mode - Режим (Новые/Все)\n"
+        "/status - Настройки\n"
         "/set_atr 5.0 - Max ATR %\n"
         "/set_sma 200 - SMA Period",
         parse_mode="HTML"
@@ -218,7 +249,8 @@ def send_welcome(message):
 @bot.message_handler(commands=['scan'])
 def manual_scan(message):
     SETTINGS["CHAT_ID"] = message.chat.id
-    threading.Thread(target=perform_scan, args=(message.chat.id,)).start()
+    # Передаем is_manual=True
+    threading.Thread(target=perform_scan, args=(message.chat.id, True)).start()
 
 @bot.message_handler(commands=['stop'])
 def stop_scan(message):
@@ -231,7 +263,8 @@ def stop_scan(message):
 @bot.message_handler(commands=['status'])
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
-    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПоследний скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
+    notified_count = len(SETTINGS["NOTIFIED_TODAY"])
+    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nСегодня найдено: {notified_count} шт.\nПоследний скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
 
 @bot.message_handler(commands=['mode'])
 def switch_mode(message):
@@ -255,7 +288,7 @@ def set_sma_val(message):
     except: bot.reply_to(message, "❌ Пример: /set_sma 200")
 
 # ==========================================
-# 4. ФОНОВЫЕ ПРОЦЕССЫ (Через @st.cache_resource)
+# 4. СЕРВИСЫ
 # ==========================================
 def start_polling():
     while True:
@@ -267,33 +300,27 @@ def start_polling():
 def start_scheduler():
     while True:
         time.sleep(60)
-        if SETTINGS["CHAT_ID"]: # Если пользователь уже нажал /start
-            perform_scan(SETTINGS["CHAT_ID"])
-        time.sleep(3600) # Ждем час
+        if SETTINGS["CHAT_ID"]: 
+            # Передаем is_manual=False (Авто)
+            perform_scan(SETTINGS["CHAT_ID"], False)
+        time.sleep(3600) 
 
-# ЭТА ФУНКЦИЯ ЗАПУСТИТСЯ ТОЛЬКО ОДИН РАЗ НА СЕРВЕРЕ
 @st.cache_resource
 def run_background_services():
-    # 1. Бот
     t1 = threading.Thread(target=start_polling, daemon=True)
     t1.start()
-    # 2. Таймер
     t2 = threading.Thread(target=start_scheduler, daemon=True)
     t2.start()
     return True
 
 # ==========================================
-# 5. ИНТЕРФЕЙС STREAMLIT
+# 5. ИНТЕРФЕЙС
 # ==========================================
 st.title("🤖 Vova Bot Server")
-
-# Запуск фоновых процессов
 run_background_services()
+st.success("✅ Сервер активен! Анти-спам защита включена.")
+st.write(f"Отправлено сигналов сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
+st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
 
-st.success("✅ Сервер активен! Можно закрыть эту вкладку (если настроен UptimeRobot).")
-st.write("Бот работает в Telegram.")
-st.metric("Последнее сканирование", SETTINGS["LAST_SCAN_TIME"])
-
-# Авто-обновление для предотвращения засыпания (на всякий случай)
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300000, key="ref")
