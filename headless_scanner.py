@@ -48,7 +48,7 @@ def get_shared_state():
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
-        "TICKER_LIMIT": 500 # <-- ИЗМЕНЕНО: По умолчанию 500 (весь S&P)
+        "TICKER_LIMIT": 500 
     }
 
 SETTINGS = get_shared_state()
@@ -91,15 +91,7 @@ def get_sp500_tickers():
             return [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
         except Exception as e:
             time.sleep(2)
-            if attempt == 2: 
-                # FALLBACK: Топ-50 на случай сбоя Wiki
-                return [
-                    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B", "LLY", "AVGO",
-                    "JPM", "V", "UNH", "WMT", "MA", "XOM", "JNJ", "PG", "HD", "COST",
-                    "ABBV", "MRK", "AMD", "CRM", "NFLX", "BAC", "CVX", "PEP", "KO", "TMO",
-                    "LIN", "WFC", "ADBE", "DIS", "MCD", "CSCO", "ABT", "TMUS", "QCOM", "CAT",
-                    "DHR", "INTU", "GE", "IBM", "AMGN", "VZ", "NOW", "TXN", "SPGI", "PFE"
-                ]
+            if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
 
 def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
@@ -207,23 +199,19 @@ def perform_scan(chat_id, is_manual=False):
             
         total_tickers = len(tickers)
         
-        # Отправляем СТАРТОВОЕ сообщение
-        status_msg = None
+        # Отправляем простое СТАРТОВОЕ сообщение (без прогресса)
         try:
-            initial_bar = "░" * 10
-            initial_text = (
+            start_text = (
                 f"{header}\nРежим: {mode_txt}\n"
                 f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                f"Цель: {total_tickers} акций (S&P 500)\n\n"
-                f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
+                f"Цель: {total_tickers} акций\n"
+                f"⏳ <b>Сканирование началось...</b>"
             )
-            status_msg = sender_bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            sender_bot.send_message(chat_id, start_text, parse_mode="HTML", reply_markup=get_main_keyboard())
         except Exception as e:
             print(f"Start msg error: {e}")
         
         found_count = 0
-        # Обновляем каждые 10 тикеров для более плавной визуализации
-        update_step = 10 
         
         # Основной цикл
         for i, t in enumerate(tickers):
@@ -232,27 +220,6 @@ def perform_scan(chat_id, is_manual=False):
                 except: pass
                 break
             
-            # --- ОБНОВЛЕНИЕ ПРОГРЕССА ---
-            if status_msg and (i % update_step == 0) and (i > 0): 
-                try:
-                    progress_pct = int(((i + 1) / total_tickers) * 100)
-                    bar_filled = int(progress_pct / 10)
-                    bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
-                    new_text = (
-                        f"{header}\nРежим: {mode_txt}\n"
-                        f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                        f"Цель: {total_tickers} акций\n\n"
-                        f"⏳ Прогресс: {i+1}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
-                    )
-                    sender_bot.edit_message_text(
-                        chat_id=chat_id, 
-                        message_id=status_msg.message_id, 
-                        text=new_text, 
-                        parse_mode="HTML",
-                        reply_markup=get_main_keyboard()
-                    )
-                except: pass 
-
             # Проверка акции
             res = check_ticker(t)
             if res:
@@ -268,11 +235,12 @@ def perform_scan(chat_id, is_manual=False):
         
         # --- ФИНАЛ ---
         try:
-            final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
-            if status_msg:
-                sender_bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            if found_count == 0:
+                final_text = f"🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Ничего не найдено."
             else:
-                sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+                final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
+            
+            sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
             # Показываем подсказку
             sender_bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
