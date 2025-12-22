@@ -204,9 +204,6 @@ def perform_scan(chat_id, is_manual=False):
         
     total_tickers = len(tickers)
     
-    # Обновление прогресса
-    update_step = 5 
-
     status_msg = None
     try:
         initial_bar = "░" * 10
@@ -221,6 +218,7 @@ def perform_scan(chat_id, is_manual=False):
         print(f"Start msg error: {e}")
     
     found_count = 0
+    last_update_time = time.time() # Для контроля частоты обновлений
     
     for i, t in enumerate(tickers):
         if SETTINGS["STOP_SCAN"]:
@@ -229,17 +227,18 @@ def perform_scan(chat_id, is_manual=False):
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # Обновление прогресс-бара
-        if i % update_step == 0 and status_msg and i > 0:
+        # --- ОБНОВЛЕНИЕ ПРОГРЕССА ПО ТАЙМЕРУ (РАЗ В 3 СЕКУНДЫ) ---
+        current_time = time.time()
+        if status_msg and (current_time - last_update_time > 3 or i == total_tickers - 1):
             try:
-                progress_pct = int((i / total_tickers) * 100)
+                progress_pct = int(((i + 1) / total_tickers) * 100)
                 bar_filled = int(progress_pct / 10)
                 bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
                 new_text = (
                     f"{header}\nРежим: {mode_txt}\n"
                     f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
                     f"Лимит: {total_tickers} шт.\n\n"
-                    f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
+                    f"⏳ Прогресс: {i+1}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
                 )
                 sender_bot.edit_message_text(
                     chat_id=chat_id, 
@@ -248,7 +247,9 @@ def perform_scan(chat_id, is_manual=False):
                     parse_mode="HTML",
                     reply_markup=get_main_keyboard()
                 )
-            except: pass # Игнорируем ошибки обновления (например, если сообщение не изменилось)
+                last_update_time = current_time # Сброс таймера
+            except Exception as e:
+                print(f"Update error: {e}") 
 
         res = check_ticker(t)
         if res:
