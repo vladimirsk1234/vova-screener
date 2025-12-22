@@ -12,7 +12,7 @@ import requests
 # ==========================================
 # 1. ГЛОБАЛЬНОЕ СОСТОЯНИЕ (С памятью)
 # ==========================================
-TG_TOKEN = TG_TOKEN
+TG_TOKEN = "TG_TOKEN"
 
 # Инициализируем бота
 bot = telebot.TeleBot(TG_TOKEN, threaded=False)
@@ -347,4 +347,5 @@ st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300000, key="ref")
+
 
