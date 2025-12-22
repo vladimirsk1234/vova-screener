@@ -47,31 +47,20 @@ def get_shared_state():
         "CHAT_ID": None,
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
-        "TIMEZONE_OFFSET": -7.0,
-        "TICKER_LIMIT": 500 
+        "TIMEZONE_OFFSET": -7.0 # Установлено UTC-7
     }
 
 SETTINGS = get_shared_state()
 
-HELP_TEXT = (
-    "<b>🛠 Быстрые настройки:</b>\n"
-    "Используйте меню внизу для управления.\n\n"
-    "⚙️ <b>Часовой пояс:</b>\n"
-    "<code>/set_offset -7</code>\n\n"
-    "🔢 <b>Лимит тикеров:</b>\n"
-    "<code>/set_limit 500</code> (Весь S&P)\n"
-    "<code>/set_limit 50</code> (Быстрый тест)"
-)
-
 # --- МЕНЮ ---
 def get_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3, one_time_keyboard=False)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2, one_time_keyboard=False)
     # 1 ряд
     markup.row(types.KeyboardButton('Scan 🚀'), types.KeyboardButton('Stop 🛑'))
     # 2 ряд
     markup.row(types.KeyboardButton('Status 📊'), types.KeyboardButton('Mode 🔄'))
-    # 3 ряд (Настройки)
-    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Limit 🔢'))
+    # 3 ряд (Настройки) - Кнопка Limit удалена
+    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Time 🕒'))
     return markup
 
 # --- ВРЕМЯ ---
@@ -191,12 +180,8 @@ def perform_scan(chat_id, is_manual=False):
         mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
         header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
-        # Получаем тикеры
+        # Получаем тикеры (ВСЕГДА ПОЛНЫЙ СКАН)
         tickers = get_sp500_tickers()
-        limit = SETTINGS.get("TICKER_LIMIT", 500) # По умолчанию 500
-        if limit and limit > 0:
-            tickers = tickers[:limit]
-            
         total_tickers = len(tickers)
         
         # Отправляем простое СТАРТОВОЕ сообщение (без прогресса)
@@ -204,7 +189,7 @@ def perform_scan(chat_id, is_manual=False):
             start_text = (
                 f"{header}\nРежим: {mode_txt}\n"
                 f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                f"Цель: {total_tickers} акций\n"
+                f"Всего акций: {total_tickers}\n"
                 f"⏳ <b>Сканирование началось...</b>"
             )
             sender_bot.send_message(chat_id, start_text, parse_mode="HTML", reply_markup=get_main_keyboard())
@@ -241,9 +226,6 @@ def perform_scan(chat_id, is_manual=False):
                 final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
             
             sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-            
-            # Показываем подсказку
-            sender_bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
             
         except: pass
         
@@ -294,19 +276,6 @@ def open_sma_menu(message):
     )
     bot.send_message(message.chat.id, "📈 <b>Выберите SMA Period:</b>", parse_mode="HTML", reply_markup=markup)
 
-# --- МЕНЮ LIMIT ---
-@bot.message_handler(func=lambda m: m.text == 'Limit 🔢' or m.text.startswith('/limit_menu'))
-def open_limit_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(
-        types.KeyboardButton('20 (Test)'),
-        types.KeyboardButton('50 (Fast)'),
-        types.KeyboardButton('100'),
-        types.KeyboardButton('505 (Full)'),
-        types.KeyboardButton('🔙 Назад')
-    )
-    bot.send_message(message.chat.id, "🔢 <b>Сколько акций сканировать?</b>\n(По умолчанию: 500)", parse_mode="HTML", reply_markup=markup)
-
 # --- МЕНЮ ВРЕМЕНИ ---
 @bot.message_handler(func=lambda m: m.text == 'Time 🕒' or m.text.startswith('/time'))
 def check_time(message):
@@ -346,18 +315,7 @@ def set_sma_text(message):
     except:
         bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
 
-# --- УСТАНОВКА ЛИМИТА ---
-@bot.message_handler(func=lambda m: '20' in m.text or '50' in m.text or '100' in m.text or '505' in m.text)
-def set_limit_text(message):
-    try:
-        # Извлекаем число из строки (например "50 (Fast)" -> 50)
-        val = int(message.text.split()[0])
-        SETTINGS["TICKER_LIMIT"] = val
-        bot.reply_to(message, f"✅ Лимит установлен: {val} тикеров", reply_markup=get_main_keyboard())
-    except:
-        pass
-
-# --- НАСТРОЙКА ЧАСОВОГО ПОЯСА И ЛИМИТА (КОМАНДЫ) ---
+# --- НАСТРОЙКА ЧАСОВОГО ПОЯСА ---
 @bot.message_handler(commands=['set_offset'])
 def set_offset(message):
     try:
@@ -367,15 +325,6 @@ def set_offset(message):
         bot.reply_to(message, f"✅ Смещение UTC: {val}\n⏰ Текущее время: {curr_time}", reply_markup=get_main_keyboard())
     except:
         bot.reply_to(message, "❌ Ошибка. Пример: <code>/set_offset -7</code>", parse_mode="HTML")
-
-@bot.message_handler(commands=['set_limit'])
-def set_limit_cmd(message):
-    try:
-        val = int(message.text.split()[1])
-        SETTINGS["TICKER_LIMIT"] = val
-        bot.reply_to(message, f"✅ Лимит: {val}", reply_markup=get_main_keyboard())
-    except:
-        bot.reply_to(message, "❌ Пример: /set_limit 500")
 
 # --- ОСНОВНЫЕ КНОПКИ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
@@ -396,8 +345,7 @@ def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
     notified_count = len(SETTINGS["NOTIFIED_TODAY"])
     offset = SETTINGS["TIMEZONE_OFFSET"]
-    limit = SETTINGS["TICKER_LIMIT"]
-    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nЛимит: {limit} шт.\nЧасовой пояс: {offset}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
+    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nЧасовой пояс: {offset}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄' or m.text.startswith('/mode'))
 def open_mode_menu(message):
