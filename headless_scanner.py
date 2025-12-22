@@ -66,9 +66,15 @@ bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 @st.cache_resource
 def get_shared_state():
     return {
-        "LENGTH_MAJOR": 200, "MAX_ATR_PCT": 5.0, "ADX_THRESH": 20, "MIN_RR": 1.5,
-        "AUTO_SCAN_INTERVAL": 3600, "IS_SCANNING": False, "STOP_SCAN": False,
-        "SHOW_ONLY_NEW": True, "LAST_SCAN_TIME": "Никогда",
+        "LENGTH_MAJOR": 200, 
+        "MAX_ATR_PCT": 7.0, # Ослаблено (было 5.0)
+        "ADX_THRESH": 15,   # Ослаблено (было 20)
+        "MIN_RR": 1.2,      # Ослаблено (было 1.5)
+        "AUTO_SCAN_INTERVAL": 3600, 
+        "IS_SCANNING": False, 
+        "STOP_SCAN": False,
+        "SHOW_ONLY_NEW": False, # По умолчанию показываем всё для теста
+        "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), "APPROVED_IDS": fetch_approved_ids(), 
         "NOTIFIED_TODAY": set(), "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0, "TICKER_LIMIT": 500 
@@ -127,12 +133,12 @@ def check_ticker(ticker, verbose=False):
         # 1. SMA Major
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
-        # 2. ATR (ВОЗВРАТ К RMA ДЛЯ ТОЧНОСТИ)
+        # 2. ATR (RMA ДЛЯ ТОЧНОСТИ)
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
         df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-        df['ATR_Val'] = pine_rma(df['TR'], 14) # RMA а не SMA
+        df['ATR_Val'] = pine_rma(df['TR'], 14) 
         df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
         # 3. ADX & DI
@@ -146,8 +152,7 @@ def check_ticker(ticker, verbose=False):
         dx = 100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus'])
         df['ADX'] = pine_rma(dx, 14)
         
-        # 4. SEQUENCE LOGIC (ОГРАНИЧЕНИЕ ОКНА ДЛЯ ТОЧНОСТИ)
-        # Берем последние 300 баров для расчета структуры, чтобы уровни были актуальными
+        # 4. SEQUENCE LOGIC (ОГРАНИЧЕНИЕ ОКНА ДО 300 БАРОВ)
         df_seq = df.tail(300).copy()
         seq_states = []
         seqState = 0; seqHigh = df_seq['High'].iloc[0]; seqLow = df_seq['Low'].iloc[0]; criticalLevel = df_seq['Low'].iloc[0]
@@ -171,7 +176,7 @@ def check_ticker(ticker, verbose=False):
                 else:
                     if c > seqHigh: seqState = 1; criticalLevel = l
                     elif c < seqLow: seqState = -1; criticalLevel = h
-                    else: seqHigh = max(seqHigh, h); seqLow = min(seqLow, l)
+                    else: seqHigh = math.max(seqHigh, h); seqLow = min(seqLow, l)
             seq_states.append(seqState)
         
         last = df.iloc[-1]; prev = df.iloc[-2]
@@ -183,37 +188,46 @@ def check_ticker(ticker, verbose=False):
         cond_trend = (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
         all_green_cur = cond_seq and cond_ma and cond_trend
         
-        # Проверка новизны (для авто-скана)
+        # Проверка новизны
         all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
         is_new_signal = all_green_cur and not all_green_prev
         
-        # 5. КОРРЕКТНЫЙ RISK REWARD
+        # 5. КОРРЕКТНЫЙ RISK REWARD (С РАСШИРЕННОЙ ЦЕЛЬЮ)
         current_price = float(last['Close'])
         
-        # Если уровни противоречат лонгу, R:R невалиден (0)
-        if criticalLevel >= current_price or seqHigh <= current_price:
+        # Используем предложенную логику расширенного таргета, если HH слишком близко
+        target_price = max(seqHigh, current_price + (current_price - criticalLevel) * SETTINGS["MIN_RR"])
+        
+        if criticalLevel >= current_price: # Стоп выше цены - это ошибка/не лонг
             rr_ratio = 0
         else:
             risk = current_price - criticalLevel
-            reward = seqHigh - current_price
+            reward = target_price - current_price
             rr_ratio = round(reward / risk, 2)
         
-        # Итоговые фильтры
+        # Фильтры
         pass_atr = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
         pass_rr = (rr_ratio >= SETTINGS["MIN_RR"])
 
         result_data = {
             'ticker': ticker, 'price': current_price, 'atr': last['ATR_Pct'], 
-            'is_new': is_new_signal, 'rr': rr_ratio, 'tp': seqHigh, 'sl': criticalLevel,
+            'is_new': is_new_signal, 'rr': rr_ratio, 'tp': target_price, 'sl': criticalLevel,
             'adx': round(last['ADX'], 2), 'sma': round(last['SMA_Major'], 2),
             'lights': { 'seq': cond_seq, 'ma': cond_ma, 'trend': cond_trend },
             'all_green': all_green_cur, 'pass_atr': pass_atr, 'pass_rr': pass_rr
         }
 
-        # Если диагностика — возвращаем всё
-        if verbose: return result_data
+        if verbose:
+            # Добавляем отчет о причинах провала для режима диагностики
+            result_data["fail_reasons"] = {
+                "sequence": cond_seq,
+                "sma_200": cond_ma,
+                "adx_trend": cond_trend,
+                "atr_limit": pass_atr,
+                "rr_ratio": pass_rr
+            }
+            return result_data
 
-        # Основной фильтр для сканера
         if all_green_cur and pass_atr and pass_rr:
             return result_data
                 
@@ -273,7 +287,7 @@ def perform_scan(chat_id=None, is_manual=False):
             
             res = check_ticker(t)
             if res:
-                # Фильтрация в авто-скане
+                # Фильтрация новизны только для АВТО-скана
                 if not is_manual and SETTINGS["SHOW_ONLY_NEW"] and not res['is_new']:
                     continue
                 
@@ -333,6 +347,8 @@ def diagnostic_check(message):
             return
 
         l = info['lights']
+        fr = info['fail_reasons']
+        
         report = (
             f"📊 <b>Отчет по {ticker}:</b>\n"
             f"Цена: ${info['price']:.2f} (SMA{SETTINGS['LENGTH_MAJOR']}: {info['sma']})\n\n"
@@ -342,8 +358,9 @@ def diagnostic_check(message):
             f"<b>Фильтры:</b>\n"
             f"{'✅' if info['pass_atr'] else '❌'} ATR ({info['atr']:.2f}%) &lt;= {SETTINGS['MAX_ATR_PCT']}%\n"
             f"{'✅' if info['pass_rr'] else '❌'} R:R (1:{info['rr']}) &gt;= 1:{SETTINGS['MIN_RR']}\n\n"
-            f"🎯 TP (HH): ${info['tp']:.2f}\n🛑 SL (Support): ${info['sl']:.2f}\n"
-            f"🆕 Новый сигнал: {'ДА' if info['is_new'] else 'НЕТ'}"
+            f"🎯 TP: ${info['tp']:.2f} | 🛑 SL: ${info['sl']:.2f}\n"
+            f"🆕 Новый сигнал: {'ДА' if info['is_new'] else 'НЕТ'}\n\n"
+            f"⚠️ <b>Вердикт:</b> {'ПРОХОДИТ ✅' if info['all_green'] and info['pass_atr'] and info['pass_rr'] else 'ОТКЛОНЕН ❌'}"
         )
         bot.send_message(message.chat.id, report, parse_mode="HTML")
     except Exception as e: bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
@@ -376,7 +393,7 @@ def get_status(message):
 @bot.message_handler(func=lambda m: m.text == 'ATR 📉')
 def open_atr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('3.0 %', '5.0 %', '7.0 %', '10.0 %', '🔙 Назад')
+    markup.add('5.0 %', '7.0 %', '8.0 %', '10.0 %', '🔙 Назад')
     bot.send_message(message.chat.id, "📉 Выберите Max ATR:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'SMA 📈')
@@ -388,7 +405,7 @@ def open_sma_menu(message):
 @bot.message_handler(func=lambda m: m.text == 'RR ⚖️')
 def open_rr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('RR 1:1.5', 'RR 1:2.0', 'RR 1:3.0', '🔙 Назад')
+    markup.add('RR 1:1.2', 'RR 1:1.5', 'RR 1:2.0', '🔙 Назад')
     bot.send_message(message.chat.id, "⚖️ Минимальный R:R:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄')
@@ -405,10 +422,10 @@ def back_to_main(message):
 def handle_values(message):
     if '%' in message.text:
         SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
-        bot.send_message(message.chat.id, f"✅ ATR: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ ATR установлен: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
     elif message.text.isdigit():
         SETTINGS["LENGTH_MAJOR"] = int(message.text)
-        bot.send_message(message.chat.id, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ SMA установлен: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
     elif 'RR 1:' in message.text:
         SETTINGS["MIN_RR"] = float(message.text.replace('RR 1:',''))
         bot.send_message(message.chat.id, f"✅ R:R: 1:{SETTINGS['MIN_RR']}", reply_markup=get_main_keyboard())
