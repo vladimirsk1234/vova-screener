@@ -126,9 +126,12 @@ def perform_scan(chat_id):
     SETTINGS["STOP_SCAN"] = False
     
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
-    bot.send_message(chat_id, f"🚀 <b>Старт сканирования S&P 500</b>\nРежим: {mode_txt}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПодождите 1-2 минуты...", parse_mode="HTML")
+    
+    # Отправляем начальное сообщение с прогрессом
+    status_msg = bot.send_message(chat_id, f"🚀 <b>Старт сканирования S&P 500</b>\nРежим: {mode_txt}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n⏳ Подготовка...", parse_mode="HTML")
     
     tickers = get_sp500_tickers()
+    total_tickers = len(tickers)
     found_count = 0
     
     for i, t in enumerate(tickers):
@@ -137,6 +140,19 @@ def perform_scan(chat_id):
             SETTINGS["IS_SCANNING"] = False
             return
         
+        # Обновляем прогресс каждые 25 тикеров (чтобы не словить бан от Telegram за спам)
+        if i % 25 == 0:
+            try:
+                progress_pct = int((i / total_tickers) * 100)
+                bar = "▓" * (progress_pct // 10) + "░" * (10 - (progress_pct // 10))
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=status_msg.message_id,
+                    text=f"🚀 <b>Сканирование S&P 500</b>\nРежим: {mode_txt}\n\n⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar}]",
+                    parse_mode="HTML"
+                )
+            except: pass # Игнорируем ошибки редактирования (если сообщение удалено пользователем)
+
         res = check_ticker(t)
         if res:
             found_count += 1
@@ -145,10 +161,21 @@ def perform_scan(chat_id):
             try: bot.send_message(chat_id, msg, parse_mode="HTML")
             except: pass
     
-    if found_count == 0:
-        bot.send_message(chat_id, "🤷‍♂️ Ничего не найдено.")
-    else:
-        bot.send_message(chat_id, f"✅ Завершено. Найдено: {found_count}")
+    # Финальное обновление статуса
+    try:
+        if found_count == 0:
+            final_text = f"🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Ничего не найдено."
+        else:
+            final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
+            
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=status_msg.message_id,
+            text=final_text,
+            parse_mode="HTML"
+        )
+    except: 
+        bot.send_message(chat_id, "✅ Сканирование завершено.")
     
     SETTINGS["IS_SCANNING"] = False
     SETTINGS["LAST_SCAN_TIME"] = time.strftime("%H:%M:%S")
