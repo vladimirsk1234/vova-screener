@@ -173,27 +173,33 @@ def perform_scan(chat_id, is_manual=False):
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
-    local_now = get_local_now()
-    current_date_str = local_now.strftime("%Y-%m-%d")
-    
-    if SETTINGS["LAST_DATE"] != current_date_str:
+    current_date = time.strftime("%Y-%m-%d")
+    if SETTINGS["LAST_DATE"] != current_date:
         SETTINGS["NOTIFIED_TODAY"] = set()
-        SETTINGS["LAST_DATE"] = current_date_str
+        SETTINGS["LAST_DATE"] = current_date
     
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
     header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
-    status_msg = None
-    try:
-        status_msg = bot.send_message(chat_id, 
-            f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
-            parse_mode="HTML",
-            reply_markup=get_main_keyboard()
-        )
-    except: pass
-    
+    # Сначала получаем список, чтобы знать количество
     tickers = get_sp500_tickers()
     total_tickers = len(tickers)
+    
+    # Динамический шаг обновления (каждые 5%)
+    update_step = max(1, int(total_tickers / 20))
+
+    status_msg = None
+    try:
+        # Отправляем сообщение сразу с 0% прогрессом
+        initial_bar = "░" * 10
+        initial_text = (
+            f"{header}\nРежим: {mode_txt}\n"
+            f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+            f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
+        )
+        status_msg = bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+    except: pass
+    
     found_count = 0
     
     for i, t in enumerate(tickers):
@@ -203,22 +209,19 @@ def perform_scan(chat_id, is_manual=False):
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # --- ОБНОВЛЕНИЕ ПРОГРЕССА (Каждые 10 тикеров) ---
-        if i % 10 == 0 and status_msg:
+        # Обновляем прогресс
+        if i % update_step == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
-                bar = "▓" * (progress_pct // 10) + "░" * (10 - (progress_pct // 10))
-                new_text = f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ {i}/{total_tickers} ({progress_pct}%)\n[{bar}]"
-                
-                bot.edit_message_text(
-                    chat_id=chat_id, 
-                    message_id=status_msg.message_id, 
-                    text=new_text, 
-                    parse_mode="HTML",
-                    reply_markup=get_main_keyboard() # Сохраняем кнопки
+                bar_filled = int(progress_pct / 10)
+                bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
+                new_text = (
+                    f"{header}\nРежим: {mode_txt}\n"
+                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+                    f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
                 )
-            except Exception as e:
-                print(f"Error updating progress: {e}")
+                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            except: pass 
 
         res = check_ticker(t)
         if res:
@@ -235,7 +238,7 @@ def perform_scan(chat_id, is_manual=False):
     try:
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
         if status_msg:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
         else:
             bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
