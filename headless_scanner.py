@@ -43,7 +43,8 @@ HELP_TEXT = (
 
 # Функция для создания кнопок ГЛАВНОГО меню
 def get_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    # one_time_keyboard=False гарантирует, что меню не исчезнет после нажатия
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2, one_time_keyboard=False)
     btn_scan = types.KeyboardButton('/scan 🚀')
     btn_stop = types.KeyboardButton('/stop 🛑')
     btn_stat = types.KeyboardButton('/status 📊')
@@ -144,7 +145,7 @@ def check_ticker(ticker):
 
 def perform_scan(chat_id, is_manual=False):
     if SETTINGS["IS_SCANNING"]:
-        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!")
+        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!", reply_markup=get_main_keyboard())
         except: pass
         return
     
@@ -161,6 +162,7 @@ def perform_scan(chat_id, is_manual=False):
 
     status_msg = None
     try:
+        # Отправляем сообщение о начале И прикрепляем клавиатуру, чтобы она была видна
         status_msg = bot.send_message(chat_id, 
             f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
             parse_mode="HTML",
@@ -174,7 +176,7 @@ def perform_scan(chat_id, is_manual=False):
     
     for i, t in enumerate(tickers):
         if SETTINGS["STOP_SCAN"]:
-            try: bot.send_message(chat_id, "🛑 Сканирование остановлено.")
+            try: bot.send_message(chat_id, "🛑 Сканирование остановлено.", reply_markup=get_main_keyboard())
             except: pass
             SETTINGS["IS_SCANNING"] = False
             return
@@ -196,7 +198,7 @@ def perform_scan(chat_id, is_manual=False):
             found_count += 1
             icon = "🔥 NEW" if res['is_new'] else "🟢"
             msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
-            try: bot.send_message(chat_id, msg, parse_mode="HTML")
+            try: bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=get_main_keyboard())
             except: pass
     
     try:
@@ -204,7 +206,7 @@ def perform_scan(chat_id, is_manual=False):
         if status_msg:
             bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
         else:
-            bot.send_message(chat_id, final_text, parse_mode="HTML")
+            bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
         bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
         
@@ -302,7 +304,7 @@ def manual_scan(message):
 def stop_scan(message):
     if SETTINGS["IS_SCANNING"]:
         SETTINGS["STOP_SCAN"] = True
-        bot.reply_to(message, "🛑 Останавливаю...")
+        bot.reply_to(message, "🛑 Останавливаю...", reply_markup=get_main_keyboard())
     else:
         bot.reply_to(message, "⚠️ Нет активного сканирования.", reply_markup=get_main_keyboard())
 
