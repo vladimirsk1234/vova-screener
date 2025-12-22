@@ -27,7 +27,6 @@ if not TG_TOKEN:
     st.error("❌ **ОШИБКА:** Токен не найден! Добавьте его в Secrets на Streamlit Cloud.")
     st.stop()
 
-# ВКЛЮЧАЕМ МНОГОПОТОЧНОСТЬ (threaded=True) - критически важно для работы кнопок во время скана
 try:
     bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 except Exception as e:
@@ -53,6 +52,16 @@ def get_shared_state():
     }
 
 SETTINGS = get_shared_state()
+
+# ГЛОБАЛЬНОЕ СОСТОЯНИЕ ПРОГРЕССА (Для отделения UI от логики)
+PROGRESS = {
+    "current": 0,
+    "total": 0,
+    "running": False,
+    "msg_id": None,
+    "chat_id": None,
+    "header": ""
+}
 
 # --- МЕНЮ ---
 def get_main_keyboard():
@@ -86,20 +95,16 @@ def pine_rma(series, length):
 
 def check_ticker(ticker):
     try:
-        # Уменьшаем объем загружаемых данных для ускорения
         df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
         if len(df) < 200: return None
 
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
-        # Индикаторы
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
         df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-        df['ATR_Val'] = df['TR'].rolling(window=14).mean()
-        df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
         df['Up'] = df['High'] - df['High'].shift(1)
         df['Down'] = df['Low'].shift(1) - df['Low']
@@ -109,7 +114,6 @@ def check_ticker(ticker):
         df['DI_Plus'] = 100 * (p_dm / tr); df['DI_Minus'] = 100 * (m_dm / tr)
         df['ADX'] = pine_rma(100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus']), 14)
 
-        # Sequence Logic (упрощенная для скорости)
         seqState = 0; seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; crit = df['Low'].iloc[0]
         df_calc = df.iloc[-250:].copy()
         cl = df_calc['Close'].values; hi = df_calc['High'].values; lo = df_calc['Low'].values
@@ -151,6 +155,36 @@ def check_ticker(ticker):
     except: return None
     return None
 
+# ==========================================
+# 3. ПОТОК ОБНОВЛЕНИЯ ИНТЕРФЕЙСА (HEARTBEAT)
+# ==========================================
+def progress_updater():
+    """Легкий поток, который только обновляет сообщение в Telegram раз в 4 секунды"""
+    while PROGRESS["running"]:
+        try:
+            if PROGRESS["total"] > 0:
+                pct = int((PROGRESS["current"] / PROGRESS["total"]) * 100)
+                bar_filled = pct // 10
+                bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
+                
+                text = (
+                    f"{PROGRESS['header']}\n"
+                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                    f"Прогресс: {PROGRESS['current']}/{PROGRESS['total']} ({pct}%)\n"
+                    f"[{bar_str}]"
+                )
+                
+                bot.edit_message_text(
+                    chat_id=PROGRESS["chat_id"],
+                    message_id=PROGRESS["msg_id"],
+                    text=text,
+                    parse_mode="HTML"
+                )
+        except Exception as e:
+            # Если Telegram отклоняет правку (Flood Limit), просто ждем следующего цикла
+            pass
+        time.sleep(4)
+
 def perform_scan(chat_id, is_manual=False):
     if SETTINGS["IS_SCANNING"]:
         try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!")
@@ -168,53 +202,38 @@ def perform_scan(chat_id, is_manual=False):
             SETTINGS["NOTIFIED_TODAY"] = set()
             SETTINGS["LAST_DATE"] = current_date_str
         
-        mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
         header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
-
         tickers = get_sp500_tickers()
         total_tickers = len(tickers)
         
-        # 1. Отправляем СТАРТОВОЕ сообщение
-        status_msg = None
-        try:
-            initial_text = (
-                f"{header}\nРежим: {mode_txt}\n"
-                f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                f"⏳ <b>Подготовка к сканированию {total_tickers} акций...</b>"
-            )
-            status_msg = bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-        except Exception as e:
-            print(f"Failed to send start message: {e}")
+        # Создаем сообщение для прогресса
+        status_msg = bot.send_message(chat_id, "⏳ Инициализация сканирования...", parse_mode="HTML")
+        
+        # Инициализируем глобальный прогресс и запускаем поток обновления UI
+        PROGRESS.update({
+            "current": 0,
+            "total": total_tickers,
+            "running": True,
+            "msg_id": status_msg.message_id,
+            "chat_id": chat_id,
+            "header": header
+        })
+        
+        ui_thread = threading.Thread(target=progress_updater, daemon=True)
+        ui_thread.start()
         
         found_count = 0
-        last_ui_update = time.time()
         
-        # Основной цикл
+        # ОСНОВНОЙ ЦИКЛ (Тяжелая работа)
         for i, t in enumerate(tickers):
             if SETTINGS["STOP_SCAN"]:
+                PROGRESS["running"] = False # Останавливаем UI поток
                 try: bot.send_message(chat_id, "🛑 Сканирование остановлено.")
                 except: pass
                 break
             
-            # --- ОБНОВЛЕНИЕ ПРОГРЕССА ПО ТАЙМЕРУ (РАЗ В 5 СЕКУНД) ---
-            # Это предотвращает Flood Limit от Telegram и не тормозит цикл
-            now = time.time()
-            if status_msg and (now - last_ui_update > 5):
-                try:
-                    progress_pct = int(((i + 1) / total_tickers) * 100)
-                    bar_filled = int(progress_pct / 10)
-                    bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
-                    new_text = (
-                        f"{header}\nРежим: {mode_txt}\n"
-                        f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                        f"Всего: {total_tickers} акций\n\n"
-                        f"⏳ Прогресс: {i+1}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
-                    )
-                    # Обновляем БЕЗ reply_markup для скорости
-                    bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML")
-                    last_ui_update = now
-                except Exception as e:
-                    print(f"Progress update skipped: {e}")
+            # Обновляем ТОЛЬКО счетчик (UI поток подхватит его сам)
+            PROGRESS["current"] = i + 1
 
             res = check_ticker(t)
             if res:
@@ -228,24 +247,26 @@ def perform_scan(chat_id, is_manual=False):
                 try: bot.send_message(chat_id, msg, parse_mode="HTML")
                 except: pass
         
+        # Останавливаем поток обновления UI перед финальным сообщением
+        PROGRESS["running"] = False
+        time.sleep(1) # Даем потоку завершиться
+        
         # --- ФИНАЛ ---
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
-        if status_msg:
-            try:
-                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
-            except:
-                bot.send_message(chat_id, final_text, parse_mode="HTML")
-        else:
-            bot.send_message(chat_id, final_text, parse_mode="HTML")
+        try:
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+        except:
+            bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
     except Exception as e:
         print(f"Global scan error: {e}")
     finally:
+        PROGRESS["running"] = False
         SETTINGS["IS_SCANNING"] = False
         SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
 
 # ==========================================
-# 3. ОБРАБОТЧИКИ КОМАНД
+# 4. ОБРАБОТЧИКИ КОМАНД
 # ==========================================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -258,7 +279,6 @@ def send_welcome(message):
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
 def manual_scan(message):
     SETTINGS["CHAT_ID"] = message.chat.id
-    # Запускаем в отдельном потоке, чтобы не вешать бота
     threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
 
 @bot.message_handler(func=lambda m: m.text == 'Stop 🛑' or m.text.startswith('/stop'))
@@ -284,7 +304,6 @@ def check_time(message):
     local_time = get_local_now().strftime("%H:%M")
     bot.reply_to(message, f"🕒 Ваше локальное время: <b>{local_time}</b> (UTC{SETTINGS['TIMEZONE_OFFSET']})", parse_mode="HTML")
 
-# Установка смещения времени
 @bot.message_handler(commands=['set_offset'])
 def set_offset(message):
     try:
@@ -317,7 +336,6 @@ def open_mode_menu(message):
 def back_to_main(message):
     bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
 
-# Обработка выбора значений
 @bot.message_handler(func=lambda m: '%' in m.text or m.text in ['100', '150', '200', 'Только НОВЫЕ 🔥', 'ВСЕ активные 🟢'])
 def handle_settings(message):
     if '%' in message.text:
@@ -334,7 +352,7 @@ def handle_settings(message):
         bot.send_message(message.chat.id, "✅ Все активные", reply_markup=get_main_keyboard())
 
 # ==========================================
-# 4. СЕРВИСЫ
+# 5. СЕРВИСЫ
 # ==========================================
 def start_polling():
     while True:
@@ -343,23 +361,20 @@ def start_polling():
 
 def start_scheduler():
     while True:
-        # Ждем час между авто-сканами
         time.sleep(3600)
         if SETTINGS["CHAT_ID"] and not SETTINGS["IS_SCANNING"]:
             perform_scan(SETTINGS["CHAT_ID"], False)
 
 @st.cache_resource
 def run_background_services():
-    # Запуск бота
     t1 = threading.Thread(target=start_polling, daemon=True)
     t1.start()
-    # Запуск планировщика
     t2 = threading.Thread(target=start_scheduler, daemon=True)
     t2.start()
     return True
 
 # ==========================================
-# 5. ИНТЕРФЕЙС STREAMLIT
+# 6. ИНТЕРФЕЙС STREAMLIT
 # ==========================================
 st.title("🤖 Vova Bot Server")
 
@@ -372,4 +387,4 @@ st.write(f"Найдено сигналов за сегодня: {len(SETTINGS['N
 st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=60000, key="ref") # Рефреш страницы раз в минуту
+st_autorefresh(interval=60000, key="ref")
