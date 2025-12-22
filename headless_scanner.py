@@ -111,18 +111,15 @@ def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
 def check_ticker(ticker, verbose=False):
-    """Улучшенная функция проверки с механизмом повтора и сессией"""
     try:
-        # Пытаемся скачать данные. Если пусто - пробуем еще раз (важно для ARES при массовом скане)
         df = None
-        for attempt in range(2):
+        for attempt in range(3):
             df = yf.download(ticker, period="2y", interval="1d", progress=False, 
                              auto_adjust=True, timeout=15, session=YF_SESSION)
             if not df.empty and len(df) >= 250: break
-            if attempt == 0: time.sleep(1)
+            time.sleep(0.5)
 
         if df is None or df.empty or len(df) < 250:
-            if verbose: print(f"Ticker {ticker} failed download or too short.")
             return None
 
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
@@ -130,12 +127,12 @@ def check_ticker(ticker, verbose=False):
         # 1. SMA Major
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
-        # 2. ATR
+        # 2. ATR (ВОЗВРАТ К RMA ДЛЯ ТОЧНОСТИ)
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
         df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-        df['ATR_Val'] = df['TR'].rolling(window=14).mean()
+        df['ATR_Val'] = pine_rma(df['TR'], 14) # RMA а не SMA
         df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
         # 3. ADX & DI
@@ -144,22 +141,22 @@ def check_ticker(ticker, verbose=False):
         df['+DM'] = np.where((df['Up'] > df['Down']) & (df['Up'] > 0), df['Up'], 0)
         df['-DM'] = np.where((df['Down'] > df['Up']) & (df['Down'] > 0), df['Down'], 0)
         tr = pine_rma(df['TR'], 14)
-        p_dm = pine_rma(df['+DM'], 14)
-        m_dm = pine_rma(df['-DM'], 14)
-        df['DI_Plus'] = 100 * (p_dm / tr)
-        df['DI_Minus'] = 100 * (m_dm / tr)
+        p_dm = pine_rma(df['+DM'], 14); m_dm = pine_rma(df['-DM'], 14)
+        df['DI_Plus'] = 100 * (p_dm / tr); df['DI_Minus'] = 100 * (m_dm / tr)
         dx = 100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus'])
         df['ADX'] = pine_rma(dx, 14)
         
-        # 4. SEQUENCE LOGIC
+        # 4. SEQUENCE LOGIC (ОГРАНИЧЕНИЕ ОКНА ДЛЯ ТОЧНОСТИ)
+        # Берем последние 300 баров для расчета структуры, чтобы уровни были актуальными
+        df_seq = df.tail(300).copy()
         seq_states = []
-        seqState = 0; seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; criticalLevel = df['Low'].iloc[0]
-        cl = df['Close'].values; hi = df['High'].values; lo = df['Low'].values
+        seqState = 0; seqHigh = df_seq['High'].iloc[0]; seqLow = df_seq['Low'].iloc[0]; criticalLevel = df_seq['Low'].iloc[0]
+        cl_vals = df_seq['Close'].values; hi_vals = df_seq['High'].values; lo_vals = df_seq['Low'].values
         
-        for i in range(len(df)):
+        for i in range(len(df_seq)):
             if i == 0:
                 seq_states.append(0); continue
-            c, h, l = cl[i], hi[i], lo[i]
+            c, h, l = cl_vals[i], hi_vals[i], lo_vals[i]
             prevS = seq_states[-1]
             isBreak = (prevS == 1 and c < criticalLevel) or (prevS == -1 and c > criticalLevel)
             if isBreak:
@@ -180,22 +177,30 @@ def check_ticker(ticker, verbose=False):
         last = df.iloc[-1]; prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        # Проверки
+        # Условия стратегии
         cond_seq = (seq_states[-1] == 1)
         cond_ma = (last['Close'] > last['SMA_Major'])
         cond_trend = (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
         all_green_cur = cond_seq and cond_ma and cond_trend
+        
+        # Проверка новизны (для авто-скана)
         all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
+        is_new_signal = all_green_cur and not all_green_prev
         
-        # R:R
+        # 5. КОРРЕКТНЫЙ RISK REWARD
         current_price = float(last['Close'])
-        risk = current_price - criticalLevel
-        reward = seqHigh - current_price
-        rr_ratio = round(reward / risk, 2) if risk > 0 else 0
         
+        # Если уровни противоречат лонгу, R:R невалиден (0)
+        if criticalLevel >= current_price or seqHigh <= current_price:
+            rr_ratio = 0
+        else:
+            risk = current_price - criticalLevel
+            reward = seqHigh - current_price
+            rr_ratio = round(reward / risk, 2)
+        
+        # Итоговые фильтры
         pass_atr = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
         pass_rr = (rr_ratio >= SETTINGS["MIN_RR"])
-        is_new_signal = all_green_cur and not all_green_prev
 
         result_data = {
             'ticker': ticker, 'price': current_price, 'atr': last['ATR_Pct'], 
@@ -205,14 +210,15 @@ def check_ticker(ticker, verbose=False):
             'all_green': all_green_cur, 'pass_atr': pass_atr, 'pass_rr': pass_rr
         }
 
+        # Если диагностика — возвращаем всё
         if verbose: return result_data
 
+        # Основной фильтр для сканера
         if all_green_cur and pass_atr and pass_rr:
-            if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
-                return result_data
+            return result_data
                 
     except Exception as e:
-        if verbose: print(f"Detailed Error for {ticker}: {e}")
+        if verbose: print(f"Error {ticker}: {e}")
         return None
     return None
 
@@ -252,7 +258,7 @@ def perform_scan(chat_id=None, is_manual=False):
         total_tickers = len(tickers)
         
         if is_manual and chat_id:
-            status_msg = bot.send_message(chat_id, "⏳ Инициализация поиска (500+ акций)...", parse_mode="HTML")
+            status_msg = bot.send_message(chat_id, f"⏳ Поиск среди {total_tickers} акций S&P 500...", parse_mode="HTML")
             PROGRESS.update({"current": 0, "total": total_tickers, "running": True, "msg_id": status_msg.message_id, "chat_id": chat_id, "header": "🚀 <b>Ручной поиск</b>"})
             threading.Thread(target=progress_updater, daemon=True).start()
         
@@ -263,13 +269,15 @@ def perform_scan(chat_id=None, is_manual=False):
                 break
             
             PROGRESS["current"] = i + 1
-            
-            # АНТИ-ФЛУД ЗАДЕРЖКА: Каждые 15 акций делаем паузу 1.5 сек для Yahoo
-            if i > 0 and i % 15 == 0: time.sleep(1.5)
+            if i > 0 and i % 15 == 0: time.sleep(1.0) # Анти-флуд
             
             res = check_ticker(t)
             if res:
-                # В ручном скане игнорируем список уведомленных, чтобы всегда видеть результат
+                # Фильтрация в авто-скане
+                if not is_manual and SETTINGS["SHOW_ONLY_NEW"] and not res['is_new']:
+                    continue
+                
+                # Пропускаем уже отправленные сегодня (только для авто-скана)
                 if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]: 
                     continue
                 
@@ -287,7 +295,7 @@ def perform_scan(chat_id=None, is_manual=False):
                         except: pass
         
         PROGRESS["running"] = False
-        final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
+        final_text = f"✅ <b>Поиск завершен</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Активных сигналов не найдено."
         if is_manual and chat_id:
             try: bot.edit_message_text(chat_id=chat_id, message_id=PROGRESS["msg_id"], text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             except: bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
@@ -321,7 +329,7 @@ def diagnostic_check(message):
         bot.send_message(message.chat.id, f"🔍 Диагностика <b>{ticker}</b>...", parse_mode="HTML")
         info = check_ticker(ticker, verbose=True)
         if not info:
-            bot.send_message(message.chat.id, "❌ Ошибка загрузки данных Yahoo Finance.")
+            bot.send_message(message.chat.id, "❌ Ошибка загрузки данных Yahoo.")
             return
 
         l = info['lights']
