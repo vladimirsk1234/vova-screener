@@ -8,14 +8,30 @@ import io
 import time
 import threading
 import requests
+import os
 
 # ==========================================
-# 1. ГЛОБАЛЬНОЕ СОСТОЯНИЕ (С памятью)
+# 1. НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ
 # ==========================================
-TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"
 
-# Инициализируем бота
-bot = telebot.TeleBot(TG_TOKEN, threaded=False)
+# МЫ НЕ ПИШЕМ ТОКЕН СЮДА! Мы берем его из секретов.
+try:
+    TG_TOKEN = st.secrets["TG_TOKEN"]
+except:
+    # Если запуск локально без секретов - пробуем переменные окружения или пустую строку
+    TG_TOKEN = os.environ.get("TG_TOKEN", "")
+
+if not TG_TOKEN:
+    st.error("❌ **ОШИБКА:** Токен не найден!\n\n"
+             "1. Если вы в Streamlit Cloud: зайдите в App Settings -> Secrets и добавьте туда токен.\n"
+             "2. Если локально: создайте файл `.streamlit/secrets.toml`.")
+    st.stop()
+
+try:
+    bot = telebot.TeleBot(TG_TOKEN, threaded=False)
+except Exception as e:
+    st.error(f"❌ Ошибка бота: {e}")
+    st.stop()
 
 @st.cache_resource
 def get_shared_state():
@@ -35,22 +51,21 @@ def get_shared_state():
 
 SETTINGS = get_shared_state()
 
-# Текст помощи
 HELP_TEXT = (
     "<b>🛠 Быстрые настройки:</b>\n"
-    "Используйте кнопки меню внизу для изменения параметров."
+    "Используйте меню внизу для управления."
 )
 
-# Функция для создания кнопок ГЛАВНОГО меню
+# --- НОВАЯ КЛАВИАТУРА (БЕЗ СЛЕШЕЙ) ---
 def get_main_keyboard():
-    # one_time_keyboard=False гарантирует, что меню не исчезнет после нажатия
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2, one_time_keyboard=False)
-    btn_scan = types.KeyboardButton('/scan 🚀')
-    btn_stop = types.KeyboardButton('/stop 🛑')
-    btn_stat = types.KeyboardButton('/status 📊')
-    btn_mode = types.KeyboardButton('/mode 🔄')
-    btn_atr = types.KeyboardButton('/atr_menu 📉') # Меню ATR
-    btn_sma = types.KeyboardButton('/sma_menu 📈') # Меню SMA
+    # Кнопки с чистым текстом
+    btn_scan = types.KeyboardButton('Scan 🚀')
+    btn_stop = types.KeyboardButton('Stop 🛑')
+    btn_stat = types.KeyboardButton('Status 📊')
+    btn_mode = types.KeyboardButton('Mode 🔄')
+    btn_atr = types.KeyboardButton('ATR 📉')
+    btn_sma = types.KeyboardButton('SMA 📈')
     markup.add(btn_scan, btn_stop, btn_stat, btn_mode, btn_atr, btn_sma)
     return markup
 
@@ -216,91 +231,74 @@ def perform_scan(chat_id, is_manual=False):
     SETTINGS["LAST_SCAN_TIME"] = time.strftime("%H:%M:%S")
 
 # ==========================================
-# 3. ОБРАБОТЧИКИ КОМАНД
+# 3. ОБРАБОТЧИКИ КОМАНД И ТЕКСТА
 # ==========================================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     SETTINGS["CHAT_ID"] = message.chat.id
     bot.send_message(message.chat.id, 
         "👋 <b>Vova S&P 500 Screener</b>\n"
-        "Бот активен. Используйте кнопки внизу для управления.",
+        "Бот активен. Нажмите кнопку меню ниже.",
         parse_mode="HTML",
         reply_markup=get_main_keyboard()
     )
 
-# --- НОВЫЕ ХЕНДЛЕРЫ ДЛЯ МЕНЮ ---
-@bot.message_handler(func=lambda message: message.text.startswith('/atr_menu'))
+# --- МЕНЮ ATR ---
+@bot.message_handler(func=lambda m: m.text == 'ATR 📉' or m.text.startswith('/atr_menu'))
 def open_atr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     markup.add(
-        types.KeyboardButton('/set_atr 3.0'),
-        types.KeyboardButton('/set_atr 5.0'),
-        types.KeyboardButton('/set_atr 7.0'),
+        types.KeyboardButton('3.0 %'),
+        types.KeyboardButton('5.0 %'),
+        types.KeyboardButton('7.0 %'),
+        types.KeyboardButton('10.0 %'),
         types.KeyboardButton('🔙 Назад')
     )
     bot.send_message(message.chat.id, "📉 <b>Выберите Max ATR %:</b>", parse_mode="HTML", reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text.startswith('/sma_menu'))
+# --- МЕНЮ SMA ---
+@bot.message_handler(func=lambda m: m.text == 'SMA 📈' or m.text.startswith('/sma_menu'))
 def open_sma_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     markup.add(
-        types.KeyboardButton('/set_sma 100'),
-        types.KeyboardButton('/set_sma 150'),
-        types.KeyboardButton('/set_sma 200'),
+        types.KeyboardButton('100'),
+        types.KeyboardButton('150'),
+        types.KeyboardButton('200'),
         types.KeyboardButton('🔙 Назад')
     )
     bot.send_message(message.chat.id, "📈 <b>Выберите SMA Period:</b>", parse_mode="HTML", reply_markup=markup)
-
-@bot.message_handler(func=lambda message: message.text.startswith('/mode'))
-def open_mode_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    markup.add(
-        types.KeyboardButton('Только НОВЫЕ 🔥'),
-        types.KeyboardButton('ВСЕ активные 🟢'),
-        types.KeyboardButton('🔙 Назад')
-    )
-    current_mode = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
-    bot.send_message(message.chat.id, f"🔄 <b>Выберите режим сканирования:</b>\nТекущий: {current_mode}", parse_mode="HTML", reply_markup=markup)
-
-# --- ОБРАБОТКА ВЫБОРА РЕЖИМА ---
-@bot.message_handler(func=lambda message: message.text == 'Только НОВЫЕ 🔥')
-def set_mode_new(message):
-    SETTINGS["SHOW_ONLY_NEW"] = True
-    bot.reply_to(message, "✅ Режим: <b>Только НОВЫЕ</b> (вход сегодня)", parse_mode="HTML", reply_markup=get_main_keyboard())
-
-@bot.message_handler(func=lambda message: message.text == 'ВСЕ активные 🟢')
-def set_mode_all(message):
-    SETTINGS["SHOW_ONLY_NEW"] = False
-    bot.reply_to(message, "✅ Режим: <b>ВСЕ активные</b> (любой зеленый тренд)", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == '🔙 Назад')
 def back_to_main(message):
     bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
 
-# --- ОБНОВЛЕННЫЕ СЕТТЕРЫ (ВОЗВРАЩАЮТ В ГЛАВНОЕ МЕНЮ) ---
-@bot.message_handler(commands=['set_atr'])
-def set_atr_val(message):
+# --- УСТАНОВКА ATR (По тексту "X.X %") ---
+@bot.message_handler(func=lambda m: '%' in m.text and m.text.replace(' %','').replace('.','').isdigit())
+def set_atr_text(message):
     try:
-        val = float(message.text.split()[1])
+        val = float(message.text.replace(' %',''))
         SETTINGS["MAX_ATR_PCT"] = val
         bot.reply_to(message, f"✅ ATR установлен: {val}%", reply_markup=get_main_keyboard())
-    except: bot.reply_to(message, "❌ Пример: /set_atr 5.5")
+    except: 
+        bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
 
-@bot.message_handler(commands=['set_sma'])
-def set_sma_val(message):
+# --- УСТАНОВКА SMA (По цифре "100"...) ---
+@bot.message_handler(func=lambda m: m.text in ['100', '150', '200'])
+def set_sma_text(message):
     try:
-        val = int(message.text.split()[1])
+        val = int(message.text)
         SETTINGS["LENGTH_MAJOR"] = val
         bot.reply_to(message, f"✅ SMA установлен: {val}", reply_markup=get_main_keyboard())
-    except: bot.reply_to(message, "❌ Пример: /set_sma 200")
+    except:
+        bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
 
-# --- ОСНОВНЫЕ КОМАНДЫ ---
-@bot.message_handler(func=lambda message: message.text.startswith('/scan'))
+# --- ОСНОВНЫЕ КНОПКИ ---
+@bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
 def manual_scan(message):
     SETTINGS["CHAT_ID"] = message.chat.id
     threading.Thread(target=perform_scan, args=(message.chat.id, True)).start()
 
-@bot.message_handler(func=lambda message: message.text.startswith('/stop'))
+@bot.message_handler(func=lambda m: m.text == 'Stop 🛑' or m.text.startswith('/stop'))
 def stop_scan(message):
     if SETTINGS["IS_SCANNING"]:
         SETTINGS["STOP_SCAN"] = True
@@ -308,11 +306,32 @@ def stop_scan(message):
     else:
         bot.reply_to(message, "⚠️ Нет активного сканирования.", reply_markup=get_main_keyboard())
 
-@bot.message_handler(func=lambda message: message.text.startswith('/status'))
+@bot.message_handler(func=lambda m: m.text == 'Status 📊' or m.text.startswith('/status'))
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
     notified_count = len(SETTINGS["NOTIFIED_TODAY"])
     bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
+
+@bot.message_handler(func=lambda m: m.text == 'Mode 🔄' or m.text.startswith('/mode'))
+def open_mode_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(
+        types.KeyboardButton('Только НОВЫЕ 🔥'),
+        types.KeyboardButton('ВСЕ активные 🟢'),
+        types.KeyboardButton('🔙 Назад')
+    )
+    current = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
+    bot.send_message(message.chat.id, f"🔄 <b>Выберите режим:</b>\nТекущий: {current}", parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == 'Только НОВЫЕ 🔥')
+def set_mode_new(message):
+    SETTINGS["SHOW_ONLY_NEW"] = True
+    bot.reply_to(message, "✅ Режим: <b>Только НОВЫЕ</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
+
+@bot.message_handler(func=lambda m: m.text == 'ВСЕ активные 🟢')
+def set_mode_all(message):
+    SETTINGS["SHOW_ONLY_NEW"] = False
+    bot.reply_to(message, "✅ Режим: <b>ВСЕ активные</b>", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 # ==========================================
 # 4. СЕРВИСЫ
@@ -341,13 +360,9 @@ def run_background_services():
 # ==========================================
 st.title("🤖 Vova Bot Server")
 run_background_services()
-st.success("✅ Сервер активен! Кнопки добавлены.")
+st.success("✅ Сервер активен! Токен скрыт.")
 st.write(f"Отправлено сигналов сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
 st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300000, key="ref")
-
-
-
-
