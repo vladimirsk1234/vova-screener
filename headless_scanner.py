@@ -131,7 +131,14 @@ def perform_scan(chat_id):
     # 1. Отправляем начальное сообщение (которое будем обновлять)
     status_msg = None
     try:
-        status_msg = bot.send_message(chat_id, f"🚀 <b>Старт сканирования S&P 500</b>\nРежим: {mode_txt}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n⏳ Подготовка списка...", parse_mode="HTML")
+        status_msg = bot.send_message(chat_id, 
+            f"🚀 <b>Старт сканирования S&P 500</b>\n"
+            f"Режим: {mode_txt}\n"
+            f"SMA: {SETTINGS['LENGTH_MAJOR']}\n"
+            f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+            f"⏳ Подготовка списка...", 
+            parse_mode="HTML"
+        )
     except: pass
     
     tickers = get_sp500_tickers()
@@ -156,6 +163,7 @@ def perform_scan(chat_id):
                 new_text = (
                     f"🚀 <b>Сканирование S&P 500</b>\n"
                     f"Режим: {mode_txt}\n"
+                    f"SMA: {SETTINGS['LENGTH_MAJOR']}\n"
                     f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
                     f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n"
                     f"[{bar_str}]"
