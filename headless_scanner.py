@@ -35,22 +35,22 @@ def get_shared_state():
 
 SETTINGS = get_shared_state()
 
-# Текст помощи (вынесен в переменную, чтобы не дублировать)
+# Текст помощи
 HELP_TEXT = (
-    "<b>🛠 Быстрые настройки:</b>\n\n"
-    "<code>/set_atr 5.0</code> — Уст. Max ATR %\n"
-    "<code>/set_sma 200</code> — Уст. SMA Period\n\n"
-    "<i>Нажмите на команду выше, чтобы скопировать её, измените цифру и отправьте.</i>"
+    "<b>🛠 Быстрые настройки:</b>\n"
+    "Используйте кнопки меню внизу для изменения параметров."
 )
 
-# Функция для создания кнопок меню
+# Функция для создания кнопок ГЛАВНОГО меню
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn_scan = types.KeyboardButton('/scan 🚀')
     btn_stop = types.KeyboardButton('/stop 🛑')
     btn_stat = types.KeyboardButton('/status 📊')
     btn_mode = types.KeyboardButton('/mode 🔄')
-    markup.add(btn_scan, btn_stop, btn_stat, btn_mode)
+    btn_atr = types.KeyboardButton('/atr_menu 📉') # Меню ATR
+    btn_sma = types.KeyboardButton('/sma_menu 📈') # Меню SMA
+    markup.add(btn_scan, btn_stop, btn_stat, btn_mode, btn_atr, btn_sma)
     return markup
 
 # ==========================================
@@ -164,7 +164,7 @@ def perform_scan(chat_id, is_manual=False):
         status_msg = bot.send_message(chat_id, 
             f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
             parse_mode="HTML",
-            reply_markup=get_main_keyboard() # Убеждаемся, что кнопки на месте
+            reply_markup=get_main_keyboard()
         )
     except: pass
     
@@ -206,7 +206,6 @@ def perform_scan(chat_id, is_manual=False):
         else:
             bot.send_message(chat_id, final_text, parse_mode="HTML")
             
-        # --- ПОСЛЕ ЗАВЕРШЕНИЯ ПОКАЗЫВАЕМ ПОДСКАЗКУ С КОМАНДАМИ ---
         bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
         
     except: pass
@@ -222,11 +221,78 @@ def send_welcome(message):
     SETTINGS["CHAT_ID"] = message.chat.id
     bot.send_message(message.chat.id, 
         "👋 <b>Vova S&P 500 Screener</b>\n"
-        "Бот активен. Используйте кнопки внизу для управления.\n\n" + HELP_TEXT,
+        "Бот активен. Используйте кнопки внизу для управления.",
         parse_mode="HTML",
         reply_markup=get_main_keyboard()
     )
 
+# --- НОВЫЕ ХЕНДЛЕРЫ ДЛЯ МЕНЮ ---
+@bot.message_handler(func=lambda message: message.text.startswith('/atr_menu'))
+def open_atr_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    markup.add(
+        types.KeyboardButton('/set_atr 3.0'),
+        types.KeyboardButton('/set_atr 5.0'),
+        types.KeyboardButton('/set_atr 7.0'),
+        types.KeyboardButton('🔙 Назад')
+    )
+    bot.send_message(message.chat.id, "📉 <b>Выберите Max ATR %:</b>", parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text.startswith('/sma_menu'))
+def open_sma_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    markup.add(
+        types.KeyboardButton('/set_sma 100'),
+        types.KeyboardButton('/set_sma 150'),
+        types.KeyboardButton('/set_sma 200'),
+        types.KeyboardButton('🔙 Назад')
+    )
+    bot.send_message(message.chat.id, "📈 <b>Выберите SMA Period:</b>", parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text.startswith('/mode'))
+def open_mode_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(
+        types.KeyboardButton('Только НОВЫЕ 🔥'),
+        types.KeyboardButton('ВСЕ активные 🟢'),
+        types.KeyboardButton('🔙 Назад')
+    )
+    current_mode = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
+    bot.send_message(message.chat.id, f"🔄 <b>Выберите режим сканирования:</b>\nТекущий: {current_mode}", parse_mode="HTML", reply_markup=markup)
+
+# --- ОБРАБОТКА ВЫБОРА РЕЖИМА ---
+@bot.message_handler(func=lambda message: message.text == 'Только НОВЫЕ 🔥')
+def set_mode_new(message):
+    SETTINGS["SHOW_ONLY_NEW"] = True
+    bot.reply_to(message, "✅ Режим: <b>Только НОВЫЕ</b> (вход сегодня)", parse_mode="HTML", reply_markup=get_main_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == 'ВСЕ активные 🟢')
+def set_mode_all(message):
+    SETTINGS["SHOW_ONLY_NEW"] = False
+    bot.reply_to(message, "✅ Режим: <b>ВСЕ активные</b> (любой зеленый тренд)", parse_mode="HTML", reply_markup=get_main_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == '🔙 Назад')
+def back_to_main(message):
+    bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
+
+# --- ОБНОВЛЕННЫЕ СЕТТЕРЫ (ВОЗВРАЩАЮТ В ГЛАВНОЕ МЕНЮ) ---
+@bot.message_handler(commands=['set_atr'])
+def set_atr_val(message):
+    try:
+        val = float(message.text.split()[1])
+        SETTINGS["MAX_ATR_PCT"] = val
+        bot.reply_to(message, f"✅ ATR установлен: {val}%", reply_markup=get_main_keyboard())
+    except: bot.reply_to(message, "❌ Пример: /set_atr 5.5")
+
+@bot.message_handler(commands=['set_sma'])
+def set_sma_val(message):
+    try:
+        val = int(message.text.split()[1])
+        SETTINGS["LENGTH_MAJOR"] = val
+        bot.reply_to(message, f"✅ SMA установлен: {val}", reply_markup=get_main_keyboard())
+    except: bot.reply_to(message, "❌ Пример: /set_sma 200")
+
+# --- ОСНОВНЫЕ КОМАНДЫ ---
 @bot.message_handler(func=lambda message: message.text.startswith('/scan'))
 def manual_scan(message):
     SETTINGS["CHAT_ID"] = message.chat.id
@@ -245,27 +311,6 @@ def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
     notified_count = len(SETTINGS["NOTIFIED_TODAY"])
     bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
-
-@bot.message_handler(func=lambda message: message.text.startswith('/mode'))
-def switch_mode(message):
-    SETTINGS["SHOW_ONLY_NEW"] = not SETTINGS["SHOW_ONLY_NEW"]
-    bot.reply_to(message, f"🔄 Режим изменен: {'Только НОВЫЕ' if SETTINGS['SHOW_ONLY_NEW'] else 'ВСЕ зеленые'}", reply_markup=get_main_keyboard())
-
-@bot.message_handler(commands=['set_atr'])
-def set_atr_val(message):
-    try:
-        val = float(message.text.split()[1])
-        SETTINGS["MAX_ATR_PCT"] = val
-        bot.reply_to(message, f"✅ ATR установлен: {val}%")
-    except: bot.reply_to(message, "❌ Пример: /set_atr 5.5")
-
-@bot.message_handler(commands=['set_sma'])
-def set_sma_val(message):
-    try:
-        val = int(message.text.split()[1])
-        SETTINGS["LENGTH_MAJOR"] = val
-        bot.reply_to(message, f"✅ SMA установлен: {val}")
-    except: bot.reply_to(message, "❌ Пример: /set_sma 200")
 
 # ==========================================
 # 4. СЕРВИСЫ
