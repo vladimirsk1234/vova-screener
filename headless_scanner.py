@@ -114,14 +114,17 @@ def get_sp500_tickers():
 def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
-def check_ticker(ticker):
+def check_ticker(ticker, verbose=False):
+    """
+    Основная логика проверки тикера.
+    Если verbose=True, возвращает расширенные данные даже при провале фильтров.
+    """
     try:
-        # ЗАГРУЗКА ДАННЫХ: Сохранено 2 года для корректного SMA 200 и Sequence
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
         if len(df) < 250: return None
 
-        # 1. SMA MAJOR (Сохранено 200)
+        # 1. SMA Major
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
         # 2. ATR
@@ -132,7 +135,7 @@ def check_ticker(ticker):
         df['ATR_Val'] = df['TR'].rolling(window=14).mean()
         df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
-        # 3. ADX & DI (Сохранено ADX >= 20)
+        # 3. ADX & DI
         df['Up'] = df['High'] - df['High'].shift(1)
         df['Down'] = df['Low'].shift(1) - df['Low']
         df['+DM'] = np.where((df['Up'] > df['Down']) & (df['Up'] > 0), df['Up'], 0)
@@ -145,84 +148,71 @@ def check_ticker(ticker):
         dx = 100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus'])
         df['ADX'] = pine_rma(dx, 14)
         
-        # 4. SEQUENCE LOGIC (ПОЛНАЯ ВЕРСИЯ - Сохранено HH/HL/Critical)
+        # 4. SEQUENCE LOGIC
         seq_states = []
-        seqState = 0
-        seqHigh = df['High'].iloc[0]
-        seqLow = df['Low'].iloc[0]
-        criticalLevel = df['Low'].iloc[0]
-        
-        cl = df['Close'].values
-        hi = df['High'].values
-        lo = df['Low'].values
+        seqState = 0; seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; criticalLevel = df['Low'].iloc[0]
+        cl = df['Close'].values; hi = df['High'].values; lo = df['Low'].values
         
         for i in range(len(df)):
             if i == 0:
-                seq_states.append(0)
-                continue
+                seq_states.append(0); continue
             c, h, l = cl[i], hi[i], lo[i]
             prevS = seq_states[-1]
             isBreak = (prevS == 1 and c < criticalLevel) or (prevS == -1 and c > criticalLevel)
             if isBreak:
-                if prevS == 1:
-                    seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
-                else:
-                    seqState = 1; seqHigh = h; seqLow = l; criticalLevel = l
+                if prevS == 1: seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
+                else: seqState = 1; seqHigh = h; seqLow = l; criticalLevel = l
             else:
                 seqState = prevS
                 if seqState == 1:
-                    if h >= seqHigh:
-                        seqHigh = h
-                        criticalLevel = l
+                    if h >= seqHigh: seqHigh = h; criticalLevel = l
                 elif seqState == -1:
-                    if l <= seqLow:
-                        seqLow = l
-                        criticalLevel = h
+                    if l <= seqLow: seqLow = l; criticalLevel = h
                 else:
                     if c > seqHigh: seqState = 1; criticalLevel = l
                     elif c < seqLow: seqState = -1; criticalLevel = h
                     else: seqHigh = max(seqHigh, h); seqLow = min(seqLow, l)
             seq_states.append(seqState)
         
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
+        last = df.iloc[-1]; prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        # Функция проверки 3-х зеленых сигналов
-        def get_all_green(row, s_val):
-            cond_seq = (s_val == 1)
-            cond_ma = (row['Close'] > row['SMA_Major'])
-            cond_trend = (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Plus'] > row['DI_Minus'])
-            return cond_seq and cond_ma and cond_trend
-
-        all_green_cur = get_all_green(last, seq_states[-1])
-        all_green_prev = get_all_green(prev, seq_states[-2])
+        # Проверки по отдельности
+        cond_seq = (seq_states[-1] == 1)
+        cond_ma = (last['Close'] > last['SMA_Major'])
+        cond_trend = (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
         
-        # 5. RISK REWARD CALCULATION
-        # StopLoss (SL) = criticalLevel
-        # TakeProfit (TP) = seqHigh (последний HH)
+        all_green_cur = cond_seq and cond_ma and cond_trend
+        
+        # Проверка на "Новый" сигнал
+        all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
+        
+        # R:R
         current_price = last['Close']
         risk = current_price - criticalLevel
         reward = seqHigh - current_price
-        
         rr_ratio = round(reward / risk, 2) if risk > 0 else 0
         
-        # ФИЛЬТРЫ (Сохранено ATR и добавлен RR)
+        # Итоговые фильтры
         pass_atr = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
         pass_rr = (rr_ratio >= SETTINGS["MIN_RR"])
         is_new_signal = all_green_cur and not all_green_prev
 
+        result_data = {
+            'ticker': ticker, 'price': current_price, 'atr': last['ATR_Pct'], 
+            'is_new': is_new_signal, 'rr': rr_ratio, 'tp': seqHigh, 'sl': criticalLevel,
+            'adx': round(last['ADX'], 2), 'sma': round(last['SMA_Major'], 2),
+            'lights': { 'seq': cond_seq, 'ma': cond_ma, 'trend': cond_trend },
+            'all_green': all_green_cur, 'pass_atr': pass_atr, 'pass_rr': pass_rr
+        }
+
+        if verbose:
+            return result_data
+
         if all_green_cur and pass_atr and pass_rr:
             if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
-                return {
-                    'ticker': ticker, 
-                    'price': current_price, 
-                    'atr': last['ATR_Pct'], 
-                    'is_new': is_new_signal,
-                    'rr': rr_ratio,
-                    'tp': seqHigh,
-                    'sl': criticalLevel
-                }
+                return result_data
+                
     except: return None
     return None
 
@@ -278,7 +268,6 @@ def perform_scan(chat_id=None, is_manual=False):
                 SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
                 found_count += 1
                 
-                # Сообщение с деталями SL/TP и RR
                 msg = (f"{'🔥 NEW' if res['is_new'] else '🟢'} <b>{res['ticker']}</b> | ${res['price']:.2f}\n"
                        f"📊 ATR: {res['atr']:.2f}% | <b>R:R: 1:{res['rr']}</b>\n"
                        f"🎯 TP: ${res['tp']:.2f} | 🛑 SL: ${res['sl']:.2f}")
@@ -311,10 +300,45 @@ def unauthorized_access(message):
         f"⛔ <b>Доступ ограничен.</b>\n\nВаш ID: <code>{message.from_user.id}</code>\n"
         f"Отправьте этот ID администратору <b>@Vova_Skl</b> для получения доступа.", parse_mode="HTML")
 
+# --- ДИАГНОСТИКА ТИКЕРА ---
+@bot.message_handler(commands=['check'])
+def diagnostic_check(message):
+    if not is_authorized(message.from_user.id): return
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "❌ Укажите тикер. Пример: `/check ARES`", parse_mode="Markdown")
+            return
+        
+        ticker = parts[1].upper()
+        bot.send_message(message.chat.id, f"🔍 Диагностика <b>{ticker}</b> по данным yFinance...", parse_mode="HTML")
+        
+        info = check_ticker(ticker, verbose=True)
+        if not info:
+            bot.send_message(message.chat.id, "❌ Не удалось загрузить данные для этого тикера.")
+            return
+
+        l = info['lights']
+        report = (
+            f"📊 <b>Отчет по {ticker}:</b>\n"
+            f"Цена: ${info['price']:.2f} (SMA{SETTINGS['LENGTH_MAJOR']}: {info['sma']})\n\n"
+            f"{'🟢' if l['ma'] else '🔴'} Price > SMA: {info['price'] > info['sma']}\n"
+            f"{'🟢' if l['seq'] else '🔴'} Sequence state: {'BULL' if l['seq'] else 'BEAR/NEUTRAL'}\n"
+            f"{'🟢' if l['trend'] else '🔴'} Trend (ADX {info['adx']} > {SETTINGS['ADX_THRESH']}): {l['trend']}\n\n"
+            f"<b>Фильтры:</b>\n"
+            f"{'✅' if info['pass_atr'] else '❌'} ATR ({info['atr']:.2f}%) <= {SETTINGS['MAX_ATR_PCT']}%\n"
+            f"{'✅' if info['pass_rr'] else '❌'} R:R (1:{info['rr']}) >= 1:{SETTINGS['MIN_RR']}\n\n"
+            f"🎯 TP (HH): ${info['tp']:.2f}\n🛑 SL (Support): ${info['sl']:.2f}\n"
+            f"🆕 Новый сигнал сегодня: {'ДА' if info['is_new'] else 'НЕТ'}"
+        )
+        bot.send_message(message.chat.id, report, parse_mode="HTML")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка диагностики: {str(e)}")
+
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     SETTINGS["CHAT_IDS"].add(message.chat.id)
-    bot.send_message(message.chat.id, "👋 <b>Vova S&P 500 Screener</b>\nБот активен.", parse_mode="HTML", reply_markup=get_main_keyboard())
+    bot.send_message(message.chat.id, "👋 <b>Vova S&P 500 Screener Pro</b>\nБот активен.\nИспользуйте `/check TICKER` для диагностики конкретной акции.", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['reload'])
 def reload_users(message):
@@ -328,6 +352,7 @@ def list_users(message):
     users = "\n".join([f"- <code>{u}</code>" for u in SETTINGS["APPROVED_IDS"]])
     bot.send_message(ADMIN_ID, f"👥 <b>Список одобренных ID (из файла):</b>\n{users if users else 'Пусто'}", parse_mode="HTML")
 
+# --- СКАН И УПРАВЛЕНИЕ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀')
 def manual_scan(message):
     threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
