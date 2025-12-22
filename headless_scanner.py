@@ -220,7 +220,7 @@ def perform_scan(chat_id, is_manual=False):
             return
         
         # Обновляем прогресс
-        if i % update_step == 0 and status_msg and i > 0:
+        if i % update_step == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
                 bar_filled = int(progress_pct / 10)
@@ -231,7 +231,7 @@ def perform_scan(chat_id, is_manual=False):
                     f"Лимит: {total_tickers} шт.\n\n"
                     f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
                 )
-                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML") # Удален reply_markup при edit, так как он иногда вызывает баги
             except Exception as e:
                 print(f"Error updating progress: {e}")
 
@@ -250,7 +250,8 @@ def perform_scan(chat_id, is_manual=False):
     try:
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
         if status_msg:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML") # Без кнопок при edit
+            # Отправляем кнопки отдельным сообщением или убеждаемся, что они есть у пользователя
         else:
             bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
