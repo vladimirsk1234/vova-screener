@@ -27,6 +27,7 @@ if not TG_TOKEN:
     st.error("❌ **ОШИБКА:** Токен не найден! Добавьте его в Secrets.")
     st.stop()
 
+# Основной бот для прослушивания команд
 try:
     bot = telebot.TeleBot(TG_TOKEN, threaded=False)
 except Exception as e:
@@ -48,7 +49,7 @@ def get_shared_state():
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
-        "TICKER_LIMIT": 50 # <-- ПО УМОЛЧАНИЮ: Сканируем только 50 тикеров для теста
+        "TICKER_LIMIT": 50 
     }
 
 SETTINGS = get_shared_state()
@@ -82,7 +83,6 @@ def get_local_now():
 # 2. ФУНКЦИИ АНАЛИЗА
 # ==========================================
 def get_sp500_tickers():
-    print("Getting S&P 500 list...")
     for attempt in range(3):
         try:
             url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
@@ -90,10 +90,8 @@ def get_sp500_tickers():
             response = requests.get(url, headers=headers, timeout=10)
             table = pd.read_html(io.StringIO(response.text))
             tickers = [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
-            print(f"Got {len(tickers)} tickers.")
             return tickers
         except Exception as e:
-            print(f"Error getting tickers: {e}")
             time.sleep(2)
             if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
 
@@ -173,12 +171,19 @@ def check_ticker(ticker):
 
 def perform_scan(chat_id, is_manual=False):
     if SETTINGS["IS_SCANNING"]:
-        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!", reply_markup=get_main_keyboard())
+        # Используем отдельный инстанс для отправки, чтобы не блокировать polling
+        try: 
+            sender = telebot.TeleBot(TG_TOKEN)
+            sender.send_message(chat_id, "⚠️ Сканирование уже идет!", reply_markup=get_main_keyboard())
         except: pass
         return
     
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
+    
+    # Создаем ОТДЕЛЬНОГО бота для отправки сообщений в этом потоке
+    # Это предотвращает конфликты SSL/Connection с основным ботом
+    sender_bot = telebot.TeleBot(TG_TOKEN)
     
     local_now = get_local_now()
     current_date_str = local_now.strftime("%Y-%m-%d")
@@ -190,21 +195,20 @@ def perform_scan(chat_id, is_manual=False):
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
     header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
-    # Ограничиваем список тикеров лимитом
     tickers = get_sp500_tickers()
-    limit = SETTINGS.get("TICKER_LIMIT", 50) # Default to 50 if None
-    if limit and limit > 0:
+    
+    # Применяем лимит
+    limit = SETTINGS.get("TICKER_LIMIT", 50)
+    if limit > 0:
         tickers = tickers[:limit]
         
     total_tickers = len(tickers)
     
-    # Обновляем чаще (каждые 5 тикеров)
-    update_step = 5
+    # Обновление прогресса
+    update_step = 5 
 
     status_msg = None
     try:
-        print(f"Sending start message to {chat_id}...")
-        # Отправляем сообщение сразу с 0% прогрессом
         initial_bar = "░" * 10
         initial_text = (
             f"{header}\nРежим: {mode_txt}\n"
@@ -212,21 +216,20 @@ def perform_scan(chat_id, is_manual=False):
             f"Лимит: {total_tickers} шт.\n\n"
             f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
         )
-        status_msg = bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-        print("Start message sent.")
+        status_msg = sender_bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
     except Exception as e:
-        print(f"Failed to send start message: {e}")
+        print(f"Start msg error: {e}")
     
     found_count = 0
     
     for i, t in enumerate(tickers):
         if SETTINGS["STOP_SCAN"]:
-            try: bot.send_message(chat_id, "🛑 Сканирование остановлено.", reply_markup=get_main_keyboard())
+            try: sender_bot.send_message(chat_id, "🛑 Сканирование остановлено.", reply_markup=get_main_keyboard())
             except: pass
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # Обновляем прогресс
+        # Обновление прогресс-бара
         if i % update_step == 0 and status_msg and i > 0:
             try:
                 progress_pct = int((i / total_tickers) * 100)
@@ -238,9 +241,14 @@ def perform_scan(chat_id, is_manual=False):
                     f"Лимит: {total_tickers} шт.\n\n"
                     f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
                 )
-                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML") # Удален reply_markup при edit, так как он иногда вызывает баги
-            except Exception as e:
-                print(f"Error updating progress: {e}")
+                sender_bot.edit_message_text(
+                    chat_id=chat_id, 
+                    message_id=status_msg.message_id, 
+                    text=new_text, 
+                    parse_mode="HTML",
+                    reply_markup=get_main_keyboard()
+                )
+            except: pass # Игнорируем ошибки обновления (например, если сообщение не изменилось)
 
         res = check_ticker(t)
         if res:
@@ -251,18 +259,17 @@ def perform_scan(chat_id, is_manual=False):
             found_count += 1
             icon = "🔥 NEW" if res['is_new'] else "🟢"
             msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
-            try: bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=get_main_keyboard())
+            try: sender_bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=get_main_keyboard())
             except: pass
     
     try:
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
         if status_msg:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML") # Без кнопок при edit
-            # Отправляем кнопки отдельным сообщением или убеждаемся, что они есть у пользователя
+            sender_bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
         else:
-            bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
-        bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
+        sender_bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
         
     except: pass
     
