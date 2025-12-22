@@ -77,7 +77,7 @@ def get_shared_state():
         "STOP_SCAN": False,
         "SHOW_ONLY_NEW": True, 
         "LAST_SCAN_TIME": "Никогда",
-        "CHAT_IDS": set(), # Храним список всех активных чатов
+        "CHAT_IDS": set(), 
         "APPROVED_IDS": fetch_approved_ids(), 
         "NOTIFIED_TODAY": set(), 
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -85,6 +85,11 @@ def get_shared_state():
     }
 
 SETTINGS = get_shared_state()
+
+# ГЛОБАЛЬНЫЙ ПРОГРЕСС ДЛЯ BUFFER BAR
+PROGRESS = {
+    "current": 0, "total": 0, "running": False, "msg_id": None, "chat_id": None, "header": ""
+}
 
 def is_authorized(user_id):
     if ADMIN_ID != 0 and user_id == ADMIN_ID: return True
@@ -119,7 +124,6 @@ def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
 def check_ticker(ticker):
-    """Логика из вашей последней рабочей версии"""
     try:
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, session=YF_SESSION)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
@@ -191,6 +195,25 @@ def check_ticker(ticker):
     except: return None
     return None
 
+# ==========================================
+# 3. УПРАВЛЕНИЕ СКАНЕРОМ И PROGRESS BAR
+# ==========================================
+
+def progress_updater():
+    """Обновляет Buffer Bar в Telegram каждые 5 секунд"""
+    sender_bot = telebot.TeleBot(TG_TOKEN)
+    while PROGRESS["running"]:
+        try:
+            if PROGRESS["total"] > 0:
+                pct = int((PROGRESS["current"] / PROGRESS["total"]) * 100)
+                bar_str = "▓" * (pct // 10) + "░" * (10 - (pct // 10))
+                text = (f"{PROGRESS['header']}\n"
+                        f"Прогресс: {PROGRESS['current']}/{PROGRESS['total']} ({pct}%)\n"
+                        f"[{bar_str}]")
+                sender_bot.edit_message_text(chat_id=PROGRESS["chat_id"], message_id=PROGRESS["msg_id"], text=text, parse_mode="HTML")
+        except: pass
+        time.sleep(5)
+
 def perform_scan(chat_id, is_manual=False):
     sender_bot = telebot.TeleBot(TG_TOKEN)
 
@@ -212,19 +235,30 @@ def perform_scan(chat_id, is_manual=False):
         mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
         header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
         tickers = get_sp500_tickers()
+        total_tickers = len(tickers)
         
-        start_text = (f"{header}\nРежим: {mode_txt}\n"
-                      f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                      f"⏳ <b>Сканирование началось...</b>")
-        sender_bot.send_message(chat_id, start_text, parse_mode="HTML")
+        # Создаем сообщение для прогресс-бара
+        start_msg = sender_bot.send_message(chat_id, f"{header}\n⏳ Инициализация...", parse_mode="HTML")
+        
+        # Настройка глобального прогресса
+        PROGRESS.update({
+            "current": 0, "total": total_tickers, "running": True, 
+            "msg_id": start_msg.message_id, "chat_id": chat_id, "header": header
+        })
+        
+        # Запуск отдельного потока для обновления Buffer Bar
+        threading.Thread(target=progress_updater, daemon=True).start()
         
         found_count = 0
         for i, t in enumerate(tickers):
             if SETTINGS["STOP_SCAN"]: 
+                PROGRESS["running"] = False
                 sender_bot.send_message(chat_id, "🛑 Сканирование остановлено.")
                 break
             
-            # Анти-блок Yahoo (пауза каждые 15 акций)
+            PROGRESS["current"] = i + 1
+            
+            # Анти-блок Yahoo
             if i > 0 and i % 15 == 0: time.sleep(1)
             
             res = check_ticker(t)
@@ -235,24 +269,26 @@ def perform_scan(chat_id, is_manual=False):
                 icon = "🔥 NEW" if res['is_new'] else "🟢"
                 msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
                 
-                # Отправка всем одобренным, если это авто-скан, или только инициатору, если ручной
+                # Отправка
                 targets = [chat_id] if is_manual else list(SETTINGS["CHAT_IDS"])
                 for target in targets:
                     if is_authorized(target):
                         try: sender_bot.send_message(target, msg, parse_mode="HTML")
                         except: pass
         
+        PROGRESS["running"] = False
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else "🏁 <b>Завершено</b>. Ничего не найдено."
         sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
     except Exception as e:
+        PROGRESS["running"] = False
         sender_bot.send_message(chat_id, f"❌ Ошибка: {e}")
     finally:
         SETTINGS["IS_SCANNING"] = False
         SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
 
 # ==========================================
-# 3. ОБРАБОТЧИКИ ТЕЛЕГРАМ
+# 4. ОБРАБОТЧИКИ ТЕЛЕГРАМ
 # ==========================================
 
 @bot.message_handler(func=lambda m: not is_authorized(m.from_user.id))
@@ -320,11 +356,15 @@ def back_to_main(message):
 @bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit())
 def handle_values(message):
     if '%' in message.text:
-        SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
-        bot.reply_to(message, f"✅ ATR: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
+        try:
+            SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
+            bot.reply_to(message, f"✅ ATR: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
+        except: pass
     elif message.text.isdigit():
-        SETTINGS["LENGTH_MAJOR"] = int(message.text)
-        bot.reply_to(message, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+        try:
+            SETTINGS["LENGTH_MAJOR"] = int(message.text)
+            bot.reply_to(message, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+        except: pass
 
 @bot.message_handler(func=lambda m: m.text == 'Time 🕒')
 def check_time(message):
@@ -332,7 +372,7 @@ def check_time(message):
     bot.reply_to(message, f"🕒 Ваше время: <b>{local_time}</b>", parse_mode="HTML")
 
 # ==========================================
-# 4. СЕРВИСЫ
+# 5. СЕРВИСЫ
 # ==========================================
 def start_polling():
     while True:
@@ -355,7 +395,7 @@ def run_background_services():
     return True
 
 # ==========================================
-# 5. ИНТЕРФЕЙС STREAMLIT
+# 6. ИНТЕРФЕЙС STREAMLIT
 # ==========================================
 st.title("🤖 Vova Bot Server")
 run_background_services()
