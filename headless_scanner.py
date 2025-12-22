@@ -19,8 +19,6 @@ st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="cente
 # 1. НАСТРОЙКИ И ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ
 # ==========================================
 
-# Ссылка на RAW файл в GitHub (создайте txt файл, где каждый ID с новой строки)
-# Пример: https://raw.githubusercontent.com/ваш_логин/репозиторий/main/users.txt
 try:
     GITHUB_USERS_URL = st.secrets.get("GITHUB_USERS_URL", "")
     ADMIN_ID = int(st.secrets.get("ADMIN_ID", 0))
@@ -70,7 +68,7 @@ def get_shared_state():
         "SHOW_ONLY_NEW": True,
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), 
-        "APPROVED_IDS": fetch_approved_ids(), # Загружаем из GitHub при старте
+        "APPROVED_IDS": fetch_approved_ids(), 
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
@@ -116,40 +114,102 @@ def pine_rma(series, length):
 
 def check_ticker(ticker):
     try:
+        # Загружаем 2 года истории для SMA 200 и Sequence
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
         if len(df) < 250: return None
+
+        # 1. SMA Major
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
+        
+        # 2. ATR
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
         df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
         df['ATR_Val'] = df['TR'].rolling(window=14).mean()
         df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
+        
+        # 3. ADX & DI
         df['Up'] = df['High'] - df['High'].shift(1)
         df['Down'] = df['Low'].shift(1) - df['Low']
         df['+DM'] = np.where((df['Up'] > df['Down']) & (df['Up'] > 0), df['Up'], 0)
         df['-DM'] = np.where((df['Down'] > df['Up']) & (df['Down'] > 0), df['Down'], 0)
-        tr = pine_rma(df['TR'], 14); p_dm = pine_rma(df['+DM'], 14); m_dm = pine_rma(df['-DM'], 14)
-        df['DI_Plus'] = 100 * (p_dm / tr); df['DI_Minus'] = 100 * (m_dm / tr)
-        df['ADX'] = pine_rma(100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus']), 14)
+        tr = pine_rma(df['TR'], 14)
+        p_dm = pine_rma(df['+DM'], 14)
+        m_dm = pine_rma(df['-DM'], 14)
+        df['DI_Plus'] = 100 * (p_dm / tr)
+        df['DI_Minus'] = 100 * (m_dm / tr)
+        dx = 100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus'])
+        df['ADX'] = pine_rma(dx, 14)
         
-        seq_states = [0]
+        # 4. SEQUENCE LOGIC (ПОЛНАЯ ВЕРСИЯ)
+        seq_states = []
+        seqState = 0
+        seqHigh = df['High'].iloc[0]
+        seqLow = df['Low'].iloc[0]
         criticalLevel = df['Low'].iloc[0]
+        
         cl = df['Close'].values
-        for i in range(1, len(df)):
+        hi = df['High'].values
+        lo = df['Low'].values
+        
+        for i in range(len(df)):
+            if i == 0:
+                seq_states.append(0)
+                continue
+            
+            c, h, l = cl[i], hi[i], lo[i]
             prevS = seq_states[-1]
-            if (prevS == 1 and cl[i] < criticalLevel): seq_states.append(-1)
-            elif (prevS == -1 and cl[i] > criticalLevel): seq_states.append(1)
-            else: seq_states.append(prevS)
+            
+            # Проверка пробоя уровня
+            isBreak = (prevS == 1 and c < criticalLevel) or (prevS == -1 and c > criticalLevel)
+            
+            if isBreak:
+                if prevS == 1:
+                    seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
+                else:
+                    seqState = 1; seqHigh = h; seqLow = l; criticalLevel = l
+            else:
+                seqState = prevS
+                if seqState == 1:
+                    if h >= seqHigh:
+                        seqHigh = h
+                        criticalLevel = l # Обновляем уровень поддержки при новом хае
+                elif seqState == -1:
+                    if l <= seqLow:
+                        seqLow = l
+                        criticalLevel = h # Обновляем уровень сопротивления при новом лое
+                else: # Нейтральное состояние (старт)
+                    if c > seqHigh:
+                        seqState = 1; criticalLevel = l
+                    elif c < seqLow:
+                        seqState = -1; criticalLevel = h
+                    else:
+                        seqHigh = max(seqHigh, h)
+                        seqLow = min(seqLow, l)
+            seq_states.append(seqState)
         
-        last = df.iloc[-1]; prev = df.iloc[-2]
-        all_green_cur = (seq_states[-1] == 1) and (last['Close'] > last['SMA_Major']) and (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
-        all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        if pd.isna(last['ADX']): return None
         
-        if all_green_cur and last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"]:
-            if not SETTINGS["SHOW_ONLY_NEW"] or (all_green_cur and not all_green_prev):
-                return {'ticker': ticker, 'price': last['Close'], 'atr': last['ATR_Pct'], 'is_new': (all_green_cur and not all_green_prev)}
+        # Функция проверки 3-х зеленых сигналов
+        def get_all_green(row, s_val):
+            cond_seq = (s_val == 1)
+            cond_ma = (row['Close'] > row['SMA_Major'])
+            cond_trend = (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Plus'] > row['DI_Minus'])
+            return cond_seq and cond_ma and cond_trend
+
+        all_green_cur = get_all_green(last, seq_states[-1])
+        all_green_prev = get_all_green(prev, seq_states[-2])
+        
+        pass_filters = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
+        is_new_signal = all_green_cur and not all_green_prev
+
+        if all_green_cur and pass_filters:
+            if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
+                return {'ticker': ticker, 'price': last['Close'], 'atr': last['ATR_Pct'], 'is_new': is_new_signal}
     except: return None
     return None
 
@@ -189,7 +249,7 @@ def perform_scan(chat_id=None, is_manual=False):
         total_tickers = len(tickers)
         
         if is_manual and chat_id:
-            status_msg = bot.send_message(chat_id, "⏳ Инициализация...", parse_mode="HTML")
+            status_msg = bot.send_message(chat_id, "⏳ Инициализация поиска...", parse_mode="HTML")
             PROGRESS.update({"current": 0, "total": total_tickers, "running": True, "msg_id": status_msg.message_id, "chat_id": chat_id, "header": "🚀 <b>Ручной поиск</b>"})
             threading.Thread(target=progress_updater, daemon=True).start()
         
