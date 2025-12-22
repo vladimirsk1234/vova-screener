@@ -18,6 +18,12 @@ st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="cente
 # 1. НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ
 # ==========================================
 
+# ВАЖНО: Укажите здесь свой Telegram ID через секреты Streamlit (ADMIN_ID)
+try:
+    ADMIN_ID = int(st.secrets.get("ADMIN_ID", 0))
+except:
+    ADMIN_ID = 0
+
 try:
     TG_TOKEN = st.secrets["TG_TOKEN"]
 except:
@@ -44,7 +50,8 @@ def get_shared_state():
         "STOP_SCAN": False,
         "SHOW_ONLY_NEW": True,
         "LAST_SCAN_TIME": "Никогда",
-        "CHAT_ID": None,
+        "CHAT_IDS": set(), # Кто нажал /start (подписчики)
+        "APPROVED_IDS": {ADMIN_ID} if ADMIN_ID != 0 else set(), # Белый список
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
@@ -62,6 +69,15 @@ PROGRESS = {
     "chat_id": None,
     "header": ""
 }
+
+# --- ПРОВЕРКА ДОСТУПА ---
+def is_authorized(user_id):
+    global ADMIN_ID
+    if ADMIN_ID == 0:
+        ADMIN_ID = user_id
+        SETTINGS["APPROVED_IDS"].add(user_id)
+        return True
+    return user_id == ADMIN_ID or user_id in SETTINGS["APPROVED_IDS"]
 
 # --- МЕНЮ ---
 def get_main_keyboard():
@@ -86,7 +102,7 @@ def get_sp500_tickers():
             response = requests.get(url, headers=headers, timeout=10)
             table = pd.read_html(io.StringIO(response.text))
             return [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
-        except Exception as e:
+        except Exception:
             time.sleep(2)
             if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
 
@@ -95,15 +111,12 @@ def pine_rma(series, length):
 
 def check_ticker(ticker):
     try:
-        # ВОЗВРАЩАЕМ 2 ГОДА: Для Sequence и SMA200 нужна глубокая история
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
         if len(df) < 250: return None
 
-        # SMA
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
-        # ATR
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
@@ -111,7 +124,6 @@ def check_ticker(ticker):
         df['ATR_Val'] = df['TR'].rolling(window=14).mean()
         df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
-        # ADX
         df['Up'] = df['High'] - df['High'].shift(1)
         df['Down'] = df['Low'].shift(1) - df['Low']
         df['+DM'] = np.where((df['Up'] > df['Down']) & (df['Up'] > 0), df['Up'], 0)
@@ -120,62 +132,39 @@ def check_ticker(ticker):
         df['DI_Plus'] = 100 * (p_dm / tr); df['DI_Minus'] = 100 * (m_dm / tr)
         df['ADX'] = pine_rma(100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus']), 14)
 
-        # SEQUENCE LOGIC (Расчет на всей доступной истории для стабильности)
         seq_states = []
         seqState = 0
-        seqHigh = df['High'].iloc[0]
-        seqLow = df['Low'].iloc[0]
-        criticalLevel = df['Low'].iloc[0]
-        
-        cl = df['Close'].values
-        hi = df['High'].values
-        lo = df['Low'].values
+        seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; criticalLevel = df['Low'].iloc[0]
+        cl = df['Close'].values; hi = df['High'].values; lo = df['Low'].values
         
         for i in range(len(df)):
             if i == 0:
-                seq_states.append(0)
-                continue
-                
+                seq_states.append(0); continue
             c, h, l = cl[i], hi[i], lo[i]
             prevSeqState = seq_states[-1]
-            
             isBreak = (prevSeqState == 1 and c < criticalLevel) or (prevSeqState == -1 and c > criticalLevel)
-            
             if isBreak:
-                if prevSeqState == 1:
-                    seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
-                else:
-                    seqState = 1; seqHigh = h; seqLow = l; criticalLevel = l
+                if prevSeqState == 1: seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
+                else: seqState = 1; seqHigh = h; seqLow = l; criticalLevel = l
             else:
                 seqState = prevSeqState
                 if seqState == 1:
-                    if h >= seqHigh:
-                        seqHigh = h
-                        criticalLevel = l
+                    if h >= seqHigh: seqHigh = h
+                    if h >= seqHigh: criticalLevel = l
                 elif seqState == -1:
-                    if l <= seqLow:
-                        seqLow = l
-                        criticalLevel = h
+                    if l <= seqLow: seqLow = l
+                    if l <= seqLow: criticalLevel = h
                 else:
-                    if c > seqHigh:
-                        seqState = 1; criticalLevel = l
-                    elif c < seqLow:
-                        seqState = -1; criticalLevel = h
-                    else:
-                        seqHigh = max(seqHigh, h)
-                        seqLow = min(seqLow, l)
+                    if c > seqHigh: seqState = 1; criticalLevel = l
+                    elif c < seqLow: seqState = -1; criticalLevel = h
+                    else: seqHigh = max(seqHigh, h); seqLow = min(seqLow, l)
             seq_states.append(seqState)
 
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
+        last = df.iloc[-1]; prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        # Условия 3-х зеленых
         def is_green(row, s_val):
-            cond_seq = (s_val == 1)
-            cond_ma = (row['Close'] > row['SMA_Major'])
-            cond_trend = (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Plus'] > row['DI_Minus'])
-            return cond_seq and cond_ma and cond_trend
+            return (s_val == 1) and (row['Close'] > row['SMA_Major']) and (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Plus'] > row['DI_Minus'])
 
         all_green_cur = is_green(last, seq_states[-1])
         all_green_prev = is_green(prev, seq_states[-2])
@@ -184,43 +173,34 @@ def check_ticker(ticker):
         is_new_signal = all_green_cur and not all_green_prev
 
         if all_green_cur and pass_filters:
-            # Если "Только новые", то возвращаем только если раньше был красный. Иначе возвращаем все активные.
             if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
                 return {'ticker': ticker, 'price': last['Close'], 'atr': last['ATR_Pct'], 'is_new': is_new_signal}
     except: return None
     return None
 
 # ==========================================
-# 3. ПОТОК ОБНОВЛЕНИЯ ИНТЕРФЕЙСА (HEARTBEAT)
+# 3. ПОТОК ОБНОВЛЕНИЯ ИНТЕРФЕЙСА
 # ==========================================
 def progress_updater():
     while PROGRESS["running"]:
         try:
             if PROGRESS["total"] > 0:
                 pct = int((PROGRESS["current"] / PROGRESS["total"]) * 100)
-                bar_filled = pct // 10
-                bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
-                
-                text = (
-                    f"{PROGRESS['header']}\n"
-                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                    f"Прогресс: {PROGRESS['current']}/{PROGRESS['total']} ({pct}%)\n"
-                    f"[{bar_str}]"
-                )
-                
-                bot.edit_message_text(
-                    chat_id=PROGRESS["chat_id"],
-                    message_id=PROGRESS["msg_id"],
-                    text=text,
-                    parse_mode="HTML"
-                )
+                bar_str = "▓" * (pct // 10) + "░" * (10 - (pct // 10))
+                text = (f"{PROGRESS['header']}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                        f"Прогресс: {PROGRESS['current']}/{PROGRESS['total']} ({pct}%)\n[{bar_str}]")
+                bot.edit_message_text(chat_id=PROGRESS["chat_id"], message_id=PROGRESS["msg_id"], text=text, parse_mode="HTML")
         except: pass
-        time.sleep(5) # Telegram не любит частые обновления
+        time.sleep(5)
 
-def perform_scan(chat_id, is_manual=False):
+def perform_scan(chat_id=None, is_manual=False):
+    if is_manual and chat_id and not is_authorized(chat_id):
+        return
+
     if SETTINGS["IS_SCANNING"]:
-        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!")
-        except: pass
+        if chat_id:
+            try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!")
+            except: pass
         return
     
     SETTINGS["IS_SCANNING"] = True
@@ -229,43 +209,32 @@ def perform_scan(chat_id, is_manual=False):
     try:
         local_now = get_local_now()
         current_date_str = local_now.strftime("%Y-%m-%d")
-        
         if SETTINGS["LAST_DATE"] != current_date_str:
             SETTINGS["NOTIFIED_TODAY"] = set()
             SETTINGS["LAST_DATE"] = current_date_str
         
-        header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
         tickers = get_sp500_tickers()
+        if not tickers: return
         total_tickers = len(tickers)
         
-        status_msg = bot.send_message(chat_id, "⏳ Инициализация...", parse_mode="HTML")
-        
-        PROGRESS.update({
-            "current": 0,
-            "total": total_tickers,
-            "running": True,
-            "msg_id": status_msg.message_id,
-            "chat_id": chat_id,
-            "header": header
-        })
-        
-        ui_thread = threading.Thread(target=progress_updater, daemon=True)
-        ui_thread.start()
+        if is_manual and chat_id:
+            status_msg = bot.send_message(chat_id, "⏳ Инициализация поиска...", parse_mode="HTML")
+            PROGRESS.update({
+                "current": 0, "total": total_tickers, "running": True,
+                "msg_id": status_msg.message_id, "chat_id": chat_id, "header": "🚀 <b>Ручной поиск</b>"
+            })
+            threading.Thread(target=progress_updater, daemon=True).start()
         
         found_count = 0
         
         for i, t in enumerate(tickers):
             if SETTINGS["STOP_SCAN"]:
                 PROGRESS["running"] = False
-                try: bot.send_message(chat_id, "🛑 Остановлено.")
-                except: pass
                 break
             
             PROGRESS["current"] = i + 1
-
             res = check_ticker(t)
             if res:
-                # Если авто-скан, пропускаем уже отправленные сегодня
                 if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
                     continue
                 
@@ -273,17 +242,25 @@ def perform_scan(chat_id, is_manual=False):
                 found_count += 1
                 icon = "🔥 NEW" if res['is_new'] else "🟢"
                 msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
-                try: bot.send_message(chat_id, msg, parse_mode="HTML")
-                except: pass
+                
+                targets = [chat_id] if is_manual else list(SETTINGS["CHAT_IDS"])
+                for target in targets:
+                    if is_authorized(target):
+                        try: bot.send_message(target, msg, parse_mode="HTML")
+                        except: pass
         
         PROGRESS["running"] = False
-        time.sleep(1)
-        
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
-        try:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-        except:
-            bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+        
+        targets = [chat_id] if is_manual else list(SETTINGS["CHAT_IDS"])
+        for target in targets:
+            if is_authorized(target):
+                try:
+                    if is_manual and chat_id == target:
+                        bot.edit_message_text(chat_id=target, message_id=PROGRESS["msg_id"], text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+                    else:
+                        bot.send_message(target, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+                except: pass
             
     except Exception as e:
         print(f"Global scan error: {e}")
@@ -293,20 +270,62 @@ def perform_scan(chat_id, is_manual=False):
         SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
 
 # ==========================================
-# 4. ОБРАБОТЧИКИ КОМАНД
+# 3. ОБРАБОТЧИКИ КОМАНД
 # ==========================================
+
+# 1. Проверка доступа
+@bot.message_handler(func=lambda m: not is_authorized(m.from_user.id))
+def unauthorized_access(message):
+    bot.send_message(message.chat.id, 
+        f"⛔ <b>Доступ ограничен.</b>\n\n"
+        f"Ваш ID: <code>{message.from_user.id}</code>\n"
+        f"Отправьте этот ID администратору <b>@Vova_Skl</b> для получения доступа.", 
+        parse_mode="HTML")
+
+# 2. Одобренные пользователи
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    SETTINGS["CHAT_ID"] = message.chat.id
+    SETTINGS["CHAT_IDS"].add(message.chat.id)
     bot.send_message(message.chat.id, 
-        "👋 <b>Vova S&P 500 Screener</b>\nБот активен. Нажмите кнопку меню ниже.",
+        "👋 <b>Vova S&P 500 Screener</b>\nБот активен. Вы одобрены и подписаны на уведомления.",
         parse_mode="HTML", reply_markup=get_main_keyboard()
     )
 
+# --- АДМИН-КОМАНДЫ ---
+@bot.message_handler(commands=['approve'])
+def approve_user(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        new_id = int(message.text.split()[1])
+        SETTINGS["APPROVED_IDS"].add(new_id)
+        bot.send_message(ADMIN_ID, f"✅ Пользователь {new_id} одобрен.")
+        try: bot.send_message(new_id, "🎉 Администратор одобрил ваш доступ! Нажмите /start")
+        except: pass
+    except:
+        bot.send_message(ADMIN_ID, "❌ Ошибка. Пример: `/approve 12345678`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['revoke'])
+def revoke_user(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        old_id = int(message.text.split()[1])
+        if old_id in SETTINGS["APPROVED_IDS"]:
+            SETTINGS["APPROVED_IDS"].remove(old_id)
+            bot.send_message(ADMIN_ID, f"🚫 Доступ для {old_id} отозван.")
+    except:
+        bot.send_message(ADMIN_ID, "❌ Ошибка. Пример: `/revoke 12345678`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['list_users'])
+def list_users(message):
+    if message.from_user.id != ADMIN_ID: return
+    users = "\n".join([f"- <code>{u}</code>" for u in SETTINGS["APPROVED_IDS"]])
+    bot.send_message(ADMIN_ID, f"👥 <b>Список одобренных ID:</b>\n{users}", parse_mode="HTML")
+
+# --- СКАН И УПРАВЛЕНИЕ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
 def manual_scan(message):
-    SETTINGS["CHAT_ID"] = message.chat.id
-    threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
+    if is_authorized(message.from_user.id):
+        threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
 
 @bot.message_handler(func=lambda m: m.text == 'Stop 🛑' or m.text.startswith('/stop'))
 def stop_scan(message):
@@ -320,16 +339,15 @@ def stop_scan(message):
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все активные"
     bot.reply_to(message, 
-        f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\n"
-        f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}\n"
-        f"Посл. скан: {SETTINGS['LAST_SCAN_TIME']}", 
+        f"⚙️ <b>Статус сервера:</b>\nЮзеров в системе: {len(SETTINGS['CHAT_IDS'])}\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\n"
+        f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", 
         parse_mode="HTML"
     )
 
 @bot.message_handler(func=lambda m: m.text == 'Time 🕒')
 def check_time(message):
     local_time = get_local_now().strftime("%H:%M")
-    bot.reply_to(message, f"🕒 Ваше локальное время: <b>{local_time}</b> (UTC{SETTINGS['TIMEZONE_OFFSET']})", parse_mode="HTML")
+    bot.reply_to(message, f"🕒 Ваше время: <b>{local_time}</b> (UTC{SETTINGS['TIMEZONE_OFFSET']})", parse_mode="HTML")
 
 @bot.message_handler(commands=['set_offset'])
 def set_offset(message):
@@ -340,7 +358,7 @@ def set_offset(message):
     except:
         bot.reply_to(message, "❌ Ошибка. Пример: /set_offset -7")
 
-# --- МЕНЮ ATR / SMA ---
+# --- МЕНЮ НАСТРОЕК ---
 @bot.message_handler(func=lambda m: m.text == 'ATR 📉')
 def open_atr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -373,13 +391,13 @@ def handle_settings(message):
         bot.send_message(message.chat.id, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
     elif 'НОВЫЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = True
-        bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ сигналы", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ", reply_markup=get_main_keyboard())
     elif 'ВСЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = False
-        bot.send_message(message.chat.id, "✅ Режим: ВСЕ активные сигналы", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, "✅ Режим: ВСЕ активные", reply_markup=get_main_keyboard())
 
 # ==========================================
-# 5. СЕРВИСЫ
+# 4. СЕРВИСЫ
 # ==========================================
 def start_polling():
     while True:
@@ -389,28 +407,24 @@ def start_polling():
 def start_scheduler():
     while True:
         time.sleep(3600)
-        if SETTINGS["CHAT_ID"] and not SETTINGS["IS_SCANNING"]:
-            perform_scan(SETTINGS["CHAT_ID"], False)
+        if SETTINGS["CHAT_IDS"] and not SETTINGS["IS_SCANNING"]:
+            perform_scan(is_manual=False)
 
 @st.cache_resource
 def run_background_services():
-    t1 = threading.Thread(target=start_polling, daemon=True)
-    t1.start()
-    t2 = threading.Thread(target=start_scheduler, daemon=True)
-    t2.start()
+    threading.Thread(target=start_polling, daemon=True).start()
+    threading.Thread(target=start_scheduler, daemon=True).start()
     return True
 
 # ==========================================
-# 6. ИНТЕРФЕЙС STREAMLIT
+# 5. ИНТЕРФЕЙС STREAMLIT
 # ==========================================
 st.title("🤖 Vova Bot Server")
-
-st.image("https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1000&auto=format&fit=crop", 
-         use_container_width=True)
+st.image("https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1000&auto=format&fit=crop", use_container_width=True)
 
 run_background_services()
-st.success("✅ Сервер активен! Бот работает в фоновом режиме.")
-st.write(f"Уникальных сигналов за сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
+st.info(f"🔑 Администратор ID: {ADMIN_ID if ADMIN_ID != 0 else 'Ожидание первого входа...'}")
+st.success(f"👥 Одобрено пользователей: {len(SETTINGS['APPROVED_IDS'])}")
 st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
