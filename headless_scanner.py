@@ -10,6 +10,13 @@ import threading
 import requests
 import os
 
+# --- КОНФИГУРАЦИЯ СТРАНИЦЫ (Должна быть в самом начале) ---
+st.set_page_config(
+    page_title="Vova Bot Server",
+    page_icon="🤖",
+    layout="centered"
+)
+
 # ==========================================
 # 1. НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ
 # ==========================================
@@ -359,6 +366,11 @@ def run_background_services():
 # 5. ИНТЕРФЕЙС
 # ==========================================
 st.title("🤖 Vova Bot Server")
+
+# Картинка
+st.image("https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=1000&auto=format&fit=crop", 
+         use_container_width=True)
+
 run_background_services()
 st.success("✅ Сервер активен! Токен скрыт.")
 st.write(f"Отправлено сигналов сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
