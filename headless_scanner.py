@@ -53,7 +53,7 @@ def get_shared_state():
 
 SETTINGS = get_shared_state()
 
-# ГЛОБАЛЬНОЕ СОСТОЯНИЕ ПРОГРЕССА (Для отделения UI от логики)
+# ГЛОБАЛЬНОЕ СОСТОЯНИЕ ПРОГРЕССА
 PROGRESS = {
     "current": 0,
     "total": 0,
@@ -95,17 +95,23 @@ def pine_rma(series, length):
 
 def check_ticker(ticker):
     try:
-        df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
+        # ВОЗВРАЩАЕМ 2 ГОДА: Для Sequence и SMA200 нужна глубокая история
+        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-        if len(df) < 200: return None
+        if len(df) < 250: return None
 
+        # SMA
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
+        # ATR
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
         df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
+        df['ATR_Val'] = df['TR'].rolling(window=14).mean()
+        df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
+        # ADX
         df['Up'] = df['High'] - df['High'].shift(1)
         df['Down'] = df['Low'].shift(1) - df['Low']
         df['+DM'] = np.where((df['Up'] > df['Down']) & (df['Up'] > 0), df['Up'], 0)
@@ -114,42 +120,71 @@ def check_ticker(ticker):
         df['DI_Plus'] = 100 * (p_dm / tr); df['DI_Minus'] = 100 * (m_dm / tr)
         df['ADX'] = pine_rma(100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus']), 14)
 
-        seqState = 0; seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; crit = df['Low'].iloc[0]
-        df_calc = df.iloc[-250:].copy()
-        cl = df_calc['Close'].values; hi = df_calc['High'].values; lo = df_calc['Low'].values
+        # SEQUENCE LOGIC (Расчет на всей доступной истории для стабильности)
         seq_states = []
+        seqState = 0
+        seqHigh = df['High'].iloc[0]
+        seqLow = df['Low'].iloc[0]
+        criticalLevel = df['Low'].iloc[0]
         
-        for i in range(len(df_calc)):
+        cl = df['Close'].values
+        hi = df['High'].values
+        lo = df['Low'].values
+        
+        for i in range(len(df)):
+            if i == 0:
+                seq_states.append(0)
+                continue
+                
             c, h, l = cl[i], hi[i], lo[i]
-            if i == 0: seq_states.append(0); continue
-            pS = seq_states[-1]
-            brk = (pS == 1 and c < crit) or (pS == -1 and c > crit)
-            if brk:
-                if pS == 1: seqState = -1; seqHigh = h; seqLow = l; crit = h
-                else: seqState = 1; seqHigh = h; seqLow = l; crit = l
-            else:
-                if seqState == 1:
-                    if h >= seqHigh: seqHigh = h
-                    crit = l if h >= seqHigh else crit
-                elif seqState == -1:
-                    if l <= seqLow: seqLow = l
-                    crit = h if l <= seqLow else crit
+            prevSeqState = seq_states[-1]
+            
+            isBreak = (prevSeqState == 1 and c < criticalLevel) or (prevSeqState == -1 and c > criticalLevel)
+            
+            if isBreak:
+                if prevSeqState == 1:
+                    seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
                 else:
-                    if c > seqHigh: seqState = 1; crit = l
-                    elif c < seqLow: seqState = -1; crit = h
-                    else: seqHigh = max(seqHigh, h); seqLow = min(seqLow, l)
+                    seqState = 1; seqHigh = h; seqLow = l; criticalLevel = l
+            else:
+                seqState = prevSeqState
+                if seqState == 1:
+                    if h >= seqHigh:
+                        seqHigh = h
+                        criticalLevel = l
+                elif seqState == -1:
+                    if l <= seqLow:
+                        seqLow = l
+                        criticalLevel = h
+                else:
+                    if c > seqHigh:
+                        seqState = 1; criticalLevel = l
+                    elif c < seqLow:
+                        seqState = -1; criticalLevel = h
+                    else:
+                        seqHigh = max(seqHigh, h)
+                        seqLow = min(seqLow, l)
             seq_states.append(seqState)
 
-        last = df_calc.iloc[-1]; prev = df_calc.iloc[-2]
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        all_green_cur = (seq_states[-1] == 1) and (last['Close'] > last['SMA_Major']) and (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
-        all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
+        # Условия 3-х зеленых
+        def is_green(row, s_val):
+            cond_seq = (s_val == 1)
+            cond_ma = (row['Close'] > row['SMA_Major'])
+            cond_trend = (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Plus'] > row['DI_Minus'])
+            return cond_seq and cond_ma and cond_trend
+
+        all_green_cur = is_green(last, seq_states[-1])
+        all_green_prev = is_green(prev, seq_states[-2])
         
         pass_filters = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
         is_new_signal = all_green_cur and not all_green_prev
 
         if all_green_cur and pass_filters:
+            # Если "Только новые", то возвращаем только если раньше был красный. Иначе возвращаем все активные.
             if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
                 return {'ticker': ticker, 'price': last['Close'], 'atr': last['ATR_Pct'], 'is_new': is_new_signal}
     except: return None
@@ -159,7 +194,6 @@ def check_ticker(ticker):
 # 3. ПОТОК ОБНОВЛЕНИЯ ИНТЕРФЕЙСА (HEARTBEAT)
 # ==========================================
 def progress_updater():
-    """Легкий поток, который только обновляет сообщение в Telegram раз в 4 секунды"""
     while PROGRESS["running"]:
         try:
             if PROGRESS["total"] > 0:
@@ -180,10 +214,8 @@ def progress_updater():
                     text=text,
                     parse_mode="HTML"
                 )
-        except Exception as e:
-            # Если Telegram отклоняет правку (Flood Limit), просто ждем следующего цикла
-            pass
-        time.sleep(4)
+        except: pass
+        time.sleep(5) # Telegram не любит частые обновления
 
 def perform_scan(chat_id, is_manual=False):
     if SETTINGS["IS_SCANNING"]:
@@ -206,10 +238,8 @@ def perform_scan(chat_id, is_manual=False):
         tickers = get_sp500_tickers()
         total_tickers = len(tickers)
         
-        # Создаем сообщение для прогресса
-        status_msg = bot.send_message(chat_id, "⏳ Инициализация сканирования...", parse_mode="HTML")
+        status_msg = bot.send_message(chat_id, "⏳ Инициализация...", parse_mode="HTML")
         
-        # Инициализируем глобальный прогресс и запускаем поток обновления UI
         PROGRESS.update({
             "current": 0,
             "total": total_tickers,
@@ -224,19 +254,18 @@ def perform_scan(chat_id, is_manual=False):
         
         found_count = 0
         
-        # ОСНОВНОЙ ЦИКЛ (Тяжелая работа)
         for i, t in enumerate(tickers):
             if SETTINGS["STOP_SCAN"]:
-                PROGRESS["running"] = False # Останавливаем UI поток
-                try: bot.send_message(chat_id, "🛑 Сканирование остановлено.")
+                PROGRESS["running"] = False
+                try: bot.send_message(chat_id, "🛑 Остановлено.")
                 except: pass
                 break
             
-            # Обновляем ТОЛЬКО счетчик (UI поток подхватит его сам)
             PROGRESS["current"] = i + 1
 
             res = check_ticker(t)
             if res:
+                # Если авто-скан, пропускаем уже отправленные сегодня
                 if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
                     continue
                 
@@ -247,11 +276,9 @@ def perform_scan(chat_id, is_manual=False):
                 try: bot.send_message(chat_id, msg, parse_mode="HTML")
                 except: pass
         
-        # Останавливаем поток обновления UI перед финальным сообщением
         PROGRESS["running"] = False
-        time.sleep(1) # Даем потоку завершиться
+        time.sleep(1)
         
-        # --- ФИНАЛ ---
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
         try:
             bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
@@ -291,7 +318,7 @@ def stop_scan(message):
 
 @bot.message_handler(func=lambda m: m.text == 'Status 📊' or m.text.startswith('/status'))
 def get_status(message):
-    mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
+    mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все активные"
     bot.reply_to(message, 
         f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\n"
         f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}\n"
@@ -346,10 +373,10 @@ def handle_settings(message):
         bot.send_message(message.chat.id, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
     elif 'НОВЫЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = True
-        bot.send_message(message.chat.id, "✅ Только новые", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ сигналы", reply_markup=get_main_keyboard())
     elif 'ВСЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = False
-        bot.send_message(message.chat.id, "✅ Все активные", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, "✅ Режим: ВСЕ активные сигналы", reply_markup=get_main_keyboard())
 
 # ==========================================
 # 5. СЕРВИСЫ
@@ -383,7 +410,7 @@ st.image("https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=10
 
 run_background_services()
 st.success("✅ Сервер активен! Бот работает в фоновом режиме.")
-st.write(f"Найдено сигналов за сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
+st.write(f"Уникальных сигналов за сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
 st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
