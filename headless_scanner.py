@@ -28,18 +28,28 @@ st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="cente
 
 def init_firestore():
     try:
+        # Извлекаем данные из окружения
         app_id = os.environ.get("__app_id", "default-app-id")
+        fb_config_str = os.environ.get("__firebase_config", "{}")
+        fb_config = json.loads(fb_config_str)
+        project_id = fb_config.get("projectId")
+
         try:
             firebase_admin.get_app()
         except ValueError:
-            fb_config = json.loads(os.environ.get("__firebase_config", "{}"))
-            cred = credentials.ApplicationDefault()
-            firebase_admin.initialize_app(cred)
+            # Инициализация с явным указанием Project ID для решения ошибки
+            if project_id:
+                firebase_admin.initialize_app(options={'projectId': project_id})
+            else:
+                # Попытка стандартной инициализации, если ID не найден
+                firebase_admin.initialize_app()
         
         db = firestore.client()
+        # Путь согласно ПРАВИЛУ 1: /artifacts/{appId}/public/data/{collectionName}
         users_ref = db.collection('artifacts').document(app_id).collection('public').document('data').collection('users')
         return users_ref
     except Exception as e:
+        # Если возникла ошибка, бот продолжит работу в оперативной памяти
         st.warning(f"База данных не подключена (используется память): {e}")
         return None
 
@@ -48,10 +58,12 @@ USERS_DB = init_firestore()
 def load_approved_ids():
     ids = set()
     try:
+        # Основной админ всегда имеет доступ
         admin_id = int(st.secrets.get("ADMIN_ID", 0))
         if admin_id != 0: ids.add(admin_id)
         
         if USERS_DB:
+            # ПРАВИЛО 2: Простой запрос всех документов, фильтрация в коде
             docs = USERS_DB.stream()
             for doc in docs:
                 data = doc.to_dict()
@@ -104,7 +116,7 @@ def get_shared_state():
         "SHOW_ONLY_NEW": True,
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), 
-        "APPROVED_IDS": load_approved_ids(),
+        "APPROVED_IDS": load_approved_ids(), # Загрузка из БД при старте
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
@@ -113,6 +125,7 @@ def get_shared_state():
 
 SETTINGS = get_shared_state()
 
+# ГЛОБАЛЬНОЕ СОСТОЯНИЕ ПРОГРЕССА
 PROGRESS = {
     "current": 0, "total": 0, "running": False, "msg_id": None, "chat_id": None, "header": ""
 }
@@ -290,7 +303,7 @@ def revoke_user(message):
         old_id = int(message.text.split()[1])
         if old_id in SETTINGS["APPROVED_IDS"]:
             SETTINGS["APPROVED_IDS"].remove(old_id)
-            save_user_to_cloud(old_id, False) # УДАЛЯЕМ ИЗ БАЗЫ
+            save_user_to_cloud(old_id, False) # Удаляем из базы данных
             bot.send_message(ADMIN_ID, f"🚫 Доступ для {old_id} отозван и удален из базы.")
             try: bot.send_message(old_id, "⛔ Ваш доступ к боту был отозван администратором.")
             except: pass
