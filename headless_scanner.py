@@ -119,7 +119,8 @@ def check_ticker(ticker):
 
 def perform_scan(chat_id):
     if SETTINGS["IS_SCANNING"]:
-        bot.send_message(chat_id, "⚠️ Сканирование уже идет! Введите /stop.")
+        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет! Введите /stop.")
+        except: pass
         return
     
     SETTINGS["IS_SCANNING"] = True
@@ -127,8 +128,11 @@ def perform_scan(chat_id):
     
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
     
-    # Отправляем начальное сообщение с прогрессом
-    status_msg = bot.send_message(chat_id, f"🚀 <b>Старт сканирования S&P 500</b>\nРежим: {mode_txt}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n⏳ Подготовка...", parse_mode="HTML")
+    # 1. Отправляем начальное сообщение (которое будем обновлять)
+    status_msg = None
+    try:
+        status_msg = bot.send_message(chat_id, f"🚀 <b>Старт сканирования S&P 500</b>\nРежим: {mode_txt}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n⏳ Подготовка списка...", parse_mode="HTML")
+    except: pass
     
     tickers = get_sp500_tickers()
     total_tickers = len(tickers)
@@ -136,22 +140,29 @@ def perform_scan(chat_id):
     
     for i, t in enumerate(tickers):
         if SETTINGS["STOP_SCAN"]:
-            bot.send_message(chat_id, "🛑 Остановлено пользователем.")
+            try: bot.send_message(chat_id, "🛑 Остановлено пользователем.")
+            except: pass
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # Обновляем прогресс каждые 25 тикеров (чтобы не словить бан от Telegram за спам)
-        if i % 25 == 0:
+        # 2. ОБНОВЛЯЕМ ПРОГРЕСС-БАР КАЖДЫЕ 20 ТИКЕРОВ
+        if i % 20 == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
-                bar = "▓" * (progress_pct // 10) + "░" * (10 - (progress_pct // 10))
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_msg.message_id,
-                    text=f"🚀 <b>Сканирование S&P 500</b>\nРежим: {mode_txt}\n\n⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar}]",
-                    parse_mode="HTML"
+                # Рисуем полоску: 10 квадратиков
+                bar_filled = int(progress_pct / 10)
+                bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
+                
+                new_text = (
+                    f"🚀 <b>Сканирование S&P 500</b>\n"
+                    f"Режим: {mode_txt}\n"
+                    f"Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+                    f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n"
+                    f"[{bar_str}]"
                 )
-            except: pass # Игнорируем ошибки редактирования (если сообщение удалено пользователем)
+                
+                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML")
+            except: pass 
 
         res = check_ticker(t)
         if res:
@@ -161,21 +172,18 @@ def perform_scan(chat_id):
             try: bot.send_message(chat_id, msg, parse_mode="HTML")
             except: pass
     
-    # Финальное обновление статуса
+    # 3. ФИНАЛЬНОЕ ОБНОВЛЕНИЕ СООБЩЕНИЯ
     try:
         if found_count == 0:
-            final_text = f"🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Ничего не найдено."
+            final_text = "🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Ничего не найдено."
         else:
             final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
             
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg.message_id,
-            text=final_text,
-            parse_mode="HTML"
-        )
-    except: 
-        bot.send_message(chat_id, "✅ Сканирование завершено.")
+        if status_msg:
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
+        else:
+            bot.send_message(chat_id, final_text, parse_mode="HTML")
+    except: pass
     
     SETTINGS["IS_SCANNING"] = False
     SETTINGS["LAST_SCAN_TIME"] = time.strftime("%H:%M:%S")
