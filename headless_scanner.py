@@ -27,7 +27,6 @@ if not TG_TOKEN:
     st.error("❌ **ОШИБКА:** Токен не найден! Добавьте его в Secrets.")
     st.stop()
 
-# Основной бот для прослушивания команд
 try:
     bot = telebot.TeleBot(TG_TOKEN, threaded=False)
 except Exception as e:
@@ -49,7 +48,7 @@ def get_shared_state():
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
-        "TICKER_LIMIT": 50 
+        "TICKER_LIMIT": 500 # <-- ИЗМЕНЕНО: По умолчанию 500 (весь S&P)
     }
 
 SETTINGS = get_shared_state()
@@ -89,11 +88,18 @@ def get_sp500_tickers():
             headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(url, headers=headers, timeout=10)
             table = pd.read_html(io.StringIO(response.text))
-            tickers = [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
-            return tickers
+            return [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
         except Exception as e:
             time.sleep(2)
-            if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
+            if attempt == 2: 
+                # FALLBACK: Топ-50 на случай сбоя Wiki
+                return [
+                    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B", "LLY", "AVGO",
+                    "JPM", "V", "UNH", "WMT", "MA", "XOM", "JNJ", "PG", "HD", "COST",
+                    "ABBV", "MRK", "AMD", "CRM", "NFLX", "BAC", "CVX", "PEP", "KO", "TMO",
+                    "LIN", "WFC", "ADBE", "DIS", "MCD", "CSCO", "ABT", "TMUS", "QCOM", "CAT",
+                    "DHR", "INTU", "GE", "IBM", "AMGN", "VZ", "NOW", "TXN", "SPGI", "PFE"
+                ]
 
 def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
@@ -170,112 +176,117 @@ def check_ticker(ticker):
     return None
 
 def perform_scan(chat_id, is_manual=False):
+    # Создаем отдельного бота для отправки, чтобы не блокировать потоки
+    sender_bot = telebot.TeleBot(TG_TOKEN)
+
     if SETTINGS["IS_SCANNING"]:
-        # Используем отдельный инстанс для отправки, чтобы не блокировать polling
-        try: 
-            sender = telebot.TeleBot(TG_TOKEN)
-            sender.send_message(chat_id, "⚠️ Сканирование уже идет!", reply_markup=get_main_keyboard())
+        try: sender_bot.send_message(chat_id, "⚠️ Сканирование уже идет!", reply_markup=get_main_keyboard())
         except: pass
         return
     
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
-    # Создаем ОТДЕЛЬНОГО бота для отправки сообщений в этом потоке
-    # Это предотвращает конфликты SSL/Connection с основным ботом
-    sender_bot = telebot.TeleBot(TG_TOKEN)
-    
-    local_now = get_local_now()
-    current_date_str = local_now.strftime("%Y-%m-%d")
-    
-    if SETTINGS["LAST_DATE"] != current_date_str:
-        SETTINGS["NOTIFIED_TODAY"] = set()
-        SETTINGS["LAST_DATE"] = current_date_str
-    
-    mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
-    header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
-
-    tickers = get_sp500_tickers()
-    
-    # Применяем лимит
-    limit = SETTINGS.get("TICKER_LIMIT", 50)
-    if limit > 0:
-        tickers = tickers[:limit]
-        
-    total_tickers = len(tickers)
-    
-    status_msg = None
     try:
-        initial_bar = "░" * 10
-        initial_text = (
-            f"{header}\nРежим: {mode_txt}\n"
-            f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-            f"Лимит: {total_tickers} шт.\n\n"
-            f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
-        )
-        status_msg = sender_bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+        # Сброс дневного лимита при смене даты
+        local_now = get_local_now()
+        current_date_str = local_now.strftime("%Y-%m-%d")
+        
+        if SETTINGS["LAST_DATE"] != current_date_str:
+            SETTINGS["NOTIFIED_TODAY"] = set()
+            SETTINGS["LAST_DATE"] = current_date_str
+        
+        mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
+        header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
+
+        # Получаем тикеры
+        tickers = get_sp500_tickers()
+        limit = SETTINGS.get("TICKER_LIMIT", 500) # По умолчанию 500
+        if limit and limit > 0:
+            tickers = tickers[:limit]
+            
+        total_tickers = len(tickers)
+        
+        # Отправляем СТАРТОВОЕ сообщение
+        status_msg = None
+        try:
+            initial_bar = "░" * 10
+            initial_text = (
+                f"{header}\nРежим: {mode_txt}\n"
+                f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                f"Цель: {total_tickers} акций (S&P 500)\n\n"
+                f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
+            )
+            status_msg = sender_bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+        except Exception as e:
+            print(f"Start msg error: {e}")
+        
+        found_count = 0
+        # Обновляем каждые 10 тикеров для более плавной визуализации
+        update_step = 10 
+        
+        # Основной цикл
+        for i, t in enumerate(tickers):
+            if SETTINGS["STOP_SCAN"]:
+                try: sender_bot.send_message(chat_id, "🛑 Сканирование остановлено.", reply_markup=get_main_keyboard())
+                except: pass
+                break
+            
+            # --- ОБНОВЛЕНИЕ ПРОГРЕССА ---
+            if status_msg and (i % update_step == 0) and (i > 0): 
+                try:
+                    progress_pct = int(((i + 1) / total_tickers) * 100)
+                    bar_filled = int(progress_pct / 10)
+                    bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
+                    new_text = (
+                        f"{header}\nРежим: {mode_txt}\n"
+                        f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                        f"Цель: {total_tickers} акций\n\n"
+                        f"⏳ Прогресс: {i+1}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
+                    )
+                    sender_bot.edit_message_text(
+                        chat_id=chat_id, 
+                        message_id=status_msg.message_id, 
+                        text=new_text, 
+                        parse_mode="HTML",
+                        reply_markup=get_main_keyboard()
+                    )
+                except: pass 
+
+            # Проверка акции
+            res = check_ticker(t)
+            if res:
+                if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
+                    continue
+                
+                SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
+                found_count += 1
+                icon = "🔥 NEW" if res['is_new'] else "🟢"
+                msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
+                try: sender_bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=get_main_keyboard())
+                except: pass
+        
+        # --- ФИНАЛ ---
+        try:
+            final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
+            if status_msg:
+                sender_bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            else:
+                sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            
+            # Показываем подсказку
+            sender_bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
+            
+        except: pass
+        
     except Exception as e:
-        print(f"Start msg error: {e}")
+        print(f"Scan error: {e}")
+        try: sender_bot.send_message(chat_id, f"❌ Ошибка сканирования: {e}", reply_markup=get_main_keyboard())
+        except: pass
     
-    found_count = 0
-    last_update_time = time.time() # Для контроля частоты обновлений
-    
-    for i, t in enumerate(tickers):
-        if SETTINGS["STOP_SCAN"]:
-            try: sender_bot.send_message(chat_id, "🛑 Сканирование остановлено.", reply_markup=get_main_keyboard())
-            except: pass
-            SETTINGS["IS_SCANNING"] = False
-            return
-        
-        # --- ОБНОВЛЕНИЕ ПРОГРЕССА ПО ТАЙМЕРУ (РАЗ В 3 СЕКУНДЫ) ---
-        current_time = time.time()
-        if status_msg and (current_time - last_update_time > 3 or i == total_tickers - 1):
-            try:
-                progress_pct = int(((i + 1) / total_tickers) * 100)
-                bar_filled = int(progress_pct / 10)
-                bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
-                new_text = (
-                    f"{header}\nРежим: {mode_txt}\n"
-                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
-                    f"Лимит: {total_tickers} шт.\n\n"
-                    f"⏳ Прогресс: {i+1}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
-                )
-                sender_bot.edit_message_text(
-                    chat_id=chat_id, 
-                    message_id=status_msg.message_id, 
-                    text=new_text, 
-                    parse_mode="HTML",
-                    reply_markup=get_main_keyboard()
-                )
-                last_update_time = current_time # Сброс таймера
-            except Exception as e:
-                print(f"Update error: {e}") 
-
-        res = check_ticker(t)
-        if res:
-            if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
-                continue
-            
-            SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
-            found_count += 1
-            icon = "🔥 NEW" if res['is_new'] else "🟢"
-            msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
-            try: sender_bot.send_message(chat_id, msg, parse_mode="HTML", reply_markup=get_main_keyboard())
-            except: pass
-    
-    try:
-        final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
-        if status_msg:
-            sender_bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-        else:
-            sender_bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-            
-        sender_bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
-        
-    except: pass
-    
-    SETTINGS["IS_SCANNING"] = False
-    SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
+    finally:
+        SETTINGS["IS_SCANNING"] = False
+        SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
 
 # ==========================================
 # 3. ОБРАБОТЧИКИ КОМАНД
@@ -326,7 +337,7 @@ def open_limit_menu(message):
         types.KeyboardButton('505 (Full)'),
         types.KeyboardButton('🔙 Назад')
     )
-    bot.send_message(message.chat.id, "🔢 <b>Сколько акций сканировать?</b>\n(По умолчанию: 50)", parse_mode="HTML", reply_markup=markup)
+    bot.send_message(message.chat.id, "🔢 <b>Сколько акций сканировать?</b>\n(По умолчанию: 500)", parse_mode="HTML", reply_markup=markup)
 
 # --- МЕНЮ ВРЕМЕНИ ---
 @bot.message_handler(func=lambda m: m.text == 'Time 🕒' or m.text.startswith('/time'))
