@@ -47,7 +47,7 @@ def get_shared_state():
         "CHAT_ID": None,
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
-        "TIMEZONE_OFFSET": -7
+        "TIMEZONE_OFFSET": -7.0 # Установлено UTC-7
     }
 
 SETTINGS = get_shared_state()
@@ -57,7 +57,7 @@ HELP_TEXT = (
     "Используйте меню внизу для управления.\n\n"
     "⚙️ <b>Часовой пояс:</b>\n"
     "Используйте <code>/set_offset</code> чтобы настроить ваше время.\n"
-    "Пример: <code>/set_offset 3</code> (UTC+3)"
+    "Пример: <code>/set_offset -7</code> (UTC-7)"
 )
 
 # --- МЕНЮ ---
@@ -185,6 +185,7 @@ def perform_scan(chat_id, is_manual=False):
 
     status_msg = None
     try:
+        # Отправляем сообщение о начале И прикрепляем клавиатуру, чтобы она была видна
         status_msg = bot.send_message(chat_id, 
             f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
             parse_mode="HTML",
@@ -203,7 +204,6 @@ def perform_scan(chat_id, is_manual=False):
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # Обновляем чаще: каждые 10 тикеров
         if i % 10 == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
@@ -406,4 +406,3 @@ st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300000, key="ref")
-
