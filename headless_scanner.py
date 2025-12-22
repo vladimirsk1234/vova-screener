@@ -9,23 +9,23 @@ import threading
 import requests
 
 # ==========================================
-# 1. НАСТРОЙКИ (Ваши данные)
+# 1. НАСТРОЙКИ (Глобальные)
 # ==========================================
-# Лучше хранить токены в st.secrets для безопасности, но для простоты оставим здесь
 TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"
-# Chat ID бот запомнит сам после /start
 
-# Глобальные настройки
+# Инициализируем бота ГЛОБАЛЬНО, чтобы он всегда был активен
+bot = telebot.TeleBot(TG_TOKEN, threaded=False) # threaded=False для стабильности в Streamlit
+
 SETTINGS = {
     "LENGTH_MAJOR": 200,
     "MAX_ATR_PCT": 5.0,
     "ADX_THRESH": 20,
-    "AUTO_SCAN_INTERVAL": 60, # минут
+    "AUTO_SCAN_INTERVAL": 60, 
     "IS_SCANNING": False,
     "STOP_SCAN": False,
     "SHOW_ONLY_NEW": True,
     "LAST_SCAN_TIME": "Никогда",
-    "CHAT_ID": None # Будет сохранен после /start
+    "CHAT_ID": None
 }
 
 # ==========================================
@@ -41,7 +41,7 @@ def get_sp500_tickers():
             return [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
         except Exception as e:
             time.sleep(2)
-            if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"] # Fallback
+            if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
 
 def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
@@ -118,20 +118,25 @@ def check_ticker(ticker):
     return None
 
 def perform_scan(chat_id):
-    if SETTINGS["IS_SCANNING"]: return
+    if SETTINGS["IS_SCANNING"]:
+        bot.send_message(chat_id, "⚠️ Сканирование уже идет! Введите /stop.")
+        return
+    
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
-    bot = telebot.TeleBot(TG_TOKEN)
-    try:
-        bot.send_message(chat_id, "🚀 <b>Начинаю ежечасное сканирование...</b>", parse_mode="HTML")
-    except: pass
+    mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
+    bot.send_message(chat_id, f"🚀 <b>Старт сканирования S&P 500</b>\nРежим: {mode_txt}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПодождите 1-2 минуты...", parse_mode="HTML")
     
     tickers = get_sp500_tickers()
     found_count = 0
     
     for i, t in enumerate(tickers):
-        if SETTINGS["STOP_SCAN"]: break
+        if SETTINGS["STOP_SCAN"]:
+            bot.send_message(chat_id, "🛑 Остановлено пользователем.")
+            SETTINGS["IS_SCANNING"] = False
+            return
+        
         res = check_ticker(t)
         if res:
             found_count += 1
@@ -140,76 +145,116 @@ def perform_scan(chat_id):
             try: bot.send_message(chat_id, msg, parse_mode="HTML")
             except: pass
     
-    try:
-        if found_count > 0:
-            bot.send_message(chat_id, f"✅ Завершено. Найдено: {found_count}")
-        else:
-            # Можно отключить это сообщение, чтобы не спамить каждый час если пусто
-            bot.send_message(chat_id, "🤷‍♂️ Новых сигналов нет.") 
-    except: pass
+    if found_count == 0:
+        bot.send_message(chat_id, "🤷‍♂️ Ничего не найдено.")
+    else:
+        bot.send_message(chat_id, f"✅ Завершено. Найдено: {found_count}")
     
     SETTINGS["IS_SCANNING"] = False
     SETTINGS["LAST_SCAN_TIME"] = time.strftime("%H:%M:%S")
 
 # ==========================================
-# 3. TELEGRAM БОТ (В ОТДЕЛЬНОМ ПОТОКЕ)
+# 3. ОБРАБОТЧИКИ КОМАНД (ГЛОБАЛЬНЫЕ)
 # ==========================================
-def start_bot_polling():
-    bot = telebot.TeleBot(TG_TOKEN)
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    SETTINGS["CHAT_ID"] = message.chat.id
+    bot.reply_to(message, 
+        "👋 <b>Vova S&P 500 Screener</b>\n\n"
+        "🔍 <b>Управление:</b>\n"
+        "/scan - 🚀 Старт поиска\n"
+        "/stop - 🛑 Стоп\n"
+        "/mode - 🔄 Режим (Новые/Все)\n"
+        "/status - 📊 Настройки\n\n"
+        "🛠 <b>Фильтры:</b>\n"
+        "/set_atr 5.0 - Max ATR %\n"
+        "/set_sma 200 - SMA Period",
+        parse_mode="HTML"
+    )
 
-    @bot.message_handler(commands=['start'])
-    def send_welcome(message):
-        SETTINGS["CHAT_ID"] = message.chat.id
-        bot.reply_to(message, "✅ <b>Бот активирован!</b>\nТеперь я буду присылать сюда сигналы каждый час.\nУбедитесь, что Streamlit вкладка открыта.", parse_mode="HTML")
+@bot.message_handler(commands=['scan'])
+def manual_scan(message):
+    SETTINGS["CHAT_ID"] = message.chat.id
+    threading.Thread(target=perform_scan, args=(message.chat.id,)).start()
 
-    @bot.message_handler(commands=['scan'])
-    def manual_scan(message):
-        threading.Thread(target=perform_scan, args=(message.chat.id,)).start()
+@bot.message_handler(commands=['stop'])
+def stop_scan(message):
+    if SETTINGS["IS_SCANNING"]:
+        SETTINGS["STOP_SCAN"] = True
+        bot.reply_to(message, "🛑 Останавливаю...")
+    else:
+        bot.reply_to(message, "⚠️ Нет активного сканирования.")
 
-    @bot.message_handler(commands=['status'])
-    def status(message):
-        bot.send_message(message.chat.id, f"Последнее сканирование: {SETTINGS['LAST_SCAN_TIME']}")
+@bot.message_handler(commands=['status'])
+def get_status(message):
+    mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
+    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПоследний скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
 
+@bot.message_handler(commands=['mode'])
+def switch_mode(message):
+    SETTINGS["SHOW_ONLY_NEW"] = not SETTINGS["SHOW_ONLY_NEW"]
+    bot.reply_to(message, f"🔄 Режим: {'Только НОВЫЕ' if SETTINGS['SHOW_ONLY_NEW'] else 'ВСЕ зеленые'}")
+
+@bot.message_handler(commands=['set_atr'])
+def set_atr_val(message):
+    try:
+        val = float(message.text.split()[1])
+        SETTINGS["MAX_ATR_PCT"] = val
+        bot.reply_to(message, f"✅ ATR установлен: {val}%")
+    except: bot.reply_to(message, "❌ Пример: /set_atr 5.5")
+
+@bot.message_handler(commands=['set_sma'])
+def set_sma_val(message):
+    try:
+        val = int(message.text.split()[1])
+        SETTINGS["LENGTH_MAJOR"] = val
+        bot.reply_to(message, f"✅ SMA установлен: {val}")
+    except: bot.reply_to(message, "❌ Пример: /set_sma 200")
+
+# ==========================================
+# 4. ПОТОКИ И СЕРВЕР (Фоновые задачи)
+# ==========================================
+def start_bot_listening():
+    # Бесконечный цикл с перезапуском при ошибках
     while True:
         try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
-        except:
+            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            print(f"Bot restart: {e}")
             time.sleep(5)
 
-# ==========================================
-# 4. ФОНОВЫЙ ТАЙМЕР (КАЖДЫЙ ЧАС)
-# ==========================================
-def hourly_scheduler():
+def hourly_job():
     while True:
-        time.sleep(60) # Проверяем каждую минуту, не прошел ли час
-        # Простая логика: спим час и запускаем
-        # В реальном коде лучше использовать schedule, но для простоты sleep
+        time.sleep(60)
+        # Простая проверка: если есть сохраненный ID, запускаем скан
         if SETTINGS["CHAT_ID"]:
+            # Тут можно добавить проверку времени, чтобы запускать ровно раз в час
+            # Но для простоты запустим через час после старта
             perform_scan(SETTINGS["CHAT_ID"])
-        time.sleep(3600) # Ждем 1 час (3600 сек)
+        time.sleep(3600)
 
 # ==========================================
-# 5. ИНТЕРФЕЙС STREAMLIT (ЧТОБЫ РАБОТАЛО В ОБЛАКЕ)
+# 5. ИНТЕРФЕЙС STREAMLIT (Обязателен для облака)
 # ==========================================
-st.title("🤖 Vova Telegram Bot Server")
-st.write("Этот сервер должен быть запущен, чтобы бот работал.")
+st.title("🤖 Vova Bot Server is Running")
+st.write("Не закрывайте эту вкладку, чтобы бот работал.")
 
-if "bot_started" not in st.session_state:
-    st.session_state["bot_started"] = True
+if "started" not in st.session_state:
+    st.session_state["started"] = True
     
-    # Запускаем бота в отдельном потоке
-    t_bot = threading.Thread(target=start_bot_polling, daemon=True)
-    t_bot.start()
+    # 1. Запускаем бота
+    t1 = threading.Thread(target=start_bot_listening, daemon=True)
+    t1.start()
     
-    # Запускаем таймер в отдельном потоке
-    t_schedule = threading.Thread(target=hourly_scheduler, daemon=True)
-    t_schedule.start()
+    # 2. Запускаем планировщик
+    t2 = threading.Thread(target=hourly_job, daemon=True)
+    t2.start()
     
-    st.success("Бот и планировщик запущены!")
+    st.success("✅ Сервисы запущены!")
 
-st.metric("Последнее сканирование", SETTINGS["LAST_SCAN_TIME"])
-st.write(f"Chat ID: {SETTINGS.get('CHAT_ID', 'Ожидание /start...')}")
+st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
+st.write(f"Active Chat ID: {SETTINGS.get('CHAT_ID')}")
 
-# Хак для предотвращения засыпания (обновляет страницу раз в 5 минут)
+# Авто-обновление страницы чтобы сервер не уснул
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=5 * 60 * 1000, key="refresh")
+st_autorefresh(interval=300000, key="ref") # 5 min
