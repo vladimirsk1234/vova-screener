@@ -175,12 +175,12 @@ def check_ticker(ticker):
                 if seqState == 1:
                     if h >= seqHigh:
                         seqHigh = h
-                        criticalLevel = l # Обновляем уровень поддержки при новом хае
+                        criticalLevel = l # Поддержка на лоу свечи нового максимума
                 elif seqState == -1:
                     if l <= seqLow:
                         seqLow = l
-                        criticalLevel = h # Обновляем уровень сопротивления при новом лое
-                else: # Нейтральное состояние (старт)
+                        criticalLevel = h # Сопротивление на хае свечи нового минимума
+                else: # Старт
                     if c > seqHigh:
                         seqState = 1; criticalLevel = l
                     elif c < seqLow:
@@ -194,7 +194,6 @@ def check_ticker(ticker):
         prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        # Функция проверки 3-х зеленых сигналов
         def get_all_green(row, s_val):
             cond_seq = (s_val == 1)
             cond_ma = (row['Close'] > row['SMA_Major'])
@@ -301,7 +300,6 @@ def send_welcome(message):
 # --- АДМИН-КОМАНДЫ ---
 @bot.message_handler(commands=['reload'])
 def reload_users(message):
-    """Принудительно обновляет список ID из GitHub"""
     if message.from_user.id != ADMIN_ID: return
     SETTINGS["APPROVED_IDS"] = fetch_approved_ids()
     bot.send_message(ADMIN_ID, f"✅ Список пользователей обновлен из GitHub.\nВсего в списке: {len(SETTINGS['APPROVED_IDS'])}")
@@ -339,18 +337,36 @@ def open_sma_menu(message):
     markup.add('100', '150', '200', '🔙 Назад')
     bot.send_message(message.chat.id, "📈 Выберите SMA:", reply_markup=markup)
 
+@bot.message_handler(func=lambda m: m.text == 'Mode 🔄')
+def open_mode_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('Только НОВЫЕ 🔥', 'ВСЕ активные 🟢', '🔙 Назад')
+    bot.send_message(message.chat.id, "🔄 Режим отображения:", reply_markup=markup)
+
 @bot.message_handler(func=lambda m: m.text == '🔙 Назад')
 def back_to_main(message):
     bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
 
-@bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit())
+# ОБНОВЛЕННЫЙ ОБРАБОТЧИК ЗНАЧЕНИЙ И РЕЖИМОВ
+@bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit() or 'НОВЫЕ' in m.text or 'ВСЕ' in m.text)
 def handle_values(message):
     if '%' in message.text:
         SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
-        bot.send_message(message.chat.id, f"✅ ATR: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ ATR установлен: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
     elif message.text.isdigit():
         SETTINGS["LENGTH_MAJOR"] = int(message.text)
-        bot.send_message(message.chat.id, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ SMA установлен: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+    elif 'НОВЫЕ' in message.text:
+        SETTINGS["SHOW_ONLY_NEW"] = True
+        bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ сигналы", reply_markup=get_main_keyboard())
+    elif 'ВСЕ' in message.text:
+        SETTINGS["SHOW_ONLY_NEW"] = False
+        bot.send_message(message.chat.id, "✅ Режим: ВСЕ активные сигналы", reply_markup=get_main_keyboard())
+
+@bot.message_handler(func=lambda m: m.text == 'Time 🕒')
+def check_time(message):
+    local_time = get_local_now().strftime("%H:%M")
+    bot.reply_to(message, f"🕒 Ваше время: <b>{local_time}</b> (UTC{SETTINGS['TIMEZONE_OFFSET']})", parse_mode="HTML")
 
 # ==========================================
 # 5. СЕРВИСЫ
