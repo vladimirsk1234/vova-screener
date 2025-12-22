@@ -1,42 +1,33 @@
+import telebot
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
 import io
-import os
+import time
+import threading
 
 # ==========================================
-# 1. НАСТРОЙКИ TELEGRAM (Впишите данные сюда)
+# 1. НАСТРОЙКИ (Ваши данные)
 # ==========================================
-TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"   # Пример: "123456:ABC-DEF..."
-TG_CHAT_ID = "1335722880"    # Пример: "12345678"
+TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"
+# Chat ID здесь больше не нужен жестко, бот сам узнает его, когда вы напишете /start
 
-# Остальные настройки
-LENGTH_MAJOR = 200
-MAX_ATR_PCT = 10.0
-MIN_MCAP = 10.0
-ADX_THRESH = 20
+# Инициализация бота
+bot = telebot.TeleBot(TG_TOKEN)
 
-def send_telegram(message):
-    # Проверка, вписал ли пользователь токен
-    if "ВСТАВЬТЕ" in TG_TOKEN or "ВСТАВЬТЕ" in TG_CHAT_ID:
-        print("❌ ОШИБКА: Вы не вписали Token или Chat ID в код файла!")
-        return False
-        
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {"chat_id": TG_CHAT_ID, "text": message, "parse_mode": "HTML"}
-    
-    try:
-        response = requests.post(url, json=payload)
-        if response.status_code == 200:
-            return True
-        else:
-            print(f"Ошибка Telegram: {response.text}")
-            return False
-    except Exception as e:
-        print(f"Ошибка сети: {e}")
-        return False
+# Глобальные переменные для настроек (чтобы их можно было менять через Telegram)
+SETTINGS = {
+    "LENGTH_MAJOR": 200,
+    "MAX_ATR_PCT": 10.0,
+    "MIN_MCAP": 10.0,
+    "ADX_THRESH": 20,
+    "AUTO_SCAN_INTERVAL": 60, # минут (0 = выкл)
+    "IS_SCANNING": False
+}
 
+# ==========================================
+# 2. ФУНКЦИИ АНАЛИЗА (Те же самые)
+# ==========================================
 def get_sp500_tickers():
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
@@ -46,23 +37,19 @@ def get_sp500_tickers():
         tickers = table[0]['Symbol'].tolist()
         return [t.replace('.', '-') for t in tickers]
     except:
-        # Запасной список, если википедия не грузится
-        return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "AMZN", "META", "GOOGL", "JPM", "BAC", "CSCO"]
+        return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "AMZN", "META", "GOOGL", "JPM", "BAC"]
 
 def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
 def check_ticker(ticker):
     try:
-        # Качаем данные
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.droplevel(1)
-        
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
         if len(df) < 250: return None
 
-        # --- РАСЧЕТЫ ---
-        df['SMA_Major'] = df['Close'].rolling(window=LENGTH_MAJOR).mean()
+        # SMA
+        df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
         # ATR
         df['H-L'] = df['High'] - df['Low']
@@ -87,9 +74,7 @@ def check_ticker(ticker):
 
         # SEQUENCE
         seqState = 0; seqHigh = df['High'].iloc[0]; seqLow = df['Low'].iloc[0]; criticalLevel = df['Low'].iloc[0]
-        # Для ускорения считаем только конец истории
         df_calc = df.iloc[-300:].copy()
-        
         closes = df_calc['Close'].values; highs = df_calc['High'].values; lows = df_calc['Low'].values
         seq_states = []
         
@@ -116,74 +101,131 @@ def check_ticker(ticker):
                     else: seqHigh = max(seqHigh, h); seqLow = min(seqLow, l)
             seq_states.append(seqState)
 
-        # --- ПРОВЕРКА ---
+        # CHECK LAST BAR
         last = df_calc.iloc[-1]
         prev = df_calc.iloc[-2]
         
         if pd.isna(last['ADX']): return None
         
-        # Логика сигналов
+        # Logic
         seq_cur = seq_states[-1] == 1
         ma_cur = last['Close'] > last['SMA_Major']
-        mom_cur = (last['ADX'] >= ADX_THRESH) and seq_cur and (last['DI_Plus'] > last['DI_Minus'])
+        mom_cur = (last['ADX'] >= SETTINGS["ADX_THRESH"]) and seq_cur and (last['DI_Plus'] > last['DI_Minus'])
         all_green_cur = seq_cur and ma_cur and mom_cur
         
         seq_prev = seq_states[-2] == 1
         ma_prev = prev['Close'] > prev['SMA_Major']
-        mom_prev = (prev['ADX'] >= ADX_THRESH) and seq_prev and (prev['DI_Plus'] > prev['DI_Minus'])
+        mom_prev = (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and seq_prev and (prev['DI_Plus'] > prev['DI_Minus'])
         all_green_prev = seq_prev and ma_prev and mom_prev
         
-        # Проверка фильтров
+        # Filters
         try: mcap = yf.Ticker(ticker).fast_info.market_cap / 1_000_000_000
         except: mcap = 100 
             
-        pass_filters = (last['ATR_Pct'] <= MAX_ATR_PCT) and (mcap >= MIN_MCAP)
+        pass_filters = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"]) and (mcap >= SETTINGS["MIN_MCAP"])
         
-        # ВОЗВРАЩАЕМ РЕЗУЛЬТАТ ТОЛЬКО ЕСЛИ СИГНАЛ НОВЫЙ И ФИЛЬТРЫ ПРОЙДЕНЫ
         if all_green_cur and not all_green_prev and pass_filters:
             return {
                 'ticker': ticker,
                 'price': last['Close'],
                 'atr': last['ATR_Pct']
             }
-            
-    except Exception as e:
-        return None
+    except: return None
     return None
 
-def main():
-    print(f"🚀 Запуск сканера... (Token: {'OK' if 'ВСТАВЬТЕ' not in TG_TOKEN else 'НЕ ЗАДАН'})")
-    
-    # Тестовая отправка сообщения при запуске
-    test_sent = send_telegram("🤖 Бот-сканер запущен на компьютере!")
-    if test_sent:
-        print("✅ Тестовое сообщение отправлено успешно.")
-    else:
-        print("❌ Не удалось отправить тест. Проверьте Token/ID.")
+def perform_scan(chat_id):
+    if SETTINGS["IS_SCANNING"]:
+        bot.send_message(chat_id, "⚠️ Сканирование уже идет! Подождите.")
+        return
 
+    SETTINGS["IS_SCANNING"] = True
+    bot.send_message(chat_id, "🚀 <b>Начинаю сканирование рынка...</b>\nЭто займет 1-2 минуты.", parse_mode="HTML")
+    
     tickers = get_sp500_tickers()
-    # tickers = tickers[:20] # Раскомментируйте для быстрого теста на 20 тикерах
-    
-    print(f"Сканирую {len(tickers)} тикеров...")
-    
     found_count = 0
+    
     for i, t in enumerate(tickers):
         res = check_ticker(t)
         if res:
             found_count += 1
-            msg = f"🚀 <b>NEW SIGNAL: {res['ticker']}</b>\nPrice: ${res['price']:.2f}\nATR: {res['atr']:.2f}%"
-            sent = send_telegram(msg)
-            if sent:
-                print(f"[{i+1}/{len(tickers)}] 🟢 {t}: Сигнал найден и отправлен!")
-            else:
-                print(f"[{i+1}/{len(tickers)}] 🟡 {t}: Сигнал найден, но ОШИБКА отправки.")
-        
-        # Вывод прогресса в одну строку, чтобы не спамить в консоль
-        if i % 5 == 0:
-            print(f"Обработано {i}/{len(tickers)}...", end='\r')
+            msg = f"🔥 <b>NEW SIGNAL: {res['ticker']}</b>\nPrice: ${res['price']:.2f}\nATR: {res['atr']:.2f}%"
+            bot.send_message(chat_id, msg, parse_mode="HTML")
     
-    print(f"\nГотово. Всего найдено: {found_count}")
+    if found_count == 0:
+        bot.send_message(chat_id, "🤷‍♂️ Новых сигналов пока нет.")
+    else:
+        bot.send_message(chat_id, f"✅ Сканирование завершено. Найдено: {found_count}")
+    
+    SETTINGS["IS_SCANNING"] = False
 
+# ==========================================
+# 3. TELEGRAM КОМАНДЫ
+# ==========================================
+
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    bot.reply_to(message, 
+        "👋 Привет! Я Vova Screener Bot.\n\n"
+        "<b>Команды:</b>\n"
+        "/scan - Запустить поиск вручную\n"
+        "/status - Текущие настройки\n"
+        "/set_atr 10 - Установить Max ATR %\n"
+        "/set_mcap 10 - Установить Min Market Cap (B$)\n"
+        "/set_sma 200 - Установить период SMA",
+        parse_mode="HTML"
+    )
+
+@bot.message_handler(commands=['scan'])
+def command_scan(message):
+    # Запускаем в отдельном потоке, чтобы бот не завис
+    threading.Thread(target=perform_scan, args=(message.chat.id,)).start()
+
+@bot.message_handler(commands=['status'])
+def command_status(message):
+    msg = (
+        f"⚙️ <b>Текущие настройки:</b>\n"
+        f"• SMA Period: {SETTINGS['LENGTH_MAJOR']}\n"
+        f"• Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+        f"• Min M.Cap: ${SETTINGS['MIN_MCAP']}B\n"
+        f"• Min ADX: {SETTINGS['ADX_THRESH']}"
+    )
+    bot.send_message(message.chat.id, msg, parse_mode="HTML")
+
+@bot.message_handler(commands=['set_atr'])
+def set_atr(message):
+    try:
+        val = float(message.text.split()[1])
+        SETTINGS["MAX_ATR_PCT"] = val
+        bot.reply_to(message, f"✅ Max ATR установлен на {val}%")
+    except:
+        bot.reply_to(message, "❌ Ошибка. Пример: /set_atr 5.5")
+
+@bot.message_handler(commands=['set_mcap'])
+def set_mcap(message):
+    try:
+        val = float(message.text.split()[1])
+        SETTINGS["MIN_MCAP"] = val
+        bot.reply_to(message, f"✅ Min Market Cap установлен на ${val}B")
+    except:
+        bot.reply_to(message, "❌ Ошибка. Пример: /set_mcap 20")
+
+@bot.message_handler(commands=['set_sma'])
+def set_sma(message):
+    try:
+        val = int(message.text.split()[1])
+        SETTINGS["LENGTH_MAJOR"] = val
+        bot.reply_to(message, f"✅ SMA Period установлен на {val}")
+    except:
+        bot.reply_to(message, "❌ Ошибка. Пример: /set_sma 200")
+
+# ==========================================
+# 4. ЗАПУСК БОТА
+# ==========================================
 if __name__ == "__main__":
-    main()
-
+    import requests # Импорт нужен внутри для функций
+    print("🤖 Бот запущен! Пишите /scan в Telegram.")
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"Ошибка бота: {e}")
+        time.sleep(5)
