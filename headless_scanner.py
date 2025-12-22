@@ -1,5 +1,6 @@
 import streamlit as st
 import telebot
+from telebot import types # Для кнопок
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -16,7 +17,6 @@ TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"
 # Инициализируем бота
 bot = telebot.TeleBot(TG_TOKEN, threaded=False)
 
-# Используем кэш, чтобы настройки не сбрасывались при обновлении страницы
 @st.cache_resource
 def get_shared_state():
     return {
@@ -29,12 +29,29 @@ def get_shared_state():
         "SHOW_ONLY_NEW": True,
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_ID": None,
-        # Новые поля для защиты от спама
-        "NOTIFIED_TODAY": set(),          # Тикеры, о которых уже сообщили сегодня
-        "LAST_DATE": time.strftime("%Y-%m-%d") # Дата последней очистки
+        "NOTIFIED_TODAY": set(),
+        "LAST_DATE": time.strftime("%Y-%m-%d")
     }
 
 SETTINGS = get_shared_state()
+
+# Текст помощи (вынесен в переменную, чтобы не дублировать)
+HELP_TEXT = (
+    "<b>🛠 Быстрые настройки:</b>\n\n"
+    "<code>/set_atr 5.0</code> — Уст. Max ATR %\n"
+    "<code>/set_sma 200</code> — Уст. SMA Period\n\n"
+    "<i>Нажмите на команду выше, чтобы скопировать её, измените цифру и отправьте.</i>"
+)
+
+# Функция для создания кнопок меню
+def get_main_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    btn_scan = types.KeyboardButton('/scan 🚀')
+    btn_stop = types.KeyboardButton('/stop 🛑')
+    btn_stat = types.KeyboardButton('/status 📊')
+    btn_mode = types.KeyboardButton('/mode 🔄')
+    markup.add(btn_scan, btn_stop, btn_stat, btn_mode)
+    return markup
 
 # ==========================================
 # 2. ФУНКЦИИ АНАЛИЗА
@@ -125,39 +142,29 @@ def check_ticker(ticker):
     except: return None
     return None
 
-# Добавлен параметр is_manual
 def perform_scan(chat_id, is_manual=False):
     if SETTINGS["IS_SCANNING"]:
-        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет! Введите /stop.")
+        try: bot.send_message(chat_id, "⚠️ Сканирование уже идет!")
         except: pass
         return
     
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
-    # --- ЛОГИКА СБРОСА ДНЯ ---
     current_date = time.strftime("%Y-%m-%d")
     if SETTINGS["LAST_DATE"] != current_date:
-        SETTINGS["NOTIFIED_TODAY"] = set() # Очищаем память, если наступил новый день
+        SETTINGS["NOTIFIED_TODAY"] = set()
         SETTINGS["LAST_DATE"] = current_date
-    # -------------------------
     
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
-    
-    # Заголовок зависит от типа запуска
-    if is_manual:
-        header = "🚀 <b>Ручной поиск S&P 500</b>"
-    else:
-        header = "⏰ <b>Авто-проверка (Бот онлайн)</b>"
+    header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
     status_msg = None
     try:
         status_msg = bot.send_message(chat_id, 
-            f"{header}\n"
-            f"Режим: {mode_txt}\n"
-            f"SMA: {SETTINGS['LENGTH_MAJOR']} | Max ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
-            f"⏳ Подготовка...", 
-            parse_mode="HTML"
+            f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
+            parse_mode="HTML",
+            reply_markup=get_main_keyboard() # Убеждаемся, что кнопки на месте
         )
     except: pass
     
@@ -167,39 +174,25 @@ def perform_scan(chat_id, is_manual=False):
     
     for i, t in enumerate(tickers):
         if SETTINGS["STOP_SCAN"]:
-            try: bot.send_message(chat_id, "🛑 Остановлено пользователем.")
+            try: bot.send_message(chat_id, "🛑 Сканирование остановлено.")
             except: pass
             SETTINGS["IS_SCANNING"] = False
             return
         
-        # Обновление прогресса
         if i % 25 == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
-                bar_filled = int(progress_pct / 10)
-                bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
-                new_text = (
-                    f"{header}\n"
-                    f"Режим: {mode_txt}\n"
-                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
-                    f"⏳ {i}/{total_tickers} ({progress_pct}%)\n"
-                    f"[{bar_str}]"
-                )
+                bar = "▓" * (progress_pct // 10) + "░" * (10 - (progress_pct // 10))
+                new_text = f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ {i}/{total_tickers} ({progress_pct}%)\n[{bar}]"
                 bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML")
             except: pass 
 
         res = check_ticker(t)
         if res:
-            # --- ЛОГИКА УВЕДОМЛЕНИЙ ---
-            # 1. Если это АВТО-СКАН (is_manual=False):
-            #    Проверяем, отправляли ли уже сегодня. Если да -> ПРОПУСКАЕМ.
             if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]:
                 continue
             
-            # 2. Добавляем в список "уже видели" (чтобы авто-скан потом не спамил)
             SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
-            
-            # 3. Отправляем сообщение
             found_count += 1
             icon = "🔥 NEW" if res['is_new'] else "🟢"
             msg = f"{icon} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
@@ -207,15 +200,15 @@ def perform_scan(chat_id, is_manual=False):
             except: pass
     
     try:
-        if found_count == 0:
-            final_text = f"🏁 <b>Сканирование завершено</b>\n🤷‍♂️ Новых сигналов нет."
-        else:
-            final_text = f"✅ <b>Сканирование завершено</b>\nНайдено сигналов: {found_count}"
-            
+        final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
         if status_msg:
             bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
         else:
             bot.send_message(chat_id, final_text, parse_mode="HTML")
+            
+        # --- ПОСЛЕ ЗАВЕРШЕНИЯ ПОКАЗЫВАЕМ ПОДСКАЗКУ С КОМАНДАМИ ---
+        bot.send_message(chat_id, HELP_TEXT, parse_mode="HTML", reply_markup=get_main_keyboard())
+        
     except: pass
     
     SETTINGS["IS_SCANNING"] = False
@@ -227,49 +220,36 @@ def perform_scan(chat_id, is_manual=False):
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     SETTINGS["CHAT_ID"] = message.chat.id
-    bot.reply_to(message, 
-        "👋 <b>Vova S&P 500 Screener</b>\n\n"
-        "Я ищу акции с 3 зелеными сигналами:\n"
-        "1. 🟢 Price > SMA\n"
-        "2. 🟢 Sequence (Bullish)\n"
-        "3. 🟢 Trend (ADX)\n\n"
-        "🛡 <b>Анти-спам активен:</b>\n"
-        "Я присылаю сигнал по акции только 1 раз в день (автоматически).\n"
-        "Если запустить вручную (/scan) - покажу всё, что активно сейчас.\n\n"
-        "<b>Команды:</b>\n"
-        "/scan - Старт поиска\n"
-        "/stop - Стоп\n"
-        "/mode - Режим (Новые/Все)\n"
-        "/status - Настройки\n"
-        "/set_atr 5.0 - Max ATR %\n"
-        "/set_sma 200 - SMA Period",
-        parse_mode="HTML"
+    bot.send_message(message.chat.id, 
+        "👋 <b>Vova S&P 500 Screener</b>\n"
+        "Бот активен. Используйте кнопки внизу для управления.\n\n" + HELP_TEXT,
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard()
     )
 
-@bot.message_handler(commands=['scan'])
+@bot.message_handler(func=lambda message: message.text.startswith('/scan'))
 def manual_scan(message):
     SETTINGS["CHAT_ID"] = message.chat.id
-    # Передаем is_manual=True
     threading.Thread(target=perform_scan, args=(message.chat.id, True)).start()
 
-@bot.message_handler(commands=['stop'])
+@bot.message_handler(func=lambda message: message.text.startswith('/stop'))
 def stop_scan(message):
     if SETTINGS["IS_SCANNING"]:
         SETTINGS["STOP_SCAN"] = True
         bot.reply_to(message, "🛑 Останавливаю...")
     else:
-        bot.reply_to(message, "⚠️ Нет активного сканирования.")
+        bot.reply_to(message, "⚠️ Нет активного сканирования.", reply_markup=get_main_keyboard())
 
-@bot.message_handler(commands=['status'])
+@bot.message_handler(func=lambda message: message.text.startswith('/status'))
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
     notified_count = len(SETTINGS["NOTIFIED_TODAY"])
-    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nСегодня найдено: {notified_count} шт.\nПоследний скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
+    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
 
-@bot.message_handler(commands=['mode'])
+@bot.message_handler(func=lambda message: message.text.startswith('/mode'))
 def switch_mode(message):
     SETTINGS["SHOW_ONLY_NEW"] = not SETTINGS["SHOW_ONLY_NEW"]
-    bot.reply_to(message, f"🔄 Режим: {'Только НОВЫЕ' if SETTINGS['SHOW_ONLY_NEW'] else 'ВСЕ зеленые'}")
+    bot.reply_to(message, f"🔄 Режим изменен: {'Только НОВЫЕ' if SETTINGS['SHOW_ONLY_NEW'] else 'ВСЕ зеленые'}", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['set_atr'])
 def set_atr_val(message):
@@ -292,17 +272,13 @@ def set_sma_val(message):
 # ==========================================
 def start_polling():
     while True:
-        try:
-            bot.infinity_polling(timeout=20, long_polling_timeout=10)
-        except:
-            time.sleep(5)
+        try: bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        except: time.sleep(5)
 
 def start_scheduler():
     while True:
         time.sleep(60)
-        if SETTINGS["CHAT_ID"]: 
-            # Передаем is_manual=False (Авто)
-            perform_scan(SETTINGS["CHAT_ID"], False)
+        if SETTINGS["CHAT_ID"]: perform_scan(SETTINGS["CHAT_ID"], False)
         time.sleep(3600) 
 
 @st.cache_resource
@@ -318,7 +294,7 @@ def run_background_services():
 # ==========================================
 st.title("🤖 Vova Bot Server")
 run_background_services()
-st.success("✅ Сервер активен! Анти-спам защита включена.")
+st.success("✅ Сервер активен! Кнопки добавлены.")
 st.write(f"Отправлено сигналов сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
 st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
 
