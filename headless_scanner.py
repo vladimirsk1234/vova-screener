@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import math
 
 # --- КОНФИГУРАЦИЯ СТРАНИЦЫ ---
 st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="centered")
@@ -36,7 +37,7 @@ if not TG_TOKEN:
 
 # Создаем сессию для yfinance, чтобы избежать блокировок (Anti-bot)
 def get_session():
-    session = requests.Session()
+    session = requests.get_session() if hasattr(requests, 'get_session') else requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
     })
@@ -49,6 +50,7 @@ def get_session():
 YF_SESSION = get_session()
 
 def fetch_approved_ids():
+    """Загружает список ID из GitHub Raw URL"""
     ids = set()
     if ADMIN_ID != 0: ids.add(ADMIN_ID)
     if not GITHUB_USERS_URL: return ids
@@ -67,13 +69,12 @@ bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 def get_shared_state():
     return {
         "LENGTH_MAJOR": 200, 
-        "MAX_ATR_PCT": 7.0, # Ослаблено (было 5.0)
-        "ADX_THRESH": 15,   # Ослаблено (было 20)
-        "MIN_RR": 1.2,      # Ослаблено (было 1.5)
+        "MAX_ATR_PCT": 5.0, 
+        "ADX_THRESH": 20,   
         "AUTO_SCAN_INTERVAL": 3600, 
         "IS_SCANNING": False, 
         "STOP_SCAN": False,
-        "SHOW_ONLY_NEW": False, # По умолчанию показываем всё для теста
+        "SHOW_ONLY_NEW": True, 
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), "APPROVED_IDS": fetch_approved_ids(), 
         "NOTIFIED_TODAY": set(), "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -91,8 +92,7 @@ def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3, one_time_keyboard=False)
     markup.row(types.KeyboardButton('Scan 🚀'), types.KeyboardButton('Stop 🛑'))
     markup.row(types.KeyboardButton('Status 📊'), types.KeyboardButton('Mode 🔄'))
-    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('RR ⚖️'))
-    markup.row(types.KeyboardButton('Time 🕒'))
+    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Time 🕒'))
     return markup
 
 def get_local_now():
@@ -133,7 +133,7 @@ def check_ticker(ticker, verbose=False):
         # 1. SMA Major
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
-        # 2. ATR (RMA ДЛЯ ТОЧНОСТИ)
+        # 2. ATR
         df['H-L'] = df['High'] - df['Low']
         df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
         df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
@@ -192,44 +192,25 @@ def check_ticker(ticker, verbose=False):
         all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
         is_new_signal = all_green_cur and not all_green_prev
         
-        # 5. КОРРЕКТНЫЙ RISK REWARD (С РАСШИРЕННОЙ ЦЕЛЬЮ)
         current_price = float(last['Close'])
-        
-        # Используем предложенную логику расширенного таргета, если HH слишком близко
-        target_price = max(seqHigh, current_price + (current_price - criticalLevel) * SETTINGS["MIN_RR"])
-        
-        if criticalLevel >= current_price: # Стоп выше цены - это ошибка/не лонг
-            rr_ratio = 0
-        else:
-            risk = current_price - criticalLevel
-            reward = target_price - current_price
-            rr_ratio = round(reward / risk, 2)
         
         # Фильтры
         pass_atr = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
-        pass_rr = (rr_ratio >= SETTINGS["MIN_RR"])
 
         result_data = {
             'ticker': ticker, 'price': current_price, 'atr': last['ATR_Pct'], 
-            'is_new': is_new_signal, 'rr': rr_ratio, 'tp': target_price, 'sl': criticalLevel,
+            'is_new': is_new_signal, 
             'adx': round(last['ADX'], 2), 'sma': round(last['SMA_Major'], 2),
             'lights': { 'seq': cond_seq, 'ma': cond_ma, 'trend': cond_trend },
-            'all_green': all_green_cur, 'pass_atr': pass_atr, 'pass_rr': pass_rr
+            'all_green': all_green_cur, 'pass_atr': pass_atr
         }
 
         if verbose:
-            # Добавляем отчет о причинах провала для режима диагностики
-            result_data["fail_reasons"] = {
-                "sequence": cond_seq,
-                "sma_200": cond_ma,
-                "adx_trend": cond_trend,
-                "atr_limit": pass_atr,
-                "rr_ratio": pass_rr
-            }
             return result_data
 
-        if all_green_cur and pass_atr and pass_rr:
-            return result_data
+        if all_green_cur and pass_atr:
+            if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
+                return result_data
                 
     except Exception as e:
         if verbose: print(f"Error {ticker}: {e}")
@@ -246,7 +227,7 @@ def progress_updater():
             if PROGRESS["total"] > 0:
                 pct = int((PROGRESS["current"] / PROGRESS["total"]) * 100)
                 bar_str = "▓" * (pct // 10) + "░" * (10 - (pct // 10))
-                text = (f"{PROGRESS['header']}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}% | R:R: 1:{SETTINGS['MIN_RR']}\n"
+                text = (f"{PROGRESS['header']}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
                         f"Прогресс: {PROGRESS['current']}/{PROGRESS['total']} ({pct}%)\n[{bar_str}]")
                 bot.edit_message_text(chat_id=PROGRESS["chat_id"], message_id=PROGRESS["msg_id"], text=text, parse_mode="HTML")
         except: pass
@@ -287,7 +268,7 @@ def perform_scan(chat_id=None, is_manual=False):
             
             res = check_ticker(t)
             if res:
-                # Фильтрация новизны только для АВТО-скана
+                # Фильтрация только для АВТО-скана
                 if not is_manual and SETTINGS["SHOW_ONLY_NEW"] and not res['is_new']:
                     continue
                 
@@ -299,8 +280,7 @@ def perform_scan(chat_id=None, is_manual=False):
                 found_count += 1
                 
                 msg = (f"{'🔥 NEW' if res['is_new'] else '🟢'} <b>{res['ticker']}</b> | ${res['price']:.2f}\n"
-                       f"📊 ATR: {res['atr']:.2f}% | <b>R:R: 1:{res['rr']}</b>\n"
-                       f"🎯 TP: ${res['tp']:.2f} | 🛑 SL: ${res['sl']:.2f}")
+                       f"📊 ATR: {res['atr']:.2f}%")
                 
                 targets = [chat_id] if is_manual else list(SETTINGS["CHAT_IDS"])
                 for target in targets:
@@ -343,12 +323,10 @@ def diagnostic_check(message):
         bot.send_message(message.chat.id, f"🔍 Диагностика <b>{ticker}</b>...", parse_mode="HTML")
         info = check_ticker(ticker, verbose=True)
         if not info:
-            bot.send_message(message.chat.id, "❌ Ошибка загрузки данных Yahoo.")
+            bot.send_message(message.chat.id, "❌ Данные не получены. Проверьте тикер.")
             return
 
         l = info['lights']
-        fr = info['fail_reasons']
-        
         report = (
             f"📊 <b>Отчет по {ticker}:</b>\n"
             f"Цена: ${info['price']:.2f} (SMA{SETTINGS['LENGTH_MAJOR']}: {info['sma']})\n\n"
@@ -357,10 +335,8 @@ def diagnostic_check(message):
             f"{'🟢' if l['trend'] else '🔴'} Trend (ADX {info['adx']} &gt; {SETTINGS['ADX_THRESH']}): {l['trend']}\n\n"
             f"<b>Фильтры:</b>\n"
             f"{'✅' if info['pass_atr'] else '❌'} ATR ({info['atr']:.2f}%) &lt;= {SETTINGS['MAX_ATR_PCT']}%\n"
-            f"{'✅' if info['pass_rr'] else '❌'} R:R (1:{info['rr']}) &gt;= 1:{SETTINGS['MIN_RR']}\n\n"
-            f"🎯 TP: ${info['tp']:.2f} | 🛑 SL: ${info['sl']:.2f}\n"
-            f"🆕 Новый сигнал: {'ДА' if info['is_new'] else 'НЕТ'}\n\n"
-            f"⚠️ <b>Вердикт:</b> {'ПРОХОДИТ ✅' if info['all_green'] and info['pass_atr'] and info['pass_rr'] else 'ОТКЛОНЕН ❌'}"
+            f"🆕 Новый сигнал сегодня: {'ДА' if info['is_new'] else 'НЕТ'}\n\n"
+            f"⚠️ <b>Вердикт:</b> {'ПРОХОДИТ ✅' if info['all_green'] and info['pass_atr'] else 'ОТКЛОНЕН ❌'}"
         )
         bot.send_message(message.chat.id, report, parse_mode="HTML")
     except Exception as e: bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
@@ -376,6 +352,12 @@ def reload_users(message):
     SETTINGS["APPROVED_IDS"] = fetch_approved_ids()
     bot.send_message(ADMIN_ID, f"✅ Список обновлен из GitHub ({len(SETTINGS['APPROVED_IDS'])} чел.)")
 
+@bot.message_handler(commands=['list_users'])
+def list_users(message):
+    if message.from_user.id != ADMIN_ID: return
+    users = "\n".join([f"- <code>{u}</code>" for u in SETTINGS["APPROVED_IDS"]])
+    bot.send_message(ADMIN_ID, f"👥 <b>Список одобренных ID (из файла):</b>\n{users if users else 'Пусто'}", parse_mode="HTML")
+
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀')
 def manual_scan_btn(message):
     threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
@@ -388,12 +370,12 @@ def stop_scan(message):
 @bot.message_handler(func=lambda m: m.text == 'Status 📊')
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все активные"
-    bot.reply_to(message, f"⚙️ <b>Статус:</b>\nРежим: {mode}\nОдобрено: {len(SETTINGS['APPROVED_IDS'])}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nMin R:R: 1:{SETTINGS['MIN_RR']}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
+    bot.reply_to(message, f"⚙️ <b>Статус:</b>\nРежим: {mode}\nОдобрено: {len(SETTINGS['APPROVED_IDS'])}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%", parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.text == 'ATR 📉')
 def open_atr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('5.0 %', '7.0 %', '8.0 %', '10.0 %', '🔙 Назад')
+    markup.add('3.0 %', '5.0 %', '7.0 %', '10.0 %', '🔙 Назад')
     bot.send_message(message.chat.id, "📉 Выберите Max ATR:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'SMA 📈')
@@ -401,12 +383,6 @@ def open_sma_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add('100', '150', '200', '🔙 Назад')
     bot.send_message(message.chat.id, "📈 Выберите SMA:", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text == 'RR ⚖️')
-def open_rr_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add('RR 1:1.2', 'RR 1:1.5', 'RR 1:2.0', '🔙 Назад')
-    bot.send_message(message.chat.id, "⚖️ Минимальный R:R:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄')
 def open_mode_menu(message):
@@ -418,7 +394,7 @@ def open_mode_menu(message):
 def back_to_main(message):
     bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
 
-@bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit() or 'НОВЫЕ' in m.text or 'ВСЕ' in m.text or 'RR 1:' in m.text)
+@bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit() or 'НОВЫЕ' in m.text or 'ВСЕ' in m.text)
 def handle_values(message):
     if '%' in message.text:
         SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
@@ -426,9 +402,6 @@ def handle_values(message):
     elif message.text.isdigit():
         SETTINGS["LENGTH_MAJOR"] = int(message.text)
         bot.send_message(message.chat.id, f"✅ SMA установлен: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
-    elif 'RR 1:' in message.text:
-        SETTINGS["MIN_RR"] = float(message.text.replace('RR 1:',''))
-        bot.send_message(message.chat.id, f"✅ R:R: 1:{SETTINGS['MIN_RR']}", reply_markup=get_main_keyboard())
     elif 'НОВЫЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = True
         bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ", reply_markup=get_main_keyboard())
