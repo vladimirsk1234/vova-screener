@@ -9,29 +9,22 @@ import time
 import threading
 import requests
 import os
+from datetime import datetime, timedelta
 
-# --- КОНФИГУРАЦИЯ СТРАНИЦЫ (Должна быть в самом начале) ---
-st.set_page_config(
-    page_title="Vova Bot Server",
-    page_icon="🤖",
-    layout="centered"
-)
+# --- КОНФИГУРАЦИЯ СТРАНИЦЫ ---
+st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="centered")
 
 # ==========================================
 # 1. НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ
 # ==========================================
 
-# МЫ НЕ ПИШЕМ ТОКЕН СЮДА! Мы берем его из секретов.
 try:
     TG_TOKEN = st.secrets["TG_TOKEN"]
 except:
-    # Если запуск локально без секретов - пробуем переменные окружения или пустую строку
-    TG_TOKEN = os.environ.get("TG_TOKEN", "")
+    TG_TOKEN = os.environ.get("TG_TOKEN", "") 
 
 if not TG_TOKEN:
-    st.error("❌ **ОШИБКА:** Токен не найден!\n\n"
-             "1. Если вы в Streamlit Cloud: зайдите в App Settings -> Secrets и добавьте туда токен.\n"
-             "2. Если локально: создайте файл `.streamlit/secrets.toml`.")
+    st.error("❌ **ОШИБКА:** Токен не найден! Добавьте его в Secrets.")
     st.stop()
 
 try:
@@ -53,28 +46,34 @@ def get_shared_state():
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_ID": None,
         "NOTIFIED_TODAY": set(),
-        "LAST_DATE": time.strftime("%Y-%m-%d")
+        "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
+        "TIMEZONE_OFFSET": 3.0
     }
 
 SETTINGS = get_shared_state()
 
 HELP_TEXT = (
     "<b>🛠 Быстрые настройки:</b>\n"
-    "Используйте меню внизу для управления."
+    "Используйте меню внизу для управления.\n\n"
+    "⚙️ <b>Часовой пояс:</b>\n"
+    "Используйте <code>/set_offset</code> чтобы настроить ваше время.\n"
+    "Пример: <code>/set_offset 3</code> (UTC+3)"
 )
 
-# --- НОВАЯ КЛАВИАТУРА (БЕЗ СЛЕШЕЙ) ---
+# --- МЕНЮ ---
 def get_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2, one_time_keyboard=False)
-    # Кнопки с чистым текстом
-    btn_scan = types.KeyboardButton('Scan 🚀')
-    btn_stop = types.KeyboardButton('Stop 🛑')
-    btn_stat = types.KeyboardButton('Status 📊')
-    btn_mode = types.KeyboardButton('Mode 🔄')
-    btn_atr = types.KeyboardButton('ATR 📉')
-    btn_sma = types.KeyboardButton('SMA 📈')
-    markup.add(btn_scan, btn_stop, btn_stat, btn_mode, btn_atr, btn_sma)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3, one_time_keyboard=False)
+    # 1 ряд
+    markup.row(types.KeyboardButton('Scan 🚀'), types.KeyboardButton('Stop 🛑'))
+    # 2 ряд
+    markup.row(types.KeyboardButton('Status 📊'), types.KeyboardButton('Mode 🔄'))
+    # 3 ряд (Настройки)
+    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Time 🕒'))
     return markup
+
+# --- ВРЕМЯ ---
+def get_local_now():
+    return datetime.utcnow() + timedelta(hours=SETTINGS["TIMEZONE_OFFSET"])
 
 # ==========================================
 # 2. ФУНКЦИИ АНАЛИЗА
@@ -174,17 +173,18 @@ def perform_scan(chat_id, is_manual=False):
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
-    current_date = time.strftime("%Y-%m-%d")
-    if SETTINGS["LAST_DATE"] != current_date:
+    local_now = get_local_now()
+    current_date_str = local_now.strftime("%Y-%m-%d")
+    
+    if SETTINGS["LAST_DATE"] != current_date_str:
         SETTINGS["NOTIFIED_TODAY"] = set()
-        SETTINGS["LAST_DATE"] = current_date
+        SETTINGS["LAST_DATE"] = current_date_str
     
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
     header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
     status_msg = None
     try:
-        # Отправляем сообщение о начале И прикрепляем клавиатуру, чтобы она была видна
         status_msg = bot.send_message(chat_id, 
             f"{header}\nРежим: {mode_txt}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n⏳ Подготовка...", 
             parse_mode="HTML",
@@ -203,7 +203,8 @@ def perform_scan(chat_id, is_manual=False):
             SETTINGS["IS_SCANNING"] = False
             return
         
-        if i % 25 == 0 and status_msg:
+        # Обновляем чаще: каждые 10 тикеров
+        if i % 10 == 0 and status_msg:
             try:
                 progress_pct = int((i / total_tickers) * 100)
                 bar = "▓" * (progress_pct // 10) + "░" * (10 - (progress_pct // 10))
@@ -235,10 +236,10 @@ def perform_scan(chat_id, is_manual=False):
     except: pass
     
     SETTINGS["IS_SCANNING"] = False
-    SETTINGS["LAST_SCAN_TIME"] = time.strftime("%H:%M:%S")
+    SETTINGS["LAST_SCAN_TIME"] = get_local_now().strftime("%H:%M:%S")
 
 # ==========================================
-# 3. ОБРАБОТЧИКИ КОМАНД И ТЕКСТА
+# 3. ОБРАБОТЧИКИ КОМАНД
 # ==========================================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -275,11 +276,27 @@ def open_sma_menu(message):
     )
     bot.send_message(message.chat.id, "📈 <b>Выберите SMA Period:</b>", parse_mode="HTML", reply_markup=markup)
 
+# --- МЕНЮ ВРЕМЕНИ ---
+@bot.message_handler(func=lambda m: m.text == 'Time 🕒' or m.text.startswith('/time'))
+def check_time(message):
+    server_time = datetime.utcnow().strftime("%H:%M")
+    local_time = get_local_now().strftime("%H:%M")
+    offset = SETTINGS["TIMEZONE_OFFSET"]
+    off_str = f"+{offset}" if offset >= 0 else f"{offset}"
+    
+    bot.reply_to(message, 
+        f"🕒 <b>Системное время:</b>\n"
+        f"☁️ Сервер (UTC): {server_time}\n"
+        f"🏠 Ваше (UTC{off_str}): <b>{local_time}</b>\n\n"
+        f"Чтобы изменить часовой пояс, напишите:\n<code>/set_offset 3</code>", 
+        parse_mode="HTML", reply_markup=get_main_keyboard()
+    )
+
 @bot.message_handler(func=lambda message: message.text == '🔙 Назад')
 def back_to_main(message):
     bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
 
-# --- УСТАНОВКА ATR (По тексту "X.X %") ---
+# --- УСТАНОВКА ЗНАЧЕНИЙ ---
 @bot.message_handler(func=lambda m: '%' in m.text and m.text.replace(' %','').replace('.','').isdigit())
 def set_atr_text(message):
     try:
@@ -289,7 +306,6 @@ def set_atr_text(message):
     except: 
         bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
 
-# --- УСТАНОВКА SMA (По цифре "100"...) ---
 @bot.message_handler(func=lambda m: m.text in ['100', '150', '200'])
 def set_sma_text(message):
     try:
@@ -298,6 +314,17 @@ def set_sma_text(message):
         bot.reply_to(message, f"✅ SMA установлен: {val}", reply_markup=get_main_keyboard())
     except:
         bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
+
+# --- НАСТРОЙКА ЧАСОВОГО ПОЯСА ---
+@bot.message_handler(commands=['set_offset'])
+def set_offset(message):
+    try:
+        val = float(message.text.split()[1])
+        SETTINGS["TIMEZONE_OFFSET"] = val
+        curr_time = get_local_now().strftime("%H:%M")
+        bot.reply_to(message, f"✅ Смещение UTC: {val}\n⏰ Текущее время: {curr_time}", reply_markup=get_main_keyboard())
+    except:
+        bot.reply_to(message, "❌ Ошибка. Пример: <code>/set_offset 3</code>", parse_mode="HTML")
 
 # --- ОСНОВНЫЕ КНОПКИ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
@@ -317,7 +344,8 @@ def stop_scan(message):
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
     notified_count = len(SETTINGS["NOTIFIED_TODAY"])
-    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
+    offset = SETTINGS["TIMEZONE_OFFSET"]
+    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nЧасовой пояс: {offset}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄' or m.text.startswith('/mode'))
 def open_mode_menu(message):
@@ -374,7 +402,7 @@ st.image("https://images.unsplash.com/photo-1642543492481-44e81e3914a7?q=80&w=10
 run_background_services()
 st.success("✅ Сервер активен! Токен скрыт.")
 st.write(f"Отправлено сигналов сегодня: {len(SETTINGS['NOTIFIED_TODAY'])}")
-st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
+st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300000, key="ref")
