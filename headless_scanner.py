@@ -13,8 +13,8 @@ import requests
 # ==========================================
 TG_TOKEN = "8407386703:AAEFkQ66ZOcGd7Ru41hrX34Bcb5BriNPuuQ"
 
-# Инициализируем бота ГЛОБАЛЬНО, чтобы он всегда был активен
-bot = telebot.TeleBot(TG_TOKEN, threaded=False) # threaded=False для стабильности в Streamlit
+# Инициализируем бота ГЛОБАЛЬНО
+bot = telebot.TeleBot(TG_TOKEN, threaded=False)
 
 SETTINGS = {
     "LENGTH_MAJOR": 200,
@@ -212,49 +212,45 @@ def set_sma_val(message):
     except: bot.reply_to(message, "❌ Пример: /set_sma 200")
 
 # ==========================================
-# 4. ПОТОКИ И СЕРВЕР (Фоновые задачи)
+# 4. ФОНОВЫЕ ПРОЦЕССЫ (Через @st.cache_resource)
 # ==========================================
-def start_bot_listening():
-    # Бесконечный цикл с перезапуском при ошибках
+def start_polling():
     while True:
         try:
             bot.infinity_polling(timeout=20, long_polling_timeout=10)
-        except Exception as e:
-            print(f"Bot restart: {e}")
+        except:
             time.sleep(5)
 
-def hourly_job():
+def start_scheduler():
     while True:
         time.sleep(60)
-        # Простая проверка: если есть сохраненный ID, запускаем скан
-        if SETTINGS["CHAT_ID"]:
-            # Тут можно добавить проверку времени, чтобы запускать ровно раз в час
-            # Но для простоты запустим через час после старта
+        if SETTINGS["CHAT_ID"]: # Если пользователь уже нажал /start
             perform_scan(SETTINGS["CHAT_ID"])
-        time.sleep(3600)
+        time.sleep(3600) # Ждем час
 
-# ==========================================
-# 5. ИНТЕРФЕЙС STREAMLIT (Обязателен для облака)
-# ==========================================
-st.title("🤖 Vova Bot Server is Running")
-st.write("Не закрывайте эту вкладку, чтобы бот работал.")
-
-if "started" not in st.session_state:
-    st.session_state["started"] = True
-    
-    # 1. Запускаем бота
-    t1 = threading.Thread(target=start_bot_listening, daemon=True)
+# ЭТА ФУНКЦИЯ ЗАПУСТИТСЯ ТОЛЬКО ОДИН РАЗ НА СЕРВЕРЕ
+@st.cache_resource
+def run_background_services():
+    # 1. Бот
+    t1 = threading.Thread(target=start_polling, daemon=True)
     t1.start()
-    
-    # 2. Запускаем планировщик
-    t2 = threading.Thread(target=hourly_job, daemon=True)
+    # 2. Таймер
+    t2 = threading.Thread(target=start_scheduler, daemon=True)
     t2.start()
-    
-    st.success("✅ Сервисы запущены!")
+    return True
 
-st.metric("Последний скан", SETTINGS["LAST_SCAN_TIME"])
-st.write(f"Active Chat ID: {SETTINGS.get('CHAT_ID')}")
+# ==========================================
+# 5. ИНТЕРФЕЙС STREAMLIT
+# ==========================================
+st.title("🤖 Vova Bot Server")
 
-# Авто-обновление страницы чтобы сервер не уснул
+# Запуск фоновых процессов
+run_background_services()
+
+st.success("✅ Сервер активен! Можно закрыть эту вкладку (если настроен UptimeRobot).")
+st.write("Бот работает в Telegram.")
+st.metric("Последнее сканирование", SETTINGS["LAST_SCAN_TIME"])
+
+# Авто-обновление для предотвращения засыпания (на всякий случай)
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=300000, key="ref") # 5 min
+st_autorefresh(interval=300000, key="ref")
