@@ -319,20 +319,22 @@ def diagnostic_check(message):
             return
 
         l = info['lights']
+        # Исправляем символы сравнения для HTML parse mode (заменяем < > на сущности)
         report = (
             f"📊 <b>Отчет по {ticker}:</b>\n"
             f"Цена: ${info['price']:.2f} (SMA{SETTINGS['LENGTH_MAJOR']}: {info['sma']})\n\n"
-            f"{'🟢' if l['ma'] else '🔴'} Price > SMA: {info['price'] > info['sma']}\n"
+            f"{'🟢' if l['ma'] else '🔴'} Price &gt; SMA: {info['price'] > info['sma']}\n"
             f"{'🟢' if l['seq'] else '🔴'} Sequence state: {'BULL' if l['seq'] else 'BEAR/NEUTRAL'}\n"
-            f"{'🟢' if l['trend'] else '🔴'} Trend (ADX {info['adx']} > {SETTINGS['ADX_THRESH']}): {l['trend']}\n\n"
+            f"{'🟢' if l['trend'] else '🔴'} Trend (ADX {info['adx']} &gt; {SETTINGS['ADX_THRESH']}): {l['trend']}\n\n"
             f"<b>Фильтры:</b>\n"
-            f"{'✅' if info['pass_atr'] else '❌'} ATR ({info['atr']:.2f}%) <= {SETTINGS['MAX_ATR_PCT']}%\n"
-            f"{'✅' if info['pass_rr'] else '❌'} R:R (1:{info['rr']}) >= 1:{SETTINGS['MIN_RR']}\n\n"
+            f"{'✅' if info['pass_atr'] else '❌'} ATR ({info['atr']:.2f}%) &lt;= {SETTINGS['MAX_ATR_PCT']}%\n"
+            f"{'✅' if info['pass_rr'] else '❌'} R:R (1:{info['rr']}) &gt;= 1:{SETTINGS['MIN_RR']}\n\n"
             f"🎯 TP (HH): ${info['tp']:.2f}\n🛑 SL (Support): ${info['sl']:.2f}\n"
             f"🆕 Новый сигнал сегодня: {'ДА' if info['is_new'] else 'НЕТ'}"
         )
         bot.send_message(message.chat.id, report, parse_mode="HTML")
     except Exception as e:
+        # В случае ошибки выводим сырой текст без разметки для отладки
         bot.send_message(message.chat.id, f"❌ Ошибка диагностики: {str(e)}")
 
 @bot.message_handler(commands=['start', 'help'])
