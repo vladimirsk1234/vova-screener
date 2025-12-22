@@ -6,3 +6,4 @@ numpy
 requests
 lxml
 streamlit-autorefresh
+firebase-admin
