@@ -12,103 +12,49 @@ import os
 import json
 from datetime import datetime, timedelta
 
-# Импорты для работы с базой данных (Firestore)
-try:
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-except ImportError:
-    st.error("Пожалуйста, добавьте 'firebase-admin' в файл requirements.txt")
-
 # --- КОНФИГУРАЦИЯ СТРАНИЦЫ ---
 st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="centered")
 
 # ==========================================
-# 1. НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ БД
+# 1. НАСТРОЙКИ И ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ
 # ==========================================
 
-def init_firestore():
-    try:
-        # Извлекаем данные из системного окружения
-        app_id = os.environ.get("__app_id", "default-app-id")
-        fb_config_str = os.environ.get("__firebase_config", "{}")
-        fb_config = json.loads(fb_config_str)
-        project_id = fb_config.get("projectId")
-
-        # Если project_id не найден в конфиге, попробуем использовать app_id или переменную окружения
-        if not project_id:
-            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-
-        try:
-            firebase_admin.get_app()
-        except ValueError:
-            # Инициализация приложения
-            if project_id:
-                firebase_admin.initialize_app(options={'projectId': project_id})
-            else:
-                firebase_admin.initialize_app()
-        
-        # Явно передаем project_id в клиент firestore, чтобы избежать ошибки
-        if project_id:
-            db = firestore.client(project=project_id)
-        else:
-            db = firestore.client()
-            
-        # Путь согласно ПРАВИЛУ 1: /artifacts/{appId}/public/data/{collectionName}
-        users_ref = db.collection('artifacts').document(app_id).collection('public').document('data').collection('users')
-        return users_ref
-    except Exception as e:
-        # Если возникла ошибка, бот продолжит работу в оперативной памяти
-        st.warning(f"База данных не подключена (используется память): {e}")
-        return None
-
-USERS_DB = init_firestore()
-
-def load_approved_ids():
-    ids = set()
-    try:
-        # Основной админ всегда имеет доступ
-        admin_id = int(st.secrets.get("ADMIN_ID", 0))
-        if admin_id != 0: ids.add(admin_id)
-        
-        if USERS_DB:
-            # ПРАВИЛО 2: Простой запрос всех документов, фильтрация в коде
-            docs = USERS_DB.stream()
-            for doc in docs:
-                data = doc.to_dict()
-                if data.get('approved'):
-                    ids.add(int(doc.id))
-    except Exception as e:
-        print(f"Error loading users: {e}")
-    return ids
-
-def save_user_to_cloud(user_id, approved=True):
-    """Сохраняет или удаляет пользователя из Firebase"""
-    if USERS_DB:
-        try:
-            doc_ref = USERS_DB.document(str(user_id))
-            if approved:
-                doc_ref.set({
-                    'approved': True,
-                    'updated_at': firestore.SERVER_TIMESTAMP
-                })
-            else:
-                # Если доступ отозван — полностью удаляем документ
-                doc_ref.delete()
-        except Exception as e:
-            print(f"Cloud save error: {e}")
-
-# --- ИНИЦИАЛИЗАЦИЯ БОТА ---
-
+# Ссылка на RAW файл в GitHub (создайте txt файл, где каждый ID с новой строки)
+# Пример: https://raw.githubusercontent.com/ваш_логин/репозиторий/main/users.txt
 try:
+    GITHUB_USERS_URL = st.secrets.get("GITHUB_USERS_URL", "")
     ADMIN_ID = int(st.secrets.get("ADMIN_ID", 0))
     TG_TOKEN = st.secrets["TG_TOKEN"]
 except:
+    GITHUB_USERS_URL = ""
     ADMIN_ID = 0
-    TG_TOKEN = os.environ.get("TG_TOKEN", "")
+    TG_TOKEN = ""
 
 if not TG_TOKEN:
     st.error("❌ Токен не найден в Secrets!")
     st.stop()
+
+def fetch_approved_ids():
+    """Загружает список ID из GitHub Raw URL"""
+    ids = set()
+    if ADMIN_ID != 0:
+        ids.add(ADMIN_ID)
+    
+    if not GITHUB_USERS_URL:
+        return ids
+
+    try:
+        response = requests.get(GITHUB_USERS_URL, timeout=10)
+        if response.status_code == 200:
+            for line in response.text.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    ids.add(int(line))
+        else:
+            print(f"GitHub error: {response.status_code}")
+    except Exception as e:
+        print(f"GitHub fetch error: {e}")
+    return ids
 
 bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 
@@ -124,7 +70,7 @@ def get_shared_state():
         "SHOW_ONLY_NEW": True,
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), 
-        "APPROVED_IDS": load_approved_ids(), # Загрузка из БД при старте
+        "APPROVED_IDS": fetch_approved_ids(), # Загружаем из GitHub при старте
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
         "TIMEZONE_OFFSET": -7.0,
@@ -292,39 +238,21 @@ def send_welcome(message):
     SETTINGS["CHAT_IDS"].add(message.chat.id)
     bot.send_message(message.chat.id, "👋 <b>Vova S&P 500 Screener</b>\nБот активен.", parse_mode="HTML", reply_markup=get_main_keyboard())
 
-@bot.message_handler(commands=['approve'])
-def approve_user(message):
+# --- АДМИН-КОМАНДЫ ---
+@bot.message_handler(commands=['reload'])
+def reload_users(message):
+    """Принудительно обновляет список ID из GitHub"""
     if message.from_user.id != ADMIN_ID: return
-    try:
-        new_id = int(message.text.split()[1])
-        SETTINGS["APPROVED_IDS"].add(new_id)
-        save_user_to_cloud(new_id, True)
-        bot.send_message(ADMIN_ID, f"✅ Пользователь {new_id} одобрен и сохранен в базе.")
-        try: bot.send_message(new_id, "🎉 Администратор одобрил ваш доступ! Нажмите /start")
-        except: pass
-    except: bot.send_message(ADMIN_ID, "❌ Ошибка. Пример: /approve 12345678")
-
-@bot.message_handler(commands=['revoke'])
-def revoke_user(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        old_id = int(message.text.split()[1])
-        if old_id in SETTINGS["APPROVED_IDS"]:
-            SETTINGS["APPROVED_IDS"].remove(old_id)
-            save_user_to_cloud(old_id, False) # Удаляем из базы данных
-            bot.send_message(ADMIN_ID, f"🚫 Доступ для {old_id} отозван и удален из базы.")
-            try: bot.send_message(old_id, "⛔ Ваш доступ к боту был отозван администратором.")
-            except: pass
-        else:
-            bot.send_message(ADMIN_ID, f"❓ Пользователь {old_id} не найден в списке одобренных.")
-    except: bot.send_message(ADMIN_ID, "❌ Ошибка. Пример: /revoke 12345678")
+    SETTINGS["APPROVED_IDS"] = fetch_approved_ids()
+    bot.send_message(ADMIN_ID, f"✅ Список пользователей обновлен из GitHub.\nВсего в списке: {len(SETTINGS['APPROVED_IDS'])}")
 
 @bot.message_handler(commands=['list_users'])
 def list_users(message):
     if message.from_user.id != ADMIN_ID: return
     users = "\n".join([f"- <code>{u}</code>" for u in SETTINGS["APPROVED_IDS"]])
-    bot.send_message(ADMIN_ID, f"👥 <b>Одобренные ID:</b>\n{users if users else 'Пусто'}", parse_mode="HTML")
+    bot.send_message(ADMIN_ID, f"👥 <b>Список одобренных ID (из файла):</b>\n{users if users else 'Пусто'}", parse_mode="HTML")
 
+# --- СКАН И УПРАВЛЕНИЕ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀')
 def manual_scan(message):
     threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
@@ -337,7 +265,7 @@ def stop_scan(message):
 @bot.message_handler(func=lambda m: m.text == 'Status 📊')
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все активные"
-    bot.reply_to(message, f"⚙️ <b>Статус:</b>\nРежим: {mode}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
+    bot.reply_to(message, f"⚙️ <b>Статус:</b>\nРежим: {mode}\nОдобрено: {len(SETTINGS['APPROVED_IDS'])}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.text == 'ATR 📉')
 def open_atr_menu(message):
@@ -385,5 +313,5 @@ def run_background_services():
 
 st.title("🤖 Vova Bot Server")
 run_background_services()
-st.success(f"✅ Бот активен. Одобрено пользователей в облаке: {len(SETTINGS['APPROVED_IDS'])}")
+st.success(f"✅ Бот активен. Одобрено пользователей: {len(SETTINGS['APPROVED_IDS'])}")
 st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
