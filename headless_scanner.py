@@ -11,6 +11,8 @@ import requests
 import os
 import json
 from datetime import datetime, timedelta
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # --- КОНФИГУРАЦИЯ СТРАНИЦЫ ---
 st.set_page_config(page_title="Vova Bot Server", page_icon="🤖", layout="centered")
@@ -32,26 +34,31 @@ if not TG_TOKEN:
     st.error("❌ Токен не найден в Secrets!")
     st.stop()
 
-def fetch_approved_ids():
-    """Загружает список ID из GitHub Raw URL"""
-    ids = set()
-    if ADMIN_ID != 0:
-        ids.add(ADMIN_ID)
-    
-    if not GITHUB_USERS_URL:
-        return ids
+# Создаем сессию для yfinance, чтобы избежать блокировок (Anti-bot)
+def get_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+    })
+    retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
 
+YF_SESSION = get_session()
+
+def fetch_approved_ids():
+    ids = set()
+    if ADMIN_ID != 0: ids.add(ADMIN_ID)
+    if not GITHUB_USERS_URL: return ids
     try:
         response = requests.get(GITHUB_USERS_URL, timeout=10)
         if response.status_code == 200:
             for line in response.text.splitlines():
                 line = line.strip()
-                if line.isdigit():
-                    ids.add(int(line))
-        else:
-            print(f"GitHub error: {response.status_code}")
-    except Exception as e:
-        print(f"GitHub fetch error: {e}")
+                if line.isdigit(): ids.add(int(line))
+    except Exception as e: print(f"GitHub fetch error: {e}")
     return ids
 
 bot = telebot.TeleBot(TG_TOKEN, threaded=True)
@@ -59,29 +66,16 @@ bot = telebot.TeleBot(TG_TOKEN, threaded=True)
 @st.cache_resource
 def get_shared_state():
     return {
-        "LENGTH_MAJOR": 200,
-        "MAX_ATR_PCT": 5.0,
-        "ADX_THRESH": 20,
-        "MIN_RR": 1.5, # Соотношение риск/прибыль по умолчанию
-        "AUTO_SCAN_INTERVAL": 3600, 
-        "IS_SCANNING": False,
-        "STOP_SCAN": False,
-        "SHOW_ONLY_NEW": True,
-        "LAST_SCAN_TIME": "Никогда",
-        "CHAT_IDS": set(), 
-        "APPROVED_IDS": fetch_approved_ids(), 
-        "NOTIFIED_TODAY": set(),
-        "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
-        "TIMEZONE_OFFSET": -7.0,
-        "TICKER_LIMIT": 500 
+        "LENGTH_MAJOR": 200, "MAX_ATR_PCT": 5.0, "ADX_THRESH": 20, "MIN_RR": 1.5,
+        "AUTO_SCAN_INTERVAL": 3600, "IS_SCANNING": False, "STOP_SCAN": False,
+        "SHOW_ONLY_NEW": True, "LAST_SCAN_TIME": "Никогда",
+        "CHAT_IDS": set(), "APPROVED_IDS": fetch_approved_ids(), 
+        "NOTIFIED_TODAY": set(), "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
+        "TIMEZONE_OFFSET": -7.0, "TICKER_LIMIT": 500 
     }
 
 SETTINGS = get_shared_state()
-
-# ГЛОБАЛЬНОЕ СОСТОЯНИЕ ПРОГРЕССА
-PROGRESS = {
-    "current": 0, "total": 0, "running": False, "msg_id": None, "chat_id": None, "header": ""
-}
+PROGRESS = {"current": 0, "total": 0, "running": False, "msg_id": None, "chat_id": None, "header": ""}
 
 def is_authorized(user_id):
     if ADMIN_ID != 0 and user_id == ADMIN_ID: return True
@@ -105,24 +99,33 @@ def get_sp500_tickers():
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=15)
         table = pd.read_html(io.StringIO(response.text))
-        return [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
-    except:
-        return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
+        tickers = [str(t).replace('.', '-').strip() for t in table[0]['Symbol'].tolist()]
+        return sorted(list(set(tickers)))
+    except Exception as e:
+        print(f"Scraper error: {e}")
+        return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD", "ARES", "GOOGL", "AMZN", "META"]
 
 def pine_rma(series, length):
     return series.ewm(alpha=1/length, adjust=False).mean()
 
 def check_ticker(ticker, verbose=False):
-    """
-    Основная логика проверки тикера.
-    Если verbose=True, возвращает расширенные данные даже при провале фильтров.
-    """
+    """Улучшенная функция проверки с механизмом повтора и сессией"""
     try:
-        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
+        # Пытаемся скачать данные. Если пусто - пробуем еще раз (важно для ARES при массовом скане)
+        df = None
+        for attempt in range(2):
+            df = yf.download(ticker, period="2y", interval="1d", progress=False, 
+                             auto_adjust=True, timeout=15, session=YF_SESSION)
+            if not df.empty and len(df) >= 250: break
+            if attempt == 0: time.sleep(1)
+
+        if df is None or df.empty or len(df) < 250:
+            if verbose: print(f"Ticker {ticker} failed download or too short.")
+            return None
+
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-        if len(df) < 250: return None
 
         # 1. SMA Major
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
@@ -177,23 +180,19 @@ def check_ticker(ticker, verbose=False):
         last = df.iloc[-1]; prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
-        # Проверки по отдельности
+        # Проверки
         cond_seq = (seq_states[-1] == 1)
         cond_ma = (last['Close'] > last['SMA_Major'])
         cond_trend = (last['ADX'] >= SETTINGS["ADX_THRESH"]) and (last['DI_Plus'] > last['DI_Minus'])
-        
         all_green_cur = cond_seq and cond_ma and cond_trend
-        
-        # Проверка на "Новый" сигнал
         all_green_prev = (seq_states[-2] == 1) and (prev['Close'] > prev['SMA_Major']) and (prev['ADX'] >= SETTINGS["ADX_THRESH"]) and (prev['DI_Plus'] > prev['DI_Minus'])
         
         # R:R
-        current_price = last['Close']
+        current_price = float(last['Close'])
         risk = current_price - criticalLevel
         reward = seqHigh - current_price
         rr_ratio = round(reward / risk, 2) if risk > 0 else 0
         
-        # Итоговые фильтры
         pass_atr = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
         pass_rr = (rr_ratio >= SETTINGS["MIN_RR"])
         is_new_signal = all_green_cur and not all_green_prev
@@ -206,14 +205,15 @@ def check_ticker(ticker, verbose=False):
             'all_green': all_green_cur, 'pass_atr': pass_atr, 'pass_rr': pass_rr
         }
 
-        if verbose:
-            return result_data
+        if verbose: return result_data
 
         if all_green_cur and pass_atr and pass_rr:
             if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
                 return result_data
                 
-    except: return None
+    except Exception as e:
+        if verbose: print(f"Detailed Error for {ticker}: {e}")
+        return None
     return None
 
 # ==========================================
@@ -252,7 +252,7 @@ def perform_scan(chat_id=None, is_manual=False):
         total_tickers = len(tickers)
         
         if is_manual and chat_id:
-            status_msg = bot.send_message(chat_id, "⏳ Инициализация поиска...", parse_mode="HTML")
+            status_msg = bot.send_message(chat_id, "⏳ Инициализация поиска (500+ акций)...", parse_mode="HTML")
             PROGRESS.update({"current": 0, "total": total_tickers, "running": True, "msg_id": status_msg.message_id, "chat_id": chat_id, "header": "🚀 <b>Ручной поиск</b>"})
             threading.Thread(target=progress_updater, daemon=True).start()
         
@@ -261,11 +261,19 @@ def perform_scan(chat_id=None, is_manual=False):
             if SETTINGS["STOP_SCAN"]: 
                 PROGRESS["running"] = False
                 break
+            
             PROGRESS["current"] = i + 1
+            
+            # АНТИ-ФЛУД ЗАДЕРЖКА: Каждые 15 акций делаем паузу 1.5 сек для Yahoo
+            if i > 0 and i % 15 == 0: time.sleep(1.5)
+            
             res = check_ticker(t)
             if res:
-                if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]: continue
-                SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
+                # В ручном скане игнорируем список уведомленных, чтобы всегда видеть результат
+                if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]: 
+                    continue
+                
+                if not is_manual: SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
                 found_count += 1
                 
                 msg = (f"{'🔥 NEW' if res['is_new'] else '🟢'} <b>{res['ticker']}</b> | ${res['price']:.2f}\n"
@@ -284,7 +292,7 @@ def perform_scan(chat_id=None, is_manual=False):
             try: bot.edit_message_text(chat_id=chat_id, message_id=PROGRESS["msg_id"], text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             except: bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
-    except Exception as e: print(f"Scan error: {e}")
+    except Exception as e: print(f"Global Scan error: {e}")
     finally:
         PROGRESS["running"] = False
         SETTINGS["IS_SCANNING"] = False
@@ -300,26 +308,23 @@ def unauthorized_access(message):
         f"⛔ <b>Доступ ограничен.</b>\n\nВаш ID: <code>{message.from_user.id}</code>\n"
         f"Отправьте этот ID администратору <b>@Vova_Skl</b> для получения доступа.", parse_mode="HTML")
 
-# --- ДИАГНОСТИКА ТИКЕРА ---
 @bot.message_handler(commands=['check'])
 def diagnostic_check(message):
     if not is_authorized(message.from_user.id): return
     try:
         parts = message.text.split()
-        if len(parts) < 2:
+        ticker = parts[1].upper().strip() if len(parts) > 1 else ""
+        if not ticker:
             bot.reply_to(message, "❌ Укажите тикер. Пример: `/check ARES`", parse_mode="Markdown")
             return
         
-        ticker = parts[1].upper()
-        bot.send_message(message.chat.id, f"🔍 Диагностика <b>{ticker}</b> по данным yFinance...", parse_mode="HTML")
-        
+        bot.send_message(message.chat.id, f"🔍 Диагностика <b>{ticker}</b>...", parse_mode="HTML")
         info = check_ticker(ticker, verbose=True)
         if not info:
-            bot.send_message(message.chat.id, "❌ Не удалось загрузить данные для этого тикера.")
+            bot.send_message(message.chat.id, "❌ Ошибка загрузки данных Yahoo Finance.")
             return
 
         l = info['lights']
-        # Исправляем символы сравнения для HTML parse mode (заменяем < > на сущности)
         report = (
             f"📊 <b>Отчет по {ticker}:</b>\n"
             f"Цена: ${info['price']:.2f} (SMA{SETTINGS['LENGTH_MAJOR']}: {info['sma']})\n\n"
@@ -330,33 +335,24 @@ def diagnostic_check(message):
             f"{'✅' if info['pass_atr'] else '❌'} ATR ({info['atr']:.2f}%) &lt;= {SETTINGS['MAX_ATR_PCT']}%\n"
             f"{'✅' if info['pass_rr'] else '❌'} R:R (1:{info['rr']}) &gt;= 1:{SETTINGS['MIN_RR']}\n\n"
             f"🎯 TP (HH): ${info['tp']:.2f}\n🛑 SL (Support): ${info['sl']:.2f}\n"
-            f"🆕 Новый сигнал сегодня: {'ДА' if info['is_new'] else 'НЕТ'}"
+            f"🆕 Новый сигнал: {'ДА' if info['is_new'] else 'НЕТ'}"
         )
         bot.send_message(message.chat.id, report, parse_mode="HTML")
-    except Exception as e:
-        # В случае ошибки выводим сырой текст без разметки для отладки
-        bot.send_message(message.chat.id, f"❌ Ошибка диагностики: {str(e)}")
+    except Exception as e: bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     SETTINGS["CHAT_IDS"].add(message.chat.id)
-    bot.send_message(message.chat.id, "👋 <b>Vova S&P 500 Screener Pro</b>\nБот активен.\nИспользуйте `/check TICKER` для диагностики конкретной акции.", parse_mode="HTML", reply_markup=get_main_keyboard())
+    bot.send_message(message.chat.id, "👋 <b>Vova S&P 500 Screener Pro</b>\nБот активен.", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 @bot.message_handler(commands=['reload'])
 def reload_users(message):
     if message.from_user.id != ADMIN_ID: return
     SETTINGS["APPROVED_IDS"] = fetch_approved_ids()
-    bot.send_message(ADMIN_ID, f"✅ Список пользователей обновлен из GitHub.\nВсего в списке: {len(SETTINGS['APPROVED_IDS'])}")
+    bot.send_message(ADMIN_ID, f"✅ Список обновлен из GitHub ({len(SETTINGS['APPROVED_IDS'])} чел.)")
 
-@bot.message_handler(commands=['list_users'])
-def list_users(message):
-    if message.from_user.id != ADMIN_ID: return
-    users = "\n".join([f"- <code>{u}</code>" for u in SETTINGS["APPROVED_IDS"]])
-    bot.send_message(ADMIN_ID, f"👥 <b>Список одобренных ID (из файла):</b>\n{users if users else 'Пусто'}", parse_mode="HTML")
-
-# --- СКАН И УПРАВЛЕНИЕ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀')
-def manual_scan(message):
+def manual_scan_btn(message):
     threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
 
 @bot.message_handler(func=lambda m: m.text == 'Stop 🛑')
@@ -385,13 +381,13 @@ def open_sma_menu(message):
 def open_rr_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add('RR 1:1.5', 'RR 1:2.0', 'RR 1:3.0', '🔙 Назад')
-    bot.send_message(message.chat.id, "⚖️ Выберите минимальное соотношение Risk/Reward:", reply_markup=markup)
+    bot.send_message(message.chat.id, "⚖️ Минимальный R:R:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄')
 def open_mode_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add('Только НОВЫЕ 🔥', 'ВСЕ активные 🟢', '🔙 Назад')
-    bot.send_message(message.chat.id, "🔄 Режим отображения:", reply_markup=markup)
+    bot.send_message(message.chat.id, "🔄 Режим поиска:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == '🔙 Назад')
 def back_to_main(message):
@@ -401,19 +397,19 @@ def back_to_main(message):
 def handle_values(message):
     if '%' in message.text:
         SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
-        bot.send_message(message.chat.id, f"✅ ATR установлен: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ ATR: {SETTINGS['MAX_ATR_PCT']}%", reply_markup=get_main_keyboard())
     elif message.text.isdigit():
         SETTINGS["LENGTH_MAJOR"] = int(message.text)
-        bot.send_message(message.chat.id, f"✅ SMA установлен: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ SMA: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
     elif 'RR 1:' in message.text:
         SETTINGS["MIN_RR"] = float(message.text.replace('RR 1:',''))
-        bot.send_message(message.chat.id, f"✅ Минимальный R:R установлен: 1:{SETTINGS['MIN_RR']}", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, f"✅ R:R: 1:{SETTINGS['MIN_RR']}", reply_markup=get_main_keyboard())
     elif 'НОВЫЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = True
-        bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ сигналы", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ", reply_markup=get_main_keyboard())
     elif 'ВСЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = False
-        bot.send_message(message.chat.id, "✅ Режим: ВСЕ активные сигналы", reply_markup=get_main_keyboard())
+        bot.send_message(message.chat.id, "✅ Режим: ВСЕ активные", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == 'Time 🕒')
 def check_time(message):
@@ -441,5 +437,5 @@ def run_background_services():
 
 st.title("🤖 Vova Bot Server")
 run_background_services()
-st.success(f"✅ Бот активен. Одобрено пользователей: {len(SETTINGS['APPROVED_IDS'])}")
+st.success(f"✅ Бот активен. Пользователей: {len(SETTINGS['APPROVED_IDS'])}")
 st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
