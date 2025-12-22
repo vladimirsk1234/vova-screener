@@ -62,6 +62,7 @@ def get_shared_state():
         "LENGTH_MAJOR": 200,
         "MAX_ATR_PCT": 5.0,
         "ADX_THRESH": 20,
+        "MIN_RR": 1.5, # Соотношение риск/прибыль по умолчанию
         "AUTO_SCAN_INTERVAL": 3600, 
         "IS_SCANNING": False,
         "STOP_SCAN": False,
@@ -90,7 +91,8 @@ def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3, one_time_keyboard=False)
     markup.row(types.KeyboardButton('Scan 🚀'), types.KeyboardButton('Stop 🛑'))
     markup.row(types.KeyboardButton('Status 📊'), types.KeyboardButton('Mode 🔄'))
-    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Time 🕒'))
+    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('RR ⚖️'))
+    markup.row(types.KeyboardButton('Time 🕒'))
     return markup
 
 def get_local_now():
@@ -114,12 +116,12 @@ def pine_rma(series, length):
 
 def check_ticker(ticker):
     try:
-        # Загружаем 2 года истории для SMA 200 и Sequence
+        # ЗАГРУЗКА ДАННЫХ: Сохранено 2 года для корректного SMA 200 и Sequence
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
         if len(df) < 250: return None
 
-        # 1. SMA Major
+        # 1. SMA MAJOR (Сохранено 200)
         df['SMA_Major'] = df['Close'].rolling(window=SETTINGS["LENGTH_MAJOR"]).mean()
         
         # 2. ATR
@@ -130,7 +132,7 @@ def check_ticker(ticker):
         df['ATR_Val'] = df['TR'].rolling(window=14).mean()
         df['ATR_Pct'] = (df['ATR_Val'] / df['Close']) * 100
         
-        # 3. ADX & DI
+        # 3. ADX & DI (Сохранено ADX >= 20)
         df['Up'] = df['High'] - df['High'].shift(1)
         df['Down'] = df['Low'].shift(1) - df['Low']
         df['+DM'] = np.where((df['Up'] > df['Down']) & (df['Up'] > 0), df['Up'], 0)
@@ -143,7 +145,7 @@ def check_ticker(ticker):
         dx = 100 * abs(df['DI_Plus'] - df['DI_Minus']) / (df['DI_Plus'] + df['DI_Minus'])
         df['ADX'] = pine_rma(dx, 14)
         
-        # 4. SEQUENCE LOGIC (ПОЛНАЯ ВЕРСИЯ)
+        # 4. SEQUENCE LOGIC (ПОЛНАЯ ВЕРСИЯ - Сохранено HH/HL/Critical)
         seq_states = []
         seqState = 0
         seqHigh = df['High'].iloc[0]
@@ -158,13 +160,9 @@ def check_ticker(ticker):
             if i == 0:
                 seq_states.append(0)
                 continue
-            
             c, h, l = cl[i], hi[i], lo[i]
             prevS = seq_states[-1]
-            
-            # Проверка пробоя уровня
             isBreak = (prevS == 1 and c < criticalLevel) or (prevS == -1 and c > criticalLevel)
-            
             if isBreak:
                 if prevS == 1:
                     seqState = -1; seqHigh = h; seqLow = l; criticalLevel = h
@@ -175,25 +173,22 @@ def check_ticker(ticker):
                 if seqState == 1:
                     if h >= seqHigh:
                         seqHigh = h
-                        criticalLevel = l # Поддержка на лоу свечи нового максимума
+                        criticalLevel = l
                 elif seqState == -1:
                     if l <= seqLow:
                         seqLow = l
-                        criticalLevel = h # Сопротивление на хае свечи нового минимума
-                else: # Старт
-                    if c > seqHigh:
-                        seqState = 1; criticalLevel = l
-                    elif c < seqLow:
-                        seqState = -1; criticalLevel = h
-                    else:
-                        seqHigh = max(seqHigh, h)
-                        seqLow = min(seqLow, l)
+                        criticalLevel = h
+                else:
+                    if c > seqHigh: seqState = 1; criticalLevel = l
+                    elif c < seqLow: seqState = -1; criticalLevel = h
+                    else: seqHigh = max(seqHigh, h); seqLow = min(seqLow, l)
             seq_states.append(seqState)
         
         last = df.iloc[-1]
         prev = df.iloc[-2]
         if pd.isna(last['ADX']): return None
         
+        # Функция проверки 3-х зеленых сигналов
         def get_all_green(row, s_val):
             cond_seq = (s_val == 1)
             cond_ma = (row['Close'] > row['SMA_Major'])
@@ -203,12 +198,31 @@ def check_ticker(ticker):
         all_green_cur = get_all_green(last, seq_states[-1])
         all_green_prev = get_all_green(prev, seq_states[-2])
         
-        pass_filters = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
+        # 5. RISK REWARD CALCULATION
+        # StopLoss (SL) = criticalLevel
+        # TakeProfit (TP) = seqHigh (последний HH)
+        current_price = last['Close']
+        risk = current_price - criticalLevel
+        reward = seqHigh - current_price
+        
+        rr_ratio = round(reward / risk, 2) if risk > 0 else 0
+        
+        # ФИЛЬТРЫ (Сохранено ATR и добавлен RR)
+        pass_atr = (last['ATR_Pct'] <= SETTINGS["MAX_ATR_PCT"])
+        pass_rr = (rr_ratio >= SETTINGS["MIN_RR"])
         is_new_signal = all_green_cur and not all_green_prev
 
-        if all_green_cur and pass_filters:
+        if all_green_cur and pass_atr and pass_rr:
             if not SETTINGS["SHOW_ONLY_NEW"] or is_new_signal:
-                return {'ticker': ticker, 'price': last['Close'], 'atr': last['ATR_Pct'], 'is_new': is_new_signal}
+                return {
+                    'ticker': ticker, 
+                    'price': current_price, 
+                    'atr': last['ATR_Pct'], 
+                    'is_new': is_new_signal,
+                    'rr': rr_ratio,
+                    'tp': seqHigh,
+                    'sl': criticalLevel
+                }
     except: return None
     return None
 
@@ -222,7 +236,7 @@ def progress_updater():
             if PROGRESS["total"] > 0:
                 pct = int((PROGRESS["current"] / PROGRESS["total"]) * 100)
                 bar_str = "▓" * (pct // 10) + "░" * (10 - (pct // 10))
-                text = (f"{PROGRESS['header']}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                text = (f"{PROGRESS['header']}\nSMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}% | R:R: 1:{SETTINGS['MIN_RR']}\n"
                         f"Прогресс: {PROGRESS['current']}/{PROGRESS['total']} ({pct}%)\n[{bar_str}]")
                 bot.edit_message_text(chat_id=PROGRESS["chat_id"], message_id=PROGRESS["msg_id"], text=text, parse_mode="HTML")
         except: pass
@@ -263,7 +277,12 @@ def perform_scan(chat_id=None, is_manual=False):
                 if not is_manual and res['ticker'] in SETTINGS["NOTIFIED_TODAY"]: continue
                 SETTINGS["NOTIFIED_TODAY"].add(res['ticker'])
                 found_count += 1
-                msg = f"{'🔥 NEW' if res['is_new'] else '🟢'} <b>{res['ticker']}</b> | ${res['price']:.2f} | ATR: {res['atr']:.2f}%"
+                
+                # Сообщение с деталями SL/TP и RR
+                msg = (f"{'🔥 NEW' if res['is_new'] else '🟢'} <b>{res['ticker']}</b> | ${res['price']:.2f}\n"
+                       f"📊 ATR: {res['atr']:.2f}% | <b>R:R: 1:{res['rr']}</b>\n"
+                       f"🎯 TP: ${res['tp']:.2f} | 🛑 SL: ${res['sl']:.2f}")
+                
                 targets = [chat_id] if is_manual else list(SETTINGS["CHAT_IDS"])
                 for target in targets:
                     if is_authorized(target):
@@ -297,7 +316,6 @@ def send_welcome(message):
     SETTINGS["CHAT_IDS"].add(message.chat.id)
     bot.send_message(message.chat.id, "👋 <b>Vova S&P 500 Screener</b>\nБот активен.", parse_mode="HTML", reply_markup=get_main_keyboard())
 
-# --- АДМИН-КОМАНДЫ ---
 @bot.message_handler(commands=['reload'])
 def reload_users(message):
     if message.from_user.id != ADMIN_ID: return
@@ -310,7 +328,6 @@ def list_users(message):
     users = "\n".join([f"- <code>{u}</code>" for u in SETTINGS["APPROVED_IDS"]])
     bot.send_message(ADMIN_ID, f"👥 <b>Список одобренных ID (из файла):</b>\n{users if users else 'Пусто'}", parse_mode="HTML")
 
-# --- СКАН И УПРАВЛЕНИЕ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀')
 def manual_scan(message):
     threading.Thread(target=perform_scan, args=(message.chat.id, True), daemon=True).start()
@@ -323,7 +340,7 @@ def stop_scan(message):
 @bot.message_handler(func=lambda m: m.text == 'Status 📊')
 def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все активные"
-    bot.reply_to(message, f"⚙️ <b>Статус:</b>\nРежим: {mode}\nОдобрено: {len(SETTINGS['APPROVED_IDS'])}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
+    bot.reply_to(message, f"⚙️ <b>Статус:</b>\nРежим: {mode}\nОдобрено: {len(SETTINGS['APPROVED_IDS'])}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nMin R:R: 1:{SETTINGS['MIN_RR']}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.text == 'ATR 📉')
 def open_atr_menu(message):
@@ -337,6 +354,12 @@ def open_sma_menu(message):
     markup.add('100', '150', '200', '🔙 Назад')
     bot.send_message(message.chat.id, "📈 Выберите SMA:", reply_markup=markup)
 
+@bot.message_handler(func=lambda m: m.text == 'RR ⚖️')
+def open_rr_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('RR 1:1.5', 'RR 1:2.0', 'RR 1:3.0', '🔙 Назад')
+    bot.send_message(message.chat.id, "⚖️ Выберите минимальное соотношение Risk/Reward:", reply_markup=markup)
+
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄')
 def open_mode_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -347,8 +370,7 @@ def open_mode_menu(message):
 def back_to_main(message):
     bot.send_message(message.chat.id, "🏠 Главное меню", reply_markup=get_main_keyboard())
 
-# ОБНОВЛЕННЫЙ ОБРАБОТЧИК ЗНАЧЕНИЙ И РЕЖИМОВ
-@bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit() or 'НОВЫЕ' in m.text or 'ВСЕ' in m.text)
+@bot.message_handler(func=lambda m: '%' in m.text or m.text.isdigit() or 'НОВЫЕ' in m.text or 'ВСЕ' in m.text or 'RR 1:' in m.text)
 def handle_values(message):
     if '%' in message.text:
         SETTINGS["MAX_ATR_PCT"] = float(message.text.replace(' %',''))
@@ -356,6 +378,9 @@ def handle_values(message):
     elif message.text.isdigit():
         SETTINGS["LENGTH_MAJOR"] = int(message.text)
         bot.send_message(message.chat.id, f"✅ SMA установлен: {SETTINGS['LENGTH_MAJOR']}", reply_markup=get_main_keyboard())
+    elif 'RR 1:' in message.text:
+        SETTINGS["MIN_RR"] = float(message.text.replace('RR 1:',''))
+        bot.send_message(message.chat.id, f"✅ Минимальный R:R установлен: 1:{SETTINGS['MIN_RR']}", reply_markup=get_main_keyboard())
     elif 'НОВЫЕ' in message.text:
         SETTINGS["SHOW_ONLY_NEW"] = True
         bot.send_message(message.chat.id, "✅ Режим: Только НОВЫЕ сигналы", reply_markup=get_main_keyboard())
