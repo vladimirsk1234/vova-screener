@@ -47,7 +47,7 @@ def get_shared_state():
         "CHAT_ID": None,
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
-        "TIMEZONE_OFFSET": 3.0
+        "TIMEZONE_OFFSET": -7
     }
 
 SETTINGS = get_shared_state()
@@ -406,3 +406,4 @@ st.metric("Последний скан (Local)", SETTINGS["LAST_SCAN_TIME"])
 
 from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=300000, key="ref")
+
