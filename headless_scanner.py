@@ -47,7 +47,8 @@ def get_shared_state():
         "CHAT_ID": None,
         "NOTIFIED_TODAY": set(),
         "LAST_DATE": datetime.utcnow().strftime("%Y-%m-%d"),
-        "TIMEZONE_OFFSET": -7.0 # Установлено UTC-7
+        "TIMEZONE_OFFSET": -7.0,
+        "TICKER_LIMIT": 50 # <-- ПО УМОЛЧАНИЮ: Сканируем только 50 тикеров для теста
     }
 
 SETTINGS = get_shared_state()
@@ -56,8 +57,10 @@ HELP_TEXT = (
     "<b>🛠 Быстрые настройки:</b>\n"
     "Используйте меню внизу для управления.\n\n"
     "⚙️ <b>Часовой пояс:</b>\n"
-    "Используйте <code>/set_offset</code> чтобы настроить ваше время.\n"
-    "Пример: <code>/set_offset -7</code> (UTC-7)"
+    "<code>/set_offset -7</code>\n\n"
+    "🔢 <b>Лимит тикеров:</b>\n"
+    "<code>/set_limit 500</code> (Весь S&P)\n"
+    "<code>/set_limit 50</code> (Быстрый тест)"
 )
 
 # --- МЕНЮ ---
@@ -68,7 +71,7 @@ def get_main_keyboard():
     # 2 ряд
     markup.row(types.KeyboardButton('Status 📊'), types.KeyboardButton('Mode 🔄'))
     # 3 ряд (Настройки)
-    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Time 🕒'))
+    markup.row(types.KeyboardButton('ATR 📉'), types.KeyboardButton('SMA 📈'), types.KeyboardButton('Limit 🔢'))
     return markup
 
 # --- ВРЕМЯ ---
@@ -173,20 +176,26 @@ def perform_scan(chat_id, is_manual=False):
     SETTINGS["IS_SCANNING"] = True
     SETTINGS["STOP_SCAN"] = False
     
-    current_date = time.strftime("%Y-%m-%d")
-    if SETTINGS["LAST_DATE"] != current_date:
+    local_now = get_local_now()
+    current_date_str = local_now.strftime("%Y-%m-%d")
+    
+    if SETTINGS["LAST_DATE"] != current_date_str:
         SETTINGS["NOTIFIED_TODAY"] = set()
-        SETTINGS["LAST_DATE"] = current_date
+        SETTINGS["LAST_DATE"] = current_date_str
     
     mode_txt = "Только НОВЫЕ" if SETTINGS["SHOW_ONLY_NEW"] else "ВСЕ активные"
     header = "🚀 <b>Ручной поиск</b>" if is_manual else "⏰ <b>Авто-проверка</b>"
 
-    # Сначала получаем список, чтобы знать количество
+    # Ограничиваем список тикеров лимитом
     tickers = get_sp500_tickers()
+    limit = SETTINGS.get("TICKER_LIMIT", 500)
+    if limit and limit > 0:
+        tickers = tickers[:limit]
+        
     total_tickers = len(tickers)
     
-    # Динамический шаг обновления (каждые 5%)
-    update_step = max(1, int(total_tickers / 20))
+    # Обновляем чаще (каждые 5 тикеров или 10% от списка)
+    update_step = max(5, int(total_tickers / 10))
 
     status_msg = None
     try:
@@ -194,7 +203,8 @@ def perform_scan(chat_id, is_manual=False):
         initial_bar = "░" * 10
         initial_text = (
             f"{header}\nРежим: {mode_txt}\n"
-            f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+            f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+            f"Лимит: {total_tickers} шт.\n\n"
             f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
         )
         status_msg = bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
@@ -210,18 +220,20 @@ def perform_scan(chat_id, is_manual=False):
             return
         
         # Обновляем прогресс
-        if i % update_step == 0 and status_msg:
+        if i % update_step == 0 and status_msg and i > 0:
             try:
                 progress_pct = int((i / total_tickers) * 100)
                 bar_filled = int(progress_pct / 10)
                 bar_str = "▓" * bar_filled + "░" * (10 - bar_filled)
                 new_text = (
                     f"{header}\nРежим: {mode_txt}\n"
-                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n\n"
+                    f"SMA: {SETTINGS['LENGTH_MAJOR']} | ATR: {SETTINGS['MAX_ATR_PCT']}%\n"
+                    f"Лимит: {total_tickers} шт.\n\n"
                     f"⏳ Прогресс: {i}/{total_tickers} ({progress_pct}%)\n[{bar_str}]"
                 )
                 bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=new_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-            except: pass 
+            except Exception as e:
+                print(f"Error updating progress: {e}")
 
         res = check_ticker(t)
         if res:
@@ -238,7 +250,7 @@ def perform_scan(chat_id, is_manual=False):
     try:
         final_text = f"✅ <b>Завершено</b>. Найдено: {found_count}" if found_count > 0 else f"🏁 <b>Завершено</b>. Ничего не найдено."
         if status_msg:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=final_text, parse_mode="HTML")
         else:
             bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=get_main_keyboard())
             
@@ -287,6 +299,19 @@ def open_sma_menu(message):
     )
     bot.send_message(message.chat.id, "📈 <b>Выберите SMA Period:</b>", parse_mode="HTML", reply_markup=markup)
 
+# --- МЕНЮ LIMIT ---
+@bot.message_handler(func=lambda m: m.text == 'Limit 🔢' or m.text.startswith('/limit_menu'))
+def open_limit_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        types.KeyboardButton('20 (Test)'),
+        types.KeyboardButton('50 (Fast)'),
+        types.KeyboardButton('100'),
+        types.KeyboardButton('505 (Full)'),
+        types.KeyboardButton('🔙 Назад')
+    )
+    bot.send_message(message.chat.id, "🔢 <b>Сколько акций сканировать?</b>\n(По умолчанию: 50)", parse_mode="HTML", reply_markup=markup)
+
 # --- МЕНЮ ВРЕМЕНИ ---
 @bot.message_handler(func=lambda m: m.text == 'Time 🕒' or m.text.startswith('/time'))
 def check_time(message):
@@ -299,7 +324,7 @@ def check_time(message):
         f"🕒 <b>Системное время:</b>\n"
         f"☁️ Сервер (UTC): {server_time}\n"
         f"🏠 Ваше (UTC{off_str}): <b>{local_time}</b>\n\n"
-        f"Чтобы изменить часовой пояс, напишите:\n<code>/set_offset 3</code>", 
+        f"Чтобы изменить часовой пояс, напишите:\n<code>/set_offset -7</code>", 
         parse_mode="HTML", reply_markup=get_main_keyboard()
     )
 
@@ -326,7 +351,18 @@ def set_sma_text(message):
     except:
         bot.reply_to(message, "❌ Ошибка", reply_markup=get_main_keyboard())
 
-# --- НАСТРОЙКА ЧАСОВОГО ПОЯСА ---
+# --- УСТАНОВКА ЛИМИТА ---
+@bot.message_handler(func=lambda m: '20' in m.text or '50' in m.text or '100' in m.text or '505' in m.text)
+def set_limit_text(message):
+    try:
+        # Извлекаем число из строки (например "50 (Fast)" -> 50)
+        val = int(message.text.split()[0])
+        SETTINGS["TICKER_LIMIT"] = val
+        bot.reply_to(message, f"✅ Лимит установлен: {val} тикеров", reply_markup=get_main_keyboard())
+    except:
+        pass
+
+# --- НАСТРОЙКА ЧАСОВОГО ПОЯСА И ЛИМИТА (КОМАНДЫ) ---
 @bot.message_handler(commands=['set_offset'])
 def set_offset(message):
     try:
@@ -335,7 +371,16 @@ def set_offset(message):
         curr_time = get_local_now().strftime("%H:%M")
         bot.reply_to(message, f"✅ Смещение UTC: {val}\n⏰ Текущее время: {curr_time}", reply_markup=get_main_keyboard())
     except:
-        bot.reply_to(message, "❌ Ошибка. Пример: <code>/set_offset 3</code>", parse_mode="HTML")
+        bot.reply_to(message, "❌ Ошибка. Пример: <code>/set_offset -7</code>", parse_mode="HTML")
+
+@bot.message_handler(commands=['set_limit'])
+def set_limit_cmd(message):
+    try:
+        val = int(message.text.split()[1])
+        SETTINGS["TICKER_LIMIT"] = val
+        bot.reply_to(message, f"✅ Лимит: {val}", reply_markup=get_main_keyboard())
+    except:
+        bot.reply_to(message, "❌ Пример: /set_limit 500")
 
 # --- ОСНОВНЫЕ КНОПКИ ---
 @bot.message_handler(func=lambda m: m.text == 'Scan 🚀' or m.text.startswith('/scan'))
@@ -356,7 +401,8 @@ def get_status(message):
     mode = "Только Новые" if SETTINGS["SHOW_ONLY_NEW"] else "Все"
     notified_count = len(SETTINGS["NOTIFIED_TODAY"])
     offset = SETTINGS["TIMEZONE_OFFSET"]
-    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nЧасовой пояс: {offset}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
+    limit = SETTINGS["TICKER_LIMIT"]
+    bot.reply_to(message, f"⚙️ <b>Настройки:</b>\nРежим: {mode}\nЛимит: {limit} шт.\nЧасовой пояс: {offset}\nSMA: {SETTINGS['LENGTH_MAJOR']}\nMax ATR: {SETTINGS['MAX_ATR_PCT']}%\nНайдено сегодня: {notified_count}\nПосл. скан: {SETTINGS['LAST_SCAN_TIME']}", parse_mode="HTML", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda m: m.text == 'Mode 🔄' or m.text.startswith('/mode'))
 def open_mode_menu(message):
