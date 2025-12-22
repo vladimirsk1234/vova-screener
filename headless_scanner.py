@@ -82,14 +82,18 @@ def get_local_now():
 # 2. ФУНКЦИИ АНАЛИЗА
 # ==========================================
 def get_sp500_tickers():
+    print("Getting S&P 500 list...")
     for attempt in range(3):
         try:
             url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
             headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(url, headers=headers, timeout=10)
             table = pd.read_html(io.StringIO(response.text))
-            return [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
+            tickers = [t.replace('.', '-') for t in table[0]['Symbol'].tolist()]
+            print(f"Got {len(tickers)} tickers.")
+            return tickers
         except Exception as e:
+            print(f"Error getting tickers: {e}")
             time.sleep(2)
             if attempt == 2: return ["AAPL", "MSFT", "NVDA", "TSLA", "AMD"]
 
@@ -188,17 +192,18 @@ def perform_scan(chat_id, is_manual=False):
 
     # Ограничиваем список тикеров лимитом
     tickers = get_sp500_tickers()
-    limit = SETTINGS.get("TICKER_LIMIT", 500)
+    limit = SETTINGS.get("TICKER_LIMIT", 50) # Default to 50 if None
     if limit and limit > 0:
         tickers = tickers[:limit]
         
     total_tickers = len(tickers)
     
-    # Обновляем чаще (каждые 5 тикеров или 10% от списка)
-    update_step = max(5, int(total_tickers / 10))
+    # Обновляем чаще (каждые 5 тикеров)
+    update_step = 5
 
     status_msg = None
     try:
+        print(f"Sending start message to {chat_id}...")
         # Отправляем сообщение сразу с 0% прогрессом
         initial_bar = "░" * 10
         initial_text = (
@@ -208,7 +213,9 @@ def perform_scan(chat_id, is_manual=False):
             f"⏳ Прогресс: 0/{total_tickers} (0%)\n[{initial_bar}]"
         )
         status_msg = bot.send_message(chat_id, initial_text, parse_mode="HTML", reply_markup=get_main_keyboard())
-    except: pass
+        print("Start message sent.")
+    except Exception as e:
+        print(f"Failed to send start message: {e}")
     
     found_count = 0
     
@@ -220,7 +227,7 @@ def perform_scan(chat_id, is_manual=False):
             return
         
         # Обновляем прогресс
-        if i % update_step == 0 and status_msg:
+        if i % update_step == 0 and status_msg and i > 0:
             try:
                 progress_pct = int((i / total_tickers) * 100)
                 bar_filled = int(progress_pct / 10)
