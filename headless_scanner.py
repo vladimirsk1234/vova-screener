@@ -12,7 +12,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 from telegram.constants import ParseMode
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from streamlit_autorefresh import st_autorefresh # Для автообновления UI
+from streamlit_autorefresh import st_autorefresh
 
 # === FIX FOR STREAMLIT ASYNCIO CONFLICT ===
 import nest_asyncio
@@ -36,12 +36,10 @@ BOT_STATE = globals()['BOT_STATE']
 try:
     import streamlit as st
     
-    # --- ИНИЦИАЛИЗАЦИЯ ПЕРМАНЕНТНОГО СОСТОЯНИЯ ---
-    # Чтобы настройки не сбрасывались при обновлении страницы/скрипта
     if 'user_settings' not in st.session_state:
         st.session_state.user_settings = {}
     if 'sent_signals_cache' not in st.session_state:
-        st.session_state.sent_signals_cache = {"date": None, "tickers": set()}
+        st.session_state.sent_signals_cache = {"date": None, "tickers": set(), "last_auto_scan_ts": None}
     if 'user_states' not in st.session_state:
         st.session_state.user_states = {}
     if 'abort_scan_users' not in st.session_state:
@@ -101,11 +99,10 @@ except:
     TG_TOKEN = os.environ.get("TG_TOKEN")
     ADMIN_ID = os.environ.get("ADMIN_ID")
     GITHUB_USERS_URL = os.environ.get("GITHUB_USERS_URL")
-    # Fallback for non-streamlit env
     class MockSessionState(dict): pass
     if not hasattr(st, 'session_state'): st.session_state = MockSessionState()
     if 'user_settings' not in st.session_state: st.session_state.user_settings = {}
-    if 'sent_signals_cache' not in st.session_state: st.session_state.sent_signals_cache = {"date": None, "tickers": set()}
+    if 'sent_signals_cache' not in st.session_state: st.session_state.sent_signals_cache = {"date": None, "tickers": set(), "last_auto_scan_ts": None}
     if 'user_states' not in st.session_state: st.session_state.user_states = {}
     if 'abort_scan_users' not in st.session_state: st.session_state.abort_scan_users = set()
 
@@ -122,31 +119,30 @@ if not TG_TOKEN:
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === НОВЫЕ ДЕФОЛТНЫЕ НАСТРОЙКИ ===
+# === DEFAULT SETTINGS ===
 DEFAULT_SETTINGS = {
-    "portfolio_size": 100000,   # NEW DEFAULT
-    "risk_per_trade_pct": 0.5,  # NEW DEFAULT
-    "min_rr": 1.5,              # DEFAULT
+    "portfolio_size": 100000,
+    "risk_per_trade_pct": 0.5,
+    "min_rr": 1.5,
     "len_major": 200,
     "len_fast": 20,
     "len_slow": 40,
     "adx_len": 14,
     "adx_thresh": 20,
     "atr_len": 14,
-    "max_atr_pct": 5.0,         # DEFAULT
-    "auto_scan": True,          # CHANGED TO TRUE (Default ON)
-    "scan_mode": "S&P 500",     # NEW DEFAULT
-    "show_new_only": True       # NEW DEFAULT (Only New)
+    "max_atr_pct": 5.0,
+    "auto_scan": True,
+    "scan_mode": "S&P 500",
+    "show_new_only": True
 }
 
-# Привязываем глобальные переменные к session_state для сохранения при перезагрузке скрипта
 user_settings = st.session_state.user_settings
 ABORT_SCAN_USERS = st.session_state.abort_scan_users
 USER_STATES = st.session_state.user_states
 SENT_SIGNALS_CACHE = st.session_state.sent_signals_cache
 
 # ==========================================
-# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (WEB VERSION EXACT)
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (100% WEB MATCH)
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -233,17 +229,14 @@ def calc_atr(df, length):
     return atr
 
 # ==========================================
-# 3. ЛОГИКА СТРАТЕГИИ (EXACT WEB COPY)
+# 3. ЛОГИКА СТРАТЕГИИ (EXACT WEB LOGIC)
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
-        # Check ticker format (Must be US format usually, yfinance handles this)
-        # S&P500 tickers are usually US.
-        
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
 
-        # --- Indicator Calculations ---
+        # --- Indicator Calculations (WEB COPY) ---
         df['SMA_Major'] = calc_sma(df['Close'], settings['len_major'])
         adx_series, plus_di, minus_di = calc_adx(df, settings['adx_len'])
         atr_series = calc_atr(df, settings['atr_len'])
@@ -256,7 +249,23 @@ def run_strategy_for_ticker(ticker, settings):
         efi_raw = change * df['Volume']
         df['EFI'] = calc_ema(efi_raw, settings['len_fast'])
 
-        # --- Arrays for Loop ---
+        # --- Initialization (WEB COPY) ---
+        n = len(df)
+        trend_state_list = [0] * n
+        seq_state_list = [0] * n
+        critical_level_list = [np.nan] * n
+        peak_list = [np.nan] * n
+        struct_ok_list = [False] * n
+
+        seq_state = 0
+        critical_level = np.nan
+        seq_high = df['High'].iloc[0]
+        seq_low = df['Low'].iloc[0]
+        last_confirmed_peak = np.nan
+        last_confirmed_trough = np.nan
+        last_peak_was_hh = False 
+        last_trough_was_hl = False
+
         close_arr = df['Close'].values
         high_arr = df['High'].values
         low_arr = df['Low'].values
@@ -269,27 +278,7 @@ def run_strategy_for_ticker(ticker, settings):
         pdi_vals = plus_di.values
         mdi_vals = minus_di.values
 
-        n = len(df)
-        
-        # Lists to store state history
-        trend_state_list = [0] * n
-        seq_state_list = [0] * n
-        critical_level_list = [np.nan] * n
-        peak_list = [np.nan] * n
-        struct_ok_list = [False] * n
-
-        # Initial State
-        seq_state = 0
-        critical_level = np.nan
-        seq_high = high_arr[0]
-        seq_low = low_arr[0]
-        
-        last_confirmed_peak = np.nan
-        last_confirmed_trough = np.nan
-        last_peak_was_hh = False 
-        last_trough_was_hl = False
-
-        # --- Main Loop ---
+        # --- Loop (WEB COPY) ---
         for i in range(1, n):
             c = close_arr[i]
             h = high_arr[i]
@@ -362,7 +351,6 @@ def run_strategy_for_ticker(ticker, settings):
                         seq_low = min(seq_low, l)
 
             # --- Super Trend Logic ---
-            # Current values
             ema_imp_curr = ema_fast_vals[i]
             ema_imp_prev = ema_fast_vals[i-1]
             ema_slow_curr = ema_slow_vals[i]
@@ -396,13 +384,13 @@ def run_strategy_for_ticker(ticker, settings):
             
             trend_state_list[i] = curr_trend_state
             
-            # Save State
+            # --- Save State ---
             seq_state_list[i] = seq_state
             critical_level_list[i] = critical_level
             peak_list[i] = last_confirmed_peak
             struct_ok_list[i] = (last_peak_was_hh and last_trough_was_hl)
 
-        # --- Check Conditions Function ---
+        # --- Conditions Check Function (WEB COPY) ---
         def check_conditions(idx):
             if idx >= len(df) or idx < 0: return False, 0.0, np.nan, np.nan
             
@@ -418,7 +406,7 @@ def run_strategy_for_ticker(ticker, settings):
             
             c_seq = (s_state == 1)
             c_ma = (price > sma) if not np.isnan(sma) else False
-            c_trend = (t_state != -1) # Not Bearish (0 or 1 is ok)
+            c_trend = (t_state != -1) # Not Bearish
             c_struct = is_struct_ok
             
             is_valid_setup = False
@@ -435,13 +423,13 @@ def run_strategy_for_ticker(ticker, settings):
             
             return is_valid_setup, rr_calc, crit, peak
 
-        # --- Final Validation ---
+        # --- Final Checks ---
         is_valid_today, rr_today, sl_today, tp_today = check_conditions(n - 1)
         is_valid_yesterday, _, _, _ = check_conditions(n - 2)
         
         is_new = is_valid_today and (not is_valid_yesterday)
         
-        # Filter Logic (Filters are applied OUTSIDE usually, but here we return basics)
+        # Filtering logic matching Web
         if not is_valid_today: return None
         if rr_today < settings['min_rr']: return None
         
@@ -451,13 +439,16 @@ def run_strategy_for_ticker(ticker, settings):
         
         if atr_pct > settings['max_atr_pct']: return None
         
-        # Position Sizing
-        risk_val = curr_c - sl_today
-        risk_amt = settings['portfolio_size'] * (settings['risk_per_trade_pct'] / 100.0)
-        shares = int(risk_amt / risk_val) if risk_val > 0 else 0
-        max_sh = int(settings['portfolio_size'] / curr_c)
-        shares = min(shares, max_sh)
-        if shares < 1: shares = 1
+        # --- Position Sizing (From Web) ---
+        risk_per_share = curr_c - sl_today
+        if risk_per_share > 0:
+            risk_amt = settings['portfolio_size'] * (settings['risk_per_trade_pct'] / 100.0)
+            shares = int(risk_amt / risk_per_share)
+            max_sh = int(settings['portfolio_size'] / curr_c)
+            shares = min(shares, max_sh)
+            if shares < 1: shares = 1
+        else:
+            shares = 0
 
         return {
             "Ticker": ticker, 
@@ -470,6 +461,7 @@ def run_strategy_for_ticker(ticker, settings):
             "ATR_Pct": atr_pct, 
             "Is_New": is_new
         }
+            
     except Exception as e:
         return None
 
@@ -509,20 +501,16 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not await check_auth_async(uid): return
 
-    # Обработка ввода значений
     if uid in USER_STATES:
         state = USER_STATES[uid]
-        # Если нажата кнопка меню вместо ввода числа - отменяем ввод
         if text in ["🚀 Запустить Скан", "⚙️ Настройки"] or text.startswith("🔄 Авто:"):
             del USER_STATES[uid]
             await update.message.reply_text("Ввод отменен.", reply_markup=get_main_keyboard(uid))
         else:
             try:
-                # Очистка ввода от % и $ и замена запятой
                 clean_text = text.replace(',', '.').replace('%', '').replace('$', '').strip()
                 val = float(clean_text)
                 s = get_settings(uid)
-                
                 if state == "RISK": 
                     s['risk_per_trade_pct'] = val
                     await update.message.reply_text(f"✅ Risk обновлен: {val}%")
@@ -537,24 +525,22 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(f"✅ Max ATR обновлен: {val}%")
                 
                 del USER_STATES[uid]
-                await settings_menu(update, context) # Возвращаем меню настроек
+                await settings_menu(update, context) 
                 return
             except ValueError:
-                await update.message.reply_text("❌ Введите корректное число (например 1.5).")
+                await update.message.reply_text("❌ Введите корректное число.")
                 return
 
-    # Обработка команд меню
-    if text == "🚀 Запустить Скан": await run_scan_task(update, context, uid, manual=True)
+    if text == "🚀 Запустить Скан": await run_scan_process(context, uid, get_settings(uid), manual=True)
     elif text == "⚙️ Настройки": await settings_menu(update, context)
     elif text.startswith("🔄 Авто:"):
         s = get_settings(uid)
         s['auto_scan'] = not s['auto_scan']
         await update.message.reply_text(f"🔄 Авто-скан: {'ВКЛЮЧЕН' if s['auto_scan'] else 'ВЫКЛЮЧЕН'}", reply_markup=get_main_keyboard(uid))
     else:
-        # Если пользователь ввел число, но не нажимал кнопку редактирования
         try:
             float(text.replace(',', '.').replace('%', '').replace('$', '').strip())
-            await update.message.reply_text("⚠️ Чтобы изменить настройку, сначала нажмите соответствующую кнопку в меню '⚙️ Настройки'.", reply_markup=get_main_keyboard(uid))
+            await update.message.reply_text("⚠️ Чтобы изменить настройку, сначала нажмите кнопку в меню.", reply_markup=get_main_keyboard(uid))
         except:
             await update.message.reply_text("Выберите действие:", reply_markup=get_main_keyboard(uid))
 
@@ -594,16 +580,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if d == "ask_risk":
         USER_STATES[uid] = "RISK"
-        await query.message.reply_text(f"Введите **Risk %** (сейчас: {s['risk_per_trade_pct']}):", parse_mode=ParseMode.MARKDOWN)
+        await query.message.reply_text(f"Введите **Risk %**:", parse_mode=ParseMode.MARKDOWN)
     elif d == "ask_rr":
         USER_STATES[uid] = "RR"
-        await query.message.reply_text(f"Введите **Min RR** (сейчас: {s['min_rr']}):", parse_mode=ParseMode.MARKDOWN)
+        await query.message.reply_text(f"Введите **Min RR**:", parse_mode=ParseMode.MARKDOWN)
     elif d == "ask_port":
         USER_STATES[uid] = "PORT"
-        await query.message.reply_text(f"Введите **Portfolio $** (сейчас: {s['portfolio_size']}):", parse_mode=ParseMode.MARKDOWN)
+        await query.message.reply_text(f"Введите **Portfolio $**:", parse_mode=ParseMode.MARKDOWN)
     elif d == "ask_atr":
         USER_STATES[uid] = "ATR"
-        await query.message.reply_text(f"Введите **Max ATR %** (сейчас: {s['max_atr_pct']}):", parse_mode=ParseMode.MARKDOWN)
+        await query.message.reply_text(f"Введите **Max ATR %**:", parse_mode=ParseMode.MARKDOWN)
     elif d == "change_mode":
         s['scan_mode'] = "S&P 500" if s['scan_mode'] == "Top 10" else "Top 10"
         await settings_menu(update, context)
@@ -611,17 +597,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s['show_new_only'] = not s.get('show_new_only', False)
         await settings_menu(update, context)
 
-async def run_scan_task(update, context, uid, manual=False):
-    s = get_settings(uid)
-    msg_dest = update.message if update.message else update.callback_query.message
-    filter_txt = "🔥 Только новые" if s.get('show_new_only', False) else "✅ Все активные"
-    
+# --- UNIFIED SCAN FUNCTION ---
+async def run_scan_process(context, uid, s, manual=False, is_auto=False):
+    # Spam check for auto scan
+    if is_auto:
+        last_ts = SENT_SIGNALS_CACHE.get("last_auto_scan_ts")
+        if last_ts and (datetime.now() - last_ts).total_seconds() < 1800: # 30 min cooldown
+            return 
+        SENT_SIGNALS_CACHE["last_auto_scan_ts"] = datetime.now()
+
     if uid in ABORT_SCAN_USERS: ABORT_SCAN_USERS.remove(uid)
+    
     tickers = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
     total = len(tickers)
     
+    filter_txt = "🔥 Новые" if s.get('show_new_only', False) else "✅ Все"
+    title = f"🔄 Авто-скан: {filter_txt}" if is_auto else f"🚀 Скан: {filter_txt}"
+    
     pkb = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 СТОП", callback_data="abort_scan")]])
-    status = await msg_dest.reply_text(f"🚀 Скан: {total} шт\nРежим: {filter_txt}", reply_markup=pkb)
+    status_msg = await context.bot.send_message(chat_id=uid, text=f"{title}\nОжидание...", reply_markup=pkb)
     
     loop = asyncio.get_running_loop()
     found = 0
@@ -629,7 +623,7 @@ async def run_scan_task(update, context, uid, manual=False):
     
     for i in range(0, total, batch):
         if uid in ABORT_SCAN_USERS:
-            await status.edit_text(f"🛑 Прервано на {i}/{total}.")
+            await status_msg.edit_text(f"🛑 Прервано на {i}/{total}.")
             ABORT_SCAN_USERS.remove(uid)
             return
             
@@ -637,7 +631,17 @@ async def run_scan_task(update, context, uid, manual=False):
             if uid in ABORT_SCAN_USERS: break
             res = await loop.run_in_executor(None, run_strategy_for_ticker, t, s)
             if res:
-                is_pass = res['Is_New'] if s.get('show_new_only', False) else True
+                is_pass = False
+                if is_auto:
+                    if res['Is_New']: is_pass = True
+                else:
+                    if not s.get('show_new_only', False): is_pass = True
+                    elif res['Is_New']: is_pass = True
+                
+                if is_auto and is_pass:
+                    if res['Ticker'] in SENT_SIGNALS_CACHE["tickers"]: is_pass = False
+                    else: SENT_SIGNALS_CACHE["tickers"].add(res['Ticker'])
+
                 if is_pass:
                     found += 1
                     await send_signal_msg(context, uid, res)
@@ -645,11 +649,12 @@ async def run_scan_task(update, context, uid, manual=False):
         pct = int((i+len(tickers[i:i+batch]))/total*100)
         filled = int(10 * pct / 100)
         bar = "█"*filled + "░"*(10-filled)
-        try: await status.edit_text(f"🚀 Скан: {pct}%\n[{bar}] {i+len(tickers[i:i+batch])}/{total}\nНайдено: {found}", reply_markup=pkb)
+        try: await status_msg.edit_text(f"{title}\nПрогресс: {pct}%\n[{bar}] {i+len(tickers[i:i+batch])}/{total}\nНайдено: {found}", reply_markup=pkb)
         except: pass
 
-    try: await status.edit_text(f"✅ Готово! Найдено: {found}", reply_markup=None)
-    except: await msg_dest.reply_text(f"✅ Готово! Найдено: {found}")
+    final_txt = f"✅ {title} завершен!\nНайдено сигналов: {found}"
+    try: await status_msg.edit_text(final_txt, reply_markup=None)
+    except: await context.bot.send_message(chat_id=uid, text=final_txt)
 
 async def send_signal_msg(context, uid, res):
     tv_t = res['Ticker'].replace('-', '.')
@@ -678,16 +683,7 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
         log_ui(f"🔄 Auto-Scan Start... {now.strftime('%H:%M')}")
         for uid, s in user_settings.items():
             if s.get('auto_scan', False):
-                try: await context.bot.send_message(chat_id=uid, text="🔄 Авто-скан: Сканирование запущено...", disable_notification=True)
-                except: pass
-                
-                tickers = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
-                loop = asyncio.get_running_loop()
-                for t in tickers:
-                    res = await loop.run_in_executor(None, run_strategy_for_ticker, t, s)
-                    if res and res['Is_New'] and res['Ticker'] not in SENT_SIGNALS_CACHE["tickers"]:
-                         await send_signal_msg(context, uid, res)
-                         SENT_SIGNALS_CACHE["tickers"].add(res['Ticker'])
+                await run_scan_process(context, uid, s, manual=False, is_auto=True)
     else:
         log_ui(f"💤 Market Closed {now.strftime('%H:%M')}")
 
