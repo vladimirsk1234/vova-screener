@@ -82,7 +82,7 @@ user_settings = {}
 SENT_SIGNALS_CACHE = {"date": None, "tickers": set()}
 
 # ==========================================
-# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ТОЧНО КАК В WEB)
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -99,13 +99,11 @@ def get_sp500_tickers():
 def get_top_10_tickers():
     return ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
 
-def calc_sma(series, length): return series.rolling(window=length).mean()
-def calc_ema(series, length): return series.ewm(span=length, adjust=False).mean()
-def calc_atr(df, length):
-    high, low, close = df['High'], df['Low'], df['Close']
-    prev_close = close.shift(1)
-    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1.0/length, adjust=False).mean()
+def calc_sma(series, length):
+    return series.rolling(window=length).mean()
+
+def calc_ema(series, length):
+    return series.ewm(span=length, adjust=False).mean()
 
 def calc_macd(series, fast=12, slow=26, signal=9):
     ema_fast = series.ewm(span=fast, adjust=False).mean()
@@ -116,119 +114,295 @@ def calc_macd(series, fast=12, slow=26, signal=9):
     return macd_line, signal_line, hist
 
 def calc_adx(df, length):
-    high, low, close = df['High'], df['Low'], df['Close']
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    
     prev_close = close.shift(1)
-    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
-    up_move, down_move = high - high.shift(1), low.shift(1) - low
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+    
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    
+    plus_dm = pd.Series(plus_dm, index=df.index)
+    minus_dm = pd.Series(minus_dm, index=df.index)
+    
     alpha = 1.0 / length
-    tr_smooth = tr.ewm(alpha=alpha, adjust=False).mean().replace(0, np.nan)
-    plus_dm_smooth = pd.Series(plus_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean()
-    minus_dm_smooth = pd.Series(minus_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean()
+    tr_smooth = tr.ewm(alpha=alpha, adjust=False).mean()
+    plus_dm_smooth = plus_dm.ewm(alpha=alpha, adjust=False).mean()
+    minus_dm_smooth = minus_dm.ewm(alpha=alpha, adjust=False).mean()
+    
+    # Избегаем деления на ноль
+    tr_smooth = tr_smooth.replace(0, np.nan)
+    
     plus_di = 100 * (plus_dm_smooth / tr_smooth)
     minus_di = 100 * (minus_dm_smooth / tr_smooth)
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    
+    sum_di = plus_di + minus_di
+    diff_di = (plus_di - minus_di).abs()
+    dx = 100 * (diff_di / sum_di)
+    
     adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    
     return adx, plus_di, minus_di
 
+def calc_atr(df, length):
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    prev_close = close.shift(1)
+    
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    alpha = 1.0 / length
+    atr = tr.ewm(alpha=alpha, adjust=False).mean()
+    return atr
+
 # ==========================================
-# 3. ЛОГИКА СТРАТЕГИИ
+# 3. ЛОГИКА СТРАТЕГИИ (VOVA LOGIC)
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
+        # 1. Загрузка данных
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
 
+        # 2. Расчет индикаторов
         df['SMA_Major'] = calc_sma(df['Close'], settings['len_major'])
         adx_series, plus_di, minus_di = calc_adx(df, settings['adx_len'])
         atr_series = calc_atr(df, settings['atr_len'])
+        
         df['EMA_Fast'] = calc_ema(df['Close'], settings['len_fast'])
         df['EMA_Slow'] = calc_ema(df['Close'], settings['len_slow'])
         _, _, macd_hist = calc_macd(df['Close'], 12, 26, 9)
-        df['EFI'] = calc_ema(df['Close'].diff() * df['Volume'], settings['len_fast'])
+        
+        change = df['Close'].diff()
+        efi_raw = change * df['Volume']
+        df['EFI'] = calc_ema(efi_raw, settings['len_fast'])
 
-        close, high, low = df['Close'].values, df['High'].values, df['Low'].values
-        sma, adx = df['SMA_Major'].values, adx_series.values
-        pdi, mdi = plus_di.values, minus_di.values
-        hist, efi = macd_hist.values, df['EFI'].values
-        ema_f, ema_s = df['EMA_Fast'].values, df['EMA_Slow'].values
-        
+        # 3. Инициализация переменных для цикла
         n = len(df)
+        trend_state_list = [0] * n
+        seq_state_list = [0] * n
+        critical_level_list = [np.nan] * n
+        peak_list = [np.nan] * n
+        struct_ok_list = [False] * n
+
         seq_state = 0
-        crit_level = np.nan
-        seq_high, seq_low = high[0], low[0]
-        peak, trough = np.nan, np.nan
-        hh, hl = False, False
-        valid_history = [] 
+        critical_level = np.nan
+        seq_high = df['High'].iloc[0]
+        seq_low = df['Low'].iloc[0]
+        last_confirmed_peak = np.nan
+        last_confirmed_trough = np.nan
+        last_peak_was_hh = False 
+        last_trough_was_hl = False
+
+        close_arr = df['Close'].values
+        high_arr = df['High'].values
+        low_arr = df['Low'].values
         
+        ema_fast_vals = df['EMA_Fast'].values
+        ema_slow_vals = df['EMA_Slow'].values
+        macd_hist_vals = macd_hist.values
+        efi_vals = df['EFI'].values
+        adx_vals = adx_series.values
+        pdi_vals = plus_di.values
+        mdi_vals = minus_di.values
+        
+        # 4. Основной цикл по барам
         for i in range(1, n):
-            is_break = False
-            c, h, l = close[i], high[i], low[i]
+            c = close_arr[i]
+            h = high_arr[i]
+            l = low_arr[i]
             
-            if seq_state == 1 and not np.isnan(crit_level) and c < crit_level: is_break = True
-            elif seq_state == -1 and not np.isnan(crit_level) and c > crit_level: is_break = True
+            # --- Sequence Logic ---
+            prev_seq_state = seq_state
+            is_break = False
+            
+            if prev_seq_state == 1:
+                if not np.isnan(critical_level):
+                    is_break = c < critical_level 
+            elif prev_seq_state == -1:
+                if not np.isnan(critical_level):
+                    is_break = c > critical_level 
             
             if is_break:
-                if seq_state == 1: 
-                    is_cur_hh = seq_high > peak if not np.isnan(peak) else True
-                    hh, peak = is_cur_hh, seq_high
-                    seq_state, seq_high, seq_low, crit_level = -1, h, l, h
-                else: 
-                    is_cur_hl = seq_low > trough if not np.isnan(trough) else True
-                    hl, trough = is_cur_hl, seq_low
-                    seq_state, seq_high, seq_low, crit_level = 1, h, l, l
+                if prev_seq_state == 1:
+                    # Was UP, now DOWN
+                    is_current_peak_hh = False
+                    if not np.isnan(last_confirmed_peak):
+                        if seq_high > last_confirmed_peak:
+                            is_current_peak_hh = True
+                    else:
+                        is_current_peak_hh = True 
+                    
+                    last_peak_was_hh = is_current_peak_hh
+                    last_confirmed_peak = seq_high
+                    
+                    seq_state = -1
+                    seq_high = h
+                    seq_low = l
+                    critical_level = h
+                else:
+                    # Was DOWN, now UP
+                    is_current_trough_hl = False
+                    if not np.isnan(last_confirmed_trough):
+                        if seq_low > last_confirmed_trough:
+                            is_current_trough_hl = True
+                    else:
+                        is_current_trough_hl = True
+                    
+                    last_trough_was_hl = is_current_trough_hl
+                    last_confirmed_trough = seq_low
+                    
+                    seq_state = 1
+                    seq_high = h
+                    seq_low = l
+                    critical_level = l
             else:
                 if seq_state == 1:
-                    if h >= seq_high: seq_high, crit_level = h, l
+                    if h >= seq_high:
+                        seq_high = h
+                    if h >= seq_high: 
+                         critical_level = l
                 elif seq_state == -1:
-                    if l <= seq_low: seq_low, crit_level = h
+                    if l <= seq_low:
+                        seq_low = l
+                    if l <= seq_low: 
+                        critical_level = h
                 else:
-                    if c > seq_high: seq_state, crit_level = 1, l
-                    elif c < seq_low: seq_state, crit_level = -1, h
-                    else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
+                    if c > seq_high:
+                        seq_state = 1
+                        critical_level = l
+                    elif c < seq_low:
+                        seq_state = -1
+                        critical_level = h
+                    else:
+                        seq_high = max(seq_high, h)
+                        seq_low = min(seq_low, l)
 
-            trend_bull = (adx[i] > settings['adx_thresh']) and (pdi[i] > mdi[i]) and \
-                         (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1]) and \
-                         (hist[i] > hist[i-1]) and (efi[i] > 0)
+            # --- Super Trend Logic ---
+            ema_imp_curr = ema_fast_vals[i]
+            ema_imp_prev = ema_fast_vals[i-1]
+            ema_slow_curr = ema_slow_vals[i]
+            ema_slow_prev = ema_slow_vals[i-1]
+            hist_curr = macd_hist_vals[i]
+            hist_prev = macd_hist_vals[i-1]
             
-            ma_ok = (c > sma[i]) if not np.isnan(sma[i]) else False
-            is_valid = False
+            curr_adx = adx_vals[i]
+            curr_pdi = pdi_vals[i]
+            curr_mdi = mdi_vals[i]
             
-            if seq_state == 1 and ma_ok and trend_bull and hh and hl and not np.isnan(peak):
-                risk = c - crit_level
-                reward = peak - c
-                if risk > 0 and reward > 0: is_valid = True
+            adx_strong = (curr_adx > settings['adx_thresh'])
             
-            valid_history.append(is_valid)
+            both_rising = (ema_imp_curr > ema_imp_prev) and (ema_slow_curr > ema_slow_prev)
+            elder_bull = both_rising and (hist_curr > hist_prev)
+            
+            both_falling = (ema_imp_curr < ema_imp_prev) and (ema_slow_curr < ema_slow_prev)
+            elder_bear = both_falling and (hist_curr < hist_prev)
+            
+            efi_bull = efi_vals[i] > 0
+            efi_bear = efi_vals[i] < 0
+            
+            adx_bull = adx_strong and (curr_pdi > curr_mdi)
+            adx_bear = adx_strong and (curr_mdi > curr_pdi)
+            
+            curr_trend_state = 0
+            if adx_bull and elder_bull and efi_bull:
+                curr_trend_state = 1
+            elif adx_bear and elder_bear and efi_bear:
+                curr_trend_state = -1
+            
+            trend_state_list[i] = curr_trend_state
+            
+            # --- Сохраняем состояние ---
+            seq_state_list[i] = seq_state
+            critical_level_list[i] = critical_level
+            peak_list[i] = last_confirmed_peak
+            struct_ok_list[i] = (last_peak_was_hh and last_trough_was_hl)
 
-        if valid_history[-1]:
-            curr_c = close[-1]
-            curr_atr = atr_series.iloc[-1]
-            atr_pct = (curr_atr / curr_c) * 100
+        # 5. Функция проверки условий (как в Web)
+        def check_conditions(idx):
+            if idx >= len(df) or idx < 0: return False, 0.0, np.nan, np.nan
             
-            if atr_pct > settings['max_atr_pct']: return None
+            price = close_arr[idx]
+            sma = df['SMA_Major'].iloc[idx]
             
-            sl_struct = crit_level
-            tp = peak
-            risk = curr_c - sl_struct
-            reward = tp - curr_c
-            rr = reward / risk if risk > 0 else 0
+            s_state = seq_state_list[idx]
+            t_state = trend_state_list[idx]
+            is_struct_ok = struct_ok_list[idx]
             
-            if rr < settings['min_rr']: return None
+            crit = critical_level_list[idx]
+            peak = peak_list[idx]
+            
+            c_seq = (s_state == 1)
+            c_ma = (price > sma) if not np.isnan(sma) else False
+            c_trend = (t_state != -1) # Не медвежий тренд (0 или 1) - в коде веба (t_state != -1)
+            # Внимание: в веб-коде условие c_trend = (t_state != -1), то есть нейтральный или бычий.
+            # Если нужно строго бычий, то (t_state == 1). Оставляю как в вебе.
+            c_struct = is_struct_ok
+            
+            is_valid_setup = False
+            rr_calc = 0.0
+            
+            if c_seq and c_ma and c_trend and c_struct:
+                if not np.isnan(peak) and not np.isnan(crit):
+                    risk = price - crit
+                    reward = peak - price
+                    
+                    if risk > 0 and reward > 0:
+                        rr_calc = reward / risk
+                        is_valid_setup = True
+            
+            return is_valid_setup, rr_calc, crit, peak
 
-            risk_amt = settings['portfolio_size'] * (settings['risk_per_trade_pct'] / 100.0)
-            shares = int(risk_amt / risk) if risk > 0 else 0
-            max_sh = int(settings['portfolio_size'] / curr_c)
-            shares = min(shares, max_sh)
-            if shares < 1: shares = 1
-            
-            is_new = valid_history[-1] and (not valid_history[-2] if len(valid_history) > 1 else True)
+        # 6. Финальная проверка (Сегодня и Вчера)
+        is_valid_today, rr_today, sl_today, tp_today = check_conditions(n - 1)
+        is_valid_yesterday, _, _, _ = check_conditions(n - 2)
+        
+        is_new = is_valid_today and (not is_valid_yesterday)
+        
+        # Фильтры
+        if not is_valid_today: return None
+        if rr_today < settings['min_rr']: return None
+        
+        # ATR check
+        curr_c = close_arr[-1]
+        curr_atr = atr_series.iloc[-1]
+        atr_pct = (curr_atr / curr_c) * 100
+        
+        if atr_pct > settings['max_atr_pct']: return None
+        
+        # Расчет размера позиции
+        risk = curr_c - sl_today
+        risk_amt = settings['portfolio_size'] * (settings['risk_per_trade_pct'] / 100.0)
+        shares = int(risk_amt / risk) if risk > 0 else 0
+        max_sh = int(settings['portfolio_size'] / curr_c)
+        shares = min(shares, max_sh)
+        if shares < 1: shares = 1
 
-            return {
-                "Ticker": ticker, "Price": curr_c, "RR": rr, "SL": sl_struct, "TP": tp,
-                "ATR_SL": curr_c - curr_atr, "Shares": shares, "ATR_Pct": atr_pct, "Is_New": is_new
-            }
+        return {
+            "Ticker": ticker, 
+            "Price": curr_c, 
+            "RR": rr_today, 
+            "SL": sl_today, 
+            "TP": tp_today,
+            "ATR_SL": curr_c - curr_atr, 
+            "Shares": shares, 
+            "ATR_Pct": atr_pct, 
+            "Is_New": is_new
+        }
+            
     except Exception as e:
         return None
     return None
