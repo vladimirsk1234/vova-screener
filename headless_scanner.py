@@ -443,11 +443,29 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
     except: pass
 
 async def send_sig(ctx, uid, r):
-    tv = r['Ticker'].replace('-', '.')
-    link = f"https://www.tradingview.com/chart/?symbol={tv}"
+    ticker = r['Ticker']
+    tv_ticker = ticker.replace('-', '.')
+    
+    # === FETCH EXCHANGE INFO (FIX FOR IEX/ETC) ===
+    prefix = ""
+    try:
+        loop = asyncio.get_running_loop()
+        def get_exch():
+            return yf.Ticker(ticker).fast_info.exchange
+        
+        exch = await loop.run_in_executor(None, get_exch)
+        
+        if exch in ['NMS', 'NGM', 'NCM', 'PNK']: prefix = "NASDAQ:"
+        elif exch in ['NYQ', 'NYE']: prefix = "NYSE:"
+        elif exch == 'ASE': prefix = "AMEX:"
+    except: pass # Fallback to no prefix if fetch fails
+    
+    full_tv_ticker = f"{prefix}{tv_ticker}"
+    link = f"https://www.tradingview.com/chart/?symbol={full_tv_ticker}"
+    
     ic = "🔥 NEW" if r['Is_New'] else "✅ ACTIVE"
     txt = (
-        f"{ic} **[{tv}]({link})** | ${r['Price']:.2f}\n"
+        f"{ic} **[{full_tv_ticker}]({link})** | ${r['Price']:.2f}\n"
         f"📊 ATR: {r['ATR_Pct']:.2f}% | SL: ${r['ATR_SL']:.2f}\n"
         f"🎯 RR: {r['RR']:.2f} | 🛑 SL: ${r['SL']:.2f}\n"
         f"🏁 TP: ${r['TP']:.2f} | 📦 Size: {r['Shares']}"
