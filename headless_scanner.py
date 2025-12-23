@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from streamlit_autorefresh import st_autorefresh
 import nest_asyncio
 
-# Применяем патч для asyncio
+# Применяем патч для asyncio, чтобы Streamlit и Telegram Bot работали вместе
 nest_asyncio.apply()
 
 # ==========================================
@@ -129,7 +129,7 @@ try:
 except: pass
 
 # ==========================================
-# 4. HELPERS (100% MATCH WEB SCREENER)
+# 4. HELPERS
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -143,26 +143,21 @@ def get_sp500_tickers():
 def get_top_10_tickers():
     return ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
 
-def calc_sma(series, length):
-    return series.rolling(window=length).mean()
-
-def calc_ema(series, length):
-    return series.ewm(span=length, adjust=False).mean()
-
+def calc_sma(series, length): return series.rolling(window=length).mean()
+def calc_ema(series, length): return series.ewm(span=length, adjust=False).mean()
+def calc_atr(df, length):
+    tr = pd.concat([df['High']-df['Low'], (df['High']-df['Close'].shift(1)).abs(), (df['Low']-df['Close'].shift(1)).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0/length, adjust=False).mean()
 def calc_macd(series, fast=12, slow=26, signal=9):
     ema_fast = series.ewm(span=fast, adjust=False).mean()
     ema_slow = series.ewm(span=slow, adjust=False).mean()
-    macd_line = ema_fast - ema_slow
-    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-    hist = macd_line - signal_line
-    return macd_line, signal_line, hist
+    macd = ema_fast - ema_slow
+    sig = macd.ewm(span=signal, adjust=False).mean()
+    return macd, sig, macd - sig
 
 def calc_adx(df, length):
     high, low, close = df['High'], df['Low'], df['Close']
-    tr1 = high - low
-    tr2 = (high - close.shift(1)).abs()
-    tr3 = (low - close.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    tr = pd.concat([high-low, (high-close.shift(1)).abs(), (low-close.shift(1)).abs()], axis=1).max(axis=1)
     up = high - high.shift(1)
     down = low.shift(1) - low
     plus_dm = np.where((up > down) & (up > 0), up, 0.0)
@@ -175,16 +170,11 @@ def calc_adx(df, length):
     dx = 100 * ((pdi - mdi).abs() / (pdi + mdi))
     return dx.ewm(alpha=alpha, adjust=False).mean(), pdi, mdi
 
-def calc_atr(df, length):
-    tr = pd.concat([df['High']-df['Low'], (df['High']-df['Close'].shift(1)).abs(), (df['Low']-df['Close'].shift(1)).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1.0/length, adjust=False).mean()
-
 # ==========================================
 # 5. STRATEGY (100% EXACT LOGIC)
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
-        # Download data correctly
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
 
@@ -198,76 +188,71 @@ def run_strategy_for_ticker(ticker, settings):
 
         c_arr, h_arr, l_arr = df['Close'].values, df['High'].values, df['Low'].values
         ema_f, ema_s = df['EMA_Fast'].values, df['EMA_Slow'].values
-        hist_vals, efi_vals = macd_hist.values, df['EFI'].values
+        h_vals, efi_vals = macd_hist.values, df['EFI'].values
         adx_v, pdi_v, mdi_v = adx_s.values, pdi.values, mdi.values
 
         n = len(df)
-        trend_state_list, seq_state_list, critical_level_list, peak_list, struct_ok_list = [0]*n, [0]*n, [np.nan]*n, [np.nan]*n, [False]*n
-        seq_state, critical_level, seq_high, seq_low = 0, np.nan, h_arr[0], l_arr[0]
-        last_confirmed_peak, last_confirmed_trough, last_peak_was_hh, last_trough_was_hl = np.nan, np.nan, False, False
+        trend_st_list, seq_st_list, crit_list, peak_list, struct_list = [0]*n, [0]*n, [np.nan]*n, [np.nan]*n, [False]*n
+        seq_st, crit, s_h, s_l = 0, np.nan, h_arr[0], l_arr[0]
+        l_pk, l_tr, l_hh, l_hl = np.nan, np.nan, False, False
 
         for i in range(1, n):
             c, h, l = c_arr[i], h_arr[i], l_arr[i]
-            prev_st = seq_state
-            is_break = False
-            if prev_st == 1 and not np.isnan(critical_level): is_break = c < critical_level
-            elif prev_st == -1 and not np.isnan(critical_level): is_break = c > critical_level
+            prev_st, is_brk = seq_st, False
+            if prev_st == 1 and not np.isnan(crit): is_brk = c < crit
+            elif prev_st == -1 and not np.isnan(crit): is_brk = c > crit
             
-            if is_break:
+            if is_brk:
                 if prev_st == 1:
-                    is_hh = True if np.isnan(last_confirmed_peak) else (seq_high > last_confirmed_peak)
-                    last_peak_was_hh, last_confirmed_peak = is_hh, seq_high
-                    seq_state, seq_high, seq_low, critical_level = -1, h, l, h
+                    l_hh, l_pk = (True if np.isnan(l_pk) else (s_h > l_pk)), s_h
+                    seq_st, s_h, s_l, crit = -1, h, l, h
                 else:
-                    is_hl = True if np.isnan(last_confirmed_trough) else (seq_low > last_confirmed_trough)
-                    last_trough_was_hl, last_confirmed_trough = is_hl, seq_low
-                    seq_state, seq_high, seq_low, critical_level = 1, h, l, l
+                    l_hl, l_tr = (True if np.isnan(l_tr) else (s_l > l_tr)), s_l
+                    seq_st, s_h, s_l, crit = 1, h, l, l
             else:
-                if seq_state == 1:
-                    if h >= seq_high: seq_high = h
-                    if h >= seq_high: critical_level = l
-                elif seq_state == -1:
-                    if l <= seq_low: seq_low = l
-                    if l <= seq_low: critical_level = h
+                if seq_st == 1:
+                    if h >= s_h: s_h = h
+                    if h >= s_h: crit = l
+                elif seq_st == -1:
+                    if l <= s_l: s_l = l
+                    if l <= s_l: crit = h
                 else:
-                    if c > seq_high: seq_state, critical_level = 1, l
-                    elif c < seq_low: seq_state, critical_level = -1, h
-                    else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
+                    if c > s_h: seq_st, crit = 1, l
+                    elif c < s_l: seq_st, crit = -1, h
+                    else: s_h, s_l = max(s_h, h), min(s_l, l)
 
-            adx_strong = (adx_v[i] > settings['adx_thresh'])
-            both_rising = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1])
-            elder_bull = both_rising and (hist_vals[i] > hist_vals[i-1])
-            both_falling = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1])
-            elder_bear = both_falling and (hist_vals[i] < hist_vals[i-1])
+            strong = (adx_v[i] > settings['adx_thresh'])
+            rising = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1])
+            falling = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1])
             
-            curr_trend = 0
-            if adx_strong and (pdi_v[i] > mdi_v[i]) and elder_bull and (efi_vals[i] > 0): curr_trend = 1
-            elif adx_strong and (mdi_v[i] > pdi_v[i]) and elder_bear and (efi_vals[i] < 0): curr_trend = -1
+            curr_t = 0
+            if strong and (pdi_v[i] > mdi_v[i]) and rising and (h_vals[i] > h_vals[i-1]) and (efi_vals[i] > 0): curr_t = 1
+            elif strong and (mdi_v[i] > pdi_v[i]) and falling and (h_vals[i] < h_vals[i-1]) and (efi_vals[i] < 0): curr_t = -1
             
-            trend_state_list[i], seq_state_list[i], critical_level_list[i], peak_list[i], struct_ok_list[i] = curr_trend, seq_state, critical_level, last_confirmed_peak, (last_peak_was_hh and last_trough_was_hl)
+            trend_st_list[i], seq_st_list[i], crit_list[i], peak_list[i], struct_list[i] = curr_t, seq_st, crit, l_pk, (l_hh and l_hl)
 
         def check(idx):
             if idx < 0: return False, 0.0, np.nan, np.nan
             p, sma = c_arr[idx], df['SMA_Major'].iloc[idx]
-            valid = (seq_state_list[idx] == 1) and ((p > sma) if not np.isnan(sma) else False) and (trend_state_list[idx] != -1) and struct_ok_list[idx]
-            rr, cr, pk = 0.0, critical_level_list[idx], peak_list[idx]
+            valid = (seq_st_list[idx] == 1) and ((p > sma) if not np.isnan(sma) else False) and (trend_st_list[idx] != -1) and struct_list[idx]
+            rr, cr, pk = 0.0, crit_list[idx], peak_list[idx]
             if valid and not np.isnan(pk) and not np.isnan(cr):
                 risk, reward = p - cr, pk - p
                 if risk > 0 and reward > 0: rr = reward / risk
                 else: valid = False
             return valid, rr, cr, pk
 
-        v_today, rr_t, sl_t, tp_t = check(n-1)
+        v_tod, rr_t, sl_t, tp_t = check(n-1)
         v_yest, _, _, _ = check(n-2)
         
-        if not v_today or rr_t < settings['min_rr']: return None
+        if not v_tod or rr_t < settings['min_rr']: return None
         
         curr_c = c_arr[-1]
         curr_atr = atr_s.iloc[-1]
         atr_pct = (curr_atr / curr_c) * 100
         if atr_pct > settings['max_atr_pct']: return None
         
-        # Metadata fetch (ONLY FOR CANDIDATES TO PREVENT FREEZE)
+        # Медленные данные только для кандидатов
         t_obj = yf.Ticker(ticker)
         pe = t_obj.info.get('trailingPE', 'N/A')
         if pe != 'N/A': pe = f"{pe:.2f}"
@@ -284,7 +269,7 @@ def run_strategy_for_ticker(ticker, settings):
         return {
             "Ticker": ticker, "Price": curr_c, "RR": rr_t, "SL": sl_t, "TP": tp_t,
             "ATR_SL": curr_c - curr_atr, "Shares": shares, "ATR_Pct": atr_pct, 
-            "Is_New": (v_today and not v_yest), "PE": pe, "Exch": exch
+            "Is_New": (v_tod and not v_yest), "PE": pe, "Exch": exch
         }
     except: return None
 
@@ -308,32 +293,37 @@ def get_main_kb(uid):
         [KeyboardButton("ℹ️ Помощь")]
     ], resize_keyboard=True)
 
+async def start_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    uid = u.effective_user.id
+    if not await check_auth_async(uid):
+        await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
+        return
+    await u.message.reply_text("👋 **Vova Screener Bot**", reply_markup=get_main_kb(uid))
+
 async def help_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     txt = (
-        "ℹ️ **Vova Screener Bot Manual**\n\n"
-        "**Strategy:** Break of Structure + SuperTrend (SMA 200 Filter).\n\n"
-        "**Parameters:**\n"
-        "• **Portfolio**: Your total capital ($).\n"
-        "• **Risk %**: Risk per trade from capital.\n"
-        "• **RR**: Minimum Risk/Reward target.\n"
-        "• **Max ATR %**: Volatility limit.\n\n"
-        "🔄 **Auto-Scan**: Runs hourly during US market hours (9:30-16:00 ET)."
+        "ℹ️ **Справка по боту**\n\n"
+        "**Стратегия:** Break of Structure + SuperTrend (фильтр SMA 200).\n\n"
+        "• **Portfolio**: Весь ваш капитал ($).\n"
+        "• **Risk %**: Риск на одну сделку.\n"
+        "• **RR**: Мин. соотношение Прибыль/Риск.\n"
+        "• **Max ATR %**: Лимит волатильности.\n\n"
+        "🔄 **Авто-скан**: Каждый час при открытом рынке США."
     )
     await u.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
 
 async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
     uid = u.effective_user.id if not u.callback_query else u.callback_query.from_user.id
-    msg_func = u.callback_query.edit_message_text if u.callback_query else u.message.reply_text
+    func = u.callback_query.edit_message_text if u.callback_query else u.message.reply_text
     s = get_settings(uid)
     txt = (
-        f"⚙️ **Bot Configuration:**\n\n"
+        f"⚙️ **Настройки:**\n\n"
         f"💰 **Portfolio**: ${s['portfolio_size']:,}\n"
         f"⚠️ **Risk Per Trade**: {s['risk_per_trade_pct']}%\n"
         f"📊 **Minimum RR**: {s['min_rr']}\n"
         f"📈 **Max ATR Limit**: {s['max_atr_pct']}%\n"
         f"🔍 **Market Mode**: {s['scan_mode']}\n"
-        f"👀 **Manual Filter**: {'🔥 Only New' if s['show_new_only'] else '✅ All Active'}\n\n"
-        f"Select parameter to edit:"
+        f"👀 **Фильтр**: {'🔥 Только новые' if s['show_new_only'] else '✅ Все активные'}"
     )
     kb = [
         [InlineKeyboardButton(f"Risk: {s['risk_per_trade_pct']}% ✏️", callback_data="ask_risk"),
@@ -341,10 +331,10 @@ async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"Portfolio: ${s['portfolio_size']} ✏️", callback_data="ask_port"),
          InlineKeyboardButton(f"Max ATR: {s['max_atr_pct']}% ✏️", callback_data="ask_atr")],
         [InlineKeyboardButton(f"Market: {s['scan_mode']} 🔄", callback_data="ch_mode"),
-         InlineKeyboardButton(f"Filt: {'🔥 New' if s['show_new_only'] else '✅ All'} 🔄", callback_data="ch_filt")],
-        [InlineKeyboardButton("ℹ️ HELP / STRATEGY INFO", callback_data="show_help")]
+         InlineKeyboardButton(f"Filt: {'🔥 Новые' if s['show_new_only'] else '✅ Все'} 🔄", callback_data="ch_filt")],
+        [InlineKeyboardButton("ℹ️ HELP / INFO", callback_data="show_help")]
     ]
-    await msg_func(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+    await func(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
 
 async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     q = u.callback_query
@@ -355,19 +345,18 @@ async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     
     if d == "stop":
         STATE.abort_scan_users.add(uid)
-        await q.message.reply_text("🛑 Stopping... (Waiting for current ticker to finish)")
+        STATE.user_states.pop(uid, None) # Сброс состояния ввода
+        await q.message.reply_text("🛑 Остановка процесса...")
         return
 
     if d == "show_help": await help_h(u, c); return
-
     if d.startswith("ask_"):
         STATE.user_states[uid] = d.split("_")[1].upper()
-        await q.message.reply_text(f"Please type the new value for **{STATE.user_states[uid]}**:", parse_mode=ParseMode.MARKDOWN)
+        await q.message.reply_text(f"Введите новое значение для **{STATE.user_states[uid]}**:")
         return
 
     if d == "ch_mode": s['scan_mode'] = "S&P 500" if s['scan_mode'] == "Top 10" else "Top 10"
     elif d == "ch_filt": s['show_new_only'] = not s['show_new_only']
-    
     await settings_menu(u, c)
 
 async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
@@ -379,7 +368,7 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
         st_code = STATE.user_states[uid]
         if txt.startswith(("🚀", "⚙️", "ℹ️", "🔄")):
             del STATE.user_states[uid]
-            await u.message.reply_text("Cancelled.", reply_markup=get_main_kb(uid))
+            await u.message.reply_text("Отменено.", reply_markup=get_main_kb(uid))
         else:
             try:
                 val = float(txt.replace(',', '.').replace('%', '').replace('$', '').strip())
@@ -389,11 +378,11 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
                 elif st_code == "PORT": s['portfolio_size'] = int(val)
                 elif st_code == "ATR": s['max_atr_pct'] = val
                 del STATE.user_states[uid]
-                await u.message.reply_text(f"✅ Updated to: {val}")
+                await u.message.reply_text(f"✅ Обновлено: {val}")
                 await settings_menu(u, c)
                 return
             except:
-                await u.message.reply_text("❌ Input error.")
+                await u.message.reply_text("❌ Ошибка ввода числа.")
                 return
 
     if txt == "🚀 Запустить Скан": await run_scan(c, uid, get_settings(uid), manual=True)
@@ -402,8 +391,8 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     elif txt.startswith("🔄 Авто"):
         s = get_settings(uid)
         s['auto_scan'] = not s['auto_scan']
-        await u.message.reply_text(f"Auto-Scan: {'✅ ON' if s['auto_scan'] else '❌ OFF'}", reply_markup=get_main_kb(uid))
-    elif txt == "/start": await u.message.reply_text("Vova Screener Bot", reply_markup=get_main_kb(uid))
+        await u.message.reply_text(f"Авто-скан: {'✅ ВКЛ' if s['auto_scan'] else '❌ ВЫКЛ'}", reply_markup=get_main_kb(uid))
+    elif txt == "/start": await start_h(u, c)
 
 # --- SCAN ENGINE ---
 async def run_scan(context, uid, s, manual=False, is_auto=False):
@@ -416,18 +405,18 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
     
     ticks = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
     total = len(ticks)
-    filt_txt = "🔥 New" if (s['show_new_only'] or is_auto) else "✅ All"
-    tit = f"🔄 Auto" if is_auto else f"🚀 Scan"
+    filt_txt = "🔥 Новые" if (s['show_new_only'] or is_auto) else "✅ Все"
+    tit = "🔄 Авто" if is_auto else "🚀 Скан"
     
-    pkb = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 STOP", callback_data="stop")]])
-    status_msg = await context.bot.send_message(chat_id=uid, text=f"{tit}: {filt_txt}\nStarting...", reply_markup=pkb)
+    pkb = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 СТОП", callback_data="stop")]])
+    status_msg = await context.bot.send_message(chat_id=uid, text=f"{tit}: {filt_txt}\nЗапуск...", reply_markup=pkb)
     
     loop = asyncio.get_running_loop()
     found = 0
     
     for i in range(total):
         if uid in STATE.abort_scan_users:
-            await status_msg.edit_text(f"🛑 Cancelled at {i}/{total}.")
+            await status_msg.edit_text(f"🛑 Прервано пользователем ({i}/{total}).")
             STATE.abort_scan_users.remove(uid)
             return
             
@@ -439,9 +428,7 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
             if is_auto:
                 if res['Is_New']: show = True
             else:
-                if s['show_new_only']: 
-                    if res['Is_New']: show = True
-                else: show = True
+                show = res['Is_New'] if s['show_new_only'] else True
             
             if is_auto and show:
                 if res['Ticker'] in STATE.sent_signals_cache["tickers"]: show = False
@@ -454,19 +441,18 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
         if i % 5 == 0 or i == total - 1:
             pct = int((i + 1) / total * 100)
             filled = int(10 * pct / 100)
-            bar = "█" * filled + "░" * (10 - filled)
-            try: await status_msg.edit_text(f"{tit}: {filt_txt}\n{pct}% [{bar}] {i+1}/{total}\nFound: {found}", reply_markup=pkb)
+            bar = "█"*filled + "░"*(10-filled)
+            try: await status_msg.edit_text(f"{tit}: {filt_txt}\n{pct}% [{bar}] {i+1}/{total}\nНайдено: {found}", reply_markup=pkb)
             except: pass
 
     try: 
-        await status_msg.edit_text(f"✅ {tit} Done!\nFound: {found}", reply_markup=None)
-        if manual: await context.bot.send_message(chat_id=uid, text="Scan complete.", reply_markup=get_main_kb(uid))
+        await status_msg.edit_text(f"✅ {tit} завершен!\nНайдено сигналов: {found}", reply_markup=None)
+        if manual: await context.bot.send_message(chat_id=uid, text="Готово.", reply_markup=get_main_kb(uid))
     except: pass
 
 async def send_sig(ctx, uid, r):
     ticker = r['Ticker']
     tv_t = ticker.replace('-', '.')
-    
     prefix = ""
     exch = r.get('Exch', '')
     if exch in ['NMS', 'NGM', 'NCM', 'PNK']: prefix = "NASDAQ:"
@@ -481,7 +467,7 @@ async def send_sig(ctx, uid, r):
         f"{ic} **[{full_tv}]({link})** | **Price**: ${r['Price']:.2f} | **P/E**: {r['PE']}\n"
         f"📊 **ATR**: {r['ATR_Pct']:.2f}% | **SL ATR**: ${r['ATR_SL']:.2f}\n"
         f"🎯 **RR**: {r['RR']:.2f} | 🛑 **SL**: ${r['SL']:.2f}\n"
-        f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Size**: {r['Shares']} stocks"
+        f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Size**: {r['Shares']} шт"
     )
     await ctx.bot.send_message(uid, txt, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
@@ -504,10 +490,10 @@ async def auto_job(ctx: ContextTypes.DEFAULT_TYPE):
             if s.get('auto_scan', False):
                 await run_scan(ctx, uid, s, manual=False, is_auto=True)
     else:
-        STATE.add_log(f"💤 Market Hours Check: Closed")
+        STATE.add_log(f"💤 Рынок закрыт")
 
 # ==========================================
-# 8. STARTUP (SINGLETON)
+# 8. STARTUP (STABLE SINGLETON)
 # ==========================================
 @st.cache_resource
 def start_bot_singleton():
@@ -522,8 +508,19 @@ def start_bot_singleton():
         
         app.job_queue.run_repeating(auto_job, interval=3600, first=10)
         
-        STATE.add_log("🟢 Polling Service Started")
-        await app.run_polling(stop_signals=[], drop_pending_updates=True)
+        # Инициализация и запуск приложения
+        await app.initialize()
+        await app.start()
+        
+        # Проверка соединения
+        bot_info = await app.bot.get_me()
+        STATE.add_log(f"🟢 Бот подключен: @{bot_info.username}")
+        
+        await app.updater.start_polling(drop_pending_updates=True)
+        
+        # Бесконечный цикл для поддержания работы потока
+        while True:
+            await asyncio.sleep(1)
 
     def loop_in_thread(loop):
         asyncio.set_event_loop(loop)
