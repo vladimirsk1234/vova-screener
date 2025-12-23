@@ -82,6 +82,8 @@ DEFAULT_SETTINGS = {
 user_settings = {}
 # Множество ID пользователей, которые нажали "Стоп"
 ABORT_SCAN_USERS = set()
+# Состояния ввода для пользователей: {user_id: "WAITING_RISK" | "WAITING_RR" ...}
+USER_STATES = {}
 SENT_SIGNALS_CACHE = {"date": None, "tickers": set()}
 
 # ==========================================
@@ -333,6 +335,41 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not await check_auth_async(user_id): return
 
+    # Проверка на ввод значений (State Machine)
+    if user_id in USER_STATES:
+        state = USER_STATES[user_id]
+        # Если пользователь нажал кнопку меню вместо ввода, отменяем ввод
+        if text in ["🚀 Запустить Скан", "⚙️ Настройки"] or text.startswith("🔄 Авто:"):
+            del USER_STATES[user_id]
+            await update.message.reply_text("Ввод отменен.", reply_markup=get_main_keyboard(user_id))
+            # Пропускаем дальше, чтобы обработать нажатие кнопки
+        else:
+            try:
+                # Заменяем запятую на точку для удобства
+                val = float(text.replace(',', '.'))
+                s = get_settings(user_id)
+                
+                if state == "RISK": 
+                    s['risk_per_trade_pct'] = val
+                    await update.message.reply_text(f"✅ Risk обновлен: {val}%")
+                elif state == "RR": 
+                    s['min_rr'] = val
+                    await update.message.reply_text(f"✅ Min RR обновлен: {val}")
+                elif state == "PORT": 
+                    s['portfolio_size'] = int(val)
+                    await update.message.reply_text(f"✅ Portfolio обновлен: ${val}")
+                elif state == "ATR":
+                    s['max_atr_pct'] = val
+                    await update.message.reply_text(f"✅ Max ATR обновлен: {val}%")
+                
+                del USER_STATES[user_id]
+                await settings_menu(update, context) # Возвращаем меню настроек
+                return
+            except ValueError:
+                await update.message.reply_text("❌ Пожалуйста, введите корректное число (например 1.5 или 10000).")
+                return
+
+    # Обработка команд меню
     if text == "🚀 Запустить Скан":
         await run_scan_task(update, context, user_id, manual=True)
     elif text == "⚙️ Настройки":
@@ -364,14 +401,16 @@ async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = get_settings(user_id)
     text = (
         f"⚙️ **Настройки:**\n"
-        f"💰 Port: ${s['portfolio_size']} | ⚠️ Risk: {s['risk_per_trade_pct']}%\n"
+        f"💰 Portfolio: ${s['portfolio_size']} | ⚠️ Risk: {s['risk_per_trade_pct']}%\n"
         f"📊 RR: {s['min_rr']} | 🔍 Mode: {s['scan_mode']}\n"
+        f"📈 Max ATR: {s['max_atr_pct']}%\n"
         f"👀 Фильтр: {'🔥 Только новые' if s.get('show_new_only', False) else '✅ Все активные'}"
     )
     keyboard = [
-        [InlineKeyboardButton(f"Risk: {s['risk_per_trade_pct']}% 🔄", callback_data="change_risk")],
-        [InlineKeyboardButton(f"RR: {s['min_rr']} 🔄", callback_data="change_rr")],
-        [InlineKeyboardButton(f"💼 Port: ${s['portfolio_size']} 🔄", callback_data="change_port")],
+        [InlineKeyboardButton(f"Risk: {s['risk_per_trade_pct']}% ✏️", callback_data="ask_risk")],
+        [InlineKeyboardButton(f"RR: {s['min_rr']} ✏️", callback_data="ask_rr")],
+        [InlineKeyboardButton(f"Portfolio: ${s['portfolio_size']} ✏️", callback_data="ask_port")],
+        [InlineKeyboardButton(f"Max ATR: {s['max_atr_pct']}% ✏️", callback_data="ask_atr")],
         [InlineKeyboardButton(f"Mode: {s['scan_mode']} 🔄", callback_data="change_mode")],
         [InlineKeyboardButton(f"Фильтр: {'🔥 Только новые' if s.get('show_new_only', False) else '✅ Все активные'} 🔄", callback_data="toggle_filter")],
     ]
@@ -389,23 +428,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("🛑 Сканирование остановлено пользователем.")
         return
 
+    # Обработка запросов на ввод значений
+    if data == "ask_risk":
+        USER_STATES[user_id] = "RISK"
+        await query.message.reply_text(f"Введите новый **Risk %** (текущий: {s['risk_per_trade_pct']}):", parse_mode=ParseMode.MARKDOWN)
+        return
+    elif data == "ask_rr":
+        USER_STATES[user_id] = "RR"
+        await query.message.reply_text(f"Введите новый **Min RR** (текущий: {s['min_rr']}):", parse_mode=ParseMode.MARKDOWN)
+        return
+    elif data == "ask_port":
+        USER_STATES[user_id] = "PORT"
+        await query.message.reply_text(f"Введите новый размер **Portfolio $** (текущий: {s['portfolio_size']}):", parse_mode=ParseMode.MARKDOWN)
+        return
+    elif data == "ask_atr":
+        USER_STATES[user_id] = "ATR"
+        await query.message.reply_text(f"Введите новый **Max ATR %** (текущий: {s['max_atr_pct']}):", parse_mode=ParseMode.MARKDOWN)
+        return
+
     if data == "settings_menu": await settings_menu(update, context)
-    elif data == "change_risk":
-        s['risk_per_trade_pct'] = 0.5 if s['risk_per_trade_pct'] == 2.0 else s['risk_per_trade_pct'] + 0.5
-        await settings_menu(update, context)
-    elif data == "change_rr":
-        s['min_rr'] = 1.0 if s['min_rr'] >= 3.0 else s['min_rr'] + 0.5
-        await settings_menu(update, context)
-    elif data == "change_port":
-        # Циклическое изменение портфеля
-        sizes = [1000, 5000, 10000, 25000, 50000, 100000]
-        try:
-            curr_idx = sizes.index(s['portfolio_size'])
-            next_idx = (curr_idx + 1) % len(sizes)
-            s['portfolio_size'] = sizes[next_idx]
-        except:
-            s['portfolio_size'] = 10000
-        await settings_menu(update, context)
     elif data == "change_mode":
         s['scan_mode'] = "S&P 500" if s['scan_mode'] == "Top 10" else "Top 10"
         await settings_menu(update, context)
@@ -486,14 +527,22 @@ async def run_scan_task(update, context, user_id, manual=False):
         await msg_dest.reply_text(final_text)
 
 async def send_signal_msg(context, user_id, res):
-    tv_link = f"https://www.tradingview.com/chart/?symbol={res['Ticker'].replace('-', '.')}"
+    # TradingView format: . instead of - for BRK.B etc.
+    tv_ticker = res['Ticker'].replace('-', '.')
+    # Ссылка для открытия графика. На мобильных устройствах часто подхватывается приложением.
+    tv_link = f"https://www.tradingview.com/chart/?symbol={tv_ticker}"
+    
     status_icon = "🔥 NEW" if res['Is_New'] else "✅ ACTIVE"
+    
     msg = (
-        f"{status_icon} **[{res['Ticker']}]({tv_link})** | ${res['Price']:.2f}\n"
-        f"🎯 **RR:** {res['RR']:.2f} | 🛑 **SL:** {res['SL']:.2f}\n"
-        f"🏁 **TP:** {res['TP']:.2f} | 📦 **Lot:** {res['Shares']}"
+        f"{status_icon} **[{tv_ticker}]({tv_link})** | ${res['Price']:.2f}\n"
+        f"📊 **ATR:** {res['ATR_Pct']:.2f}% | **ATR SL:** ${res['ATR_SL']:.2f}\n"
+        f"🎯 **RR:** {res['RR']:.2f} | 🛑 **SL:** ${res['SL']:.2f}\n"
+        f"🏁 **TP:** ${res['TP']:.2f} | 📦 **Size:** {res['Shares']} stocks"
     )
-    await context.bot.send_message(chat_id=user_id, text=msg, parse_mode=ParseMode.MARKDOWN)
+    # disable_web_page_preview=True чтобы не загромождать превью графика, 
+    # но можно и оставить False, если хотите видеть превью
+    await context.bot.send_message(chat_id=user_id, text=msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
 async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
     tz = pytz.timezone('US/Eastern')
@@ -509,10 +558,6 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
             if s.get('auto_scan', False):
                 tickers = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
                 loop = asyncio.get_running_loop()
-                # Здесь используем process_tickers для простоты, так как стриминг в авто-режиме менее критичен,
-                # но можно переделать на цикл, если нужно. Оставим старый метод для фона.
-                # НО! Нам нужно импортировать логику стриминга? Нет, оставим пакетную обработку для авто.
-                # Или лучше унифицировать.
                 # Давайте сделаем простой цикл для авто:
                 for ticker in tickers:
                     res = await loop.run_in_executor(None, run_strategy_for_ticker, ticker, s)
