@@ -77,7 +77,7 @@ def get_shared_state():
         "AUTO_SCAN_INTERVAL": 3600, 
         "IS_SCANNING": False, 
         "STOP_SCAN": False,
-        "SHOW_ONLY_NEW": True, 
+        "SHOW_ONLY_NEW": False, # CHANGED: По умолчанию False, чтобы видеть ВСЕ сигналы сразу
         "LAST_SCAN_TIME": "Никогда",
         "CHAT_IDS": set(), 
         "APPROVED_IDS": fetch_approved_ids(), 
@@ -131,7 +131,7 @@ def check_ticker(ticker):
     ПОЛНАЯ СИНХРОНИЗАЦИЯ С PINE SCRIPT (SUPER TREND + TRADE LOGIC)
     """
     try:
-        # 1. Загрузка данных
+        # 1. Загрузка данных (2 года)
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, session=YF_SESSION, timeout=10)
         if df.empty or len(df) < 250: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
@@ -184,7 +184,8 @@ def check_ticker(ticker):
         # =========================================================
         # 3. VOVA SEQUENCE LOGIC (STRUCTURE MEMORY)
         # =========================================================
-        df_calc = df.tail(300).copy()
+        # Используем весь DF, а не tail, чтобы максимизировать историю для поиска пиков
+        df_calc = df.copy() 
         if len(df_calc) < 5: return None
         
         cl = df_calc['Close'].values; hi = df_calc['High'].values; lo = df_calc['Low'].values
@@ -201,10 +202,10 @@ def check_ticker(ticker):
         lastPeakWasHH = False
         lastTroughWasHL = False
         
-        # Вспомогательные списки для истории (чтобы проверить prev bar)
-        hist_struct_valid = [] # [bool, bool, ...]
-        hist_crit_level = []   # [float, float, ...]
-        hist_last_peak = []    # [float, float, ...]
+        # Вспомогательные списки для истории
+        hist_struct_valid = [] 
+        hist_crit_level = []   
+        hist_last_peak = []    
 
         for i in range(len(df_calc)):
             if i == 0:
@@ -223,7 +224,6 @@ def check_ticker(ticker):
             if isBreak:
                 if pS == 1: # Long -> Short
                     # Был UP, стал DOWN. Текущий seqHigh фиксируется как Пик.
-                    # Проверяем структуру: HH?
                     if not np.isnan(lastConfirmedPeak):
                         if seqHigh > lastConfirmedPeak: lastPeakWasHH = True
                         else: lastPeakWasHH = False
@@ -235,7 +235,6 @@ def check_ticker(ticker):
                     seqState = -1; seqHigh = h; seqLow = l; crit = h
                 else: # Short -> Long
                     # Был DOWN, стал UP. Текущий seqLow фиксируется как Дно.
-                    # Проверяем структуру: HL?
                     if not np.isnan(lastConfirmedTrough):
                         if seqLow > lastConfirmedTrough: lastTroughWasHL = True
                         elif seqLow < lastConfirmedTrough: lastTroughWasHL = False
@@ -274,14 +273,12 @@ def check_ticker(ticker):
         # 4. ФИНАЛЬНАЯ ПРОВЕРКА (SUPER TREND + TRADE LOGIC)
         # =========================================================
         
-        # Нам нужны данные последнего бара и предыдущего для is_new
         idx_cur = -1
         idx_prev = -2
         
         row_cur = df_calc.iloc[idx_cur]
         row_prev = df_calc.iloc[idx_prev]
         
-        # --- ФУНКЦИЯ ПРОВЕРКИ УСЛОВИЙ ---
         def check_conditions(row, idx_offset):
             # 1. Sequence Green
             cond_seq = (seq_states[idx_offset] == 1)
@@ -289,14 +286,10 @@ def check_ticker(ticker):
             # 2. MA Green
             cond_ma = (row['Close'] > row['SMA_Major'])
             
-            # 3. Super Trend (Strict Green Logic from Indicator)
-            # ADX Bull
+            # 3. Super Trend (Strict Green)
             adx_bull = (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Plus'] > row['DI_Minus'])
-            adx_bear = (row['ADX'] >= SETTINGS["ADX_THRESH"]) and (row['DI_Minus'] > row['DI_Plus'])
             
-            # Elder Impulse
-            # Check rising vs previous row (need helper since 'row' is single series)
-            # We access values from df_calc directly by integer position
+            # Elder Impulse (Double EMA Rising + Hist Rising)
             pos = len(df_calc) + idx_offset
             if pos < 1: return False
             
@@ -307,38 +300,19 @@ def check_ticker(ticker):
             curr_hist = df_calc['MACD_Hist'].iloc[pos]
             prev_hist = df_calc['MACD_Hist'].iloc[pos-1]
             
-            # Bull: Both EMAs Rising AND Hist Rising
             elder_bull = (curr_ema_f > prev_ema_f) and (curr_ema_s > prev_ema_s) and (curr_hist > prev_hist)
-            # Bear: Both EMAs Falling AND Hist Falling
-            elder_bear = (curr_ema_f < prev_ema_f) and (curr_ema_s < prev_ema_s) and (curr_hist < prev_hist)
             
             # EFI
             efi_bull = row['EFI'] > 0
-            efi_bear = row['EFI'] < 0
             
-            # Determine Trend State (1, -1, 0)
-            t_state = 0
-            if adx_bull and elder_bull and efi_bull: t_state = 1
-            elif adx_bear and elder_bear and efi_bear: t_state = -1
-            else: t_state = 0
+            cond_trend = (adx_bull and elder_bull and efi_bull)
             
-            # TRADE LOGIC CHECK: Trend != -1 (Green OR Yellow allowed for entry per Watermark)
-            # OR User wants "All Green"? 
-            # Request says "SAME LOGIC AS TRADING VIEW". 
-            # In Watermark Trade Logic: `cond_trend_ok = t_Cur != -1`.
-            # In Screener Logic: `trendState == 1`.
-            # We will use STRICT (==1) for the bot to be safe and find "Best" setups.
-            cond_trend = (t_state == 1) 
-            
-            # 4. Structure Valid (HH + HL)
+            # 4. Structure Valid
             cond_struct = hist_struct_valid[idx_offset]
             
             return (cond_seq and cond_ma and cond_trend and cond_struct)
 
-        # Проверка текущего бара
         is_setup_valid = check_conditions(row_cur, idx_cur)
-        
-        # Проверка предыдущего бара (для флага New)
         was_setup_valid = check_conditions(row_prev, idx_prev)
         is_new_signal = is_setup_valid and not was_setup_valid
         
@@ -350,7 +324,7 @@ def check_ticker(ticker):
         # --- RR CALCULATION ---
         rr_val = 0.0
         current_crit = hist_crit_level[idx_cur]
-        current_target = hist_last_peak[idx_cur] # TP = Last Confirmed Peak
+        current_target = hist_last_peak[idx_cur] # TP = Previous Confirmed Peak
         
         if is_setup_valid and not np.isnan(current_crit) and not np.isnan(current_target):
             risk = row_cur['Close'] - current_crit
@@ -371,7 +345,6 @@ def check_ticker(ticker):
                     'is_new': is_new_signal
                 }
     except Exception as e:
-        # print(f"Error {ticker}: {e}") # Debug only
         return None
     return None
 
