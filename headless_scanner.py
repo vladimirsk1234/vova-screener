@@ -26,7 +26,7 @@ class BotGlobalState:
     def __init__(self):
         self.last_scan = None
         self.logs = []
-        self.user_settings = {}
+        self.user_settings = {}  # {user_id: settings_dict}
         self.sent_signals_cache = {"date": None, "tickers": set(), "last_auto_scan_ts": None}
         self.user_states = {}
         self.abort_scan_users = set()
@@ -100,13 +100,13 @@ try:
         is_bot_alive = STATE.bot_thread is not None and STATE.bot_thread.is_alive()
         c2.metric("Статус Бота", "🟢 Активен" if is_bot_alive else "🔴 Остановлен")
 
-        st.subheader("🕒 Статус Сканера")
+        st.subheader("🕒 Состояние сканера")
         ct1, ct2 = st.columns(2)
         if STATE.last_scan:
             ny = pytz.timezone('US/Eastern')
             ls = STATE.last_scan if STATE.last_scan.tzinfo else ny.localize(STATE.last_scan)
             ls_ny = ls.astimezone(ny)
-            ct1.metric("Последний запуск (NY)", ls_ny.strftime("%H:%M:%S"))
+            ct1.metric("Последний скан (NY)", ls_ny.strftime("%H:%M:%S"))
             
             nxt = ls_ny + timedelta(hours=1)
             rem = nxt - datetime.now(ny)
@@ -124,7 +124,7 @@ try:
 except: pass
 
 # ==========================================
-# 4. ИНДИКАТОРЫ (100% ИЗ ВЕБ-СКРИНЕРА)
+# 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (100% COPY FROM WEB)
 # ==========================================
 def calc_sma(series, length): return series.rolling(window=length).mean()
 def calc_ema(series, length): return series.ewm(span=length, adjust=False).mean()
@@ -209,26 +209,38 @@ def run_strategy_for_ticker(ticker, settings):
                     seq_state, seq_high, seq_low, critical_level = 1, h, l, l
             else:
                 if seq_state == 1:
-                    if h >= seq_high: seq_high, critical_level = h, l
+                    if h >= seq_high:
+                        seq_high = h
+                    if h >= seq_high: 
+                         critical_level = l
                 elif seq_state == -1:
-                    if l <= seq_low: seq_low, critical_level = l, h
+                    if l <= seq_low:
+                        seq_low = l
+                    if l <= seq_low: 
+                        critical_level = h
                 else:
-                    if c > seq_high: seq_state, critical_level = 1, l
-                    elif c < seq_low: seq_state, critical_level = -1, h
-                    else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
+                    if c > seq_high:
+                        seq_state, critical_level = 1, l
+                    elif c < seq_low:
+                        seq_state, critical_level = -1, h
+                    else:
+                        seq_high = max(seq_high, h)
+                        seq_low = min(seq_low, l)
 
-            # Super Trend Logic
-            adx_strong = (adx_vals[i] > settings['adx_thresh'])
+            # Super Trend Logic (COPY FROM WEB)
+            strong = (adx_vals[i] > settings['adx_thresh'])
             both_rising = (ema_fast_vals[i] > ema_fast_vals[i-1]) and (ema_slow_vals[i] > ema_slow_vals[i-1])
             elder_bull = both_rising and (macd_hist_vals[i] > macd_hist_vals[i-1])
             both_falling = (ema_fast_vals[i] < ema_fast_vals[i-1]) and (ema_slow_vals[i] < ema_slow_vals[i-1])
             elder_bear = both_falling and (macd_hist_vals[i] < macd_hist_vals[i-1])
+            efi_bull = efi_vals[i] > 0
+            efi_bear = efi_vals[i] < 0
+            adx_bull = strong and (pdi_vals[i] > mdi_vals[i])
+            adx_bear = strong and (mdi_vals[i] > pdi_vals[i])
             
             curr_trend_state = 0
-            if adx_strong and (pdi_vals[i] > mdi_vals[i]) and elder_bull and (efi_vals[i] > 0):
-                curr_trend_state = 1
-            elif adx_strong and (mdi_vals[i] > pdi_vals[i]) and elder_bear and (efi_vals[i] < 0):
-                curr_trend_state = -1
+            if adx_bull and elder_bull and efi_bull: curr_trend_state = 1
+            elif adx_bear and elder_bear and efi_bear: curr_trend_state = -1
             
             trend_state_list[i], seq_state_list[i], critical_level_list[i], peak_list[i], struct_ok_list[i] = curr_trend_state, seq_state, critical_level, last_confirmed_peak, (last_peak_was_hh and last_trough_was_hl)
 
@@ -237,7 +249,7 @@ def run_strategy_for_ticker(ticker, settings):
             price, sma = close_arr[idx], df['SMA_Major'].iloc[idx]
             s_state, t_state, is_struct_ok = seq_state_list[idx], trend_state_list[idx], struct_ok_list[idx]
             crit, peak = critical_level_list[idx], peak_list[idx]
-            # Valid if: UP sequence + Above MA + Trend NOT bear + Structure confirmed
+            # Valid: UP + Above MA + Trend NOT bear + Structure confirmed
             valid = (s_state == 1) and (price > sma) and (t_state != -1) and is_struct_ok
             rr = 0.0
             if valid and not np.isnan(peak) and not np.isnan(crit):
@@ -248,22 +260,21 @@ def run_strategy_for_ticker(ticker, settings):
 
         v_tod, rr_t, sl_t, tp_t = check_conditions(n-1)
         v_yest, _, _, _ = check_conditions(n-2)
-        
         if not v_tod or rr_t < settings['min_rr']: return None
         
         curr_c = close_arr[-1]
-        atr_val = atr_series.iloc[-1]
-        atr_pct = (atr_val / curr_c) * 100
+        cur_atr = atr_series.iloc[-1]
+        atr_pct = (cur_atr / curr_c) * 100
         if atr_pct > settings['max_atr_pct']: return None
         
         return {
             "Ticker": ticker, "Price": curr_c, "RR": rr_t, "SL": sl_t, "TP": tp_t,
-            "ATR_SL": curr_c - atr_val, "ATR_Pct": atr_pct, "Is_New": (v_tod and not v_yest)
+            "ATR_SL": curr_c - cur_atr, "ATR_Pct": atr_pct, "Is_New": (v_tod and not v_yest)
         }
     except: return None
 
 # ==========================================
-# 6. МЕТАДАННЫЕ (P/E и Биржа)
+# 6. МЕТАДАННЫЕ
 # ==========================================
 def fetch_meta(ticker):
     try:
@@ -298,7 +309,9 @@ async def start_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if not await check_auth_async(uid):
         await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
         return
-    await u.message.reply_text("👋 **Vova Screener Bot**\nЛогика 100% как в вебе.", reply_markup=get_main_kb(uid))
+    # Регистрация пользователя в STATE, чтобы авто-скан его видел
+    if uid not in STATE.user_settings: get_settings(uid)
+    await u.message.reply_text("👋 **Vova Screener Bot**\nЛогика 100% соответствует веб-версии.", reply_markup=get_main_kb(uid))
 
 async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
     uid = u.effective_user.id if not u.callback_query else u.callback_query.from_user.id
@@ -329,7 +342,7 @@ async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     s = get_settings(uid)
     if q.data == "stop":
         STATE.abort_scan_users.add(uid)
-        await q.message.reply_text("🛑 Остановка... Процесс будет прерван немедленно.")
+        await q.message.reply_text("🛑 Остановка... Бот завершит текущий тикер и остановится.")
         return
     if q.data.startswith("ask_"):
         STATE.user_states[uid] = q.data.split("_")[1].upper()
@@ -365,7 +378,7 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await run_scan(c, uid, get_settings(uid), manual=True)
     elif txt == "⚙️ Настройки": await settings_menu(u, c)
     elif txt == "ℹ️ Помощь":
-        await u.message.reply_text("Бот ищет сигналы на покупку акций США по стратегии Vova (BOS + SuperTrend).", parse_mode=ParseMode.MARKDOWN)
+        await u.message.reply_text("Бот 1-в-1 повторяет логику веб-скринера Vova Strategy.", parse_mode=ParseMode.MARKDOWN)
     elif txt.startswith("🔄 Авто"):
         s = get_settings(uid)
         s['auto_scan'] = not s['auto_scan']
@@ -373,7 +386,7 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     elif txt == "/start": await start_h(u, c)
 
 # --- SCAN ENGINE (FIXED STOP & 100% LOGIC) ---
-async def run_scan(ctx, uid, s, manual=False, is_auto=False):
+async def run_scan(context, uid, s, manual=False, is_auto=False):
     if is_auto:
         last = STATE.sent_signals_cache.get("last_auto_scan_ts")
         if last and (datetime.now() - last).total_seconds() < 1800: return
@@ -389,12 +402,12 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
         tit = "🔄 Авто" if is_auto else "🚀 Скан"
         
         pkb = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 СТОП", callback_data="stop")]])
-        status = await ctx.bot.send_message(uid, f"{tit}: {filt_txt}\nЗапуск...", reply_markup=pkb)
+        status = await context.bot.send_message(uid, f"{tit}: {filt_txt}\nЗапуск...", reply_markup=pkb)
         
         loop = asyncio.get_running_loop()
         found = 0
         for i, t in enumerate(ticks):
-            # КРИТИЧЕСКАЯ ПРОВЕРКА СТОПА
+            # КРИТИЧЕСКАЯ ПРОВЕРКА СТОПА ПЕРЕД КАЖДЫМ ТИКЕРОМ
             if uid in STATE.abort_scan_users:
                 await status.edit_text(f"🛑 Прервано пользователем на {i}/{total}.")
                 return
@@ -408,7 +421,7 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
                     found += 1
                     meta = await loop.run_in_executor(None, fetch_meta, t)
                     res.update(meta)
-                    await send_sig(ctx, uid, res)
+                    await send_sig(context, uid, res)
             
             if i % 5 == 0 or i == total - 1:
                 pct = int((i + 1) / total * 100)
@@ -418,7 +431,7 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
                 except: pass
                 
         await status.edit_text(f"✅ {tit} завершен! Найдено: {found}", reply_markup=None)
-        if manual: await ctx.bot.send_message(uid, "Готово.", reply_markup=get_main_kb(uid))
+        if manual: await context.bot.send_message(uid, "Готово.", reply_markup=get_main_kb(uid))
     finally:
         STATE.active_scans.discard(uid)
         STATE.abort_scan_users.discard(uid)
@@ -431,6 +444,7 @@ async def send_sig(ctx, uid, r):
     link = f"https://www.tradingview.com/chart/?symbol={full}"
     ic = "🔥 NEW" if r['Is_New'] else "✅ ACTIVE"
     
+    # Расчет лота
     s = get_settings(uid)
     risk_amt = s['portfolio_size'] * (s['risk_per_trade_pct'] / 100.0)
     risk_per_sh = r['Price'] - r['SL']
@@ -454,8 +468,10 @@ async def auto_job(ctx: ContextTypes.DEFAULT_TYPE):
     
     if now.weekday() < 5 and time(9, 30) <= now.time() <= time(16, 0):
         STATE.add_log(f"🔄 Авто-сканирование запущено")
-        for uid, s in STATE.user_settings.items():
-            if s.get('auto_scan', False): await run_scan(ctx, uid, s, manual=False, is_auto=True)
+        # Теперь бот знает всех, кто когда-либо нажимал Start
+        for uid, s in list(STATE.user_settings.items()):
+            if s.get('auto_scan', False):
+                await run_scan(ctx, uid, s, manual=False, is_auto=True)
     else: STATE.add_log(f"💤 Рынок закрыт")
 
 @st.cache_resource
@@ -467,7 +483,9 @@ def start_bot_singleton():
         app.add_handler(CallbackQueryHandler(btn_h))
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), txt_h))
         app.job_queue.run_repeating(auto_job, interval=3600, first=10)
-        await app.initialize(); await app.start()
+        
+        await app.initialize()
+        await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
         while True: await asyncio.sleep(10)
     
