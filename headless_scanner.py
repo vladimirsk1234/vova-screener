@@ -127,7 +127,7 @@ try:
 except: pass
 
 # ==========================================
-# 4. ПОМОЩНИКИ (МАТЕМАТИКА ИЗ ВЕБ-СКРИНЕРА)
+# 4. ПОМОЩНИКИ (100% МАТЕМАТИКА ИЗ ВЕБ-СКРИНЕРА)
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -244,7 +244,7 @@ def run_strategy_for_ticker(ticker, settings):
             if idx < 0: return False, 0.0, np.nan, np.nan
             p, sma = c_arr[idx], df['SMA_Major'].iloc[idx]
             valid = (seq_st_list[idx] == 1) and ((p > sma) if not np.isnan(sma) else False) and (trend_st_list[idx] != -1) and struct_list[idx]
-            rr, cr, pk = 0.0, crit_list[idx], peak_list[idx]
+            rr, cr, pk = 0.0, critical_level_list[idx], peak_list[idx]
             if valid and not np.isnan(pk) and not np.isnan(cr):
                 risk, reward = p - cr, pk - p
                 if risk > 0 and reward > 0: rr = reward / risk
@@ -261,10 +261,10 @@ def run_strategy_for_ticker(ticker, settings):
         atr_pct = (curr_atr / curr_c) * 100
         if atr_pct > settings['max_atr_pct']: return None
         
-        # Получение P/E и Биржи только для кандидатов
+        # Получение P/E и Биржи только для кандидатов (медленная операция)
         t_obj = yf.Ticker(ticker)
-        pe = t_obj.info.get('trailingPE', 'N/A')
-        if pe != 'N/A': pe = f"{pe:.2f}"
+        pe_val = t_obj.info.get('trailingPE', 'N/A')
+        pe = f"{pe_val:.2f}" if isinstance(pe_val, (int, float)) else "N/A"
         exch = t_obj.fast_info.get('exchange', '')
 
         risk_sh = curr_c - sl_t
@@ -302,15 +302,22 @@ def get_main_kb(uid):
         [KeyboardButton("ℹ️ Помощь")]
     ], resize_keyboard=True)
 
+async def start_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    uid = u.effective_user.id
+    if not await check_auth_async(uid):
+        await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
+        return
+    await u.message.reply_text("👋 **Vova Screener Bot**", reply_markup=get_main_kb(uid))
+
 async def help_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     txt = (
         "ℹ️ **Справка по Vova Screener Bot**\n\n"
         "**Стратегия:** Поиск слома структуры (BOS) и подтверждение тренда по SuperTrend + SMA 200.\n\n"
-        "🛠 **Параметры:**\n"
-        "• **Portfolio**: Общий капитал ($). Используется для расчета лота.\n"
-        "• **Risk %**: Какой процент от капитала вы готовы потерять в одной сделке.\n"
-        "• **RR**: Мин. соотношение Риск/Прибыль. Бот игнорирует сделки с низким потенциалом.\n"
-        "• **Max ATR %**: Ограничение волатильности (защита от слишком резких движений).\n\n"
+        "🛠 **Описание параметров:**\n"
+        "• **Portfolio**: Весь ваш торговый капитал ($). Используется для расчета количества акций.\n"
+        "• **Risk %**: Процент от капитала, который вы готовы потерять, если сработает Stop Loss.\n"
+        "• **RR**: Мин. соотношение Прибыль/Риск. Бот игнорирует сделки, где цель слишком близко.\n"
+        "• **Max ATR %**: Лимит волатильности. Исключает слишком 'дерганые' акции.\n\n"
         "🔄 **Авто-скан**: Бот сам проверяет рынок США каждый час и присылает уведомления о новых сигналах."
     )
     await u.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
@@ -320,13 +327,14 @@ async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
     msg_func = u.callback_query.edit_message_text if u.callback_query else u.message.reply_text
     s = get_settings(uid)
     txt = (
-        f"⚙️ **Настройки Конфигурации:**\n\n"
+        f"⚙️ **Конфигурация бота:**\n\n"
         f"💰 **Портфель**: ${s['portfolio_size']:,} (Размер депо)\n"
         f"⚠️ **Риск на сделку**: {s['risk_per_trade_pct']}% (от депо)\n"
         f"📊 **Мин. RR**: {s['min_rr']} (Reward/Risk)\n"
         f"📈 **Лимит ATR**: {s['max_atr_pct']}% (Волатильность)\n"
         f"🔍 **Рынок**: {s['scan_mode']}\n"
-        f"👀 **Фильтр**: {'🔥 Только новые' if s['show_new_only'] else '✅ Все активные'}"
+        f"👀 **Фильтр**: {'🔥 Только новые' if s['show_new_only'] else '✅ Все активные'}\n\n"
+        f"Выберите параметр для изменения:"
     )
     kb = [
         [InlineKeyboardButton(f"Risk: {s['risk_per_trade_pct']}% ✏️", callback_data="ask_risk"),
@@ -334,7 +342,7 @@ async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"Port: ${s['portfolio_size']} ✏️", callback_data="ask_port"),
          InlineKeyboardButton(f"ATR: {s['max_atr_pct']}% ✏️", callback_data="ask_atr")],
         [InlineKeyboardButton(f"Market: {s['scan_mode']} 🔄", callback_data="ch_mode"),
-         InlineKeyboardButton(f"Filt: {'🔥' if s['show_new_only'] else '✅'} 🔄", callback_data="ch_filt")],
+         InlineKeyboardButton(f"Filt: {'🔥 Новые' if s['show_new_only'] else '✅ Все'} 🔄", callback_data="ch_filt")],
         [InlineKeyboardButton("ℹ️ СПРАВКА / ПОМОЩЬ", callback_data="show_help")]
     ]
     await msg_func(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
@@ -349,13 +357,13 @@ async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if d == "stop":
         STATE.abort_scan_users.add(uid)
         STATE.user_states.pop(uid, None)
-        await q.message.reply_text("🛑 Команда принята. Остановка...")
+        await q.message.reply_text("🛑 Команда СТОП получена. Процесс будет прерван.")
         return
 
     if d == "show_help": await help_h(u, c); return
     if d.startswith("ask_"):
         STATE.user_states[uid] = d.split("_")[1].upper()
-        await q.message.reply_text(f"Введите новое числовое значение для **{STATE.user_states[uid]}**:")
+        await q.message.reply_text(f"Введите новое значение для **{STATE.user_states[uid]}**:")
         return
 
     if d == "ch_mode": s['scan_mode'] = "S&P 500" if s['scan_mode'] == "Top 10" else "Top 10"
@@ -371,7 +379,7 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
         st_code = STATE.user_states[uid]
         if txt.startswith(("🚀", "⚙️", "ℹ️", "🔄")):
             del STATE.user_states[uid]
-            await u.message.reply_text("Отменено.", reply_markup=get_main_kb(uid))
+            await u.message.reply_text("Ввод отменен.", reply_markup=get_main_kb(uid))
         else:
             try:
                 val = float(txt.replace(',', '.').replace('%', '').replace('$', '').strip())
@@ -381,14 +389,17 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
                 elif st_code == "PORT": s['portfolio_size'] = int(val)
                 elif st_code == "ATR": s['max_atr_pct'] = val
                 del STATE.user_states[uid]
-                await u.message.reply_text(f"✅ Обновлено: {val}")
+                await u.message.reply_text(f"✅ Успешно обновлено: {val}")
                 await settings_menu(u, c)
                 return
             except:
-                await u.message.reply_text("❌ Ошибка ввода. Нужно число.")
+                await u.message.reply_text("❌ Ошибка! Введите число.")
                 return
 
-    if txt == "🚀 Запустить Скан": await run_scan(c, uid, get_settings(uid), manual=True)
+    if txt == "🚀 Запустить Скан":
+        # Перед ручным сканом всегда сбрасываем флаг стопа
+        STATE.abort_scan_users.discard(uid)
+        await run_scan(c, uid, get_settings(uid), manual=True)
     elif txt == "⚙️ Настройки": await settings_menu(u, c)
     elif txt == "ℹ️ Помощь": await help_h(u, c)
     elif txt.startswith("🔄 Авто"):
@@ -398,13 +409,6 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     elif txt == "/start": 
         await start_h(u, c)
 
-async def start_h(u, c):
-    uid = u.effective_user.id
-    if not await check_auth_async(uid):
-        await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
-        return
-    await u.message.reply_text("👋 **Vova Screener Bot**", reply_markup=get_main_kb(uid))
-
 # --- SCAN ENGINE (FIXED STOP & 100% LOGIC) ---
 async def run_scan(context, uid, s, manual=False, is_auto=False):
     if is_auto:
@@ -412,9 +416,6 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
         if last and (datetime.now() - last).total_seconds() < 1800: return
         STATE.sent_signals_cache["last_auto_scan_ts"] = datetime.now()
 
-    # Сброс флага остановки перед началом
-    if uid in STATE.abort_scan_users: STATE.abort_scan_users.remove(uid)
-    
     ticks = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
     total = len(ticks)
     filt_txt = "🔥 Новые" if (s['show_new_only'] or is_auto) else "✅ Все"
@@ -427,10 +428,10 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
     found = 0
     
     for i in range(total):
-        # МГНОВЕННАЯ ПРОВЕРКА КНОПКИ СТОП
+        # МГНОВЕННАЯ ПРОВЕРКА КНОПКИ СТОП ПЕРЕД КАЖДЫМ ТИКЕРОМ
         if uid in STATE.abort_scan_users:
-            await status_msg.edit_text(f"🛑 Прервано пользователем на {i}/{total}.")
-            STATE.abort_scan_users.remove(uid)
+            await status_msg.edit_text(f"🛑 Сканирование прервано пользователем на тикере {i+1} из {total}.")
+            # Мы НЕ удаляем uid из abort_scan_users здесь, чтобы все параллельные процессы тоже остановились
             return
             
         t = ticks[i]
@@ -451,6 +452,7 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
                 found += 1
                 await send_sig(context, uid, res)
         
+        # Обновление прогресса
         if i % 5 == 0 or i == total - 1:
             pct = int((i + 1) / total * 100)
             filled = int(10 * pct / 100)
@@ -461,8 +463,11 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
     try: 
         await status_msg.edit_text(f"✅ {tit} завершен!\nНайдено сигналов: {found}", reply_markup=None)
         if manual: 
-            await context.bot.send_message(chat_id=uid, text="Сканирование готово. Что дальше?", reply_markup=get_main_kb(uid))
+            await context.bot.send_message(chat_id=uid, text="Готово! Возвращаюсь в главное меню.", reply_markup=get_main_kb(uid))
     except: pass
+    
+    # В самом конце удаляем из списка остановки, чтобы можно было запустить снова
+    STATE.abort_scan_users.discard(uid)
 
 async def send_sig(ctx, uid, r):
     ticker = r['Ticker']
@@ -478,7 +483,7 @@ async def send_sig(ctx, uid, r):
     ic = "🔥 NEW" if r['Is_New'] else "✅ ACTIVE"
     
     txt = (
-        f"{ic} **[{full_tv}]({link})** | **Price**: ${r['Price']:.2f} | **P/E**: {r['PE']}\n"
+        f"{ic} **[{full_tv}]({link})** | **Price**: ${r['Price']:.2f} (P/E: {r['PE']})\n"
         f"📊 **ATR**: {r['ATR_Pct']:.2f}% | **SL ATR**: ${r['ATR_SL']:.2f}\n"
         f"🎯 **RR**: {r['RR']:.2f} | 🛑 **SL**: ${r['SL']:.2f}\n"
         f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Лот**: {r['Shares']} шт"
@@ -502,6 +507,8 @@ async def auto_job(ctx: ContextTypes.DEFAULT_TYPE):
         STATE.add_log(f"🔄 Auto-Scan: {now.strftime('%H:%M')}")
         for uid, s in STATE.user_settings.items():
             if s.get('auto_scan', False):
+                # Сбрасываем флаг стопа перед авто-сканом
+                STATE.abort_scan_users.discard(uid)
                 await run_scan(ctx, uid, s, manual=False, is_auto=True)
     else:
         STATE.add_log(f"💤 Рынок закрыт")
