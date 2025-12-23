@@ -9,3 +9,4 @@ streamlit-autorefresh
 firebase-admin
 python-telegram-bot
 pytz
+[job-queue]
