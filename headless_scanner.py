@@ -624,6 +624,8 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
     # --- ОБНОВЛЕНИЕ ГЛОБАЛЬНОГО СТАТУСА ---
     BOT_STATE["last_scan"] = now
     
+    log_ui(f"🔄 Авто-скан: Запуск... {now.strftime('%H:%M:%S')}")
+
     today_str = now.strftime("%Y-%m-%d")
     if SENT_SIGNALS_CACHE["date"] != today_str:
         SENT_SIGNALS_CACHE["date"] = today_str
@@ -634,6 +636,9 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
         for user_id, s in user_settings.items():
             if s.get('auto_scan', False):
                 tickers = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
+                
+                log_ui(f"🚀 Сканирую {len(tickers)} тикеров для {user_id}...")
+                
                 loop = asyncio.get_running_loop()
                 # Давайте сделаем простой цикл для авто:
                 for ticker in tickers:
@@ -641,6 +646,8 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
                     if res and res['Is_New'] and res['Ticker'] not in SENT_SIGNALS_CACHE["tickers"]:
                          await send_signal_msg(context, user_id, res)
                          SENT_SIGNALS_CACHE["tickers"].add(res['Ticker'])
+    else:
+        log_ui(f"💤 Рынок закрыт (Time: {now.strftime('%H:%M')}). Пропуск.")
 
 # ==========================================
 # 5. SERVER & MAIN
