@@ -115,7 +115,7 @@ DEFAULT_SETTINGS = {
     "adx_thresh": 20,
     "atr_len": 14,
     "max_atr_pct": 5.0,         # DEFAULT
-    "auto_scan": False,
+    "auto_scan": True,          # CHANGED TO TRUE (Default ON)
     "scan_mode": "S&P 500",     # NEW DEFAULT
     "show_new_only": True       # NEW DEFAULT (Only New)
 }
@@ -508,4 +508,6 @@ if __name__ == '__main__':
             app.job_queue.run_repeating(auto_scan_job, interval=3600, first=10)
             log_ui("Polling Started...")
             app.run_polling(stop_signals=[], drop_pending_updates=False)
-        except Exception as
+        except Exception as e:
+            log_ui(f"ERR: {e}")
+    else: log_ui("No Token")
