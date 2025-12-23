@@ -105,7 +105,6 @@ try:
         ct1, ct2 = st.columns(2)
         if STATE.last_scan:
             ny = pytz.timezone('US/Eastern')
-            # Гарантируем наличие таймзоны
             ls = STATE.last_scan if STATE.last_scan.tzinfo else ny.localize(STATE.last_scan)
             ls_ny = ls.astimezone(ny)
             ct1.metric("Last Auto Scan (NY)", ls_ny.strftime("%H:%M:%S"))
@@ -176,8 +175,13 @@ def calc_adx(df, l):
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
-        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
+        t_obj = yf.Ticker(ticker)
+        df = t_obj.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
+
+        # Fetch P/E
+        pe = t_obj.info.get('trailingPE', 'N/A')
+        if pe != 'N/A': pe = f"{pe:.2f}"
 
         df['SMA_Major'] = calc_sma(df['Close'], settings['len_major'])
         adx_s, pdi, mdi = calc_adx(df, settings['adx_len'])
@@ -269,7 +273,7 @@ def run_strategy_for_ticker(ticker, settings):
         return {
             "Ticker": ticker, "Price": cur_c, "RR": rr_t, "SL": sl_t, "TP": tp_t,
             "ATR_SL": cur_c - cur_atr, "Shares": shares, "ATR_Pct": atr_pct, 
-            "Is_New": (v_tod and not v_yest)
+            "Is_New": (v_tod and not v_yest), "PE": pe
         }
     except: return None
 
@@ -431,7 +435,6 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
     
     loop = asyncio.get_running_loop()
     found = 0
-    batch_sz = 1 # Уменьшен размер батча для более быстрой реакции на СТОП
     
     for i in range(total):
         # CRITICAL STOP CHECK (Checks EVERY ticker)
@@ -498,7 +501,7 @@ async def send_sig(ctx, uid, r):
     ic = "🔥 NEW" if r['Is_New'] else "✅ ACTIVE"
     
     txt = (
-        f"{ic} **[{full_tv}]({link})** | ${r['Price']:.2f}\n"
+        f"{ic} **[{full_tv}]({link})** | **Price**: ${r['Price']:.2f} | **P/E**: {r['PE']}\n"
         f"📊 **ATR**: {r['ATR_Pct']:.2f}% | **SL ATR**: ${r['ATR_SL']:.2f}\n"
         f"🎯 **RR**: {r['RR']:.2f} | 🛑 **SL**: ${r['SL']:.2f}\n"
         f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Trade Size**: {r['Shares']} shares"
