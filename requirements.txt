@@ -7,6 +7,5 @@ requests
 lxml
 streamlit-autorefresh
 firebase-admin
-python-telegram-bot
+python-telegram-bot[job-queue]
 pytz
-[job-queue]
