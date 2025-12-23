@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from streamlit_autorefresh import st_autorefresh
 import nest_asyncio
 
-# Применяем патч для asyncio, чтобы Streamlit и Telegram Bot работали вместе
+# Применяем патч для asyncio
 nest_asyncio.apply()
 
 # ==========================================
@@ -71,7 +71,7 @@ def get_settings(user_id):
     return STATE.user_settings[user_id]
 
 # ==========================================
-# 3. INTERFACE (STREAMLIT MONITOR)
+# 3. ИНТЕРФЕЙС STREAMLIT (МОНИТОРИНГ)
 # ==========================================
 try:
     if __name__ == '__main__':
@@ -93,22 +93,21 @@ try:
                 r = requests.get(GITHUB_USERS_URL)
                 if r.status_code == 200:
                     ul = [l for l in r.text.splitlines() if l.strip()]
-                    c1.metric("✅ Пользователи", f"{len(ul)}")
-                else: c1.error(f"GH Error: {r.status_code}")
+                    c1.metric("✅ Юзеров одобрено", f"{len(ul)}")
+                else: c1.error(f"GitHub Error: {r.status_code}")
             except: c1.error("Net Error")
-        else:
-            c1.warning("No GH URL")
+        else: c1.warning("No Auth URL set")
             
         bs = "🟢 Активен" if (STATE.bot_thread and STATE.bot_thread.is_alive()) else "🔴 Остановлен"
         c2.metric("Сервис Бота", bs)
 
-        st.subheader("🕒 Статус Сканирования")
+        st.subheader("🕒 Статус Авто-Сканирования")
         ct1, ct2 = st.columns(2)
         if STATE.last_scan:
             ny = pytz.timezone('US/Eastern')
             ls = STATE.last_scan if STATE.last_scan.tzinfo else ny.localize(STATE.last_scan)
             ls_ny = ls.astimezone(ny)
-            ct1.metric("Последний Авто-Скан (NY)", ls_ny.strftime("%H:%M:%S"))
+            ct1.metric("Последний запуск (NY)", ls_ny.strftime("%H:%M:%S"))
             
             nxt = ls_ny + timedelta(hours=1)
             now_ny = datetime.now(ny)
@@ -116,20 +115,19 @@ try:
             if rem.total_seconds() > 0:
                 m, s = divmod(int(rem.total_seconds()), 60)
                 ct2.metric("След. проверка через", f"{m}м {s}с")
-            else:
-                ct2.metric("След. проверка через", "Запуск...")
+            else: ct2.metric("След. проверка", "В процессе...")
         else:
-            ct1.metric("Последний запуск", "Нет данных")
-            ct2.metric("След. проверка", "Ожидание...")
+            ct1.metric("Последний запуск", "Ожидание...")
+            ct2.metric("След. проверка", "Скоро...")
 
-        st.subheader("📜 Логи Системы")
+        st.subheader("📜 Логи событий")
         with st.container(height=300):
             for l in reversed(STATE.logs[-20:]): st.text(l)
         st.divider()
 except: pass
 
 # ==========================================
-# 4. HELPERS
+# 4. ПОМОЩНИКИ (МАТЕМАТИКА ИЗ ВЕБ-СКРИНЕРА)
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -145,23 +143,24 @@ def get_top_10_tickers():
 
 def calc_sma(series, length): return series.rolling(window=length).mean()
 def calc_ema(series, length): return series.ewm(span=length, adjust=False).mean()
-def calc_atr(df, length):
-    tr = pd.concat([df['High']-df['Low'], (df['High']-df['Close'].shift(1)).abs(), (df['Low']-df['Close'].shift(1)).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1.0/length, adjust=False).mean()
+
 def calc_macd(series, fast=12, slow=26, signal=9):
     ema_fast = series.ewm(span=fast, adjust=False).mean()
     ema_slow = series.ewm(span=slow, adjust=False).mean()
-    macd = ema_fast - ema_slow
-    sig = macd.ewm(span=signal, adjust=False).mean()
-    return macd, sig, macd - sig
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    return macd_line, signal_line, macd_line - signal_line
 
 def calc_adx(df, length):
     high, low, close = df['High'], df['Low'], df['Close']
-    tr = pd.concat([high-low, (high-close.shift(1)).abs(), (low-close.shift(1)).abs()], axis=1).max(axis=1)
-    up = high - high.shift(1)
-    down = low.shift(1) - low
-    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
-    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
     plus_dm, minus_dm = pd.Series(plus_dm, index=df.index), pd.Series(minus_dm, index=df.index)
     alpha = 1.0 / length
     tr_smooth = tr.ewm(alpha=alpha, adjust=False).mean().replace(0, np.nan)
@@ -170,14 +169,19 @@ def calc_adx(df, length):
     dx = 100 * ((pdi - mdi).abs() / (pdi + mdi))
     return dx.ewm(alpha=alpha, adjust=False).mean(), pdi, mdi
 
+def calc_atr(df, length):
+    tr = pd.concat([df['High']-df['Low'], (df['High']-df['Close'].shift(1)).abs(), (df['Low']-df['Close'].shift(1)).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0/length, adjust=False).mean()
+
 # ==========================================
-# 5. STRATEGY (100% EXACT LOGIC)
+# 5. СТРАТЕГИЯ (100% ЛОГИКА ИЗ ВЕБ-СКРИНЕРА)
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
 
+        # --- Предварительные расчеты (Web Screener Match) ---
         df['SMA_Major'] = calc_sma(df['Close'], settings['len_major'])
         adx_s, pdi, mdi = calc_adx(df, settings['adx_len'])
         atr_s = calc_atr(df, settings['atr_len'])
@@ -193,43 +197,48 @@ def run_strategy_for_ticker(ticker, settings):
 
         n = len(df)
         trend_st_list, seq_st_list, crit_list, peak_list, struct_list = [0]*n, [0]*n, [np.nan]*n, [np.nan]*n, [False]*n
-        seq_st, crit, s_h, s_l = 0, np.nan, h_arr[0], l_arr[0]
-        l_pk, l_tr, l_hh, l_hl = np.nan, np.nan, False, False
+        seq_state, critical_level, seq_high, seq_low = 0, np.nan, h_arr[0], l_arr[0]
+        last_confirmed_peak, last_confirmed_trough, last_peak_was_hh, last_trough_was_hl = np.nan, np.nan, False, False
 
         for i in range(1, n):
             c, h, l = c_arr[i], h_arr[i], l_arr[i]
-            prev_st, is_brk = seq_st, False
-            if prev_st == 1 and not np.isnan(crit): is_brk = c < crit
-            elif prev_st == -1 and not np.isnan(crit): is_brk = c > crit
+            prev_st = seq_state
+            is_break = False
+            if prev_st == 1 and not np.isnan(critical_level): is_break = c < critical_level
+            elif prev_st == -1 and not np.isnan(critical_level): is_break = c > critical_level
             
-            if is_brk:
+            if is_break:
                 if prev_st == 1:
-                    l_hh, l_pk = (True if np.isnan(l_pk) else (s_h > l_pk)), s_h
-                    seq_st, s_h, s_l, crit = -1, h, l, h
+                    is_hh = (True if np.isnan(last_confirmed_peak) else (seq_high > last_confirmed_peak))
+                    last_peak_was_hh, last_confirmed_peak = is_hh, seq_high
+                    seq_state, seq_high, seq_low, critical_level = -1, h, l, h
                 else:
-                    l_hl, l_tr = (True if np.isnan(l_tr) else (s_l > l_tr)), s_l
-                    seq_st, s_h, s_l, crit = 1, h, l, l
+                    is_hl = (True if np.isnan(last_confirmed_trough) else (seq_low > last_confirmed_trough))
+                    last_trough_was_hl, last_confirmed_trough = is_hl, seq_low
+                    seq_state, seq_high, seq_low, critical_level = 1, h, l, l
             else:
-                if seq_st == 1:
-                    if h >= s_h: s_h = h
-                    if h >= s_h: crit = l
-                elif seq_st == -1:
-                    if l <= s_l: s_l = l
-                    if l <= s_l: crit = h
+                if seq_state == 1:
+                    if h >= seq_high: seq_high = h
+                    if h >= seq_high: critical_level = l
+                elif seq_state == -1:
+                    if l <= seq_low: seq_low = l
+                    if l <= seq_low: critical_level = h
                 else:
-                    if c > s_h: seq_st, crit = 1, l
-                    elif c < s_l: seq_st, crit = -1, h
-                    else: s_h, s_l = max(s_h, h), min(s_l, l)
+                    if c > seq_high: seq_state, critical_level = 1, l
+                    elif c < seq_low: seq_state, critical_level = -1, h
+                    else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
 
-            strong = (adx_v[i] > settings['adx_thresh'])
-            rising = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1])
-            falling = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1])
+            adx_strong = (adx_v[i] > settings['adx_thresh'])
+            both_rising = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1])
+            elder_bull = both_rising and (h_vals[i] > h_vals[i-1])
+            both_falling = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1])
+            elder_bear = both_falling and (h_vals[i] < h_vals[i-1])
             
-            curr_t = 0
-            if strong and (pdi_v[i] > mdi_v[i]) and rising and (h_vals[i] > h_vals[i-1]) and (efi_vals[i] > 0): curr_t = 1
-            elif strong and (mdi_v[i] > pdi_v[i]) and falling and (h_vals[i] < h_vals[i-1]) and (efi_vals[i] < 0): curr_t = -1
+            curr_trend = 0
+            if adx_strong and (pdi_v[i] > mdi_v[i]) and elder_bull and (efi_vals[i] > 0): curr_trend = 1
+            elif adx_strong and (mdi_v[i] > pdi_v[i]) and elder_bear and (efi_vals[i] < 0): curr_trend = -1
             
-            trend_st_list[i], seq_st_list[i], crit_list[i], peak_list[i], struct_list[i] = curr_t, seq_st, crit, l_pk, (l_hh and l_hl)
+            trend_st_list[i], seq_st_list[i], crit_list[i], peak_list[i], struct_list[i] = curr_trend, seq_state, critical_level, last_confirmed_peak, (last_peak_was_hh and last_trough_was_hl)
 
         def check(idx):
             if idx < 0: return False, 0.0, np.nan, np.nan
@@ -252,7 +261,7 @@ def run_strategy_for_ticker(ticker, settings):
         atr_pct = (curr_atr / curr_c) * 100
         if atr_pct > settings['max_atr_pct']: return None
         
-        # Медленные данные только для кандидатов
+        # Получение P/E и Биржи только для кандидатов
         t_obj = yf.Ticker(ticker)
         pe = t_obj.info.get('trailingPE', 'N/A')
         if pe != 'N/A': pe = f"{pe:.2f}"
@@ -274,7 +283,7 @@ def run_strategy_for_ticker(ticker, settings):
     except: return None
 
 # ==========================================
-# 6. BOT HANDLERS
+# 6. ХЕНДЛЕРЫ БОТА
 # ==========================================
 async def check_auth_async(uid):
     if ADMIN_ID and str(uid) == str(ADMIN_ID): return True
@@ -293,48 +302,42 @@ def get_main_kb(uid):
         [KeyboardButton("ℹ️ Помощь")]
     ], resize_keyboard=True)
 
-async def start_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    uid = u.effective_user.id
-    if not await check_auth_async(uid):
-        await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
-        return
-    await u.message.reply_text("👋 **Vova Screener Bot**", reply_markup=get_main_kb(uid))
-
 async def help_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     txt = (
-        "ℹ️ **Справка по боту**\n\n"
-        "**Стратегия:** Break of Structure + SuperTrend (фильтр SMA 200).\n\n"
-        "• **Portfolio**: Весь ваш капитал ($).\n"
-        "• **Risk %**: Риск на одну сделку.\n"
-        "• **RR**: Мин. соотношение Прибыль/Риск.\n"
-        "• **Max ATR %**: Лимит волатильности.\n\n"
-        "🔄 **Авто-скан**: Каждый час при открытом рынке США."
+        "ℹ️ **Справка по Vova Screener Bot**\n\n"
+        "**Стратегия:** Поиск слома структуры (BOS) и подтверждение тренда по SuperTrend + SMA 200.\n\n"
+        "🛠 **Параметры:**\n"
+        "• **Portfolio**: Общий капитал ($). Используется для расчета лота.\n"
+        "• **Risk %**: Какой процент от капитала вы готовы потерять в одной сделке.\n"
+        "• **RR**: Мин. соотношение Риск/Прибыль. Бот игнорирует сделки с низким потенциалом.\n"
+        "• **Max ATR %**: Ограничение волатильности (защита от слишком резких движений).\n\n"
+        "🔄 **Авто-скан**: Бот сам проверяет рынок США каждый час и присылает уведомления о новых сигналах."
     )
     await u.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
 
 async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
     uid = u.effective_user.id if not u.callback_query else u.callback_query.from_user.id
-    func = u.callback_query.edit_message_text if u.callback_query else u.message.reply_text
+    msg_func = u.callback_query.edit_message_text if u.callback_query else u.message.reply_text
     s = get_settings(uid)
     txt = (
-        f"⚙️ **Настройки:**\n\n"
-        f"💰 **Portfolio**: ${s['portfolio_size']:,}\n"
-        f"⚠️ **Risk Per Trade**: {s['risk_per_trade_pct']}%\n"
-        f"📊 **Minimum RR**: {s['min_rr']}\n"
-        f"📈 **Max ATR Limit**: {s['max_atr_pct']}%\n"
-        f"🔍 **Market Mode**: {s['scan_mode']}\n"
+        f"⚙️ **Настройки Конфигурации:**\n\n"
+        f"💰 **Портфель**: ${s['portfolio_size']:,} (Размер депо)\n"
+        f"⚠️ **Риск на сделку**: {s['risk_per_trade_pct']}% (от депо)\n"
+        f"📊 **Мин. RR**: {s['min_rr']} (Reward/Risk)\n"
+        f"📈 **Лимит ATR**: {s['max_atr_pct']}% (Волатильность)\n"
+        f"🔍 **Рынок**: {s['scan_mode']}\n"
         f"👀 **Фильтр**: {'🔥 Только новые' if s['show_new_only'] else '✅ Все активные'}"
     )
     kb = [
         [InlineKeyboardButton(f"Risk: {s['risk_per_trade_pct']}% ✏️", callback_data="ask_risk"),
          InlineKeyboardButton(f"RR: {s['min_rr']} ✏️", callback_data="ask_rr")],
-        [InlineKeyboardButton(f"Portfolio: ${s['portfolio_size']} ✏️", callback_data="ask_port"),
-         InlineKeyboardButton(f"Max ATR: {s['max_atr_pct']}% ✏️", callback_data="ask_atr")],
+        [InlineKeyboardButton(f"Port: ${s['portfolio_size']} ✏️", callback_data="ask_port"),
+         InlineKeyboardButton(f"ATR: {s['max_atr_pct']}% ✏️", callback_data="ask_atr")],
         [InlineKeyboardButton(f"Market: {s['scan_mode']} 🔄", callback_data="ch_mode"),
-         InlineKeyboardButton(f"Filt: {'🔥 Новые' if s['show_new_only'] else '✅ Все'} 🔄", callback_data="ch_filt")],
-        [InlineKeyboardButton("ℹ️ HELP / INFO", callback_data="show_help")]
+         InlineKeyboardButton(f"Filt: {'🔥' if s['show_new_only'] else '✅'} 🔄", callback_data="ch_filt")],
+        [InlineKeyboardButton("ℹ️ СПРАВКА / ПОМОЩЬ", callback_data="show_help")]
     ]
-    await func(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
+    await msg_func(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
 
 async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     q = u.callback_query
@@ -345,14 +348,14 @@ async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     
     if d == "stop":
         STATE.abort_scan_users.add(uid)
-        STATE.user_states.pop(uid, None) # Сброс состояния ввода
-        await q.message.reply_text("🛑 Остановка процесса...")
+        STATE.user_states.pop(uid, None)
+        await q.message.reply_text("🛑 Команда принята. Остановка...")
         return
 
     if d == "show_help": await help_h(u, c); return
     if d.startswith("ask_"):
         STATE.user_states[uid] = d.split("_")[1].upper()
-        await q.message.reply_text(f"Введите новое значение для **{STATE.user_states[uid]}**:")
+        await q.message.reply_text(f"Введите новое числовое значение для **{STATE.user_states[uid]}**:")
         return
 
     if d == "ch_mode": s['scan_mode'] = "S&P 500" if s['scan_mode'] == "Top 10" else "Top 10"
@@ -382,7 +385,7 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
                 await settings_menu(u, c)
                 return
             except:
-                await u.message.reply_text("❌ Ошибка ввода числа.")
+                await u.message.reply_text("❌ Ошибка ввода. Нужно число.")
                 return
 
     if txt == "🚀 Запустить Скан": await run_scan(c, uid, get_settings(uid), manual=True)
@@ -392,21 +395,30 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
         s = get_settings(uid)
         s['auto_scan'] = not s['auto_scan']
         await u.message.reply_text(f"Авто-скан: {'✅ ВКЛ' if s['auto_scan'] else '❌ ВЫКЛ'}", reply_markup=get_main_kb(uid))
-    elif txt == "/start": await start_h(u, c)
+    elif txt == "/start": 
+        await start_h(u, c)
 
-# --- SCAN ENGINE ---
+async def start_h(u, c):
+    uid = u.effective_user.id
+    if not await check_auth_async(uid):
+        await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
+        return
+    await u.message.reply_text("👋 **Vova Screener Bot**", reply_markup=get_main_kb(uid))
+
+# --- SCAN ENGINE (FIXED STOP & 100% LOGIC) ---
 async def run_scan(context, uid, s, manual=False, is_auto=False):
     if is_auto:
         last = STATE.sent_signals_cache.get("last_auto_scan_ts")
         if last and (datetime.now() - last).total_seconds() < 1800: return
         STATE.sent_signals_cache["last_auto_scan_ts"] = datetime.now()
 
+    # Сброс флага остановки перед началом
     if uid in STATE.abort_scan_users: STATE.abort_scan_users.remove(uid)
     
     ticks = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
     total = len(ticks)
     filt_txt = "🔥 Новые" if (s['show_new_only'] or is_auto) else "✅ Все"
-    tit = "🔄 Авто" if is_auto else "🚀 Скан"
+    tit = "🔄 Авто-Скан" if is_auto else "🚀 Ручной Скан"
     
     pkb = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 СТОП", callback_data="stop")]])
     status_msg = await context.bot.send_message(chat_id=uid, text=f"{tit}: {filt_txt}\nЗапуск...", reply_markup=pkb)
@@ -415,8 +427,9 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
     found = 0
     
     for i in range(total):
+        # МГНОВЕННАЯ ПРОВЕРКА КНОПКИ СТОП
         if uid in STATE.abort_scan_users:
-            await status_msg.edit_text(f"🛑 Прервано пользователем ({i}/{total}).")
+            await status_msg.edit_text(f"🛑 Прервано пользователем на {i}/{total}.")
             STATE.abort_scan_users.remove(uid)
             return
             
@@ -447,7 +460,8 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
 
     try: 
         await status_msg.edit_text(f"✅ {tit} завершен!\nНайдено сигналов: {found}", reply_markup=None)
-        if manual: await context.bot.send_message(chat_id=uid, text="Готово.", reply_markup=get_main_kb(uid))
+        if manual: 
+            await context.bot.send_message(chat_id=uid, text="Сканирование готово. Что дальше?", reply_markup=get_main_kb(uid))
     except: pass
 
 async def send_sig(ctx, uid, r):
@@ -467,7 +481,7 @@ async def send_sig(ctx, uid, r):
         f"{ic} **[{full_tv}]({link})** | **Price**: ${r['Price']:.2f} | **P/E**: {r['PE']}\n"
         f"📊 **ATR**: {r['ATR_Pct']:.2f}% | **SL ATR**: ${r['ATR_SL']:.2f}\n"
         f"🎯 **RR**: {r['RR']:.2f} | 🛑 **SL**: ${r['SL']:.2f}\n"
-        f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Size**: {r['Shares']} шт"
+        f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Лот**: {r['Shares']} шт"
     )
     await ctx.bot.send_message(uid, txt, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
@@ -508,17 +522,14 @@ def start_bot_singleton():
         
         app.job_queue.run_repeating(auto_job, interval=3600, first=10)
         
-        # Инициализация и запуск приложения
         await app.initialize()
         await app.start()
         
-        # Проверка соединения
         bot_info = await app.bot.get_me()
         STATE.add_log(f"🟢 Бот подключен: @{bot_info.username}")
         
         await app.updater.start_polling(drop_pending_updates=True)
         
-        # Бесконечный цикл для поддержания работы потока
         while True:
             await asyncio.sleep(1)
 
