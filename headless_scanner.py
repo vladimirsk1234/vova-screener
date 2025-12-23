@@ -474,6 +474,7 @@ if __name__ == '__main__':
         job_queue.run_repeating(auto_scan_job, interval=3600, first=10) # Каждый час
         
         print("Бот запущен...")
-        application.run_polling()
+        # FIX: stop_signals=[] disables signal handling which fails in Streamlit/threads
+        application.run_polling(stop_signals=[]) 
     else:
         print("Бот НЕ запущен: Отсутствует TG_TOKEN.")
