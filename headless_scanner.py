@@ -146,7 +146,7 @@ USER_STATES = st.session_state.user_states
 SENT_SIGNALS_CACHE = st.session_state.sent_signals_cache
 
 # ==========================================
-# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (WEB VERSION EXACT)
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -163,132 +163,315 @@ def get_sp500_tickers():
 def get_top_10_tickers():
     return ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
 
-def calc_sma(s, l): return s.rolling(window=l).mean()
-def calc_ema(s, l): return s.ewm(span=l, adjust=False).mean()
-def calc_atr(df, l):
-    h, lo, c = df['High'], df['Low'], df['Close']
-    pc = c.shift(1)
-    tr = pd.concat([h - lo, (h - pc).abs(), (lo - pc).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1.0/l, adjust=False).mean()
+def calc_sma(series, length):
+    return series.rolling(window=length).mean()
 
-def calc_macd(s, f=12, sl=26, sig=9):
-    ef = s.ewm(span=f, adjust=False).mean()
-    es = s.ewm(span=sl, adjust=False).mean()
-    m = ef - es
-    sig_line = m.ewm(span=sig, adjust=False).mean()
-    return m, sig_line, m - sig_line
+def calc_ema(series, length):
+    return series.ewm(span=length, adjust=False).mean()
 
-def calc_adx(df, l):
-    h, lo, c = df['High'], df['Low'], df['Close']
-    up, down = h - h.shift(1), lo.shift(1) - lo
-    p_dm = np.where((up > down) & (up > 0), up, 0.0)
-    m_dm = np.where((down > up) & (down > 0), down, 0.0)
-    alpha = 1.0 / l
-    tr = pd.concat([h - lo, (h - c.shift(1)).abs(), (lo - c.shift(1)).abs()], axis=1).max(axis=1)
-    tr_s = tr.ewm(alpha=alpha, adjust=False).mean().replace(0, np.nan)
-    p_dm_s = pd.Series(p_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean()
-    m_dm_s = pd.Series(m_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean()
-    p_di = 100 * (p_dm_s / tr_s)
-    m_di = 100 * (m_dm_s / tr_s)
-    dx = 100 * ((p_di - m_di).abs() / (p_di + m_di))
-    return dx.ewm(alpha=alpha, adjust=False).mean(), p_di, m_di
+def calc_macd(series, fast=12, slow=26, signal=9):
+    ema_fast = series.ewm(span=fast, adjust=False).mean()
+    ema_slow = series.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    hist = macd_line - signal_line
+    return macd_line, signal_line, hist
+
+def calc_adx(df, length):
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    
+    prev_close = close.shift(1)
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    up_move = high - high.shift(1)
+    down_move = low.shift(1) - low
+    
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    
+    plus_dm = pd.Series(plus_dm, index=df.index)
+    minus_dm = pd.Series(minus_dm, index=df.index)
+    
+    alpha = 1.0 / length
+    tr_smooth = tr.ewm(alpha=alpha, adjust=False).mean()
+    plus_dm_smooth = plus_dm.ewm(alpha=alpha, adjust=False).mean()
+    minus_dm_smooth = minus_dm.ewm(alpha=alpha, adjust=False).mean()
+    
+    # Avoid div by zero
+    tr_smooth = tr_smooth.replace(0, np.nan)
+    
+    plus_di = 100 * (plus_dm_smooth / tr_smooth)
+    minus_di = 100 * (minus_dm_smooth / tr_smooth)
+    
+    sum_di = plus_di + minus_di
+    diff_di = (plus_di - minus_di).abs()
+    dx = 100 * (diff_di / sum_di)
+    
+    adx = dx.ewm(alpha=alpha, adjust=False).mean()
+    
+    return adx, plus_di, minus_di
+
+def calc_atr(df, length):
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    prev_close = close.shift(1)
+    
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    alpha = 1.0 / length
+    atr = tr.ewm(alpha=alpha, adjust=False).mean()
+    return atr
 
 # ==========================================
-# 3. ЛОГИКА СТРАТЕГИИ
+# 3. ЛОГИКА СТРАТЕГИИ (EXACT WEB COPY)
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
+        # Check ticker format (Must be US format usually, yfinance handles this)
+        # S&P500 tickers are usually US.
+        
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
 
+        # --- Indicator Calculations ---
         df['SMA_Major'] = calc_sma(df['Close'], settings['len_major'])
-        adx, pdi, mdi = calc_adx(df, settings['adx_len'])
-        atr = calc_atr(df, settings['atr_len'])
+        adx_series, plus_di, minus_di = calc_adx(df, settings['adx_len'])
+        atr_series = calc_atr(df, settings['atr_len'])
+        
         df['EMA_Fast'] = calc_ema(df['Close'], settings['len_fast'])
         df['EMA_Slow'] = calc_ema(df['Close'], settings['len_slow'])
         _, _, macd_hist = calc_macd(df['Close'], 12, 26, 9)
-        df['EFI'] = calc_ema(df['Close'].diff() * df['Volume'], settings['len_fast'])
+        
+        change = df['Close'].diff()
+        efi_raw = change * df['Volume']
+        df['EFI'] = calc_ema(efi_raw, settings['len_fast'])
 
-        c_arr, h_arr, l_arr = df['Close'].values, df['High'].values, df['Low'].values
-        ema_f, ema_s = df['EMA_Fast'].values, df['EMA_Slow'].values
-        hist_vals, efi_vals = macd_hist.values, df['EFI'].values
-        adx_v, pdi_v, mdi_v = adx.values, pdi.values, mdi.values
+        # --- Arrays for Loop ---
+        close_arr = df['Close'].values
+        high_arr = df['High'].values
+        low_arr = df['Low'].values
+        
+        ema_fast_vals = df['EMA_Fast'].values
+        ema_slow_vals = df['EMA_Slow'].values
+        macd_hist_vals = macd_hist.values
+        efi_vals = df['EFI'].values
+        adx_vals = adx_series.values
+        pdi_vals = plus_di.values
+        mdi_vals = minus_di.values
 
         n = len(df)
-        t_list, s_list, crit_list, peak_list, struct_list = [0]*n, [0]*n, [np.nan]*n, [np.nan]*n, [False]*n
+        
+        # Lists to store state history
+        trend_state_list = [0] * n
+        seq_state_list = [0] * n
+        critical_level_list = [np.nan] * n
+        peak_list = [np.nan] * n
+        struct_ok_list = [False] * n
 
-        seq_st, crit, s_h, s_l = 0, np.nan, h_arr[0], l_arr[0]
-        l_peak, l_trough, l_hh, l_hl = np.nan, np.nan, False, False
+        # Initial State
+        seq_state = 0
+        critical_level = np.nan
+        seq_high = high_arr[0]
+        seq_low = low_arr[0]
+        
+        last_confirmed_peak = np.nan
+        last_confirmed_trough = np.nan
+        last_peak_was_hh = False 
+        last_trough_was_hl = False
 
+        # --- Main Loop ---
         for i in range(1, n):
-            c, h, l = c_arr[i], h_arr[i], l_arr[i]
+            c = close_arr[i]
+            h = high_arr[i]
+            l = low_arr[i]
+            
+            # --- Sequence Logic ---
+            prev_seq_state = seq_state
             is_break = False
-            if seq_st == 1 and not np.isnan(crit): is_break = c < crit
-            elif seq_st == -1 and not np.isnan(crit): is_break = c > crit
+            
+            if prev_seq_state == 1:
+                if not np.isnan(critical_level):
+                    is_break = c < critical_level 
+            elif prev_seq_state == -1:
+                if not np.isnan(critical_level):
+                    is_break = c > critical_level 
             
             if is_break:
-                if seq_st == 1:
-                    is_hh = True if np.isnan(l_peak) else (s_h > l_peak)
-                    l_hh, l_peak = is_hh, s_h
-                    seq_st, s_h, s_l, crit = -1, h, l, h
+                if prev_seq_state == 1:
+                    # Was UP, now DOWN
+                    is_current_peak_hh = False
+                    if not np.isnan(last_confirmed_peak):
+                        if seq_high > last_confirmed_peak:
+                            is_current_peak_hh = True
+                    else:
+                        is_current_peak_hh = True 
+                    
+                    last_peak_was_hh = is_current_peak_hh
+                    last_confirmed_peak = seq_high
+                    
+                    seq_state = -1
+                    seq_high = h
+                    seq_low = l
+                    critical_level = h
                 else:
-                    is_hl = True if np.isnan(l_trough) else (s_l > l_trough)
-                    l_hl, l_trough = is_hl, s_l
-                    seq_st, s_h, s_l, crit = 1, h, l, l
+                    # Was DOWN, now UP
+                    is_current_trough_hl = False
+                    if not np.isnan(last_confirmed_trough):
+                        if seq_low > last_confirmed_trough:
+                            is_current_trough_hl = True
+                    else:
+                        is_current_trough_hl = True
+                    
+                    last_trough_was_hl = is_current_trough_hl
+                    last_confirmed_trough = seq_low
+                    
+                    seq_state = 1
+                    seq_high = h
+                    seq_low = l
+                    critical_level = l
             else:
-                if seq_st == 1:
-                    if h >= s_h: s_h = h
-                    if h >= s_h: crit = l
-                elif seq_st == -1:
-                    if l <= s_l: s_l = l
-                    if l <= s_l: crit = h
+                if seq_state == 1:
+                    if h >= seq_high:
+                        seq_high = h
+                    if h >= seq_high: 
+                         critical_level = l
+                elif seq_state == -1:
+                    if l <= seq_low:
+                        seq_low = l
+                    if l <= seq_low: 
+                        critical_level = h
                 else:
-                    if c > s_h: seq_st, crit = 1, l
-                    elif c < s_l: seq_st, crit = -1, h
-                    else: s_h, s_l = max(s_h, h), min(s_l, l)
+                    if c > seq_high:
+                        seq_state = 1
+                        critical_level = l
+                    elif c < seq_low:
+                        seq_state = -1
+                        critical_level = h
+                    else:
+                        seq_high = max(seq_high, h)
+                        seq_low = min(seq_low, l)
 
-            strong = (adx_v[i] > settings['adx_thresh'])
-            rising = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1])
-            falling = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1])
+            # --- Super Trend Logic ---
+            # Current values
+            ema_imp_curr = ema_fast_vals[i]
+            ema_imp_prev = ema_fast_vals[i-1]
+            ema_slow_curr = ema_slow_vals[i]
+            ema_slow_prev = ema_slow_vals[i-1]
+            hist_curr = macd_hist_vals[i]
+            hist_prev = macd_hist_vals[i-1]
             
-            curr_st = 0
-            if strong and (pdi_v[i] > mdi_v[i]) and rising and (hist_vals[i] > hist_vals[i-1]) and (efi_vals[i] > 0): curr_st = 1
-            elif strong and (mdi_v[i] > pdi_v[i]) and falling and (hist_vals[i] < hist_vals[i-1]) and (efi_vals[i] < 0): curr_st = -1
+            curr_adx = adx_vals[i]
+            curr_pdi = pdi_vals[i]
+            curr_mdi = mdi_vals[i]
             
-            t_list[i], s_list[i], crit_list[i], peak_list[i], struct_list[i] = curr_st, seq_st, crit, l_peak, (l_hh and l_hl)
+            adx_strong = (curr_adx > settings['adx_thresh'])
+            
+            both_rising = (ema_imp_curr > ema_imp_prev) and (ema_slow_curr > ema_slow_prev)
+            elder_bull = both_rising and (hist_curr > hist_prev)
+            
+            both_falling = (ema_imp_curr < ema_imp_prev) and (ema_slow_curr < ema_slow_prev)
+            elder_bear = both_falling and (hist_curr < hist_prev)
+            
+            efi_bull = efi_vals[i] > 0
+            efi_bear = efi_vals[i] < 0
+            
+            adx_bull = adx_strong and (curr_pdi > curr_mdi)
+            adx_bear = adx_strong and (curr_mdi > curr_pdi)
+            
+            curr_trend_state = 0
+            if adx_bull and elder_bull and efi_bull:
+                curr_trend_state = 1
+            elif adx_bear and elder_bear and efi_bear:
+                curr_trend_state = -1
+            
+            trend_state_list[i] = curr_trend_state
+            
+            # Save State
+            seq_state_list[i] = seq_state
+            critical_level_list[i] = critical_level
+            peak_list[i] = last_confirmed_peak
+            struct_ok_list[i] = (last_peak_was_hh and last_trough_was_hl)
 
-        def check(idx):
-            if idx < 0: return False, 0.0, np.nan, np.nan
-            p, sma = c_arr[idx], df['SMA_Major'].iloc[idx]
-            valid = (s_list[idx] == 1) and ((p > sma) if not np.isnan(sma) else False) and (t_list[idx] != -1) and struct_list[idx]
-            rr, cr, pk = 0.0, crit_list[idx], peak_list[idx]
-            if valid and not np.isnan(pk) and not np.isnan(cr):
-                rsk, rwd = p - cr, pk - p
-                if rsk > 0 and rwd > 0: rr = rwd / rsk
-                else: valid = False
-            return valid, rr, cr, pk
+        # --- Check Conditions Function ---
+        def check_conditions(idx):
+            if idx >= len(df) or idx < 0: return False, 0.0, np.nan, np.nan
+            
+            price = close_arr[idx]
+            sma = df['SMA_Major'].iloc[idx]
+            
+            s_state = seq_state_list[idx]
+            t_state = trend_state_list[idx]
+            is_struct_ok = struct_ok_list[idx]
+            
+            crit = critical_level_list[idx]
+            peak = peak_list[idx]
+            
+            c_seq = (s_state == 1)
+            c_ma = (price > sma) if not np.isnan(sma) else False
+            c_trend = (t_state != -1) # Not Bearish (0 or 1 is ok)
+            c_struct = is_struct_ok
+            
+            is_valid_setup = False
+            rr_calc = 0.0
+            
+            if c_seq and c_ma and c_trend and c_struct:
+                if not np.isnan(peak) and not np.isnan(crit):
+                    risk = price - crit
+                    reward = peak - price
+                    
+                    if risk > 0 and reward > 0:
+                        rr_calc = reward / risk
+                        is_valid_setup = True
+            
+            return is_valid_setup, rr_calc, crit, peak
 
-        v_today, rr_t, sl_t, tp_t = check(n-1)
-        v_yest, _, _, _ = check(n-2)
+        # --- Final Validation ---
+        is_valid_today, rr_today, sl_today, tp_today = check_conditions(n - 1)
+        is_valid_yesterday, _, _, _ = check_conditions(n - 2)
         
-        if not v_today or rr_t < settings['min_rr']: return None
+        is_new = is_valid_today and (not is_valid_yesterday)
         
-        cur_atr = atr.iloc[-1]
-        atr_pct = (cur_atr / c_arr[-1]) * 100
+        # Filter Logic (Filters are applied OUTSIDE usually, but here we return basics)
+        if not is_valid_today: return None
+        if rr_today < settings['min_rr']: return None
+        
+        curr_c = close_arr[-1]
+        curr_atr = atr_series.iloc[-1]
+        atr_pct = (curr_atr / curr_c) * 100
+        
         if atr_pct > settings['max_atr_pct']: return None
         
-        risk_val = c_arr[-1] - sl_t
+        # Position Sizing
+        risk_val = curr_c - sl_today
         risk_amt = settings['portfolio_size'] * (settings['risk_per_trade_pct'] / 100.0)
         shares = int(risk_amt / risk_val) if risk_val > 0 else 0
-        shares = min(shares, int(settings['portfolio_size'] / c_arr[-1]))
+        max_sh = int(settings['portfolio_size'] / curr_c)
+        shares = min(shares, max_sh)
         if shares < 1: shares = 1
 
         return {
-            "Ticker": ticker, "Price": c_arr[-1], "RR": rr_t, "SL": sl_t, "TP": tp_t,
-            "ATR_SL": c_arr[-1] - cur_atr, "Shares": shares, "ATR_Pct": atr_pct, 
-            "Is_New": (v_today and not v_yest)
+            "Ticker": ticker, 
+            "Price": curr_c, 
+            "RR": rr_today, 
+            "SL": sl_today, 
+            "TP": tp_today,
+            "ATR_SL": curr_c - curr_atr, 
+            "Shares": shares, 
+            "ATR_Pct": atr_pct, 
+            "Is_New": is_new
         }
-    except: return None
+    except Exception as e:
+        return None
 
 # ==========================================
 # 4. БОТ: ЛОГИКА
