@@ -9,3 +9,4 @@ streamlit-autorefresh
 firebase-admin
 python-telegram-bot[job-queue]
 pytz
+nest_asyncio
