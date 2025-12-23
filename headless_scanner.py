@@ -71,25 +71,41 @@ try:
             st.subheader("🕒 Статус Сканера")
             col_t1, col_t2 = st.columns(2)
             last_scan_time = BOT_STATE.get("last_scan")
+            
+            # Логика отображения времени
             if last_scan_time:
-                col_t1.metric("Последний авто-скан", last_scan_time.strftime("%H:%M:%S (NY)"))
+                ny_time = last_scan_time.strftime("%H:%M:%S")
+                col_t1.metric("Последний запуск (NY)", ny_time)
+                
+                # Таймер обратного отсчета (1 час)
                 next_scan_time = last_scan_time + timedelta(hours=1)
-                delta = next_scan_time - datetime.now(pytz.timezone('US/Eastern'))
+                now_ny = datetime.now(pytz.timezone('US/Eastern'))
+                # Приводим last_scan_time к timezone aware если он не такой
+                if last_scan_time.tzinfo is None:
+                     last_scan_time = pytz.timezone('US/Eastern').localize(last_scan_time)
+                
+                # Пересчитываем next_scan
+                next_scan_time = last_scan_time + timedelta(hours=1)
+                
+                delta = next_scan_time - now_ny
                 total_seconds = delta.total_seconds()
+                
                 if total_seconds > 0:
-                    mins, secs = int(total_seconds // 60), int(total_seconds % 60)
-                    col_t2.metric("До следующего скана", f"{mins} мин {secs} сек")
+                    mins = int(total_seconds // 60)
+                    secs = int(total_seconds % 60)
+                    col_t2.metric("След. проверка через", f"{mins} мин {secs} сек")
                 else:
-                    col_t2.metric("До следующего скана", "Запуск...")
+                    col_t2.metric("След. проверка", "Выполняется...")
             else:
-                col_t1.metric("Последний авто-скан", "Ожидание...")
-                col_t2.metric("До следующего скана", "Неизвестно")
+                col_t1.metric("Последний запуск", "Ожидание старта...")
+                col_t2.metric("След. проверка", "Скоро...")
 
             st.subheader("📜 Последние логи")
             with st.container(height=300):
                 for log in reversed(BOT_STATE["logs"][-20:]): st.text(log)
             st.divider()
-    except: pass
+    except Exception as e:
+        print(f"UI Error: {e}")
 
     TG_TOKEN = st.secrets.get("TG_TOKEN", os.environ.get("TG_TOKEN"))
     ADMIN_ID = st.secrets.get("ADMIN_ID", os.environ.get("ADMIN_ID"))
@@ -142,7 +158,7 @@ USER_STATES = st.session_state.user_states
 SENT_SIGNALS_CACHE = st.session_state.sent_signals_cache
 
 # ==========================================
-# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (100% WEB MATCH)
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==========================================
 def get_sp500_tickers():
     try:
@@ -159,11 +175,13 @@ def get_sp500_tickers():
 def get_top_10_tickers():
     return ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
 
-def calc_sma(series, length):
-    return series.rolling(window=length).mean()
-
-def calc_ema(series, length):
-    return series.ewm(span=length, adjust=False).mean()
+def calc_sma(series, length): return series.rolling(window=length).mean()
+def calc_ema(series, length): return series.ewm(span=length, adjust=False).mean()
+def calc_atr(df, length):
+    high, low, close = df['High'], df['Low'], df['Close']
+    pc = c.shift(1)
+    tr = pd.concat([h - lo, (h - pc).abs(), (lo - pc).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0/length, adjust=False).mean()
 
 def calc_macd(series, fast=12, slow=26, signal=9):
     ema_fast = series.ewm(span=fast, adjust=False).mean()
@@ -174,102 +192,63 @@ def calc_macd(series, fast=12, slow=26, signal=9):
     return macd_line, signal_line, hist
 
 def calc_adx(df, length):
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
-    
+    high, low, close = df['High'], df['Low'], df['Close']
     prev_close = close.shift(1)
     tr1 = high - low
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    
     up_move = high - high.shift(1)
     down_move = low.shift(1) - low
-    
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-    
     plus_dm = pd.Series(plus_dm, index=df.index)
     minus_dm = pd.Series(minus_dm, index=df.index)
-    
     alpha = 1.0 / length
     tr_smooth = tr.ewm(alpha=alpha, adjust=False).mean()
     plus_dm_smooth = plus_dm.ewm(alpha=alpha, adjust=False).mean()
     minus_dm_smooth = minus_dm.ewm(alpha=alpha, adjust=False).mean()
-    
-    # Avoid div by zero
     tr_smooth = tr_smooth.replace(0, np.nan)
-    
     plus_di = 100 * (plus_dm_smooth / tr_smooth)
     minus_di = 100 * (minus_dm_smooth / tr_smooth)
-    
     sum_di = plus_di + minus_di
     diff_di = (plus_di - minus_di).abs()
     dx = 100 * (diff_di / sum_di)
-    
     adx = dx.ewm(alpha=alpha, adjust=False).mean()
-    
     return adx, plus_di, minus_di
 
 def calc_atr(df, length):
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
+    high, low, close = df['High'], df['Low'], df['Close']
     prev_close = close.shift(1)
-    
     tr1 = high - low
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
-    
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    
     alpha = 1.0 / length
     atr = tr.ewm(alpha=alpha, adjust=False).mean()
     return atr
 
 # ==========================================
-# 3. ЛОГИКА СТРАТЕГИИ (EXACT WEB LOGIC)
+# 3. ЛОГИКА СТРАТЕГИИ
 # ==========================================
 def run_strategy_for_ticker(ticker, settings):
     try:
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True, multi_level_index=False)
         if df.empty or len(df) < settings['len_major']: return None
 
-        # --- Indicator Calculations (WEB COPY) ---
         df['SMA_Major'] = calc_sma(df['Close'], settings['len_major'])
         adx_series, plus_di, minus_di = calc_adx(df, settings['adx_len'])
         atr_series = calc_atr(df, settings['atr_len'])
-        
         df['EMA_Fast'] = calc_ema(df['Close'], settings['len_fast'])
         df['EMA_Slow'] = calc_ema(df['Close'], settings['len_slow'])
         _, _, macd_hist = calc_macd(df['Close'], 12, 26, 9)
-        
         change = df['Close'].diff()
         efi_raw = change * df['Volume']
         df['EFI'] = calc_ema(efi_raw, settings['len_fast'])
 
-        # --- Initialization (WEB COPY) ---
-        n = len(df)
-        trend_state_list = [0] * n
-        seq_state_list = [0] * n
-        critical_level_list = [np.nan] * n
-        peak_list = [np.nan] * n
-        struct_ok_list = [False] * n
-
-        seq_state = 0
-        critical_level = np.nan
-        seq_high = df['High'].iloc[0]
-        seq_low = df['Low'].iloc[0]
-        last_confirmed_peak = np.nan
-        last_confirmed_trough = np.nan
-        last_peak_was_hh = False 
-        last_trough_was_hl = False
-
         close_arr = df['Close'].values
         high_arr = df['High'].values
         low_arr = df['Low'].values
-        
         ema_fast_vals = df['EMA_Fast'].values
         ema_slow_vals = df['EMA_Slow'].values
         macd_hist_vals = macd_hist.values
@@ -278,192 +257,95 @@ def run_strategy_for_ticker(ticker, settings):
         pdi_vals = plus_di.values
         mdi_vals = minus_di.values
 
-        # --- Loop (WEB COPY) ---
+        n = len(df)
+        trend_state_list, seq_state_list, critical_level_list, peak_list, struct_ok_list = [0]*n, [0]*n, [np.nan]*n, [np.nan]*n, [False]*n
+        seq_state, critical_level, seq_high, seq_low = 0, np.nan, df['High'].iloc[0], df['Low'].iloc[0]
+        last_confirmed_peak, last_confirmed_trough, last_peak_was_hh, last_trough_was_hl = np.nan, np.nan, False, False
+
         for i in range(1, n):
-            c = close_arr[i]
-            h = high_arr[i]
-            l = low_arr[i]
-            
-            # --- Sequence Logic ---
-            prev_seq_state = seq_state
-            is_break = False
-            
+            c, h, l = close_arr[i], high_arr[i], low_arr[i]
+            prev_seq_state, is_break = seq_state, False
             if prev_seq_state == 1:
-                if not np.isnan(critical_level):
-                    is_break = c < critical_level 
+                if not np.isnan(critical_level): is_break = c < critical_level 
             elif prev_seq_state == -1:
-                if not np.isnan(critical_level):
-                    is_break = c > critical_level 
+                if not np.isnan(critical_level): is_break = c > critical_level 
             
             if is_break:
                 if prev_seq_state == 1:
-                    # Was UP, now DOWN
-                    is_current_peak_hh = False
-                    if not np.isnan(last_confirmed_peak):
-                        if seq_high > last_confirmed_peak:
-                            is_current_peak_hh = True
-                    else:
-                        is_current_peak_hh = True 
-                    
-                    last_peak_was_hh = is_current_peak_hh
-                    last_confirmed_peak = seq_high
-                    
-                    seq_state = -1
-                    seq_high = h
-                    seq_low = l
-                    critical_level = h
+                    is_current_peak_hh = True if np.isnan(last_confirmed_peak) else (seq_high > last_confirmed_peak)
+                    last_peak_was_hh, last_confirmed_peak = is_current_peak_hh, seq_high
+                    seq_state, seq_high, seq_low, critical_level = -1, h, l, h
                 else:
-                    # Was DOWN, now UP
-                    is_current_trough_hl = False
-                    if not np.isnan(last_confirmed_trough):
-                        if seq_low > last_confirmed_trough:
-                            is_current_trough_hl = True
-                    else:
-                        is_current_trough_hl = True
-                    
-                    last_trough_was_hl = is_current_trough_hl
-                    last_confirmed_trough = seq_low
-                    
-                    seq_state = 1
-                    seq_high = h
-                    seq_low = l
-                    critical_level = l
+                    is_current_trough_hl = True if np.isnan(last_confirmed_trough) else (seq_low > last_confirmed_trough)
+                    last_trough_was_hl, last_confirmed_trough = is_current_trough_hl, seq_low
+                    seq_state, seq_high, seq_low, critical_level = 1, h, l, l
             else:
                 if seq_state == 1:
-                    if h >= seq_high:
-                        seq_high = h
-                    if h >= seq_high: 
-                         critical_level = l
+                    if h >= seq_high: seq_high = h
+                    if h >= seq_high: critical_level = l
                 elif seq_state == -1:
-                    if l <= seq_low:
-                        seq_low = l
-                    if l <= seq_low: 
-                        critical_level = h
+                    if l <= seq_low: seq_low = l
+                    if l <= seq_low: critical_level = h
                 else:
-                    if c > seq_high:
-                        seq_state = 1
-                        critical_level = l
-                    elif c < seq_low:
-                        seq_state = -1
-                        critical_level = h
-                    else:
-                        seq_high = max(seq_high, h)
-                        seq_low = min(seq_low, l)
+                    if c > seq_high: seq_state, critical_level = 1, l
+                    elif c < seq_low: seq_state, critical_level = -1, h
+                    else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
 
-            # --- Super Trend Logic ---
-            ema_imp_curr = ema_fast_vals[i]
-            ema_imp_prev = ema_fast_vals[i-1]
-            ema_slow_curr = ema_slow_vals[i]
-            ema_slow_prev = ema_slow_vals[i-1]
-            hist_curr = macd_hist_vals[i]
-            hist_prev = macd_hist_vals[i-1]
-            
-            curr_adx = adx_vals[i]
-            curr_pdi = pdi_vals[i]
-            curr_mdi = mdi_vals[i]
-            
-            adx_strong = (curr_adx > settings['adx_thresh'])
-            
-            both_rising = (ema_imp_curr > ema_imp_prev) and (ema_slow_curr > ema_slow_prev)
-            elder_bull = both_rising and (hist_curr > hist_prev)
-            
-            both_falling = (ema_imp_curr < ema_imp_prev) and (ema_slow_curr < ema_slow_prev)
-            elder_bear = both_falling and (hist_curr < hist_prev)
-            
-            efi_bull = efi_vals[i] > 0
-            efi_bear = efi_vals[i] < 0
-            
-            adx_bull = adx_strong and (curr_pdi > curr_mdi)
-            adx_bear = adx_strong and (curr_mdi > curr_pdi)
+            adx_strong = (adx_vals[i] > settings['adx_thresh'])
+            both_rising = (ema_fast_vals[i] > ema_fast_vals[i-1]) and (ema_slow_vals[i] > ema_slow_vals[i-1])
+            elder_bull = both_rising and (macd_hist_vals[i] > macd_hist_vals[i-1])
+            both_falling = (ema_fast_vals[i] < ema_fast_vals[i-1]) and (ema_slow_vals[i] < ema_slow_vals[i-1])
+            elder_bear = both_falling and (macd_hist_vals[i] < macd_hist_vals[i-1])
+            efi_bull, efi_bear = efi_vals[i] > 0, efi_vals[i] < 0
+            adx_bull, adx_bear = adx_strong and (pdi_vals[i] > mdi_vals[i]), adx_strong and (mdi_vals[i] > pdi_vals[i])
             
             curr_trend_state = 0
-            if adx_bull and elder_bull and efi_bull:
-                curr_trend_state = 1
-            elif adx_bear and elder_bear and efi_bear:
-                curr_trend_state = -1
+            if adx_bull and elder_bull and efi_bull: curr_trend_state = 1
+            elif adx_bear and elder_bear and efi_bear: curr_trend_state = -1
             
-            trend_state_list[i] = curr_trend_state
-            
-            # --- Save State ---
-            seq_state_list[i] = seq_state
-            critical_level_list[i] = critical_level
-            peak_list[i] = last_confirmed_peak
-            struct_ok_list[i] = (last_peak_was_hh and last_trough_was_hl)
+            trend_state_list[i], seq_state_list[i], critical_level_list[i], peak_list[i], struct_ok_list[i] = curr_trend_state, seq_state, critical_level, last_confirmed_peak, (last_peak_was_hh and last_trough_was_hl)
 
-        # --- Conditions Check Function (WEB COPY) ---
         def check_conditions(idx):
             if idx >= len(df) or idx < 0: return False, 0.0, np.nan, np.nan
-            
-            price = close_arr[idx]
-            sma = df['SMA_Major'].iloc[idx]
-            
-            s_state = seq_state_list[idx]
-            t_state = trend_state_list[idx]
+            price, sma = close_arr[idx], df['SMA_Major'].iloc[idx]
+            s_state, t_state = seq_state_list[idx], trend_state_list[idx]
             is_struct_ok = struct_ok_list[idx]
-            
-            crit = critical_level_list[idx]
-            peak = peak_list[idx]
-            
-            c_seq = (s_state == 1)
-            c_ma = (price > sma) if not np.isnan(sma) else False
-            c_trend = (t_state != -1) # Not Bearish
-            c_struct = is_struct_ok
-            
-            is_valid_setup = False
-            rr_calc = 0.0
-            
-            if c_seq and c_ma and c_trend and c_struct:
+            crit, peak = critical_level_list[idx], peak_list[idx]
+            c_seq, c_ma, c_trend = (s_state == 1), (price > sma) if not np.isnan(sma) else False, (t_state != -1)
+            is_valid_setup, rr_calc = False, 0.0
+            if c_seq and c_ma and c_trend and is_struct_ok:
                 if not np.isnan(peak) and not np.isnan(crit):
-                    risk = price - crit
-                    reward = peak - price
-                    
+                    risk, reward = price - crit, peak - price
                     if risk > 0 and reward > 0:
-                        rr_calc = reward / risk
-                        is_valid_setup = True
-            
+                        rr_calc, is_valid_setup = reward / risk, True
             return is_valid_setup, rr_calc, crit, peak
 
-        # --- Final Checks ---
         is_valid_today, rr_today, sl_today, tp_today = check_conditions(n - 1)
         is_valid_yesterday, _, _, _ = check_conditions(n - 2)
-        
         is_new = is_valid_today and (not is_valid_yesterday)
         
-        # Filtering logic matching Web
         if not is_valid_today: return None
         if rr_today < settings['min_rr']: return None
         
         curr_c = close_arr[-1]
         curr_atr = atr_series.iloc[-1]
         atr_pct = (curr_atr / curr_c) * 100
-        
         if atr_pct > settings['max_atr_pct']: return None
         
-        # --- Position Sizing (From Web) ---
         risk_per_share = curr_c - sl_today
+        shares = 0
         if risk_per_share > 0:
             risk_amt = settings['portfolio_size'] * (settings['risk_per_trade_pct'] / 100.0)
             shares = int(risk_amt / risk_per_share)
             max_sh = int(settings['portfolio_size'] / curr_c)
             shares = min(shares, max_sh)
             if shares < 1: shares = 1
-        else:
-            shares = 0
 
         return {
-            "Ticker": ticker, 
-            "Price": curr_c, 
-            "RR": rr_today, 
-            "SL": sl_today, 
-            "TP": tp_today,
-            "ATR_SL": curr_c - curr_atr, 
-            "Shares": shares, 
-            "ATR_Pct": atr_pct, 
-            "Is_New": is_new
+            "Ticker": ticker, "Price": curr_c, "RR": rr_today, "SL": sl_today, "TP": tp_today,
+            "ATR_SL": curr_c - curr_atr, "Shares": shares, "ATR_Pct": atr_pct, "Is_New": is_new
         }
-            
-    except Exception as e:
-        return None
+    except Exception as e: return None
 
 # ==========================================
 # 4. БОТ: ЛОГИКА
@@ -486,7 +368,8 @@ def get_main_keyboard(user_id):
     s = get_settings(user_id)
     return ReplyKeyboardMarkup([
         [KeyboardButton("🚀 Запустить Скан")],
-        [KeyboardButton("⚙️ Настройки"), KeyboardButton(f"🔄 Авто: {'✅' if s['auto_scan'] else '❌'}")]
+        [KeyboardButton("⚙️ Настройки"), KeyboardButton(f"🔄 Авто: {'✅' if s['auto_scan'] else '❌'}")],
+        [KeyboardButton("ℹ️ Помощь")]
     ], resize_keyboard=True)
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -496,6 +379,22 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("👋 **Vova Screener Bot**\nМеню внизу 👇", reply_markup=get_main_keyboard(uid), parse_mode=ParseMode.MARKDOWN)
 
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "ℹ️ **Справка по Vova Screener Bot**\n\n"
+        "Бот ищет сигналы на покупку акций (S&P 500) по стратегии 'Vova Strategy' (Break of Structure + SuperTrend).\n\n"
+        "🛠 **Параметры:**\n"
+        "• **Portfolio**: Размер вашего депозита ($).\n"
+        "• **Risk %**: Риск на одну сделку от депозита.\n"
+        "• **RR (Risk/Reward)**: Минимальное соотношение Прибыль/Риск.\n"
+        "• **ATR %**: Максимальная волатильность акции (чтобы избегать 'бешеных' бумаг).\n\n"
+        "🔄 **Авто-скан:**\n"
+        "Бот проверяет рынок **каждый час** (если рынок США открыт: 9:30-16:00 ET). Присылает только **новые** сигналы.\n\n"
+        "🚀 **Ручной скан:**\n"
+        "Запускает проверку прямо сейчас. Можно настроить фильтр 'Только новые' или 'Все активные'."
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard(update.effective_user.id))
+
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     uid = update.effective_user.id
@@ -503,7 +402,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if uid in USER_STATES:
         state = USER_STATES[uid]
-        if text in ["🚀 Запустить Скан", "⚙️ Настройки"] or text.startswith("🔄 Авто:"):
+        if text in ["🚀 Запустить Скан", "⚙️ Настройки", "ℹ️ Помощь"] or text.startswith("🔄 Авто:"):
             del USER_STATES[uid]
             await update.message.reply_text("Ввод отменен.", reply_markup=get_main_keyboard(uid))
         else:
@@ -533,6 +432,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "🚀 Запустить Скан": await run_scan_process(context, uid, get_settings(uid), manual=True)
     elif text == "⚙️ Настройки": await settings_menu(update, context)
+    elif text == "ℹ️ Помощь": await help_handler(update, context)
     elif text.startswith("🔄 Авто:"):
         s = get_settings(uid)
         s['auto_scan'] = not s['auto_scan']
@@ -540,7 +440,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         try:
             float(text.replace(',', '.').replace('%', '').replace('$', '').strip())
-            await update.message.reply_text("⚠️ Чтобы изменить настройку, сначала нажмите кнопку в меню.", reply_markup=get_main_keyboard(uid))
+            await update.message.reply_text("⚠️ Сначала нажмите кнопку в меню '⚙️ Настройки', чтобы изменить параметр.", reply_markup=get_main_keyboard(uid))
         except:
             await update.message.reply_text("Выберите действие:", reply_markup=get_main_keyboard(uid))
 
@@ -599,11 +499,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- UNIFIED SCAN FUNCTION ---
 async def run_scan_process(context, uid, s, manual=False, is_auto=False):
-    # Spam check for auto scan
     if is_auto:
         last_ts = SENT_SIGNALS_CACHE.get("last_auto_scan_ts")
-        if last_ts and (datetime.now() - last_ts).total_seconds() < 1800: # 30 min cooldown
-            return 
+        if last_ts and (datetime.now() - last_ts).total_seconds() < 1800: return 
         SENT_SIGNALS_CACHE["last_auto_scan_ts"] = datetime.now()
 
     if uid in ABORT_SCAN_USERS: ABORT_SCAN_USERS.remove(uid)
@@ -653,8 +551,11 @@ async def run_scan_process(context, uid, s, manual=False, is_auto=False):
         except: pass
 
     final_txt = f"✅ {title} завершен!\nНайдено сигналов: {found}"
-    try: await status_msg.edit_text(final_txt, reply_markup=None)
-    except: await context.bot.send_message(chat_id=uid, text=final_txt)
+    try: 
+        await status_msg.edit_text(final_txt, reply_markup=None)
+        # Show menu after finish
+        await context.bot.send_message(chat_id=uid, text="Готово! Возвращаюсь в меню...", reply_markup=get_main_keyboard(uid))
+    except: pass
 
 async def send_signal_msg(context, uid, res):
     tv_t = res['Ticker'].replace('-', '.')
@@ -672,6 +573,10 @@ async def send_signal_msg(context, uid, res):
 async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
     tz = pytz.timezone('US/Eastern')
     now = datetime.now(tz)
+    
+    # Store aware datetime
+    if now.tzinfo is None:
+        now = pytz.timezone('US/Eastern').localize(now)
     BOT_STATE["last_scan"] = now
     
     today = now.strftime("%Y-%m-%d")
@@ -706,6 +611,7 @@ if __name__ == '__main__':
             app = ApplicationBuilder().token(TG_TOKEN).build()
             app.add_handler(CommandHandler('start', start_handler))
             app.add_handler(CallbackQueryHandler(button_handler))
+            app.add_handler(CommandHandler('help', help_handler)) # Added command
             app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
             app.job_queue.run_repeating(auto_scan_job, interval=3600, first=10)
             log_ui("Polling Started...")
