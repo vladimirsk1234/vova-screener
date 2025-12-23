@@ -35,6 +35,18 @@ BOT_STATE = globals()['BOT_STATE']
 
 try:
     import streamlit as st
+    
+    # --- ИНИЦИАЛИЗАЦИЯ ПЕРМАНЕНТНОГО СОСТОЯНИЯ ---
+    # Чтобы настройки не сбрасывались при обновлении страницы/скрипта
+    if 'user_settings' not in st.session_state:
+        st.session_state.user_settings = {}
+    if 'sent_signals_cache' not in st.session_state:
+        st.session_state.sent_signals_cache = {"date": None, "tickers": set()}
+    if 'user_states' not in st.session_state:
+        st.session_state.user_states = {}
+    if 'abort_scan_users' not in st.session_state:
+        st.session_state.abort_scan_users = set()
+
     try:
         if __name__ == '__main__':
             st_autorefresh(interval=10000, key="monitor_refresh")
@@ -89,6 +101,13 @@ except:
     TG_TOKEN = os.environ.get("TG_TOKEN")
     ADMIN_ID = os.environ.get("ADMIN_ID")
     GITHUB_USERS_URL = os.environ.get("GITHUB_USERS_URL")
+    # Fallback for non-streamlit env
+    class MockSessionState(dict): pass
+    if not hasattr(st, 'session_state'): st.session_state = MockSessionState()
+    if 'user_settings' not in st.session_state: st.session_state.user_settings = {}
+    if 'sent_signals_cache' not in st.session_state: st.session_state.sent_signals_cache = {"date": None, "tickers": set()}
+    if 'user_states' not in st.session_state: st.session_state.user_states = {}
+    if 'abort_scan_users' not in st.session_state: st.session_state.abort_scan_users = set()
 
 def log_ui(message):
     print(message)
@@ -120,10 +139,11 @@ DEFAULT_SETTINGS = {
     "show_new_only": True       # NEW DEFAULT (Only New)
 }
 
-user_settings = {}
-ABORT_SCAN_USERS = set()
-USER_STATES = {}
-SENT_SIGNALS_CACHE = {"date": None, "tickers": set()}
+# Привязываем глобальные переменные к session_state для сохранения при перезагрузке скрипта
+user_settings = st.session_state.user_settings
+ABORT_SCAN_USERS = st.session_state.abort_scan_users
+USER_STATES = st.session_state.user_states
+SENT_SIGNALS_CACHE = st.session_state.sent_signals_cache
 
 # ==========================================
 # 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -475,6 +495,9 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
         log_ui(f"🔄 Auto-Scan Start... {now.strftime('%H:%M')}")
         for uid, s in user_settings.items():
             if s.get('auto_scan', False):
+                try: await context.bot.send_message(chat_id=uid, text="🔄 Авто-скан: Сканирование запущено...", disable_notification=True)
+                except: pass
+                
                 tickers = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
                 loop = asyncio.get_running_loop()
                 for t in tickers:
