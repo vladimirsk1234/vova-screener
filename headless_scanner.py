@@ -138,9 +138,7 @@ def calc_macd(series, fast=12, slow=26, signal=9):
     return macd_line, signal_line, hist
 
 def calc_adx(df, length):
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
+    high, low, close = df['High'], df['Low'], df['Close']
     prev_close = close.shift(1)
     tr1 = high - low
     tr2 = (high - prev_close).abs()
@@ -162,17 +160,8 @@ def calc_adx(df, length):
     return dx.ewm(alpha=alpha, adjust=False).mean(), plus_di, minus_di
 
 def calc_atr(df, length):
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
-    prev_close = close.shift(1)
-    tr1 = high - low
-    tr2 = (high - prev_close).abs()
-    tr3 = (low - prev_close).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    alpha = 1.0 / length
-    atr = tr.ewm(alpha=alpha, adjust=False).mean()
-    return atr
+    tr = pd.concat([df['High']-df['Low'], (df['High']-df['Close'].shift(1)).abs(), (df['Low']-df['Close'].shift(1)).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0/length, adjust=False).mean()
 
 # ==========================================
 # 5. СТРАТЕГИЯ (100% ИДЕНТИЧНАЯ ЛОГИКА)
@@ -221,26 +210,24 @@ def run_strategy_for_ticker(ticker, settings):
                     seq_state, seq_high, seq_low, critical_level = 1, h, l, l
             else:
                 if seq_state == 1:
-                    if h >= seq_high: seq_high = h
-                    if h >= seq_high: critical_level = l
+                    if h >= seq_high: seq_high, critical_level = h, l
                 elif seq_state == -1:
-                    if l <= seq_low: seq_low = l
-                    if l <= seq_low: critical_level = h
+                    if l <= seq_low: seq_low, critical_level = l, h
                 else:
                     if c > seq_high: seq_state, critical_level = 1, l
                     elif c < seq_low: seq_state, critical_level = -1, h
                     else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
 
-            # --- Super Trend Logic (100% COPY FROM WEB) ---
-            adx_strong = (adx_vals[i] > settings['adx_thresh'])
+            # Super Trend Logic (COPY FROM WEB)
+            strong = (adx_vals[i] > settings['adx_thresh'])
             both_rising = (ema_fast_vals[i] > ema_fast_vals[i-1]) and (ema_slow_vals[i] > ema_slow_vals[i-1])
             elder_bull = both_rising and (macd_hist_vals[i] > macd_hist_vals[i-1])
             both_falling = (ema_fast_vals[i] < ema_fast_vals[i-1]) and (ema_slow_vals[i] < ema_slow_vals[i-1])
             elder_bear = both_falling and (macd_hist_vals[i] < macd_hist_vals[i-1])
             efi_bull = efi_vals[i] > 0
             efi_bear = efi_vals[i] < 0
-            adx_bull = adx_strong and (pdi_vals[i] > mdi_vals[i])
-            adx_bear = adx_strong and (mdi_vals[i] > pdi_vals[i])
+            adx_bull = strong and (pdi_vals[i] > mdi_vals[i])
+            adx_bear = strong and (mdi_vals[i] > pdi_vals[i])
             
             curr_trend_state = 0
             if adx_bull and elder_bull and efi_bull: curr_trend_state = 1
@@ -253,7 +240,7 @@ def run_strategy_for_ticker(ticker, settings):
             price, sma = close_arr[idx], df['SMA_Major'].iloc[idx]
             s_state, t_state, is_struct_ok = seq_state_list[idx], trend_state_list[idx], struct_ok_list[idx]
             crit, peak = critical_level_list[idx], peak_list[idx]
-            # Valid: UP sequence (1) + Price > SMA + Trend NOT bear (-1) + Structure HH/HL
+            # Valid: UP sequence (1) + Price > SMA + Trend NOT bear (-1) + Structure confirmed
             valid = (s_state == 1) and (price > sma) and (t_state != -1) and is_struct_ok
             rr = 0.0
             if valid and not np.isnan(peak) and not np.isnan(crit):
@@ -284,7 +271,6 @@ def run_strategy_for_ticker(ticker, settings):
 def fetch_meta(ticker):
     try:
         t = yf.Ticker(ticker)
-        # Улучшенный запрос PE
         pe = t.info.get('trailingPE')
         if not pe: pe = t.info.get('forwardPE', 'N/A')
         else: pe = f"{pe:.2f}"
@@ -317,9 +303,12 @@ async def start_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if not await check_auth_async(uid):
         await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
         return
-    # Регистрация пользователя в STATE для авто-скана
-    if uid not in STATE.user_settings: get_settings(uid)
+    # Регистрация пользователя в STATE для активации авто-скана
+    get_settings(uid)
     await u.message.reply_text("👋 **Vova Screener Bot**\nЛогика 100% соответствует веб-версии.", reply_markup=get_main_kb(uid))
+
+async def help_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    await u.message.reply_text("Бот ищет сигналы на покупку акций США по стратегии Vova (BOS + SuperTrend).", parse_mode=ParseMode.MARKDOWN)
 
 async def settings_menu(u: Update, c: ContextTypes.DEFAULT_TYPE):
     uid = u.effective_user.id if not u.callback_query else u.callback_query.from_user.id
@@ -350,7 +339,7 @@ async def btn_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     s = get_settings(uid)
     if q.data == "stop":
         STATE.abort_scan_users.add(uid)
-        await q.message.reply_text("🛑 Остановка... Бот бросит работу немедленно.")
+        await q.message.reply_text("🛑 Остановка... Сканирование будет прервано мгновенно.")
         return
     if q.data.startswith("ask_"):
         STATE.user_states[uid] = q.data.split("_")[1].upper()
@@ -385,8 +374,7 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
             return
         await run_scan(c, uid, get_settings(uid), manual=True)
     elif txt == "⚙️ Настройки": await settings_menu(u, c)
-    elif txt == "ℹ️ Помощь":
-        await u.message.reply_text("Бот ищет сигналы на покупку акций США по стратегии Vova (Structure + Trend).", parse_mode=ParseMode.MARKDOWN)
+    elif txt == "ℹ️ Помощь": await help_h(u, c)
     elif txt.startswith("🔄 Авто"):
         s = get_settings(uid)
         s['auto_scan'] = not s['auto_scan']
@@ -395,13 +383,14 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 # --- SCAN ENGINE (FIXED STOP & FEEDBACK) ---
 async def run_scan(context, uid, s, manual=False, is_auto=False):
+    # ПРОВЕРКА ЧАСТОТЫ ДЛЯ АВТО-СКАНА
     if is_auto:
         last = STATE.sent_signals_cache.get("last_auto_scan_ts")
         if last and (datetime.now() - last).total_seconds() < 1800: return
         STATE.sent_signals_cache["last_auto_scan_ts"] = datetime.now()
 
     STATE.active_scans.add(uid)
-    STATE.abort_scan_users.discard(uid)
+    STATE.abort_scan_users.discard(uid) # Гарантированно сбрасываем флаг стопа
     
     try:
         ticks = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
@@ -415,7 +404,7 @@ async def run_scan(context, uid, s, manual=False, is_auto=False):
         loop = asyncio.get_running_loop()
         found = 0
         for i, t in enumerate(ticks):
-            # КРИТИЧЕСКАЯ ПРОВЕРКА СТОПА
+            # КРИТИЧЕСКАЯ ПРОВЕРКА СТОПА (В САМОМ НАЧАЛЕ ЦИКЛА)
             if uid in STATE.abort_scan_users:
                 await status.edit_text(f"🛑 Прервано пользователем на {i}/{total}.")
                 return
@@ -476,8 +465,12 @@ async def auto_job(ctx: ContextTypes.DEFAULT_TYPE):
         STATE.sent_signals_cache.update({"date": now.strftime("%Y-%m-%d"), "tickers": set()})
     
     if now.weekday() < 5 and time(9, 30) <= now.time() <= time(16, 0):
-        STATE.add_log(f"🔄 Авто-сканирование запущено")
-        # Теперь бот знает всех, кто когда-либо нажимал Start
+        # Авто-скан работает только для тех, кто есть в STATE.user_settings
+        if not STATE.user_settings:
+            STATE.add_log("💤 Нет активных пользователей для авто-скана")
+            return
+            
+        STATE.add_log(f"🔄 Авто-сканирование запущено для {len(STATE.user_settings)} юзеров")
         for uid, s in list(STATE.user_settings.items()):
             if s.get('auto_scan', False):
                 await run_scan(ctx, uid, s, manual=False, is_auto=True)
