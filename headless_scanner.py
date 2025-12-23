@@ -5,18 +5,31 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import requests
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from streamlit_autorefresh import st_autorefresh # Для автообновления UI
 
 # === FIX FOR STREAMLIT ASYNCIO CONFLICT ===
 import nest_asyncio
 nest_asyncio.apply()
 # ==========================================
+
+# ==========================================
+# 0. ГЛОБАЛЬНОЕ СОСТОЯНИЕ (Для UI)
+# ==========================================
+# Используем глобальный словарь, чтобы данные были доступны
+# и в потоке бота, и в интерфейсе Streamlit при перезагрузке
+if 'BOT_STATE' not in globals():
+    globals()['BOT_STATE'] = {
+        "last_scan": None,
+        "logs": []
+    }
+BOT_STATE = globals()['BOT_STATE']
 
 # ==========================================
 # 1. КОНФИГУРАЦИЯ И СЕКРЕТЫ
@@ -26,16 +39,72 @@ try:
     import streamlit as st
     try:
         if __name__ == '__main__':
-            st.title("🤖 Vova Screener Bot is Running")
-            if 'bot_logs' not in st.session_state:
-                st.session_state.bot_logs = []
+            # --- UI STREAMLIT MONITORING ---
+            # Авто-обновление страницы каждые 10 секунд
+            st_autorefresh(interval=10000, key="monitor_refresh")
+
+            st.title("🤖 Vova Screener Bot Monitor")
             
-            # Простой вывод последних логов в UI для отладки
-            st.write("### Логи последних событий:")
-            for log in st.session_state.bot_logs[-5:]:
-                st.text(log)
-    except:
-        pass
+            # Получаем URL и токены (для отображения в UI используем secrets или env)
+            tg_token_check = st.secrets.get("TG_TOKEN", os.environ.get("TG_TOKEN"))
+            gh_url_check = st.secrets.get("GITHUB_USERS_URL", os.environ.get("GITHUB_USERS_URL"))
+            
+            # 1. Метрика: Пользователи
+            col_u1, col_u2 = st.columns(2)
+            if gh_url_check:
+                try:
+                    resp = requests.get(gh_url_check)
+                    if resp.status_code == 200:
+                        users_list = [l for l in resp.text.splitlines() if l.strip()]
+                        col_u1.metric("✅ Авторизовано", f"{len(users_list)} юзеров")
+                    else:
+                        col_u1.error(f"GitHub Error: {resp.status_code}")
+                except Exception as e:
+                    col_u1.error("Ошибка сети")
+            else:
+                col_u1.warning("GitHub URL не задан")
+            
+            col_u2.metric("Статус Бота", "🟢 Работает" if tg_token_check else "🔴 Нет токена")
+
+            # 2. Метрика: Время сканирования
+            st.subheader("🕒 Статус Сканера")
+            col_t1, col_t2 = st.columns(2)
+            
+            last_scan_time = BOT_STATE.get("last_scan")
+            
+            if last_scan_time:
+                # Время последнего скана
+                col_t1.metric("Последний авто-скан", last_scan_time.strftime("%H:%M:%S (NY)"))
+                
+                # Расчет времени до следующего (интервал 1 час)
+                next_scan_time = last_scan_time + timedelta(hours=1)
+                now_ny = datetime.now(pytz.timezone('US/Eastern'))
+                
+                # Разница
+                delta = next_scan_time - now_ny
+                total_seconds = delta.total_seconds()
+                
+                if total_seconds > 0:
+                    mins = int(total_seconds // 60)
+                    secs = int(total_seconds % 60)
+                    col_t2.metric("До следующего скана", f"{mins} мин {secs} сек")
+                else:
+                    col_t2.metric("До следующего скана", "Запуск...")
+            else:
+                col_t1.metric("Последний авто-скан", "Ожидание...")
+                col_t2.metric("До следующего скана", "Неизвестно")
+
+            # 3. Логи
+            st.subheader("📜 Последние логи")
+            log_container = st.container(height=300)
+            with log_container:
+                # Показываем последние 20 логов в обратном порядке (новые сверху)
+                for log in reversed(BOT_STATE["logs"][-20:]):
+                    st.text(log)
+            
+            st.divider()
+    except Exception as e:
+        print(f"Streamlit UI Error: {e}")
 
     TG_TOKEN = st.secrets.get("TG_TOKEN", os.environ.get("TG_TOKEN"))
     ADMIN_ID = st.secrets.get("ADMIN_ID", os.environ.get("ADMIN_ID"))
@@ -47,9 +116,13 @@ except (ImportError, FileNotFoundError, AttributeError):
     GITHUB_USERS_URL = os.environ.get("GITHUB_USERS_URL")
 
 def log_ui(message):
-    print(message) # В консоль
-    if 'st' in globals() and 'bot_logs' in st.session_state:
-        st.session_state.bot_logs.append(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
+    print(message) # В консоль сервера
+    # Добавляем в глобальный стейт с временной меткой
+    ts = datetime.now().strftime('%H:%M:%S')
+    BOT_STATE["logs"].append(f"[{ts}] {message}")
+    # Чистим старые логи, чтобы не забивать память (храним 100)
+    if len(BOT_STATE["logs"]) > 100:
+        BOT_STATE["logs"] = BOT_STATE["logs"][-100:]
 
 if not TG_TOKEN:
     log_ui("CRITICAL ERROR: TG_TOKEN not found!")
@@ -547,6 +620,10 @@ async def send_signal_msg(context, user_id, res):
 async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
     tz = pytz.timezone('US/Eastern')
     now = datetime.now(tz)
+    
+    # --- ОБНОВЛЕНИЕ ГЛОБАЛЬНОГО СТАТУСА ---
+    BOT_STATE["last_scan"] = now
+    
     today_str = now.strftime("%Y-%m-%d")
     if SENT_SIGNALS_CACHE["date"] != today_str:
         SENT_SIGNALS_CACHE["date"] = today_str
