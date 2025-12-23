@@ -7,3 +7,5 @@ requests
 lxml
 streamlit-autorefresh
 firebase-admin
+python-telegram-bot
+pytz
