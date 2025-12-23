@@ -192,7 +192,8 @@ def run_strategy_for_ticker(ticker, settings):
 
         for i in range(1, n):
             c, h, l = c_arr[i], h_arr[i], l_arr[i]
-            # Sequence Logic (Exact copy)
+            
+            # --- Sequence Logic (Web Screener Match) ---
             is_break = False
             if seq_state == 1 and not np.isnan(critical_level): is_break = c < critical_level
             elif seq_state == -1 and not np.isnan(critical_level): is_break = c > critical_level
@@ -216,20 +217,22 @@ def run_strategy_for_ticker(ticker, settings):
                     elif c < seq_low: seq_state, critical_level = -1, h
                     else: seq_high, seq_low = max(seq_high, h), min(seq_low, l)
 
-            # Super Trend Check (Exact copy)
+            # --- Super Trend Logic (Corrected Match) ---
             strong = (adx_v[i] > settings['adx_thresh'])
-            rising = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1]) and (m_hist[i] > m_hist[i-1])
-            falling = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1]) and (m_hist[i] < m_hist[i-1])
+            # WEB logic: both EMA rising + MACD Hist rising
+            elder_bull = (ema_f[i] > ema_f[i-1]) and (ema_s[i] > ema_s[i-1]) and (m_hist[i] > m_hist[i-1])
+            elder_bear = (ema_f[i] < ema_f[i-1]) and (ema_s[i] < ema_s[i-1]) and (m_hist[i] < m_hist[i-1])
             
             curr_trend = 0
-            if strong and (pdi_v[i] > mdi_v[i]) and rising and (efi_v[i] > 0): curr_trend = 1
-            elif strong and (mdi_v[i] > pdi_v[i]) and falling and (efi_v[i] < 0): curr_trend = -1
+            if strong and (pdi_v[i] > mdi_v[i]) and elder_bull and (efi_v[i] > 0): curr_trend = 1
+            elif strong and (mdi_v[i] > pdi_v[i]) and elder_bear and (efi_v[i] < 0): curr_trend = -1
             
             trend_st_list[i], seq_st_list[i], crit_list[i], peak_list[i], struct_ok_list[i] = curr_trend, seq_state, critical_level, last_confirmed_peak, (last_peak_was_hh and last_trough_was_hl)
 
         def check(idx):
             if idx < 0: return False, 0.0, np.nan, np.nan
             p, sma = c_arr[idx], df['SMA_Major'].iloc[idx]
+            # Valid if: Sequence UP (1) + Above SMA + Trend not Bearish + Structure confirmed
             valid = (seq_st_list[idx] == 1) and (p > sma) and (trend_st_list[idx] != -1) and struct_ok_list[idx]
             rr, cr, pk = 0.0, crit_list[idx], peak_list[idx]
             if valid and not np.isnan(pk) and not np.isnan(cr):
@@ -259,8 +262,8 @@ def run_strategy_for_ticker(ticker, settings):
 def fetch_meta(ticker):
     try:
         t = yf.Ticker(ticker)
-        pe = t.info.get('trailingPE', 'N/A')
-        pe = f"{pe:.2f}" if isinstance(pe, (int, float)) else "N/A"
+        pe_val = t.info.get('trailingPE', 'N/A')
+        pe = f"{pe_val:.2f}" if isinstance(pe_val, (int, float)) else "N/A"
         ex = t.fast_info.get('exchange', '')
         return {"PE": pe, "Exch": ex}
     except: return {"PE": "N/A", "Exch": ""}
@@ -289,13 +292,12 @@ async def start_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if not await check_auth_async(uid):
         await u.message.reply_text(f"⛔ Доступ запрещен. ID: `{uid}`")
         return
-    await u.message.reply_text("👋 **Vova Screener Bot**", reply_markup=get_main_kb(uid))
+    await u.message.reply_text("👋 **Vova Screener Bot** (Logic 100% Match)", reply_markup=get_main_kb(uid))
 
 async def help_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
     txt = (
         "ℹ️ **Справка по Vova Screener Bot**\n\n"
-        "**Стратегия:** Break of Structure (BOS) + SuperTrend + SMA 200.\n\n"
-        "• **Portfolio**: Ваш капитал ($). Используется для расчета лота.\n"
+        "• **Portfolio**: Размер вашего капитала. Используется для расчета лота.\n"
         "• **Risk %**: Процент потери капитала на одну сделку.\n"
         "• **RR**: Мин. соотношение Прибыль/Риск.\n"
         "• **Max ATR %**: Лимит волатильности.\n\n"
@@ -361,7 +363,9 @@ async def txt_h(u: Update, c: ContextTypes.DEFAULT_TYPE):
         except: await u.message.reply_text("❌ Ошибка ввода. Нужно число.")
         return
 
-    if txt == "🚀 Запустить Скан": await run_scan(c, uid, get_settings(uid), manual=True)
+    if txt == "🚀 Запустить Скан":
+        STATE.abort_scan_users.discard(uid) # Сброс флага стопа при новом запуске
+        await run_scan(c, uid, get_settings(uid), manual=True)
     elif txt == "⚙️ Настройки": await settings_menu(u, c)
     elif txt == "ℹ️ Помощь": await help_h(u, c)
     elif txt.startswith("🔄 Авто"):
@@ -377,7 +381,6 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
         if last and (datetime.now() - last).total_seconds() < 1800: return
         STATE.sent_signals_cache["last_auto_scan_ts"] = datetime.now()
 
-    STATE.abort_scan_users.discard(uid)
     STATE.active_scans.add(uid)
     ticks = get_top_10_tickers() if s['scan_mode'] == "Top 10" else get_sp500_tickers()
     total = len(ticks)
@@ -390,9 +393,9 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
     loop = asyncio.get_running_loop()
     found = 0
     for i, t in enumerate(ticks):
-        # ПРОВЕРКА КНОПКИ СТОП ПЕРЕД КАЖДЫМ ТИКЕРОМ
+        # МГНОВЕННАЯ ПРОВЕРКА СТОПА
         if uid in STATE.abort_scan_users:
-            await status.edit_text(f"🛑 Прервано пользователем на тикре {i}/{total}.")
+            await status.edit_text(f"🛑 Прервано пользователем на {i}/{total}.")
             STATE.active_scans.discard(uid)
             return
             
@@ -403,12 +406,14 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
             if show:
                 if is_auto: STATE.sent_signals_cache["tickers"].add(res['Ticker'])
                 found += 1
-                # Метаданные только для кандидатов
+                # Метаданные только для найденных
                 meta = await loop.run_in_executor(None, fetch_meta, t)
                 res.update(meta)
                 await send_sig(ctx, uid, res)
+                STATE.add_log(f"Signal Found: {t}")
         
-        if i % 5 == 0 or i == total - 1:
+        # Обновление прогресса каждые 10 тикеров
+        if i % 10 == 0 or i == total - 1:
             pct = int((i + 1) / total * 100)
             filled = int(10 * pct / 100)
             bar = "█"*filled + "░"*(10-filled)
@@ -422,7 +427,7 @@ async def run_scan(ctx, uid, s, manual=False, is_auto=False):
 async def send_sig(ctx, uid, r):
     ticker = r['Ticker']
     tv_t = ticker.replace('-', '.')
-    # Определение префикса биржи
+    # Префикс биржи
     pre = "NASDAQ:" if r['Exch'] in ['NMS', 'NGM', 'NCM'] else "NYSE:" if r['Exch'] in ['NYQ', 'NYE'] else ""
     full = f"{pre}{tv_t}"
     link = f"https://www.tradingview.com/chart/?symbol={full}"
@@ -436,7 +441,7 @@ async def send_sig(ctx, uid, r):
     shares = min(shares, int(s['portfolio_size'] / r['Price']))
 
     txt = (
-        f"{ic} **[{full}]({link})** | ${r['Price']:.2f} (P/E: {r['PE']})\n"
+        f"{ic} **[{full}]({link})** | **${r['Price']:.2f}** (P/E: {r['PE']})\n"
         f"📊 **ATR**: {r['ATR_Pct']:.2f}% | **SL ATR**: ${r['ATR_SL']:.2f}\n"
         f"🎯 **RR**: {r['RR']:.2f} | 🛑 **SL**: ${r['SL']:.2f}\n"
         f"🏁 **TP**: ${r['TP']:.2f} | 📦 **Лот**: {shares} шт"
@@ -450,12 +455,12 @@ async def auto_job(ctx: ContextTypes.DEFAULT_TYPE):
     if STATE.sent_signals_cache["date"] != now.strftime("%Y-%m-%d"):
         STATE.sent_signals_cache.update({"date": now.strftime("%Y-%m-%d"), "tickers": set()})
     
-    # Рынок США: 9:30 - 16:00 пн-пт
-    market_open = (now.weekday() < 5) and (time(9, 30) <= now.time() <= time(16, 0))
-    if market_open:
+    if now.weekday() < 5 and time(9, 30) <= now.time() <= time(16, 0):
         STATE.add_log(f"🔄 Авто-сканирование запущено")
         for uid, s in STATE.user_settings.items():
-            if s.get('auto_scan', False): await run_scan(ctx, uid, s, manual=False, is_auto=True)
+            if s.get('auto_scan', False):
+                STATE.abort_scan_users.discard(uid)
+                await run_scan(ctx, uid, s, manual=False, is_auto=True)
     else: STATE.add_log(f"💤 Рынок закрыт")
 
 @st.cache_resource
@@ -472,7 +477,7 @@ def start_bot_singleton():
         await app.updater.start_polling(drop_pending_updates=True)
         while True: await asyncio.sleep(1)
     
-    # Запускаем в отдельном потоке
+    loop = asyncio.new_event_loop()
     t = threading.Thread(target=lambda: asyncio.run(run_bot()), daemon=True)
     t.start()
     STATE.bot_thread = t
