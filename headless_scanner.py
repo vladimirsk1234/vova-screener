@@ -26,15 +26,15 @@ except Exception as e:
     st.error(f"Ошибка секретов: {e}. Убедитесь, что TG_TOKEN и ADMIN_ID заданы в secrets.toml")
     st.stop()
 
-# Глобальное состояние для связи Бота и Веб-интерфейса
-if 'BOT_STATS' not in st.session_state:
-    st.session_state.BOT_STATS = {
-        "status": "STOPPED",
-        "last_scan": "Никогда",
-        "approved_users": 1, # Админ всегда одобрен
-        "auto_scan_active": False,
-        "next_auto_scan": "Нет"
-    }
+# --- ГЛОБАЛЬНОЕ СОСТОЯНИЕ БОТА (ВМЕСТО SESSION STATE) ---
+# Используем глобальную переменную, так как поток бота не видит session_state
+GLOBAL_BOT_STATS = {
+    "status": "STOPPED",
+    "last_scan": "Никогда",
+    "approved_users": 1, # Админ всегда одобрен
+    "auto_scan_active": False,
+    "next_auto_scan": "Нет"
+}
 
 # ==========================================
 # 1. ЛОГИКА VOVA SCREENER (100% COPY FROM YOUR CODE)
@@ -302,13 +302,13 @@ def get_lux_card(t, d, shares, val_pos, profit_pot, loss_pot, pe, is_new):
     return msg
 
 async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manual_tickers=None):
-    global scan_active, user_params, found_today
+    global scan_active, user_params, found_today, GLOBAL_BOT_STATS
     scan_active = True
     
     # Determines where to send messages (Chat ID)
     chat_id = update.effective_chat.id if update else ADMIN_ID
     
-    # 1. FREEZE PARAMETERS FOR THIS SCAN (As requested: don't stop if params change)
+    # 1. FREEZE PARAMETERS FOR THIS SCAN
     p = user_params.copy()
     
     # 2. DETERMINE SOURCE
@@ -326,8 +326,8 @@ async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manua
         parse_mode=ParseMode.HTML
     )
 
-    # Update Web Stats
-    st.session_state.BOT_STATS["last_scan"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Update Global Stats (FIXED: Using global var instead of session state)
+    GLOBAL_BOT_STATS["last_scan"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # CONSTANTS
     EMA_F=20; EMA_S=40; ADX_L=14; ADX_T=20; ATR_L=14
@@ -336,12 +336,12 @@ async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manua
     found_count = 0
     
     for i, t in enumerate(tickers):
-        # CHECK STOP BUTTON (Only for non-manual scans)
+        # CHECK STOP BUTTON
         if not scan_active and not manual_tickers: 
             await context.bot.edit_message_text(f"🛑 <b>SCAN STOPPED BY USER</b>\nFound before stop: {found_count}", chat_id=chat_id, message_id=status_msg.message_id, parse_mode=ParseMode.HTML)
             return
 
-        # PROGRESS UPDATE (Every 5% or 10 tickers to avoid rate limits)
+        # PROGRESS UPDATE
         if i % 10 == 0 or i == total - 1:
             pct = int((i/total)*100)
             try:
@@ -376,7 +376,6 @@ async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manua
             valid_prev, _, _ = analyze_trade(df, -2)
             is_new = not valid_prev
             
-            # "SWITCH FOR ONLY NEW SIGNALS FROM TODAY"
             if p['new_only'] and not is_new and not manual_tickers: continue
             
             if d['RR'] < p['min_rr']:
@@ -409,7 +408,6 @@ async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manua
             found_today.add(date_key)
 
             # --- SUCCESS RESULT ---
-            # 2. Return result immediately (Don't wait)
             pe = get_financial_info(t)
             val_pos = shares * d['P']
             profit_pot = (d['TP'] - d['P']) * shares
@@ -421,7 +419,6 @@ async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manua
             found_count += 1
             
         except Exception as e:
-            # print(f"Err {t}: {e}")
             continue
 
     scan_active = False
@@ -436,7 +433,6 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     p = user_params
     auto_status = "🟢 ON" if p['auto_scan'] else "🔴 OFF"
     
-    # 7. CLICKABLE PHYSICAL BUTTONS ALWAYS BOTTOM
     keyboard = [
         [InlineKeyboardButton("▶ START SCAN (RESET)", callback_data="start_scan"), InlineKeyboardButton("⏹ STOP", callback_data="stop_scan")],
         [InlineKeyboardButton(f"🔄 AUTO SCAN: {auto_status}", callback_data="toggle_auto")],
@@ -459,19 +455,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-    global user_params, scan_active, found_today
+    global user_params, scan_active, found_today, GLOBAL_BOT_STATS
     
     if data == "start_scan":
         found_today.clear() # 8. RESET RESULTS
         asyncio.create_task(perform_scan(update, context))
     
     elif data == "stop_scan":
-        scan_active = False # 9. STOP SCAN (Keep results handled by logic break)
+        scan_active = False # 9. STOP SCAN
         await context.bot.send_message(chat_id=ADMIN_ID, text="🛑 STOPPING... Finishing current ticker...")
     
     elif data == "toggle_auto":
         user_params['auto_scan'] = not user_params['auto_scan']
-        st.session_state.BOT_STATS["auto_scan_active"] = user_params['auto_scan']
+        GLOBAL_BOT_STATS["auto_scan_active"] = user_params['auto_scan']
         
         # Job Logic
         job_q = context.job_queue
@@ -540,29 +536,28 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Auto Scan Job ---
 async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
+    global GLOBAL_BOT_STATS
     # Check Market Hours (US Eastern)
     tz = pytz.timezone('US/Eastern')
     now = datetime.now(tz)
     
     # 10. EVERY HOUR WHEN USA MARKET IS LIVE (09:30 - 16:00, Mon-Fri)
     if now.weekday() < 5 and (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and now.hour < 16:
-        st.session_state.BOT_STATS["last_scan"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        GLOBAL_BOT_STATS["last_scan"] = now.strftime("%Y-%m-%d %H:%M:%S")
         
         # 10.4 NOTIFICATION AUTO STARTED
         await context.bot.send_message(ADMIN_ID, "⏰ <b>AUTO SCAN STARTING...</b>", parse_mode=ParseMode.HTML)
         
-        # Trigger scan logic (call perform_scan with None update, but pass context)
-        # Note: We need to handle 'update' being None in perform_scan
         await perform_scan(None, context)
         
         # Time left logic for Web
-        st.session_state.BOT_STATS["next_auto_scan"] = "Checking next hour..."
+        GLOBAL_BOT_STATS["next_auto_scan"] = "Checking next hour..."
     else:
-        st.session_state.BOT_STATS["next_auto_scan"] = "Market Closed (Wait)"
+        GLOBAL_BOT_STATS["next_auto_scan"] = "Market Closed (Wait)"
 
 # --- Bot Thread ---
 def run_bot():
-    global bot_running
+    global bot_running, GLOBAL_BOT_STATS
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -573,7 +568,8 @@ def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
     
     bot_running = True
-    st.session_state.BOT_STATS["status"] = "ACTIVE"
+    # FIXED: Update global stats instead of session state
+    GLOBAL_BOT_STATS["status"] = "ACTIVE"
     app.run_polling()
 
 async def on_startup(app):
@@ -618,7 +614,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 8. SERVER STATUS DISPLAY ---
-s = st.session_state.BOT_STATS
+# Use global GLOBAL_BOT_STATS here
+s = GLOBAL_BOT_STATS
 st.markdown(f"""
 <div class="bot-stat-box">
     <div class="bs-item"><span class="bs-head">BOT STATUS</span><span class="bs-val" style="color: {'#00e676' if s['status']=='ACTIVE' else '#ff1744'}">{s['status']}</span></div>
