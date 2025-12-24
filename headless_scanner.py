@@ -3,43 +3,151 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 import requests
-import asyncio
-import threading
-import pytz
-import nest_asyncio
-from datetime import datetime, time
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-
-# Применяем патч для работы asyncio в среде Streamlit
-nest_asyncio.apply()
+import textwrap
 
 # ==========================================
-# 0. КОНФИГУРАЦИЯ И СЕКРЕТЫ
+# 1. PAGE CONFIG & STYLES (TERMINAL UI)
 # ==========================================
-try:
-    TG_TOKEN = st.secrets["TG_TOKEN"]
-    ADMIN_ID = int(st.secrets["ADMIN_ID"])
-    GITHUB_USERS_URL = st.secrets.get("GITHUB_USERS_URL", "")
-except Exception as e:
-    st.error(f"Ошибка секретов: {e}. Убедитесь, что TG_TOKEN и ADMIN_ID заданы в secrets.toml")
-    st.stop()
+st.set_page_config(page_title="Screener Vova (Terminal)", layout="wide", page_icon="💎")
 
-# --- ГЛОБАЛЬНОЕ СОСТОЯНИЕ БОТА (ВМЕСТО SESSION STATE) ---
-# Используем глобальную переменную, так как поток бота не видит session_state
-GLOBAL_BOT_STATS = {
-    "status": "STOPPED",
-    "last_scan": "Никогда",
-    "approved_users": 1, # Админ всегда одобрен
-    "auto_scan_active": False,
-    "next_auto_scan": "Нет"
-}
+# --- SESSION STATE INITIALIZATION ---
+if 'scanning' not in st.session_state:
+    st.session_state.scanning = False
+if 'results' not in st.session_state:
+    st.session_state.results = [] 
+if 'rejected' not in st.session_state:
+    st.session_state.rejected = []
+if 'run_params' not in st.session_state:
+    st.session_state.run_params = {} # To freeze params during scan
 
-# ==========================================
-# 1. ЛОГИКА VOVA SCREENER (100% COPY FROM YOUR CODE)
-# ==========================================
 # --- HELPER FUNCTIONS ---
+def render_html(html_string):
+    """Aggressively strips whitespace to prevent Markdown code block interpretation."""
+    cleaned_html = "".join([line.strip() for line in html_string.splitlines()])
+    st.markdown(cleaned_html, unsafe_allow_html=True)
+
+# --- CSS STYLING ---
+render_html("""
+<style>
+    /* GLOBAL DARK THEME */
+    .stApp { background-color: #050505; }
+    
+    /* FIX: Top padding to prevent header overlap */
+    .block-container { 
+        padding-top: 4rem !important; 
+        padding-left: 1rem !important; 
+        padding-right: 1rem !important; 
+        max-width: 100% !important;
+    }
+    
+    /* TERMINAL CARD */
+    .ticker-card {
+        background: #0f0f0f;
+        border: 1px solid #2a2a2a;
+        border-radius: 6px;
+        padding: 8px;
+        margin-bottom: 8px;
+        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        transition: border-color 0.2s;
+        min-height: 110px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .ticker-card:hover { border-color: #00e676; }
+
+    /* HEADER ROW */
+    .card-header {
+        display: flex; justify-content: space-between; align-items: center;
+        border-bottom: 1px solid #222; padding-bottom: 4px; margin-bottom: 6px;
+    }
+    .t-link { 
+        font-size: 14px; font-weight: 800; color: #448aff !important; 
+        text-decoration: none; letter-spacing: 0.5px; 
+    }
+    .t-link:hover { color: #fff !important; }
+    .t-price { font-size: 13px; color: #eceff1; font-weight: 700; }
+    .t-pe { font-size: 9px; color: #607d8b; margin-left: 4px; font-weight: 500; }
+    
+    /* BADGE */
+    .new-badge {
+        background: #00e676; color: #000; font-size: 8px; 
+        padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: 900;
+        vertical-align: middle;
+    }
+
+    /* DATA GRID */
+    .card-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+    }
+    
+    /* STAT BLOCK */
+    .stat-row {
+        background: #161616; 
+        padding: 3px 5px; 
+        border-radius: 3px; 
+        border: 1px solid #222;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center;
+    }
+    
+    /* TEXT HIERARCHY */
+    .lbl { font-size: 8px; color: #78909c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+    .val { font-size: 11px; font-weight: 700; color: #e0e0e0; text-align: right; line-height: 1.1; }
+    .sub { font-size: 9px; font-weight: 500; opacity: 0.8; text-align: right; line-height: 1; display: block; margin-top: 1px; }
+    
+    /* REJECTED CARD */
+    .rejected-card {
+        background: #1a0505;
+        border: 1px solid #3b1010;
+        border-left: 3px solid #d32f2f;
+        padding: 4px 6px;
+        margin-bottom: 6px;
+        border-radius: 4px;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center;
+        min-height: 28px;
+    }
+    .rej-head { font-size: 11px; font-weight: 700; color: #b0bec5; }
+    .rej-sub { font-size: 10px; color: #ff5252; font-weight: 600; text-align: right; font-family: monospace;}
+
+    /* COLORS */
+    .c-green { color: #00e676; }
+    .c-red { color: #ff1744; }
+    .c-blue { color: #448aff; }
+    .c-gold { color: #ffab00; }
+</style>
+""")
+
+# ==========================================
+# 2. DATA & API
+# ==========================================
+@st.cache_data(ttl=3600)
+def get_sp500_tickers():
+    try:
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        headers = {"User-Agent": "Mozilla/5.0"}
+        html = pd.read_html(requests.get(url, headers=headers).text, header=0)
+        return [t.replace('.', '-') for t in html[0]['Symbol'].tolist()]
+    except Exception as e:
+        st.error(f"Error S&P500: {e}")
+        return []
+
+def get_financial_info(ticker):
+    try:
+        t = yf.Ticker(ticker)
+        i = t.info
+        return i.get('trailingPE') or i.get('forwardPE')
+    except: return None
+
+# ==========================================
+# 3. INDICATOR MATH
+# ==========================================
 def calc_sma(s, l): return s.rolling(l).mean()
 def calc_ema(s, l): return s.ewm(span=l, adjust=False).mean()
 def calc_macd(s, f=12, sl=26, sig=9):
@@ -70,6 +178,9 @@ def calc_atr(df, length):
     tr = pd.concat([h-l, (h-c.shift(1)).abs(), (l-c.shift(1)).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1/length, adjust=False).mean()
 
+# ==========================================
+# 4. VOVA STRATEGY LOGIC (PINE PARITY)
+# ==========================================
 def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
     # --- Indicators ---
     df['SMA'] = calc_sma(df['Close'], len_maj)
@@ -242,454 +353,202 @@ def analyze_trade(df, idx):
         "SL_Type": "STR" if abs(final_sl - crit) < 0.01 else "ATR"
     }, "OK"
 
-@st.cache_data(ttl=3600)
-def get_sp500_tickers():
-    try:
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        headers = {"User-Agent": "Mozilla/5.0"}
-        html = pd.read_html(requests.get(url, headers=headers).text, header=0)
-        return [t.replace('.', '-') for t in html[0]['Symbol'].tolist()]
-    except Exception as e:
-        return []
+# ==========================================
+# 5. UI & SIDEBAR
+# ==========================================
+st.sidebar.header("⚙️ CONFIGURATION")
 
-def get_financial_info(ticker):
-    try:
-        t = yf.Ticker(ticker)
-        i = t.info
-        return i.get('trailingPE') or i.get('forwardPE')
-    except: return None
+# Disable inputs if scanning
+disabled = st.session_state.scanning
+
+# Source Input
+src = st.sidebar.radio("SOURCE", ["All S&P 500", "Manual Input"], disabled=disabled)
+man_txt = ""
+if src == "Manual Input":
+    man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
+
+# Parameters
+st.sidebar.subheader("RISK MANAGEMENT")
+p_size = st.sidebar.number_input("PORTFOLIO $", 10000, step=1000, disabled=disabled)
+min_rr_in = st.sidebar.number_input("MIN RR (>=1.25)", 1.25, step=0.05, disabled=disabled)
+risk_pct_in = st.sidebar.number_input("RISK % (>=0.2)", 0.2, step=0.1, disabled=disabled)
+max_atr_in = st.sidebar.number_input("MAX ATR %", 5.0, step=0.5, disabled=disabled)
+
+st.sidebar.subheader("FILTERS")
+sma_p = st.sidebar.selectbox("SMA TREND", [100, 150, 200], index=2, disabled=disabled)
+tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly"], disabled=disabled)
+new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
+
+# Buttons
+c1, c2 = st.sidebar.columns(2)
+start_btn = c1.button("▶ START", type="primary", disabled=disabled, use_container_width=True)
+stop_btn = c2.button("⏹ STOP", type="secondary", disabled=not disabled, use_container_width=True)
+
+# State Management for Buttons
+if start_btn:
+    st.session_state.scanning = True
+    st.session_state.results = []   # RESET Valid
+    st.session_state.rejected = [] # RESET Rejected
+    # FREEZE PARAMS
+    st.session_state.run_params = {
+        'src': src, 'txt': man_txt, 'port': p_size, 'rr': min_rr_in, 
+        'risk': risk_pct_in, 'matr': max_atr_in, 'sma': sma_p, 'tf': tf_p, 'new': new_p
+    }
+    st.rerun()
+
+if stop_btn:
+    st.session_state.scanning = False
+    st.rerun()
 
 # ==========================================
-# 2. TELEGRAM BOT LOGIC
+# 6. SCANNER EXECUTION
 # ==========================================
-# --- Bot State & Globals ---
-bot_running = False
-scan_active = False # Controls the loop
-found_today = set() # date + ticker key to prevent duplicates
+# CONSTANTS (Hidden)
+EMA_F=20; EMA_S=40; ADX_L=14; ADX_T=20; ATR_L=14
 
-# Параметры по умолчанию
-DEFAULT_PARAMS = {
-    'portfolio': 10000,
-    'min_rr': 1.25,
-    'risk_pct': 0.2,
-    'max_atr': 5.0,
-    'sma_p': 200,
-    'tf': 'Daily',
-    'new_only': True,
-    'auto_scan': False
-}
+# Results Placeholder
+res_area = st.empty()
 
-user_params = DEFAULT_PARAMS.copy()
-
-# --- Functions ---
-def get_lux_card(t, d, shares, val_pos, profit_pot, loss_pot, pe, is_new):
-    # LUXURY CARD FORMAT (HTML)
-    # Compact, 1 line per data point where possible
+if st.session_state.scanning:
+    # Use FROZEN params
+    p = st.session_state.run_params
     
-    tv_link = f"https://www.tradingview.com/chart/?symbol={t.replace('-', '.')}"
-    badge = "🆕" if is_new else ""
-    pe_str = f"(P/E: {pe:.1f})" if pe else ""
-    atr_pct = (d['ATR']/d['P'])*100
-    
-    msg = (
-        f"{badge} 💎 <b><a href='{tv_link}'>{t}</a></b> {pe_str}\n"
-        f"💵 <b>Price:</b> ${d['P']:.2f}\n"
-        f"⚖️ <b>Pos:</b> {shares} (~${val_pos:.0f})\n"
-        f"🎯 <b>TP:</b> {d['TP']:.2f} (<i>+${profit_pot:.0f}</i>)\n"
-        f"🛑 <b>SL:</b> {d['SL']:.2f} (<i>-${loss_pot:.0f}</i>) [{d['SL_Type']}]\n"
-        f"📉 <b>Crit:</b> {d['Crit']:.2f} | <b>ATR:</b> ${d['ATR']:.2f} ({atr_pct:.1f}%)"
-    )
-    return msg
-
-async def perform_scan(update: Update, context: ContextTypes.DEFAULT_TYPE, manual_tickers=None):
-    global scan_active, user_params, found_today, GLOBAL_BOT_STATS
-    scan_active = True
-    
-    # Determines where to send messages (Chat ID)
-    chat_id = update.effective_chat.id if update else ADMIN_ID
-    
-    # 1. FREEZE PARAMETERS FOR THIS SCAN
-    p = user_params.copy()
-    
-    # 2. DETERMINE SOURCE
-    if manual_tickers:
-        tickers = [x.strip().upper() for x in manual_tickers.split(',') if x.strip()]
-        src_type = "MANUAL"
-    else:
+    if p['src'] == "All S&P 500":
         tickers = get_sp500_tickers()
-        src_type = "S&P 500"
+    else:
+        tickers = [x.strip().upper() for x in p['txt'].split(',') if x.strip()]
         
-    # Start Notification
-    status_msg = await context.bot.send_message(
-        chat_id=chat_id, 
-        text=f"🚀 <b>SCAN STARTED</b>\nTYPE: {src_type}\nPARAMS: RR>{p['min_rr']} | Risk {p['risk_pct']}% | SMA {p['sma_p']}",
-        parse_mode=ParseMode.HTML
-    )
+    if not tickers:
+        st.error("NO TICKERS FOUND")
+        st.session_state.scanning = False
+        st.stop()
 
-    # Update Global Stats (FIXED: Using global var instead of session state)
-    GLOBAL_BOT_STATS["last_scan"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # CONSTANTS
-    EMA_F=20; EMA_S=40; ADX_L=14; ADX_T=20; ATR_L=14
+    info_box = st.empty()
+    info_box.info(f"SCANNING {len(tickers)} TICKERS... DO NOT REFRESH.")
+    bar = st.progress(0)
     
-    total = len(tickers)
-    found_count = 0
-    
+    # Loop
     for i, t in enumerate(tickers):
-        # CHECK STOP BUTTON
-        if not scan_active and not manual_tickers: 
-            await context.bot.edit_message_text(f"🛑 <b>SCAN STOPPED BY USER</b>\nFound before stop: {found_count}", chat_id=chat_id, message_id=status_msg.message_id, parse_mode=ParseMode.HTML)
-            return
-
-        # PROGRESS UPDATE
-        if i % 10 == 0 or i == total - 1:
-            pct = int((i/total)*100)
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id, 
-                    message_id=status_msg.message_id, 
-                    text=f"⏳ <b>SCANNING...</b> {pct}%\nFound: {found_count}\nCurrent: {t}\nParams: SMA{p['sma_p']} RR{p['min_rr']}",
-                    parse_mode=ParseMode.HTML
-                )
-            except: pass
-
+        if not st.session_state.scanning: break
+        bar.progress((i+1)/len(tickers))
+        
         try:
             inter = "1d" if p['tf'] == "Daily" else "1wk"
+            # 2Y is generally enough for 1D, 5Y for 1W to get SMA200 + Structure
             fetch_period = "2y" if p['tf'] == "Daily" else "5y"
-            
-            # Using auto_adjust=False as per your code
             df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+           # df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=True, multi_level_index=False)
             
-            # --- Validations (Exact Logic) ---
-            if len(df) < p['sma_p'] + 5:
-                if manual_tickers: await context.bot.send_message(chat_id, f"❌ {t}: NO DATA")
+            # A. Data Check
+            if len(df) < p['sma'] + 5:
+                if p['src'] == "Manual Input":
+                    st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">NO DATA</span></div>""")
                 continue
 
-            df = run_vova_logic(df, p['sma_p'], EMA_F, EMA_S, ADX_L, ADX_T, ATR_L)
+            # B. Logic
+            df = run_vova_logic(df, p['sma'], EMA_F, EMA_S, ADX_L, ADX_T, ATR_L)
+            
+            # C. Analyze
             valid, d, reason = analyze_trade(df, -1)
             
+            # REJECTION HANDLING
             if not valid:
-                if manual_tickers: await context.bot.send_message(chat_id, f"❌ {t}: {reason}")
+                if p['src'] == "Manual Input":
+                    pr = df['Close'].iloc[-1]
+                    h = f"""<div class="rejected-card"><div><span class="rej-head">{t}</span> <span style="font-size:9px;color:#555">${pr:.2f}</span></div><span class="rej-sub">{reason}</span></div>"""
+                    st.session_state.rejected.append(h)
                 continue
             
-            # Filters
+            # D. Filters
+            # New Only
             valid_prev, _, _ = analyze_trade(df, -2)
             is_new = not valid_prev
+            if p['src'] == "All S&P 500" and p['new'] and not is_new: continue
             
-            if p['new_only'] and not is_new and not manual_tickers: continue
-            
-            if d['RR'] < p['min_rr']:
-                if manual_tickers: await context.bot.send_message(chat_id, f"❌ {t}: LOW RR ({d['RR']:.2f})")
+            # RR
+            if d['RR'] < p['rr']:
+                if p['src'] == "Manual Input":
+                    st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">LOW RR {d['RR']:.2f}</span></div>""")
                 continue
                 
+            # ATR
             atr_pct = (d['ATR']/d['P'])*100
-            if atr_pct > p['max_atr']:
-                if manual_tickers: await context.bot.send_message(chat_id, f"❌ {t}: HIGH VOL ({atr_pct:.1f}%)")
+            if atr_pct > p['matr']:
+                if p['src'] == "Manual Input":
+                    st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">HIGH VOL {atr_pct:.1f}%</span></div>""")
                 continue
-            
-            # Money Mgmt (Position Size)
-            risk_amt = p['portfolio'] * (p['risk_pct'] / 100.0)
+                
+            # E. Position Sizing
+            risk_amt = p['port'] * (p['risk'] / 100.0)
             risk_share = d['P'] - d['SL']
             if risk_share <= 0: continue 
             
             shares = int(risk_amt / risk_share)
-            max_shares_portfolio = int(p['portfolio'] / d['P'])
+            max_shares_portfolio = int(p['port'] / d['P'])
             shares = min(shares, max_shares_portfolio)
             
             if shares < 1:
-                if manual_tickers: await context.bot.send_message(chat_id, f"❌ {t}: LOW FUNDS")
+                if p['src'] == "Manual Input":
+                    st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">LOW FUNDS</span></div>""")
                 continue
-
-            # 10.1 NEVER SHOW THE SAME TICKER TWICE IN THE SAME DAY
-            date_key = datetime.now().strftime("%Y-%m-%d") + t
-            if date_key in found_today and not manual_tickers:
-                continue
-            
-            found_today.add(date_key)
-
-            # --- SUCCESS RESULT ---
+                
+            # F. Prepare Data
             pe = get_financial_info(t)
+            pe_s = f"PE {pe:.0f}" if pe else ""
+            tv = f"https://www.tradingview.com/chart/?symbol={t.replace('-', '.')}"
+            badge = '<span class="new-badge">NEW</span>' if is_new else ""
+            
             val_pos = shares * d['P']
             profit_pot = (d['TP'] - d['P']) * shares
             loss_pot = (d['P'] - d['SL']) * shares
             
-            card = get_lux_card(t, d, shares, val_pos, profit_pot, loss_pot, pe, is_new)
-            
-            await context.bot.send_message(chat_id=chat_id, text=card, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-            found_count += 1
-            
-        except Exception as e:
-            continue
-
-    scan_active = False
-    await context.bot.send_message(chat_id=chat_id, text=f"✅ <b>SCAN COMPLETE</b>. Total Found: {found_count}", parse_mode=ParseMode.HTML)
-
-# --- Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    await show_menu(update, context)
-
-async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    p = user_params
-    auto_status = "🟢 ON" if p['auto_scan'] else "🔴 OFF"
-    
-    keyboard = [
-        [InlineKeyboardButton("▶ START SCAN (RESET)", callback_data="start_scan"), InlineKeyboardButton("⏹ STOP", callback_data="stop_scan")],
-        [InlineKeyboardButton(f"🔄 AUTO SCAN: {auto_status}", callback_data="toggle_auto")],
-        [InlineKeyboardButton("🔍 MANUAL TICKER INPUT", callback_data="manual_input")],
-        [InlineKeyboardButton(f"💰 PORT: ${p['portfolio']}", callback_data="set_port"), InlineKeyboardButton(f"⚖️ RR: {p['min_rr']}", callback_data="set_rr")],
-        [InlineKeyboardButton(f"⚠️ RISK: {p['risk_pct']}%", callback_data="set_risk"), InlineKeyboardButton(f"📊 ATR: {p['max_atr']}%", callback_data="set_atr")],
-        [InlineKeyboardButton(f"📈 SMA: {p['sma_p']}", callback_data="toggle_sma"), InlineKeyboardButton(f"📅 TF: {p['tf']}", callback_data="toggle_tf")],
-        [InlineKeyboardButton(f"🆕 NEW ONLY: {p['new_only']}", callback_data="toggle_new")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    txt = "💎 <b>VOVA SCREENER CONTROL PANEL</b> 💎\nSelect parameter to change or start action."
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text=txt, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-    else:
-        await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    global user_params, scan_active, found_today, GLOBAL_BOT_STATS
-    
-    if data == "start_scan":
-        found_today.clear() # 8. RESET RESULTS
-        asyncio.create_task(perform_scan(update, context))
-    
-    elif data == "stop_scan":
-        scan_active = False # 9. STOP SCAN
-        await context.bot.send_message(chat_id=ADMIN_ID, text="🛑 STOPPING... Finishing current ticker...")
-    
-    elif data == "toggle_auto":
-        user_params['auto_scan'] = not user_params['auto_scan']
-        GLOBAL_BOT_STATS["auto_scan_active"] = user_params['auto_scan']
-        
-        # Job Logic
-        job_q = context.job_queue
-        current_jobs = job_q.get_jobs_by_name("auto_scan_job")
-        
-        if user_params['auto_scan']:
-            if not current_jobs:
-                # 10. Start Auto Scan job
-                job_q.run_repeating(auto_scan_job, interval=3600, first=10, name="auto_scan_job")
-                await context.bot.send_message(ADMIN_ID, "⏰ <b>AUTO SCAN: STARTED (Hourly 09:30-16:00 EST)</b>", parse_mode=ParseMode.HTML)
-        else:
-            for job in current_jobs: job.schedule_removal()
-            await context.bot.send_message(ADMIN_ID, "⏰ <b>AUTO SCAN: STOPPED</b>", parse_mode=ParseMode.HTML)
-        
-        await show_menu(update, context)
-
-    # Param Toggles
-    elif data == "toggle_sma":
-        opts = [100, 150, 200]
-        curr = opts.index(user_params['sma_p'])
-        user_params['sma_p'] = opts[(curr + 1) % 3]
-        await show_menu(update, context)
-        
-    elif data == "toggle_tf":
-        user_params['tf'] = "Weekly" if user_params['tf'] == "Daily" else "Daily"
-        await show_menu(update, context)
-        
-    elif data == "toggle_new":
-        user_params['new_only'] = not user_params['new_only']
-        await show_menu(update, context)
-        
-    elif data == "manual_input":
-        await context.bot.send_message(ADMIN_ID, "⌨️ <b>TYPE TICKERS</b> separated by comma (e.g. AAPL, TSLA, NVDA):", parse_mode=ParseMode.HTML)
-        context.user_data['awaiting_input'] = 'manual'
-        
-    elif data.startswith("set_"):
-        param = data.split("_")[1]
-        context.user_data['awaiting_input'] = param
-        await context.bot.send_message(ADMIN_ID, f"⌨️ Type new value for <b>{param.upper()}</b>:", parse_mode=ParseMode.HTML)
-
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    state = context.user_data.get('awaiting_input')
-    
-    if not state: return
-    
-    text = update.message.text
-    
-    if state == 'manual':
-        asyncio.create_task(perform_scan(update, context, manual_tickers=text))
-        context.user_data['awaiting_input'] = None
-        return
-
-    try:
-        val = float(text)
-        if state == 'port': user_params['portfolio'] = int(val)
-        elif state == 'rr': user_params['min_rr'] = max(1.25, val)
-        elif state == 'risk': user_params['risk_pct'] = max(0.2, val)
-        elif state == 'atr': user_params['max_atr'] = val
-        
-        await update.message.reply_text(f"✅ Set {state.upper()} to {val}")
-        await show_menu(update, context)
-        context.user_data['awaiting_input'] = None
-    except:
-        await update.message.reply_text("❌ Invalid number")
-
-# --- Auto Scan Job ---
-async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
-    global GLOBAL_BOT_STATS
-    # Check Market Hours (US Eastern)
-    tz = pytz.timezone('US/Eastern')
-    now = datetime.now(tz)
-    
-    # 10. EVERY HOUR WHEN USA MARKET IS LIVE (09:30 - 16:00, Mon-Fri)
-    if now.weekday() < 5 and (now.hour > 9 or (now.hour == 9 and now.minute >= 30)) and now.hour < 16:
-        GLOBAL_BOT_STATS["last_scan"] = now.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # 10.4 NOTIFICATION AUTO STARTED
-        await context.bot.send_message(ADMIN_ID, "⏰ <b>AUTO SCAN STARTING...</b>", parse_mode=ParseMode.HTML)
-        
-        await perform_scan(None, context)
-        
-        # Time left logic for Web
-        GLOBAL_BOT_STATS["next_auto_scan"] = "Checking next hour..."
-    else:
-        GLOBAL_BOT_STATS["next_auto_scan"] = "Market Closed (Wait)"
-
-# --- Bot Thread ---
-def run_bot():
-    global bot_running, GLOBAL_BOT_STATS
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    app = ApplicationBuilder().token(TG_TOKEN).post_init(on_startup).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
-    
-    bot_running = True
-    # FIXED: Update global stats instead of session state
-    GLOBAL_BOT_STATS["status"] = "ACTIVE"
-    app.run_polling()
-
-async def on_startup(app):
-    await app.bot.send_message(chat_id=ADMIN_ID, text="🤖 <b>VOVA SCREENER BOT ONLINE</b>", parse_mode=ParseMode.HTML)
-
-if not bot_running:
-    t = threading.Thread(target=run_bot, daemon=True)
-    t.start()
-
-# ==========================================
-# 3. STREAMLIT WEB UI (SERVER VIEW)
-# ==========================================
-st.set_page_config(page_title="Screener Vova (Server)", layout="wide", page_icon="💎")
-
-# CSS STYLING
-st.markdown("""
-<style>
-    .stApp { background-color: #050505; }
-    .block-container { padding-top: 2rem !important; }
-    
-    /* TERMINAL CARD */
-    .ticker-card { background: #0f0f0f; border: 1px solid #2a2a2a; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-family: 'Segoe UI', sans-serif; box-shadow: 0 2px 5px rgba(0,0,0,0.5); min-height: 110px; display: flex; flex-direction: column; justify-content: space-between; }
-    .ticker-card:hover { border-color: #00e676; }
-    .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 4px; margin-bottom: 6px; }
-    .t-link { font-size: 14px; font-weight: 800; color: #448aff !important; text-decoration: none; }
-    .t-price { font-size: 13px; color: #eceff1; font-weight: 700; }
-    .t-pe { font-size: 9px; color: #607d8b; margin-left: 4px; }
-    .new-badge { background: #00e676; color: #000; font-size: 8px; padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: 900; }
-    .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-    .stat-row { background: #161616; padding: 3px 5px; border-radius: 3px; border: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
-    .lbl { font-size: 8px; color: #78909c; font-weight: 700; }
-    .val { font-size: 11px; font-weight: 700; color: #e0e0e0; text-align: right; }
-    .sub { font-size: 9px; font-weight: 500; opacity: 0.8; text-align: right; display: block; }
-    .c-green { color: #00e676; } .c-red { color: #ff1744; } .c-blue { color: #448aff; } .c-gold { color: #ffab00; }
-    
-    /* BOT STATUS BOX */
-    .bot-stat-box { background: #1e1e1e; padding: 15px; border-radius: 5px; border-left: 5px solid #448aff; margin-bottom: 20px; display: flex; gap: 30px; align-items: center; color: white; }
-    .bs-item { display: flex; flex-direction: column; }
-    .bs-head { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-    .bs-val { font-size: 18px; font-weight: bold; font-family: monospace; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 8. SERVER STATUS DISPLAY ---
-# Use global GLOBAL_BOT_STATS here
-s = GLOBAL_BOT_STATS
-st.markdown(f"""
-<div class="bot-stat-box">
-    <div class="bs-item"><span class="bs-head">BOT STATUS</span><span class="bs-val" style="color: {'#00e676' if s['status']=='ACTIVE' else '#ff1744'}">{s['status']}</span></div>
-    <div class="bs-item"><span class="bs-head">APPROVED USERS</span><span class="bs-val">{s['approved_users']}</span></div>
-    <div class="bs-item"><span class="bs-head">AUTO SCAN</span><span class="bs-val">{str(s['auto_scan_active']).upper()}</span></div>
-    <div class="bs-item"><span class="bs-head">LAST SCAN</span><span class="bs-val">{s['last_scan']}</span></div>
-    <div class="bs-item"><span class="bs-head">NEXT AUTO</span><span class="bs-val">{s['next_auto_scan']}</span></div>
-</div>
-""", unsafe_allow_html=True)
-
-# Original Web Screener below (Just in case you want to use it manually via web)
-st.subheader("Manual Web Terminal")
-
-# --- UI & SIDEBAR DUPLICATION FOR WEB MANUAL ---
-if 'scanning' not in st.session_state: st.session_state.scanning = False
-if 'results' not in st.session_state: st.session_state.results = []
-if 'rejected' not in st.session_state: st.session_state.rejected = []
-
-st.sidebar.header("WEB CONTROLS")
-src = st.sidebar.radio("SOURCE", ["All S&P 500", "Manual Input"], key="web_src")
-man_txt = ""
-if src == "Manual Input": man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA", key="web_txt")
-
-if st.sidebar.button("▶ START WEB SCAN"):
-    st.session_state.scanning = True
-    st.session_state.results = []
-    
-    # Simple Web Scan Loop calling the same Logic
-    tickers = get_sp500_tickers() if src == "All S&P 500" else [x.strip() for x in man_txt.split(',')]
-    bar = st.progress(0)
-    
-    EMA_F=20; EMA_S=40; ADX_L=14; ADX_T=20; ATR_L=14
-    
-    for i, t in enumerate(tickers):
-        bar.progress((i+1)/len(tickers))
-        try:
-            df = yf.download(t, period="2y", interval="1d", progress=False, auto_adjust=False, multi_level_index=False)
-            if len(df) < 205: continue
-            
-            df = run_vova_logic(df, 200, EMA_F, EMA_S, ADX_L, ADX_T, ATR_L)
-            valid, d, _ = analyze_trade(df, -1)
-            
-            if valid:
-                # Basic web card rendering
-                shares = int(10000 / d['P']) 
-                val_pos = shares * d['P']
-                profit_pot = (d['TP'] - d['P']) * shares
-                loss_pot = (d['P'] - d['SL']) * shares
-                atr_pct = (d['ATR']/d['P'])*100
-                pe_s = "" 
-                
-                html = f"""
-                <div class="ticker-card">
-                    <div class="card-header"><div><span class="t-link">{t}</span></div><div><span class="t-price">${d['P']:.2f}</span></div></div>
-                    <div class="card-grid">
-                        <div class="stat-row"><span class="lbl">POS</span> <div><span class="val c-gold">{shares}</span> <span class="sub c-gold">${val_pos:.0f}</span></div></div>
-                        <div class="stat-row"><span class="lbl">R:R</span> <span class="val c-blue">{d['RR']:.2f}</span></div>
-                        <div class="stat-row"><span class="lbl">TARGET</span> <div><span class="val c-green">{d['TP']:.2f}</span> <span class="sub c-green">+${profit_pot:.0f}</span></div></div>
-                        <div class="stat-row"><span class="lbl">STOP ({d['SL_Type']})</span> <div><span class="val c-red">{d['SL']:.2f}</span> <span class="sub c-red">-${loss_pot:.0f}</span></div></div>
-                        <div class="stat-row"><span class="lbl">CRIT</span> <span class="val">{d['Crit']:.2f}</span></div>
-                        <div class="stat-row"><span class="lbl">ATR</span> <div><span class="val">{d['ATR']:.2f}</span> <span class="sub">{atr_pct:.1f}%</span></div></div>
-                    </div>
+            # G. Generate HTML
+            html = f"""
+            <div class="ticker-card">
+                <div class="card-header">
+                    <div><a href="{tv}" target="_blank" class="t-link">{t}</a>{badge}</div>
+                    <div><span class="t-price">${d['P']:.2f}</span><span class="t-pe">{pe_s}</span></div>
                 </div>
-                """
-                st.session_state.results.append(html)
-        except: pass
-        
-    st.session_state.scanning = False
-    st.rerun()
+                <div class="card-grid">
+                    <div class="stat-row"><span class="lbl">POS</span> <div><span class="val c-gold">{shares}</span> <span class="sub c-gold">${val_pos:.0f}</span></div></div>
+                    <div class="stat-row"><span class="lbl">R:R</span> <span class="val c-blue">{d['RR']:.2f}</span></div>
+                    <div class="stat-row"><span class="lbl">TARGET</span> <div><span class="val c-green">{d['TP']:.2f}</span> <span class="sub c-green">+${profit_pot:.0f}</span></div></div>
+                    <div class="stat-row"><span class="lbl">STOP ({d['SL_Type']})</span> <div><span class="val c-red">{d['SL']:.2f}</span> <span class="sub c-red">-${loss_pot:.0f}</span></div></div>
+                    <div class="stat-row"><span class="lbl">CRIT</span> <span class="val">{d['Crit']:.2f}</span></div>
+                    <div class="stat-row"><span class="lbl">ATR</span> <div><span class="val">{d['ATR']:.2f}</span> <span class="sub">{atr_pct:.1f}%</span></div></div>
+                </div>
+            </div>
+            """
+            st.session_state.results.append(html)
+            
+            # Update Grid Immediately
+            with res_area.container():
+                current_list = st.session_state.results + (st.session_state.rejected if p['src'] == "Manual Input" else [])
+                if current_list:
+                    cols = st.columns(6)
+                    for idx, h in enumerate(current_list):
+                        with cols[idx % 6]:
+                            render_html(h)
+                            
+        except Exception as e:
+            pass
 
-# Display Results
-cols = st.columns(6)
-for idx, h in enumerate(st.session_state.results):
-    with cols[idx % 6]:
-        # Helper render function local to web part
-        cleaned_html = "".join([line.strip() for line in h.splitlines()])
-        st.markdown(cleaned_html, unsafe_allow_html=True)
+    bar.empty()
+    st.session_state.scanning = False
+    info_box.success("SCAN COMPLETE")
+
+# --- PERSISTENT DISPLAY (When not scanning) ---
+else:
+    # Use params from last run or default for display logic
+    last_src = st.session_state.run_params.get('src', "All S&P 500")
+    
+    final_list = st.session_state.results + (st.session_state.rejected if last_src == "Manual Input" else [])
+    
+    with res_area.container():
+        if final_list:
+            cols = st.columns(6)
+            for idx, h in enumerate(final_list):
+                with cols[idx % 6]:
+                    render_html(h)
+        else:
+            st.info("Ready to scan. Click START.")
