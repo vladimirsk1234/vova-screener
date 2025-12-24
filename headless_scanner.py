@@ -18,9 +18,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 nest_asyncio.apply()
 
 # ==========================================
-# 1. KONFIG & SECRETS
+# 1. CONFIG & SECRETS
 # ==========================================
-st.set_page_config(page_title="Vova Bot Server", layout="centered", page_icon="🤖")
+st.set_page_config(page_title="Vova Bot Server", layout="centered", page_icon="💎")
 
 try:
     TG_TOKEN = st.secrets["TG_TOKEN"]
@@ -33,9 +33,6 @@ except Exception as e:
 # ==========================================
 # 2. GLOBAL SHARED STATE (FIX FOR THREAD ERROR)
 # ==========================================
-# Этот класс заменит st.session_state для бота.
-# Он живет в памяти сервера и доступен из любого потока.
-
 class BotGlobalState:
     def __init__(self):
         self.active_scans = {}  # chat_id -> bool
@@ -237,7 +234,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ ACCESS DENIED")
         return
     
-    # Use GLOBAL STATE instead of st.session_state
     state = get_bot_state()
     if user_id not in state.user_configs:
         state.user_configs[user_id] = DEFAULT_CONFIG.copy()
@@ -387,7 +383,9 @@ def run_bot():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
     state.bot_running = True
-    app.run_polling()
+    
+    # CRITICAL FIX: stop_signals=None prevents thread error
+    app.run_polling(allowed_updates=Update.ALL_TYPES, stop_signals=None)
 
 # --- SERVER UI ---
 st.title("🛡️ VOVA SCREENER SERVER")
