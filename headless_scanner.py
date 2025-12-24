@@ -519,7 +519,8 @@ def main():
     
     # Start
     print("Bot is running...")
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES, stop_signals=None, close_loop=False)
 
 if __name__ == "__main__":
     main()
+
