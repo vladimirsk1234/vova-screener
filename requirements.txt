@@ -1,11 +1,9 @@
 streamlit
-pyTelegramBotAPI
 yfinance
 pandas
 numpy
 requests
 lxml
-streamlit-autorefresh
-python-telegram-bot[job-queue]
+python-telegram-bot[job-queue]==20.*
 pytz
 nest_asyncio
