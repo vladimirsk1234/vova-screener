@@ -4,6 +4,6 @@ pandas
 numpy
 requests
 lxml
-python-telegram-bot[job-queue]==20.*
+python-telegram-bot==20.*
 pytz
 nest_asyncio
