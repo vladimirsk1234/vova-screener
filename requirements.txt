@@ -1,12 +1,9 @@
-streamlit
 pyTelegramBotAPI
+python-telegram-bot[job-queue]
 yfinance
 pandas
 numpy
 requests
 lxml
-streamlit-autorefresh
-firebase-admin
-python-telegram-bot[job-queue]
 pytz
 nest_asyncio
