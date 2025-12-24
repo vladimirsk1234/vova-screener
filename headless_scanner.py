@@ -14,20 +14,20 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
-# Применяем патч для работы асинхронного бота внутри Streamlit
+# Патч для асинхронности
 nest_asyncio.apply()
 
 # ==========================================
 # 1. КОНФИГУРАЦИЯ И СЕКРЕТЫ
 # ==========================================
-st.set_page_config(page_title="Vova Bot Server", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="Vova Bot Server", layout="wide", page_icon="💎")
 
-# Получаем секреты
+# Получаем секреты из .streamlit/secrets.toml
 TOKEN = st.secrets.get("TG_TOKEN", "")
 ADMIN_ID = str(st.secrets.get("ADMIN_ID", ""))
 
 # ==========================================
-# 2. VOVA LOGIC (EXACT COPY 100%)
+# 2. VOVA LOGIC (ТОЧНАЯ КОПИЯ 100%)
 # ==========================================
 # --- HELPER FUNCTIONS ---
 def get_sp500_tickers():
@@ -96,6 +96,7 @@ def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
     res_peak = np.full(n, np.nan)
     res_struct = np.zeros(n, dtype=bool)
     
+    # State Variables
     s_state = 0
     s_crit = np.nan
     s_h = h_a[0]; s_l = l_a[0]
@@ -217,7 +218,7 @@ class BotState:
         self.sma_period = 200
         self.timeframe = "Daily"
         self.new_signals_only = True
-        self.sent_signals = set() # To prevent duplicates in auto mode (Ticker + Date)
+        self.sent_signals = set() # Prevent duplicates in auto mode
 
 BOT_STATE = BotState()
 
@@ -249,9 +250,8 @@ def get_main_menu_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# --- Formatters ---
+# --- Formatters (LUXURY CARDS) ---
 def format_luxury_card(ticker, d, shares):
-    # Telegram HTML (Limited tags)
     tv_link = f"https://www.tradingview.com/chart/?symbol={ticker.replace('-', '.')}"
     pe = get_financial_info(ticker)
     pe_str = f"PE:{pe:.0f}" if pe else ""
@@ -261,7 +261,6 @@ def format_luxury_card(ticker, d, shares):
     loss_pot = (d['P'] - d['SL']) * shares
     atr_pct = (d['ATR']/d['P'])*100
     
-    # Emojis for new signal
     badge = "💎 <b>NEW</b>"
     
     card = (
@@ -291,16 +290,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if s.is_scanning:
             await query.edit_message_text("⚠️ Уже сканирую...", reply_markup=get_main_menu_keyboard())
             return
-        # Start scanning process
+        
         s.stop_requested = False
         s.is_scanning = True
         s.active_chat_id = query.message.chat_id
         
-        # Reset previous results logic handled inside scan function
         msg = await query.message.reply_text("⏳ Запуск сканирования S&P 500...")
         s.active_scan_msg_id = msg.message_id
         
-        # Run scan in background task to not block bot
         context.application.create_task(perform_scan(context, "ALL"))
 
     elif data == "stop_scan":
@@ -327,14 +324,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=get_main_menu_keyboard())
         
     elif data in ["set_rr", "set_risk", "set_atr", "set_port"]:
-        await query.message.reply_text("⚠️ Для изменения числовых параметров пока используйте веб-интерфейс или хардкод (упрощено для Telegram меню).")
+        await query.message.reply_text("⚠️ Для настройки чисел используйте Streamlit интерфейс или код.")
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in BOT_STATE.users: return
     
     text = update.message.text
-    # Check if it looks like tickers
     if "," in text or text.isupper():
         tickers = [t.strip().upper() for t in text.split(',') if t.strip()]
         if tickers:
@@ -345,7 +341,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             BOT_STATE.is_scanning = True
             context.application.create_task(perform_scan(context, tickers))
     else:
-        await update.message.reply_text("ℹ️ Введите тикеры через запятую (например: AAPL, TSLA) для ручного скана.")
+        await update.message.reply_text("ℹ️ Введите тикеры через запятую (напр: AAPL, TSLA).")
 
 # --- SCANNING CORE TASK ---
 async def perform_scan(context, target):
@@ -370,7 +366,7 @@ async def perform_scan(context, target):
             if s.stop_requested:
                 break
                 
-            # Update Progress Bar (Edit Message) every 5% or 10 tickers
+            # Process Bar
             pct = int((i / total) * 100)
             if i % 10 == 0 or i == total - 1:
                 try:
@@ -383,12 +379,10 @@ async def perform_scan(context, target):
                 except: pass
 
             try:
-                # Async data fetch wrapper needed? yfinance uses threads but is sync. 
-                # Blocking call is okay in a separate thread/task for now.
                 inter = "1d" if s.timeframe == "Daily" else "1wk"
                 period = "2y" if s.timeframe == "Daily" else "5y"
                 
-                # Suppress stdout for yfinance
+                # Fetch Data
                 df = yf.download(t, period=period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
                 
                 if len(df) < s.sma_period + 5:
@@ -418,7 +412,7 @@ async def perform_scan(context, target):
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 sig_id = f"{t}_{today_str}"
                 if target == "ALL" and sig_id in s.sent_signals:
-                    continue # Already sent today
+                    continue 
 
                 # Filters
                 if d['RR'] < s.min_rr:
@@ -452,7 +446,7 @@ async def perform_scan(context, target):
                 found_count += 1
                 
             except Exception as e:
-                print(f"Error scanning {t}: {e}")
+                # print(f"Error scanning {t}: {e}")
                 continue
 
         # Finish
@@ -471,8 +465,8 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
     tz = pytz.timezone('US/Eastern')
     now = datetime.now(tz)
     
-    # Simple check: Mon-Fri, 9:30 - 16:00
-    if now.weekday() >= 5: return # Weekend
+    # Mon-Fri, 9:30 - 16:00
+    if now.weekday() >= 5: return 
     market_open = dt_time(9, 30)
     market_close = dt_time(16, 0)
     
@@ -480,26 +474,21 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
         BOT_STATE.next_auto_scan = f"Market Closed (Now: {now.strftime('%H:%M')} ET)"
         return
 
-    # Check if manual scan is running
     if BOT_STATE.is_scanning:
         BOT_STATE.next_auto_scan = "Skipped (Manual Scan Active)"
         return
 
-    # Start Auto Scan
-    # We need a chat_id to send results to. Default to Admin.
     BOT_STATE.active_chat_id = ADMIN_ID 
     BOT_STATE.is_scanning = True
     BOT_STATE.stop_requested = False
     
-    # Notify start
     try:
         msg = await context.bot.send_message(chat_id=ADMIN_ID, text="🤖 Starting Hourly Auto-Scan...")
         BOT_STATE.active_scan_msg_id = msg.message_id
         await perform_scan(context, "ALL")
-    except Exception as e:
-        print(f"Auto scan failed: {e}")
+    except Exception:
+        pass
 
-    # Calculate next run (approx)
     BOT_STATE.next_auto_scan = (now + pd.Timedelta(hours=1)).strftime("%H:%M ET")
 
 
@@ -507,27 +496,21 @@ async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
 # 5. BOT RUNNER (THREADING)
 # ==========================================
 async def run_bot_async():
-    if not TOKEN:
-        print("NO TOKEN")
-        return
+    if not TOKEN: return
 
     application = ApplicationBuilder().token(TOKEN).build()
     
-    # Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
     
-    # Job Queue
     job_queue = application.job_queue
-    # Run every hour (3600 seconds)
     job_queue.run_repeating(auto_scan_job, interval=3600, first=10) 
 
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
     
-    # Keep alive
     while True:
         await asyncio.sleep(1000)
 
@@ -537,7 +520,6 @@ def start_bot_thread():
     except Exception as e:
         print(f"Bot Loop Error: {e}")
 
-# Use caching to run thread only once
 @st.cache_resource
 def launch_bot_background():
     if not TOKEN: return None
@@ -555,10 +537,6 @@ st.title("🎛️ Vova Screener Server")
 if not TOKEN or not ADMIN_ID:
     st.error("MISSING SECRETS: Please set TG_TOKEN and ADMIN_ID in .streamlit/secrets.toml")
     st.stop()
-
-# Auto-refresh page every 10 seconds to show updated status
-from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=10000, key="dataframerefresh")
 
 # --- METRICS ---
 col1, col2, col3, col4 = st.columns(4)
@@ -585,10 +563,14 @@ with p_col2:
     st.text_input("Timeframe", value=BOT_STATE.timeframe, disabled=True)
     st.text_input("New Only", value=str(BOT_STATE.new_signals_only), disabled=True)
 
-st.info("NOTE: Parameters are currently adjustable via the Telegram Menu by the Admin. This dashboard is read-only for monitoring.")
+st.info("NOTE: Parameters are currently adjustable via the Telegram Menu by the Admin.")
 
-# Debug/Manual Control (Optional)
 with st.expander("Admin Operations"):
     if st.button("Reset Sent Signals Cache"):
         BOT_STATE.sent_signals.clear()
         st.success("Cache cleared.")
+
+# NATIVE AUTO-REFRESH (Вместо стороннего компонента)
+# Это обеспечит обновление дашборда раз в 10 секунд
+time.sleep(10)
+st.rerun()
