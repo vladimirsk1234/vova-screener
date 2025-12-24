@@ -1,9 +1,6 @@
 streamlit
-yfinance
 pandas
+yfinance
 numpy
 requests
 lxml
-python-telegram-bot[job-queue]>=21.9
-pytz
-nest_asyncio
