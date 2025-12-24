@@ -5,47 +5,38 @@ import numpy as np
 import requests
 import asyncio
 import threading
+import time
 import pytz
-import logging
-from datetime import datetime, time, timedelta
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from datetime import datetime, time as dt_time
+import nest_asyncio
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from streamlit_autorefresh import st_autorefresh
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+
+# Применяем патч для работы асинхронного бота внутри Streamlit
+nest_asyncio.apply()
 
 # ==========================================
-# 0. CONFIGURATION & GLOBALS
+# 1. КОНФИГУРАЦИЯ И СЕКРЕТЫ
 # ==========================================
-TG_TOKEN = "8407386703:AAFtzeEQlc0H2Ev_cccHJGE3mTdxA2c_JkA"
-ADMIN_ID = "1335722880"
-GITHUB_USERS_URL = "https://raw.githubusercontent.com/vladimirsk1234/vova-screener/refs/heads/main/users.txt"
+st.set_page_config(page_title="Vova Bot Server", layout="wide", page_icon="🤖")
 
-# --- GLOBAL SHARED STATE (For Dashboard) ---
-class BotMonitor:
-    status = "OFFLINE"
-    approved_users_count = 0
-    last_scan_time = "Never"
-    next_auto_scan = "Waiting for schedule..."
-    total_signals_sent = 0
-
-monitor = BotMonitor()
-
-# Logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.ERROR)
-logger = logging.getLogger(__name__)
+# Получаем секреты
+TOKEN = st.secrets.get("TG_TOKEN", "")
+ADMIN_ID = str(st.secrets.get("ADMIN_ID", ""))
 
 # ==========================================
-# 1. EXACT LOGIC & MATH (100% FROM WEB APP)
+# 2. VOVA LOGIC (EXACT COPY 100%)
 # ==========================================
-
+# --- HELPER FUNCTIONS ---
 def get_sp500_tickers():
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
         headers = {"User-Agent": "Mozilla/5.0"}
         html = pd.read_html(requests.get(url, headers=headers).text, header=0)
-        tickers = [t.replace('.', '-') for t in html[0]['Symbol'].tolist()]
-        return tickers
-    except Exception as e:
+        return [t.replace('.', '-') for t in html[0]['Symbol'].tolist()]
+    except Exception:
         return []
 
 def get_financial_info(ticker):
@@ -55,7 +46,7 @@ def get_financial_info(ticker):
         return i.get('trailingPE') or i.get('forwardPE')
     except: return None
 
-# --- INDICATORS ---
+# --- INDICATOR MATH ---
 def calc_sma(s, l): return s.rolling(l).mean()
 def calc_ema(s, l): return s.ewm(span=l, adjust=False).mean()
 def calc_macd(s, f=12, sl=26, sig=9):
@@ -88,7 +79,6 @@ def calc_atr(df, length):
 
 # --- STRATEGY LOGIC ---
 def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
-    # Indicators
     df['SMA'] = calc_sma(df['Close'], len_maj)
     adx, p_di, m_di = calc_adx_pine(df, adx_len)
     
@@ -98,7 +88,6 @@ def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
     efi = calc_ema(df['Close'].diff() * df['Volume'], len_fast)
     atr = calc_atr(df, atr_len)
     
-    # Iterative Structure
     n = len(df)
     c_a, h_a, l_a = df['Close'].values, df['High'].values, df['Low'].values
     
@@ -126,31 +115,31 @@ def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
         elif prev_st == -1 and not np.isnan(prev_cr): brk = c > prev_cr
             
         if brk:
-            if prev_st == 1: 
+            if prev_st == 1:
                 is_hh = True if np.isnan(last_pk) else (prev_sh > last_pk)
                 pk_hh = is_hh
-                last_pk = prev_sh 
+                last_pk = prev_sh
                 s_state = -1
                 s_h = h; s_l = l
-                s_crit = h 
-            else: 
+                s_crit = h
+            else:
                 is_hl = True if np.isnan(last_tr) else (prev_sl > last_tr)
                 tr_hl = is_hl
                 last_tr = prev_sl
                 s_state = 1
                 s_h = h; s_l = l
-                s_crit = l 
+                s_crit = l
         else:
             s_state = prev_st
-            if s_state == 1: 
+            if s_state == 1:
                 if h >= s_h: s_h = h
                 if h >= prev_sh: s_crit = l
                 else: s_crit = prev_cr
-            elif s_state == -1: 
+            elif s_state == -1:
                 if l <= s_l: s_l = l
                 if l <= prev_sl: s_crit = h
                 else: s_crit = prev_cr
-            else: 
+            else:
                 if c > prev_sh: s_state = 1; s_crit = l
                 elif c < prev_sl: s_state = -1; s_crit = h
                 else: s_h = max(prev_sh, h); s_l = min(prev_sl, l)
@@ -160,15 +149,10 @@ def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
         res_peak[i] = last_pk
         res_struct[i] = (pk_hh and tr_hl)
 
-    # Super Trend
     adx_str = adx >= adx_thr
-    bull = (adx_str & (p_di > m_di)) & \
-           ((ema_f > ema_f.shift(1)) & (ema_s > ema_s.shift(1)) & (hist > hist.shift(1))) & \
-           (efi > 0)
-    bear = (adx_str & (m_di > p_di)) & \
-           ((ema_f < ema_f.shift(1)) & (ema_s < ema_s.shift(1)) & (hist < hist.shift(1))) & \
-           (efi < 0)
-           
+    bull = (adx_str & (p_di > m_di)) & ((ema_f > ema_f.shift(1)) & (ema_s > ema_s.shift(1)) & (hist > hist.shift(1))) & (efi > 0)
+    bear = (adx_str & (m_di > p_di)) & ((ema_f < ema_f.shift(1)) & (ema_s < ema_s.shift(1)) & (hist < hist.shift(1))) & (efi < 0)
+            
     t_st = np.zeros(n, dtype=int)
     t_st[bull] = 1
     t_st[bear] = -1
@@ -179,13 +163,11 @@ def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
     df['Struct'] = res_struct
     df['Trend'] = t_st
     df['ATR'] = atr
-    
     return df
 
 def analyze_trade(df, idx):
     r = df.iloc[idx]
     errs = []
-    
     if r['Seq'] != 1: errs.append("SEQ!=1")
     if np.isnan(r['SMA']) or r['Close'] <= r['SMA']: errs.append("SMA")
     if r['Trend'] == -1: errs.append("TREND")
@@ -198,7 +180,6 @@ def analyze_trade(df, idx):
     tp = r['Peak']
     crit = r['Crit']
     atr = r['ATR']
-    
     sl_struct = crit
     sl_atr = price - atr
     final_sl = min(sl_struct, sl_atr)
@@ -210,7 +191,6 @@ def analyze_trade(df, idx):
     if reward <= 0: return False, {}, "AT TARGET"
     
     rr = reward / risk
-    
     return True, {
         "P": price, "TP": tp, "SL": final_sl, 
         "RR": rr, "ATR": atr, "Crit": crit,
@@ -218,432 +198,397 @@ def analyze_trade(df, idx):
     }, "OK"
 
 # ==========================================
-# 2. BOT LOGIC & STATE
+# 3. GLOBAL BOT STATE
+# ==========================================
+class BotState:
+    def __init__(self):
+        self.users = {ADMIN_ID} # Approved users
+        self.is_scanning = False
+        self.stop_requested = False
+        self.last_scan_time = "Never"
+        self.next_auto_scan = "Not scheduled"
+        self.active_scan_msg_id = None
+        self.active_chat_id = None
+        # Parameters
+        self.portfolio_size = 10000
+        self.min_rr = 1.25
+        self.risk_per_trade = 0.2
+        self.max_atr = 5.0
+        self.sma_period = 200
+        self.timeframe = "Daily"
+        self.new_signals_only = True
+        self.sent_signals = set() # To prevent duplicates in auto mode (Ticker + Date)
+
+BOT_STATE = BotState()
+
+# ==========================================
+# 4. TELEGRAM BOT LOGIC
 # ==========================================
 
-EMA_F=20; EMA_S=40; ADX_L=14; ADX_T=20; ATR_L=14
+# --- Keyboards ---
+def get_main_menu_keyboard():
+    s = BOT_STATE
+    btn_tf = f"TIMEFRAME: {s.timeframe}"
+    btn_sma = f"SMA: {s.sma_period}"
+    btn_rr = f"RR: {s.min_rr}"
+    btn_risk = f"RISK: {s.risk_per_trade}%"
+    btn_atr = f"ATR MAX: {s.max_atr}%"
+    btn_new = f"NEW ONLY: {'✅' if s.new_signals_only else '❌'}"
+    btn_port = f"PORTFOLIO: ${s.portfolio_size}"
 
-# User DB
-users_db = {}
-scan_history = {} # { 'YYYY-MM-DD': { 'chat_id_TICKER': True } }
+    keyboard = [
+        [InlineKeyboardButton("▶ START SCAN", callback_data="start_scan"), 
+         InlineKeyboardButton("⏹ STOP", callback_data="stop_scan")],
+        [InlineKeyboardButton(btn_tf, callback_data="set_tf"),
+         InlineKeyboardButton(btn_sma, callback_data="set_sma")],
+        [InlineKeyboardButton(btn_rr, callback_data="set_rr"),
+         InlineKeyboardButton(btn_risk, callback_data="set_risk")],
+        [InlineKeyboardButton(btn_atr, callback_data="set_atr"),
+         InlineKeyboardButton(btn_new, callback_data="toggle_new")],
+        [InlineKeyboardButton(btn_port, callback_data="set_port")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-DEFAULT_CONFIG = {
-    'portfolio': 10000,
-    'min_rr': 1.25,
-    'risk_pct': 0.2,
-    'max_atr': 5.0,
-    'sma': 200,
-    'tf': 'Daily',
-    'new_only': True
-}
-
-def get_user_state(chat_id):
-    if chat_id not in users_db:
-        users_db[chat_id] = {
-            'config': DEFAULT_CONFIG.copy(),
-            'running': False,
-            'manual_done': False,
-            'auto_active': False,
-            'awaiting_input': None,
-            'awaiting_tickers': False
-        }
-    return users_db[chat_id]
-
-async def check_auth(user_id, username):
-    if str(user_id) == ADMIN_ID: return True
-    try:
-        resp = requests.get(GITHUB_USERS_URL)
-        if resp.status_code == 200:
-            allowed = [u.strip() for u in resp.text.splitlines() if u.strip()]
-            monitor.approved_users_count = len(allowed)
-            return username in allowed
-    except:
-        return False
-    return False
-
-def is_market_open():
-    tz = pytz.timezone('US/Eastern')
-    now = datetime.now(tz)
-    # Market Open calculation for Dashboard
-    market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
-    if now > market_open: market_open += timedelta(days=1)
-    
-    diff = market_open - now
-    monitor.next_auto_scan = f"In {int(diff.total_seconds()//60)} mins (if active)"
-    
-    if now.weekday() > 4: 
-        monitor.next_auto_scan = "Market Closed (Weekend)"
-        return False 
-    
-    open_t = time(9, 30)
-    close_t = time(16, 0)
-    is_open = open_t <= now.time() <= close_t
-    
-    if not is_open:
-        monitor.next_auto_scan = "Market Closed"
-    
-    return is_open
-
-def format_card(t, d, shares, is_new, pe_val):
-    tv_link = f"https://www.tradingview.com/chart/?symbol={t.replace('-', '.')}"
-    
-    new_icon = "🆕" if is_new else ""
-    header = f"💎 <a href='{tv_link}'><b>{t}</b></a> {new_icon}"
-    
-    pe_str = f"P/E {pe_val:.0f}" if pe_val else ""
-    price_line = f"💵 <b>${d['P']:.2f}</b> {pe_str}"
+# --- Formatters ---
+def format_luxury_card(ticker, d, shares):
+    # Telegram HTML (Limited tags)
+    tv_link = f"https://www.tradingview.com/chart/?symbol={ticker.replace('-', '.')}"
+    pe = get_financial_info(ticker)
+    pe_str = f"PE:{pe:.0f}" if pe else ""
     
     val_pos = shares * d['P']
-    profit = (d['TP'] - d['P']) * shares
-    loss = (d['P'] - d['SL']) * shares
+    profit_pot = (d['TP'] - d['P']) * shares
+    loss_pot = (d['P'] - d['SL']) * shares
+    atr_pct = (d['ATR']/d['P'])*100
     
-    # Compact Luxury Layout
+    # Emojis for new signal
+    badge = "💎 <b>NEW</b>"
+    
     card = (
-        f"{header}\n"
-        f"{price_line}\n"
-        f"<code>──────────────</code>\n"
-        f"⚖️ RR: <b>{d['RR']:.2f}</b> | 💼 Pos: <b>{shares}</b> (${val_pos:.0f})\n"
-        f"🎯 TP: <b>{d['TP']:.2f}</b> (<i style='color:green'>+${profit:.0f}</i>)\n"
-        f"🛑 SL: <b>{d['SL']:.2f}</b> (<i style='color:red'>-${loss:.0f}</i>)\n"
-        f"📊 ATR: {d['ATR']:.2f} | 🧱 Crit: {d['Crit']:.2f}"
+        f"<b>{badge}</b> | <a href='{tv_link}'>{ticker}</a> | <b>${d['P']:.2f}</b> ({pe_str})\n"
+        f"⚖️ RR:<b>{d['RR']:.2f}</b> | 💰 Pos: <b>{shares}</b> (${val_pos:.0f})\n"
+        f"🎯 TP: <b>{d['TP']:.2f}</b> (+${profit_pot:.0f}) | 🛑 SL: <b>{d['SL']:.2f}</b> (-${loss_pot:.0f})\n"
+        f"📉 Crit: <b>{d['Crit']:.2f}</b> | 📊 ATR: <b>{atr_pct:.1f}%</b> (${d['ATR']:.2f})"
     )
     return card
 
-# ==========================================
-# 3. MENUS (PHYSICAL BUTTONS)
-# ==========================================
+# --- Logic Handlers ---
 
-def get_main_menu(cfg, auto_active):
-    auto_icon = "🟢" if auto_active else "🔴"
-    
-    # Main Dashboard Style Buttons
-    row1 = [KeyboardButton("▶ START SCAN"), KeyboardButton("⏹ STOP SCAN")]
-    row2 = [KeyboardButton(f"💰 Port: ${cfg['portfolio']}"), KeyboardButton(f"⚖️ RR: {cfg['min_rr']}")]
-    row3 = [KeyboardButton(f"⚠️ Risk: {cfg['risk_pct']}%"), KeyboardButton(f"📊 ATR: {cfg['max_atr']}%")]
-    row4 = [KeyboardButton(f"📈 SMA: {cfg['sma']}"), KeyboardButton(f"📅 TF: {cfg['tf']}")]
-    row5 = [KeyboardButton(f"🆕 New Only: {cfg['new_only']}"), KeyboardButton(f"🔄 AUTO: {auto_icon}")]
-    row6 = [KeyboardButton("🔎 CHECK TICKERS")]
-    
-    return ReplyKeyboardMarkup([row1, row2, row3, row4, row5, row6], resize_keyboard=True)
-
-# ==========================================
-# 4. SCANNER CORE
-# ==========================================
-async def scan_task(context, chat_id, tickers, mode="Manual"):
-    state = get_user_state(chat_id)
-    
-    # 1. FREEZE PARAMS (Safety feature: changing params during scan won't affect running scan)
-    p = state['config'].copy()
-    
-    prog_msg = await context.bot.send_message(chat_id, f"🚀 <b>Starting {mode} Scan...</b>\nTarget: {len(tickers)} tickers", parse_mode=ParseMode.HTML)
-    
-    found = 0
-    today = datetime.now().strftime('%Y-%m-%d')
-    if today not in scan_history: scan_history[today] = {}
-    
-    monitor.last_scan_time = datetime.now().strftime("%H:%M:%S UTC")
-
-    for i, t in enumerate(tickers):
-        # Stop Check (Only for manual loops)
-        if mode == "Manual" and not state['running']:
-            await context.bot.edit_message_text(chat_id=chat_id, message_id=prog_msg.message_id, text="⏹ <b>Scan Stopped by User.</b>", parse_mode=ParseMode.HTML)
-            return
-
-        # Progress Bar Update (Every 5% or 10 tickers)
-        if mode == "Manual" and (i % 10 == 0 or i == len(tickers)-1):
-            pct = int((i + 1) / len(tickers) * 100)
-            bar = "▓" * (pct // 10) + "░" * (10 - (pct // 10))
-            try:
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=prog_msg.message_id, text=f"🔍 <b>Scanning...</b> {pct}%\n{bar}\nChecking: {t}", parse_mode=ParseMode.HTML)
-            except: pass
-
-        # Auto Duplicate Check
-        if mode == "Auto":
-            if f"{chat_id}_{t}" in scan_history[today]: continue
-
-        try:
-            # Data Fetch
-            inter = "1d" if p['tf'] == "Daily" else "1wk"
-            per = "2y" if p['tf'] == "Daily" else "5y"
-            
-            # Threaded fetch to not block bot loop
-            df = await asyncio.to_thread(yf.download, t, period=per, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
-            
-            valid = True
-            reason = ""
-            
-            if len(df) < p['sma'] + 5:
-                valid = False; reason = "NO DATA"
-            else:
-                df = run_vova_logic(df, p['sma'], EMA_F, EMA_S, ADX_L, ADX_T, ATR_L)
-                valid, d, reason = analyze_trade(df, -1)
-            
-            # Report rejection only if specific ticker scan
-            if mode == "Single" and not valid:
-                await context.bot.send_message(chat_id, f"❌ <b>{t}</b>: {reason}", parse_mode=ParseMode.HTML)
-                continue
-
-            if not valid: continue
-
-            # Filters
-            valid_prev, _, _ = analyze_trade(df, -2)
-            is_new = not valid_prev
-            
-            if p['new_only'] and not is_new: continue
-
-            if d['RR'] < p['min_rr']:
-                if mode == "Single": await context.bot.send_message(chat_id, f"❌ Low RR: {d['RR']:.2f}", parse_mode=ParseMode.HTML)
-                continue
-                
-            atr_pct = (d['ATR']/d['P'])*100
-            if atr_pct > p['max_atr']:
-                if mode == "Single": await context.bot.send_message(chat_id, f"❌ High ATR: {atr_pct:.1f}%", parse_mode=ParseMode.HTML)
-                continue
-
-            # Position
-            risk_amt = p['portfolio'] * (p['risk_pct'] / 100.0)
-            risk_share = d['P'] - d['SL']
-            if risk_share <= 0: continue
-            
-            shares = int(risk_amt / risk_share)
-            max_shares = int(p['portfolio'] / d['P'])
-            shares = min(shares, max_shares)
-            
-            if shares < 1:
-                if mode == "Single": await context.bot.send_message(chat_id, f"❌ Low Funds", parse_mode=ParseMode.HTML)
-                continue
-
-            # Success!
-            pe = await asyncio.to_thread(get_financial_info, t)
-            card = format_card(t, d, shares, is_new, pe)
-            
-            await context.bot.send_message(chat_id, card, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-            found += 1
-            monitor.total_signals_sent += 1
-            
-            if mode == "Auto":
-                scan_history[today][f"{chat_id}_{t}"] = True
-
-        except Exception as e:
-            continue
-
-    state['running'] = False
-    if mode == "Manual":
-        state['manual_done'] = True
-        await context.bot.edit_message_text(chat_id=chat_id, message_id=prog_msg.message_id, text=f"🏁 <b>Scan Complete.</b> Found: {found}", parse_mode=ParseMode.HTML)
-
-# ==========================================
-# 5. HANDLERS
-# ==========================================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not await check_auth(user.id, user.username):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in BOT_STATE.users and user_id != ADMIN_ID:
         await update.message.reply_text("⛔ Access Denied.")
         return
-    
-    st = get_user_state(update.effective_chat.id)
-    await update.message.reply_text(f"💎 <b>VOVA SCREENER READY</b>\nPhysical buttons initialized.", 
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=get_main_menu(st['config'], st['auto_active']))
+    await update.message.reply_text("💎 Vova Screener Bot v1.0\nИспользуйте меню ниже:", reply_markup=get_main_menu_keyboard())
 
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not await check_auth(user.id, user.username): return
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    s = BOT_STATE
+
+    if data == "start_scan":
+        if s.is_scanning:
+            await query.edit_message_text("⚠️ Уже сканирую...", reply_markup=get_main_menu_keyboard())
+            return
+        # Start scanning process
+        s.stop_requested = False
+        s.is_scanning = True
+        s.active_chat_id = query.message.chat_id
+        
+        # Reset previous results logic handled inside scan function
+        msg = await query.message.reply_text("⏳ Запуск сканирования S&P 500...")
+        s.active_scan_msg_id = msg.message_id
+        
+        # Run scan in background task to not block bot
+        context.application.create_task(perform_scan(context, "ALL"))
+
+    elif data == "stop_scan":
+        if s.is_scanning:
+            s.stop_requested = True
+            await query.message.reply_text("🛑 Остановка после текущего тикера...")
+        else:
+            await query.message.reply_text("ℹ️ Сканирование не запущено.")
+
+    elif data == "toggle_new":
+        s.new_signals_only = not s.new_signals_only
+        await query.edit_message_reply_markup(reply_markup=get_main_menu_keyboard())
+
+    elif data == "set_sma":
+        opts = [100, 150, 200]
+        try:
+            curr_idx = opts.index(s.sma_period)
+            s.sma_period = opts[(curr_idx + 1) % len(opts)]
+        except: s.sma_period = 200
+        await query.edit_message_reply_markup(reply_markup=get_main_menu_keyboard())
+    
+    elif data == "set_tf":
+        s.timeframe = "Weekly" if s.timeframe == "Daily" else "Daily"
+        await query.edit_message_reply_markup(reply_markup=get_main_menu_keyboard())
+        
+    elif data in ["set_rr", "set_risk", "set_atr", "set_port"]:
+        await query.message.reply_text("⚠️ Для изменения числовых параметров пока используйте веб-интерфейс или хардкод (упрощено для Telegram меню).")
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in BOT_STATE.users: return
     
     text = update.message.text
-    chat_id = update.effective_chat.id
-    st = get_user_state(chat_id)
-    cfg = st['config']
+    # Check if it looks like tickers
+    if "," in text or text.isupper():
+        tickers = [t.strip().upper() for t in text.split(',') if t.strip()]
+        if tickers:
+            msg = await update.message.reply_text(f"🔎 Сканирую {len(tickers)} тикеров: {', '.join(tickers)}...")
+            BOT_STATE.active_chat_id = update.message.chat_id
+            BOT_STATE.active_scan_msg_id = msg.message_id
+            BOT_STATE.stop_requested = False
+            BOT_STATE.is_scanning = True
+            context.application.create_task(perform_scan(context, tickers))
+    else:
+        await update.message.reply_text("ℹ️ Введите тикеры через запятую (например: AAPL, TSLA) для ручного скана.")
 
-    # --- INPUT CAPTURE ---
-    if st['awaiting_input']:
-        key = st['awaiting_input']
-        try:
-            if key == 'portfolio': val = int(text)
-            elif key in ['min_rr', 'risk_pct', 'max_atr']: val = float(text)
-            else: val = text
-            
-            cfg[key] = val
-            st['awaiting_input'] = None
-            await update.message.reply_text(f"✅ Set {key} to {val}", reply_markup=get_main_menu(cfg, st['auto_active']))
-            return
-        except:
-            await update.message.reply_text("❌ Invalid format. Try again.", reply_markup=get_main_menu(cfg, st['auto_active']))
-            return
+# --- SCANNING CORE TASK ---
+async def perform_scan(context, target):
+    s = BOT_STATE
+    try:
+        # 1. Get Tickers
+        if target == "ALL":
+            tickers = get_sp500_tickers()
+            mode_desc = "S&P 500"
+        else:
+            tickers = target
+            mode_desc = "Manual"
 
-    # --- INPUT TICKERS ---
-    if st['awaiting_tickers']:
-        tickers = [x.strip().upper() for x in text.split(',') if x.strip()]
-        st['awaiting_tickers'] = False
-        asyncio.create_task(scan_task(context, chat_id, tickers, "Single"))
-        await update.message.reply_text("🔎 Analyzing...", reply_markup=get_main_menu(cfg, st['auto_active']))
+        total = len(tickers)
+        found_count = 0
+        
+        # 2. Logic Constants
+        EMA_F=20; EMA_S=40; ADX_L=14; ADX_T=20; ATR_L=14
+        
+        # 3. Loop
+        for i, t in enumerate(tickers):
+            if s.stop_requested:
+                break
+                
+            # Update Progress Bar (Edit Message) every 5% or 10 tickers
+            pct = int((i / total) * 100)
+            if i % 10 == 0 or i == total - 1:
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=s.active_chat_id,
+                        message_id=s.active_scan_msg_id,
+                        text=f"🔄 <b>Scanning {mode_desc}</b>\nProgress: {pct}% ({i}/{total})\nParams: TF={s.timeframe}, SMA={s.sma_period}, Risk={s.risk_per_trade}%",
+                        parse_mode=ParseMode.HTML
+                    )
+                except: pass
+
+            try:
+                # Async data fetch wrapper needed? yfinance uses threads but is sync. 
+                # Blocking call is okay in a separate thread/task for now.
+                inter = "1d" if s.timeframe == "Daily" else "1wk"
+                period = "2y" if s.timeframe == "Daily" else "5y"
+                
+                # Suppress stdout for yfinance
+                df = yf.download(t, period=period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+                
+                if len(df) < s.sma_period + 5:
+                    if mode_desc == "Manual":
+                        await context.bot.send_message(s.active_chat_id, f"❌ {t}: Not enough data")
+                    continue
+
+                # Run Logic
+                df = run_vova_logic(df, s.sma_period, EMA_F, EMA_S, ADX_L, ADX_T, ATR_L)
+                valid, d, reason = analyze_trade(df, -1)
+
+                if not valid:
+                    if mode_desc == "Manual":
+                        await context.bot.send_message(s.active_chat_id, f"❌ {t}: {reason}")
+                    continue
+                
+                # Check New Signal
+                valid_prev, _, _ = analyze_trade(df, -2)
+                is_new = not valid_prev
+                
+                if s.new_signals_only and not is_new:
+                    if mode_desc == "Manual":
+                         await context.bot.send_message(s.active_chat_id, f"⚠️ {t}: Active trade, not new")
+                    continue
+
+                # Duplicate Check for Auto Scan
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                sig_id = f"{t}_{today_str}"
+                if target == "ALL" and sig_id in s.sent_signals:
+                    continue # Already sent today
+
+                # Filters
+                if d['RR'] < s.min_rr:
+                    if mode_desc == "Manual": await context.bot.send_message(s.active_chat_id, f"❌ {t}: Low RR ({d['RR']:.2f})")
+                    continue
+                    
+                atr_pct = (d['ATR']/d['P'])*100
+                if atr_pct > s.max_atr:
+                    if mode_desc == "Manual": await context.bot.send_message(s.active_chat_id, f"❌ {t}: High Vol ({atr_pct:.1f}%)")
+                    continue
+
+                # Position Size
+                risk_amt = s.portfolio_size * (s.risk_per_trade / 100.0)
+                risk_share = d['P'] - d['SL']
+                if risk_share <= 0: continue
+                
+                shares = int(risk_amt / risk_share)
+                max_shares = int(s.portfolio_size / d['P'])
+                shares = min(shares, max_shares)
+                
+                if shares < 1:
+                    if mode_desc == "Manual": await context.bot.send_message(s.active_chat_id, f"❌ {t}: Insufficient funds")
+                    continue
+
+                # SEND SIGNAL
+                card_html = format_luxury_card(t, d, shares)
+                await context.bot.send_message(s.active_chat_id, card_html, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                
+                if target == "ALL":
+                    s.sent_signals.add(sig_id)
+                found_count += 1
+                
+            except Exception as e:
+                print(f"Error scanning {t}: {e}")
+                continue
+
+        # Finish
+        s.last_scan_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        final_text = "✅ Scan Complete." if not s.stop_requested else "⏹ Scan Stopped."
+        await context.bot.send_message(s.active_chat_id, f"{final_text} Found: {found_count}")
+        
+    except Exception as e:
+        print(f"Global scan error: {e}")
+    finally:
+        s.is_scanning = False
+
+# --- AUTO SCAN JOB ---
+async def auto_scan_job(context: ContextTypes.DEFAULT_TYPE):
+    # Check Market Hours (US Eastern)
+    tz = pytz.timezone('US/Eastern')
+    now = datetime.now(tz)
+    
+    # Simple check: Mon-Fri, 9:30 - 16:00
+    if now.weekday() >= 5: return # Weekend
+    market_open = dt_time(9, 30)
+    market_close = dt_time(16, 0)
+    
+    if not (market_open <= now.time() <= market_close):
+        BOT_STATE.next_auto_scan = f"Market Closed (Now: {now.strftime('%H:%M')} ET)"
         return
 
-    # --- MENU ACTIONS ---
-    if text == "▶ START SCAN":
-        st['manual_done'] = True # Trigger requirement for auto
-        st['running'] = True
-        tickers = get_sp500_tickers()
-        if tickers:
-            asyncio.create_task(scan_task(context, chat_id, tickers, "Manual"))
-        else:
-            st['running'] = False
-            await update.message.reply_text("❌ S&P Data Error")
+    # Check if manual scan is running
+    if BOT_STATE.is_scanning:
+        BOT_STATE.next_auto_scan = "Skipped (Manual Scan Active)"
+        return
+
+    # Start Auto Scan
+    # We need a chat_id to send results to. Default to Admin.
+    BOT_STATE.active_chat_id = ADMIN_ID 
+    BOT_STATE.is_scanning = True
+    BOT_STATE.stop_requested = False
     
-    elif text == "⏹ STOP SCAN":
-        st['running'] = False
-        await update.message.reply_text("🛑 Stopping...", reply_markup=get_main_menu(cfg, st['auto_active']))
+    # Notify start
+    try:
+        msg = await context.bot.send_message(chat_id=ADMIN_ID, text="🤖 Starting Hourly Auto-Scan...")
+        BOT_STATE.active_scan_msg_id = msg.message_id
+        await perform_scan(context, "ALL")
+    except Exception as e:
+        print(f"Auto scan failed: {e}")
 
-    elif text == "🔎 CHECK TICKERS":
-        st['awaiting_tickers'] = True
-        await update.message.reply_text("⌨️ Type tickers separated by comma (e.g., AAPL, TSLA):")
+    # Calculate next run (approx)
+    BOT_STATE.next_auto_scan = (now + pd.Timedelta(hours=1)).strftime("%H:%M ET")
 
-    elif "🔄 AUTO" in text:
-        if not st['manual_done']:
-            await update.message.reply_text("⚠️ You must perform at least ONE manual scan (press Start Scan) before enabling Auto.")
-        else:
-            st['auto_active'] = not st['auto_active']
-            await update.message.reply_text(f"Auto Scan: {st['auto_active']}", reply_markup=get_main_menu(cfg, st['auto_active']))
-
-    # --- SETTINGS TOGGLES & INPUT TRIGGERS ---
-    elif "SMA:" in text:
-        curr = cfg['sma']
-        nxt = 150 if curr == 100 else (200 if curr == 150 else 100)
-        cfg['sma'] = nxt
-        await update.message.reply_text(f"SMA set to {nxt}", reply_markup=get_main_menu(cfg, st['auto_active']))
-    
-    elif "TF:" in text:
-        curr = cfg['tf']
-        nxt = "Weekly" if curr == "Daily" else "Daily"
-        cfg['tf'] = nxt
-        await update.message.reply_text(f"Timeframe set to {nxt}", reply_markup=get_main_menu(cfg, st['auto_active']))
-        
-    elif "New Only:" in text:
-        cfg['new_only'] = not cfg['new_only']
-        await update.message.reply_text(f"New Only set to {cfg['new_only']}", reply_markup=get_main_menu(cfg, st['auto_active']))
-
-    elif "Port:" in text:
-        st['awaiting_input'] = 'portfolio'
-        await update.message.reply_text("🔢 Type Portfolio Size ($):")
-        
-    elif "RR:" in text:
-        st['awaiting_input'] = 'min_rr'
-        await update.message.reply_text("🔢 Type Min RR (e.g. 1.5):")
-        
-    elif "Risk:" in text:
-        st['awaiting_input'] = 'risk_pct'
-        await update.message.reply_text("🔢 Type Risk % (e.g. 0.5):")
-        
-    elif "ATR:" in text:
-        st['awaiting_input'] = 'max_atr'
-        await update.message.reply_text("🔢 Type Max ATR % (e.g. 4.0):")
 
 # ==========================================
-# 6. AUTO JOB
+# 5. BOT RUNNER (THREADING)
 # ==========================================
-async def hourly_job(context: ContextTypes.DEFAULT_TYPE):
-    # Runs every hour
-    if not is_market_open(): return
+async def run_bot_async():
+    if not TOKEN:
+        print("NO TOKEN")
+        return
+
+    application = ApplicationBuilder().token(TOKEN).build()
     
-    tickers = get_sp500_tickers()
-    if not tickers: return
+    # Handlers
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_handler))
     
-    for cid, data in users_db.items():
-        if data['auto_active'] and data['manual_done']:
-            asyncio.create_task(scan_task(context, cid, tickers, "Auto"))
+    # Job Queue
+    job_queue = application.job_queue
+    # Run every hour (3600 seconds)
+    job_queue.run_repeating(auto_scan_job, interval=3600, first=10) 
+
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    # Keep alive
+    while True:
+        await asyncio.sleep(1000)
+
+def start_bot_thread():
+    try:
+        asyncio.run(run_bot_async())
+    except Exception as e:
+        print(f"Bot Loop Error: {e}")
+
+# Use caching to run thread only once
+@st.cache_resource
+def launch_bot_background():
+    if not TOKEN: return None
+    t = threading.Thread(target=start_bot_thread, daemon=True)
+    t.start()
+    return t
 
 # ==========================================
-# 7. MAIN THREAD RUNNER
+# 6. STREAMLIT SERVER DASHBOARD
 # ==========================================
-def run_bot():
-    import nest_asyncio
-    nest_asyncio.apply()
-    
-    monitor.status = "ONLINE"
-    
-    app = Application.builder().token(TG_TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT, message_handler))
-    
-    # Auto scan job
-    app.job_queue.run_repeating(hourly_job, interval=3600, first=10)
-    
-    # FIX FOR STREAMLIT CLOUD RUNTIME ERROR
-    app.run_polling(allowed_updates=Update.ALL_TYPES, stop_signals=None, close_loop=False)
+launch_bot_background()
 
-# ==========================================
-# 8. STREAMLIT DASHBOARD (SERVER SIDE)
-# ==========================================
+st.title("🎛️ Vova Screener Server")
 
-st.set_page_config(page_title="Vova Bot Server", layout="centered", page_icon="🤖")
+if not TOKEN or not ADMIN_ID:
+    st.error("MISSING SECRETS: Please set TG_TOKEN and ADMIN_ID in .streamlit/secrets.toml")
+    st.stop()
 
-st.markdown("""
-<style>
-    .stApp { background-color: #0E1117; color: white; }
-    .metric-card {
-        background-color: #262730;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #41444C;
-        text-align: center;
-    }
-    .big-stat { font-size: 24px; font-weight: bold; color: #00E676; }
-    .label { font-size: 14px; color: #A0A0A0; }
-</style>
-""", unsafe_allow_html=True)
+# Auto-refresh page every 10 seconds to show updated status
+from streamlit_autorefresh import st_autorefresh
+st_autorefresh(interval=10000, key="dataframerefresh")
 
-st.title("🤖 Vova Screener Bot Server")
+# --- METRICS ---
+col1, col2, col3, col4 = st.columns(4)
 
-# Auto refresh dashboard every 10 seconds to show updates
-st_autorefresh(interval=10000, key="datarefresh")
+status_emoji = "🟢" if BOT_STATE.is_scanning else "💤"
+status_text = "SCANNING" if BOT_STATE.is_scanning else "IDLE"
 
-# Background Thread Start
-if 'bot_thread' not in st.session_state:
-    st.session_state.bot_thread = threading.Thread(target=run_bot, daemon=True)
-    st.session_state.bot_thread.start()
+col1.metric("Bot Status", f"{status_emoji} {status_text}")
+col2.metric("Approved Users", len(BOT_STATE.users))
+col3.metric("Last Scan", BOT_STATE.last_scan_time.split(' ')[-1] if BOT_STATE.last_scan_time != "Never" else "Never")
+col4.metric("Next Auto-Scan", str(BOT_STATE.next_auto_scan))
 
-# Dashboard Grid
-c1, c2 = st.columns(2)
+st.markdown("---")
+st.subheader("⚙️ Current Live Parameters (Bot)")
 
-with c1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="label">STATUS</div>
-        <div class="big-stat" style="color: {'#00E676' if monitor.status=='ONLINE' else 'red'}">{monitor.status}</div>
-    </div>
-    """, unsafe_allow_html=True)
+p_col1, p_col2 = st.columns(2)
+with p_col1:
+    st.text_input("Portfolio Size ($)", value=BOT_STATE.portfolio_size, disabled=True)
+    st.text_input("Risk %", value=BOT_STATE.risk_per_trade, disabled=True)
+    st.text_input("Min RR", value=BOT_STATE.min_rr, disabled=True)
 
-with c2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="label">APPROVED USERS</div>
-        <div class="big-stat">{monitor.approved_users_count}</div>
-    </div>
-    """, unsafe_allow_html=True)
+with p_col2:
+    st.text_input("SMA Period", value=BOT_STATE.sma_period, disabled=True)
+    st.text_input("Timeframe", value=BOT_STATE.timeframe, disabled=True)
+    st.text_input("New Only", value=str(BOT_STATE.new_signals_only), disabled=True)
 
-st.write("") # Spacer
+st.info("NOTE: Parameters are currently adjustable via the Telegram Menu by the Admin. This dashboard is read-only for monitoring.")
 
-c3, c4 = st.columns(2)
-
-with c3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="label">LAST SCAN</div>
-        <div class="big-stat" style="color: #448AFF">{monitor.last_scan_time}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c4:
-    # Update market status logic calculation
-    is_market_open() 
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="label">NEXT AUTO SCAN</div>
-        <div class="big-stat" style="color: #FFAB00">{monitor.next_auto_scan}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.divider()
-st.caption(f"Total Signals Processed Since Start: {monitor.total_signals_sent}")
+# Debug/Manual Control (Optional)
+with st.expander("Admin Operations"):
+    if st.button("Reset Sent Signals Cache"):
+        BOT_STATE.sent_signals.clear()
+        st.success("Cache cleared.")
