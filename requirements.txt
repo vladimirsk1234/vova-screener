@@ -7,3 +7,4 @@ lxml
 python-telegram-bot[job-queue]==20.*
 pytz
 nest_asyncio
+streamlit-autorefresh
