@@ -40,65 +40,203 @@ render_html("""
         max-width: 100% !important;
     }
     
-    /* TERMINAL CARD */
+    /* LUXURY COMPACT CARD - Responsive */
     .ticker-card {
-        background: #0f0f0f;
+        background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
         border: 1px solid #2a2a2a;
-        border-radius: 6px;
-        padding: 8px;
-        margin-bottom: 8px;
-        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-        transition: border-color 0.2s;
-        min-height: 110px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 10px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: visible;
+        width: 100%;
+        box-sizing: border-box;
     }
-    .ticker-card:hover { border-color: #00e676; }
+    .ticker-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #00e676, transparent);
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+    .ticker-card:hover { 
+        border-color: #00e676; 
+        box-shadow: 0 6px 20px rgba(0,230,118,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+        transform: translateY(-1px);
+    }
+    .ticker-card:hover::before {
+        opacity: 1;
+    }
 
-    /* HEADER ROW */
+    /* COMPACT HEADER ROW */
     .card-header {
-        display: flex; justify-content: space-between; align-items: center;
-        border-bottom: 1px solid #222; padding-bottom: 4px; margin-bottom: 6px;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: flex-start;
+        padding-bottom: 8px; 
+        margin-bottom: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .card-header-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
     }
     .t-link { 
-        font-size: 14px; font-weight: 800; color: #448aff !important; 
-        text-decoration: none; letter-spacing: 0.5px; 
+        font-size: 14px; 
+        font-weight: 700; 
+        color: #448aff !important; 
+        text-decoration: none; 
+        letter-spacing: 0.3px;
+        transition: color 0.2s;
     }
-    .t-link:hover { color: #fff !important; }
-    .t-price { font-size: 13px; color: #eceff1; font-weight: 700; }
-    .t-pe { font-size: 9px; color: #607d8b; margin-left: 4px; font-weight: 500; }
+    .t-link:hover { color: #00e676 !important; }
+    .header-price-block {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+    }
+    .t-price { 
+        font-size: 15px; 
+        color: #fff; 
+        font-weight: 700; 
+        line-height: 1.2;
+    }
+    .t-pe { 
+        font-size: 10px; 
+        color: #78909c; 
+        font-weight: 600;
+        padding: 2px 6px;
+        background: rgba(120,144,156,0.1);
+        border-radius: 4px;
+    }
     
     /* BADGE */
     .new-badge {
-        background: #00e676; color: #000; font-size: 8px; 
-        padding: 1px 4px; border-radius: 3px; margin-left: 5px; font-weight: 900;
-        vertical-align: middle;
+        background: linear-gradient(135deg, #00e676, #00c853);
+        color: #000; 
+        font-size: 9px; 
+        padding: 2px 6px; 
+        border-radius: 4px; 
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        box-shadow: 0 2px 4px rgba(0,230,118,0.3);
     }
 
-    /* DATA GRID */
+    /* COMPACT DATA GRID - 2 columns, responsive */
     .card-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 4px;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
     }
     
-    /* STAT BLOCK */
+    /* COMPACT STAT BLOCK */
     .stat-row {
-        background: #161616; 
-        padding: 3px 5px; 
-        border-radius: 3px; 
-        border: 1px solid #222;
+        background: rgba(22,22,22,0.6); 
+        padding: 6px 8px; 
+        border-radius: 5px; 
+        border: 1px solid rgba(255,255,255,0.05);
         display: flex; 
         justify-content: space-between; 
         align-items: center;
+        transition: background 0.2s;
+        min-height: 36px;
+    }
+    .stat-row:hover {
+        background: rgba(22,22,22,0.8);
+        border-color: rgba(255,255,255,0.1);
     }
     
-    /* TEXT HIERARCHY */
-    .lbl { font-size: 8px; color: #78909c; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
-    .val { font-size: 11px; font-weight: 700; color: #e0e0e0; text-align: right; line-height: 1.1; }
-    .sub { font-size: 9px; font-weight: 500; opacity: 0.8; text-align: right; line-height: 1; display: block; margin-top: 1px; }
+    /* TEXT HIERARCHY - COMPACT */
+    .lbl { 
+        font-size: 9px; 
+        color: #78909c; 
+        font-weight: 700; 
+        text-transform: uppercase; 
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .val { 
+        font-size: 12px; 
+        font-weight: 700; 
+        color: #e0e0e0; 
+        text-align: right; 
+        line-height: 1.2;
+        white-space: nowrap;
+        word-break: keep-all;
+        flex-shrink: 0;
+    }
+    .sub { 
+        font-size: 10px; 
+        font-weight: 500; 
+        opacity: 0.8; 
+        text-align: right; 
+        line-height: 1.2; 
+        display: block; 
+        margin-top: 2px;
+        white-space: nowrap;
+    }
+    
+    /* RESPONSIVE DESIGN - Scales with screen size */
+    /* Tablets: 3 columns */
+    @media (max-width: 991px) and (min-width: 769px) {
+        .ticker-card {
+            padding: 12px;
+        }
+        .t-price { font-size: 16px; }
+        .t-link { font-size: 15px; }
+        .val { font-size: 13px; }
+        .lbl { font-size: 10px; }
+        .sub { font-size: 11px; }
+    }
+    
+    /* Mobile: 2 columns then 1 column */
+    @media (max-width: 768px) {
+        .ticker-card {
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .card-grid {
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+        .card-header {
+            flex-direction: column;
+            gap: 8px;
+        }
+        .header-price-block {
+            align-items: flex-start;
+            width: 100%;
+        }
+        .t-price { font-size: 18px; }
+        .t-link { font-size: 16px; }
+        .stat-row {
+            padding: 8px 10px;
+            min-height: 40px;
+        }
+        .val { font-size: 14px; }
+        .lbl { font-size: 10px; }
+        .sub { font-size: 11px; }
+    }
+    
+    @media (max-width: 480px) {
+        .ticker-card {
+            padding: 10px;
+        }
+        .t-price { font-size: 20px; }
+        .t-link { font-size: 17px; }
+    }
     
     /* REJECTED CARD */
     .rejected-card {
@@ -369,9 +507,8 @@ if src == "Manual Input":
 
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
-p_size = st.sidebar.number_input("PORTFOLIO $", 10000, step=1000, disabled=disabled)
+risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
 min_rr_in = st.sidebar.number_input("MIN RR (>=1.25)", 1.25, step=0.05, disabled=disabled)
-risk_pct_in = st.sidebar.number_input("RISK % (>=0.2)", 0.2, step=0.1, disabled=disabled)
 max_atr_in = st.sidebar.number_input("MAX ATR %", 5.0, step=0.5, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
@@ -391,8 +528,8 @@ if start_btn:
     st.session_state.rejected = [] # RESET Rejected
     # FREEZE PARAMS
     st.session_state.run_params = {
-        'src': src, 'txt': man_txt, 'port': p_size, 'rr': min_rr_in, 
-        'risk': risk_pct_in, 'matr': max_atr_in, 'sma': sma_p, 'tf': tf_p, 'new': new_p
+        'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in, 
+        'matr': max_atr_in, 'sma': sma_p, 'tf': tf_p, 'new': new_p
     }
     st.rerun()
 
@@ -424,20 +561,73 @@ if st.session_state.scanning:
         st.stop()
 
     info_box = st.empty()
-    info_box.info(f"SCANNING {len(tickers)} TICKERS... DO NOT REFRESH.")
+    info_box.info(f"DOWNLOADING DATA FOR {len(tickers)} TICKERS... DO NOT REFRESH.")
     bar = st.progress(0)
     
-    # Loop
+    # ==========================================
+    # OPTIMIZATION 1: BATCH DOWNLOAD ALL TICKERS AT ONCE (yfinance)
+    # ==========================================
+    inter = "1d" if p['tf'] == "Daily" else "1wk"
+    fetch_period = "2y" if p['tf'] == "Daily" else "5y"
+    
+    try:
+        # Download ALL tickers in one batch (10-50x faster than sequential)
+        # yfinance returns MultiIndex DataFrame when downloading multiple tickers with group_by='ticker'
+        all_data = yf.download(
+            tickers, 
+            period=fetch_period, 
+            interval=inter, 
+            progress=False, 
+            auto_adjust=False, 
+            group_by='ticker',
+            threads=True  # Enable multi-threading in yfinance
+        )
+        info_box.info(f"PROCESSING {len(tickers)} TICKERS... DO NOT REFRESH.")
+        bar.progress(0.1)  # 10% for download
+    except Exception as e:
+        st.warning(f"Batch download failed: {e}. Falling back to sequential.")
+        all_data = None
+        bar.progress(0.05)
+    
+    # ==========================================
+    # PROCESS EACH TICKER
+    # ==========================================
     for i, t in enumerate(tickers):
         if not st.session_state.scanning: break
-        bar.progress((i+1)/len(tickers))
+        bar.progress(0.1 + 0.9 * ((i+1)/len(tickers)))
         
         try:
-            inter = "1d" if p['tf'] == "Daily" else "1wk"
-            # 2Y is generally enough for 1D, 5Y for 1W to get SMA200 + Structure
-            fetch_period = "2y" if p['tf'] == "Daily" else "5y"
-            df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
-           # df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=True, multi_level_index=False)
+            # Get ticker data from batch download
+            if all_data is not None and not all_data.empty:
+                # Handle multi-level column structure from batch download (multiple tickers)
+                if isinstance(all_data.columns, pd.MultiIndex):
+                    # Check if ticker exists in the batch data
+                    ticker_level = all_data.columns.get_level_values(0).unique()
+                    if t in ticker_level and (t, 'Close') in all_data.columns:
+                        df = pd.DataFrame({
+                            'Open': all_data[(t, 'Open')],
+                            'High': all_data[(t, 'High')],
+                            'Low': all_data[(t, 'Low')],
+                            'Close': all_data[(t, 'Close')],
+                            'Volume': all_data[(t, 'Volume')]
+                        })
+                    else:
+                        # Ticker not found in batch download
+                        if p['src'] == "Manual Input":
+                            st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">NO DATA</span></div>""")
+                        continue
+                else:
+                    # Single ticker returned as regular DataFrame (when len(tickers)==1)
+                    if len(tickers) == 1 and t == tickers[0]:
+                        df = all_data.copy()
+                    else:
+                        # Shouldn't happen, but fallback
+                        if p['src'] == "Manual Input":
+                            st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">NO DATA</span></div>""")
+                        continue
+            else:
+                # Fallback: sequential download if batch failed
+                df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
             
             # A. Data Check
             if len(df) < p['sma'] + 5:
@@ -478,14 +668,12 @@ if st.session_state.scanning:
                     st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">HIGH VOL {atr_pct:.1f}%</span></div>""")
                 continue
                 
-            # E. Position Sizing
-            risk_amt = p['port'] * (p['risk'] / 100.0)
-            risk_share = d['P'] - d['SL']
-            if risk_share <= 0: continue 
+            # E. Position Sizing (using $ risk per trade directly)
+            risk_per_share = d['P'] - d['SL']
+            if risk_per_share <= 0: continue 
             
-            shares = int(risk_amt / risk_share)
-            max_shares_portfolio = int(p['port'] / d['P'])
-            shares = min(shares, max_shares_portfolio)
+            # Calculate shares: risk_per_trade / risk_per_share
+            shares = int(p['risk_per_trade'] / risk_per_share)
             
             if shares < 1:
                 if p['src'] == "Manual Input":
@@ -493,8 +681,8 @@ if st.session_state.scanning:
                 continue
                 
             # F. Prepare Data
-            pe = get_financial_info(t)
-            pe_s = f"PE {pe:.0f}" if pe else ""
+            pe = get_financial_info(t)  # Fetch P/E ratio
+            pe_s = f"P/E {pe:.1f}" if pe is not None and not np.isnan(pe) else ""
             tv = f"https://www.tradingview.com/chart/?symbol={t.replace('-', '.')}"
             badge = '<span class="new-badge">NEW</span>' if is_new else ""
             
@@ -502,38 +690,56 @@ if st.session_state.scanning:
             profit_pot = (d['TP'] - d['P']) * shares
             loss_pot = (d['P'] - d['SL']) * shares
             
-            # G. Generate HTML
+            # G. Generate HTML - Compact Luxury Design
             html = f"""
             <div class="ticker-card">
                 <div class="card-header">
-                    <div><a href="{tv}" target="_blank" class="t-link">{t}</a>{badge}</div>
-                    <div><span class="t-price">${d['P']:.2f}</span><span class="t-pe">{pe_s}</span></div>
+                    <div class="card-header-left">
+                        <a href="{tv}" target="_blank" class="t-link">{t}</a>
+                        {badge}
+                    </div>
+                    <div class="header-price-block">
+                        <span class="t-price">${d['P']:.2f}</span>
+                        {f'<span class="t-pe">{pe_s}</span>' if pe_s else ''}
+                    </div>
                 </div>
                 <div class="card-grid">
                     <div class="stat-row"><span class="lbl">POS</span> <div><span class="val c-gold">{shares}</span> <span class="sub c-gold">${val_pos:.0f}</span></div></div>
                     <div class="stat-row"><span class="lbl">R:R</span> <span class="val c-blue">{d['RR']:.2f}</span></div>
-                    <div class="stat-row"><span class="lbl">TARGET</span> <div><span class="val c-green">{d['TP']:.2f}</span> <span class="sub c-green">+${profit_pot:.0f}</span></div></div>
-                    <div class="stat-row"><span class="lbl">STOP ({d['SL_Type']})</span> <div><span class="val c-red">{d['SL']:.2f}</span> <span class="sub c-red">-${loss_pot:.0f}</span></div></div>
-                    <div class="stat-row"><span class="lbl">CRIT</span> <span class="val">{d['Crit']:.2f}</span></div>
-                    <div class="stat-row"><span class="lbl">ATR</span> <div><span class="val">{d['ATR']:.2f}</span> <span class="sub">{atr_pct:.1f}%</span></div></div>
+                    <div class="stat-row"><span class="lbl">TARGET</span> <div><span class="val c-green">${d['TP']:.2f}</span> <span class="sub c-green">+${profit_pot:.0f}</span></div></div>
+                    <div class="stat-row"><span class="lbl">STOP</span> <div><span class="val c-red">${d['SL']:.2f}</span> <span class="sub c-red">-${loss_pot:.0f}</span></div></div>
+                    <div class="stat-row"><span class="lbl">CRIT</span> <div><span class="val">${d['Crit']:.2f}</span></div></div>
+                    <div class="stat-row"><span class="lbl">ATR(14)</span> <div><span class="val">${d['ATR']:.2f}</span> <span class="sub">{atr_pct:.1f}%</span></div></div>
                 </div>
             </div>
             """
             st.session_state.results.append(html)
             
-            # Update Grid Immediately
-            with res_area.container():
-                current_list = st.session_state.results + (st.session_state.rejected if p['src'] == "Manual Input" else [])
-                if current_list:
-                    cols = st.columns(6)
-                    for idx, h in enumerate(current_list):
-                        with cols[idx % 6]:
-                            render_html(h)
+            # OPTIMIZATION 2: Update UI every 10 tickers instead of every ticker (much faster)
+            if (i + 1) % 10 == 0 or i == len(tickers) - 1:
+                with res_area.container():
+                    current_list = st.session_state.results + (st.session_state.rejected if p['src'] == "Manual Input" else [])
+                    if current_list:
+                        # 6 columns for more cards per row
+                        cols = st.columns(6)
+                        for idx, h in enumerate(current_list):
+                            with cols[idx % 6]:
+                                render_html(h)
                             
         except Exception as e:
             pass
 
+    # Final UI update
     bar.empty()
+    with res_area.container():
+        final_list = st.session_state.results + (st.session_state.rejected if p['src'] == "Manual Input" else [])
+        if final_list:
+            # 6 columns for more cards per row
+            cols = st.columns(6)
+            for idx, h in enumerate(final_list):
+                with cols[idx % 6]:
+                    render_html(h)
+    
     st.session_state.scanning = False
     info_box.success("SCAN COMPLETE")
 
@@ -546,6 +752,7 @@ else:
     
     with res_area.container():
         if final_list:
+            # 6 columns for more cards per row
             cols = st.columns(6)
             for idx, h in enumerate(final_list):
                 with cols[idx % 6]:
