@@ -582,6 +582,9 @@ if st.session_state.scanning:
             group_by='ticker',
             threads=True  # Enable multi-threading in yfinance
         )
+        # Validate batch download was successful
+        if all_data is None or all_data.empty:
+            raise ValueError("Batch download returned empty data")
         info_box.info(f"PROCESSING {len(tickers)} TICKERS... DO NOT REFRESH.")
         bar.progress(0.1)  # 10% for download
     except Exception as e:
@@ -601,38 +604,92 @@ if st.session_state.scanning:
             if all_data is not None and not all_data.empty:
                 # Handle multi-level column structure from batch download (multiple tickers)
                 if isinstance(all_data.columns, pd.MultiIndex):
-                    # Check if ticker exists in the batch data
+                    # Check if ticker exists in the batch data and has all required columns
                     ticker_level = all_data.columns.get_level_values(0).unique()
-                    if t in ticker_level and (t, 'Close') in all_data.columns:
-                        df = pd.DataFrame({
-                            'Open': all_data[(t, 'Open')],
-                            'High': all_data[(t, 'High')],
-                            'Low': all_data[(t, 'Low')],
-                            'Close': all_data[(t, 'Close')],
-                            'Volume': all_data[(t, 'Volume')]
-                        })
+                    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                    has_all_cols = all((t, col) in all_data.columns for col in required_cols)
+                    
+                    if t in ticker_level and has_all_cols:
+                        try:
+                            df = pd.DataFrame({
+                                'Open': all_data[(t, 'Open')],
+                                'High': all_data[(t, 'High')],
+                                'Low': all_data[(t, 'Low')],
+                                'Close': all_data[(t, 'Close')],
+                                'Volume': all_data[(t, 'Volume')]
+                            })
+                            # Validate extracted data
+                            if df.empty or df['Close'].isna().all():
+                                raise ValueError("Empty or invalid data")
+                        except (KeyError, ValueError):
+                            # Failed to extract data, try sequential download as fallback
+                            df = None
+                            try:
+                                df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+                                required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                                if df is None or df.empty or not all(col in df.columns for col in required_cols):
+                                    df = None
+                            except Exception:
+                                df = None
                     else:
-                        # Ticker not found in batch download
+                        df = None
+                    
+                    if df is None:
+                        # Ticker not found in batch download or all download methods failed
                         if p['src'] == "Manual Input":
                             st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">NO DATA</span></div>""")
                         continue
                 else:
                     # Single ticker returned as regular DataFrame (when len(tickers)==1)
                     if len(tickers) == 1 and t == tickers[0]:
-                        df = all_data.copy()
+                        # Validate required columns exist
+                        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                        if all(col in all_data.columns for col in required_cols):
+                            df = all_data[required_cols].copy()
+                        else:
+                            df = None
                     else:
+                        df = None
+                    
+                    if df is None:
                         # Shouldn't happen, but fallback
                         if p['src'] == "Manual Input":
                             st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">NO DATA</span></div>""")
                         continue
             else:
                 # Fallback: sequential download if batch failed
-                df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+                try:
+                    df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+                    # Validate downloaded data has required columns
+                    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                    if not all(col in df.columns for col in required_cols):
+                        df = None
+                except Exception as e:
+                    df = None
+                
+                if df is None:
+                    if p['src'] == "Manual Input":
+                        st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">DOWNLOAD ERROR</span></div>""")
+                    continue
             
-            # A. Data Check
-            if len(df) < p['sma'] + 5:
+            # A. Data Validation Check
+            if df is None or df.empty or len(df) < p['sma'] + 5:
                 if p['src'] == "Manual Input":
                     st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">NO DATA</span></div>""")
+                continue
+            
+            # Validate required columns exist and have valid data
+            required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+            if not all(col in df.columns for col in required_cols):
+                if p['src'] == "Manual Input":
+                    st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">MISSING COLUMNS</span></div>""")
+                continue
+            
+            # Drop rows with NaN in critical columns
+            df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
+            if len(df) < p['sma'] + 5:
+                if p['src'] == "Manual Input":
+                    st.session_state.rejected.append(f"""<div class="rejected-card"><span class="rej-head">{t}</span><span class="rej-sub">INSUFFICIENT DATA</span></div>""")
                 continue
 
             # B. Logic
