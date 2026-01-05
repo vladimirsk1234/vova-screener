@@ -358,8 +358,8 @@ def run_vova_logic(df, len_maj, len_fast, len_slow, adx_len, adx_thr, atr_len):
         
         # Break Detection
         brk = False
-        if prev_st == 1 and not np.isnan(prev_cr): brk = c < prev_cr
-        elif prev_st == -1 and not np.isnan(prev_cr): brk = c > prev_cr
+        if prev_st == 1 and not np.isnan(prev_cr): brk = c <= prev_cr
+        elif prev_st == -1 and not np.isnan(prev_cr): brk = c >= prev_cr
             
         if brk:
             if prev_st == 1: # Bearish Break (Up -> Down)
@@ -816,3 +816,4 @@ else:
                     render_html(h)
         else:
             st.info("Ready to scan. Click START.")
+
