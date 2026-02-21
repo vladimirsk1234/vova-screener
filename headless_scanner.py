@@ -715,6 +715,7 @@ if st.session_state.scanning:
     table_rows = []
     rejected_reasons = []
     processed = 0
+    reference_end_date = None  # same bar for all tickers = consistent results
 
     for batch_idx, batch in enumerate(batches):
         if not st.session_state.scanning:
@@ -733,6 +734,8 @@ if st.session_state.scanning:
             if all_data is None or all_data.empty:
                 all_data = None
             else:
+                if reference_end_date is None and hasattr(all_data.index, '__len__') and len(all_data.index) > 0:
+                    reference_end_date = all_data.index[-1]
                 info_box.info(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
         except Exception as e:
             st.warning(f"Batch download failed: {e}")
@@ -765,6 +768,12 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
+
+                # Use same end date for all tickers so results are consistent (same bar everywhere)
+                if reference_end_date is not None and len(df.index) > 0 and df.index[-1] > reference_end_date:
+                    df = df.loc[df.index <= reference_end_date]
+                if reference_end_date is None and len(df.index) > 0:
+                    reference_end_date = df.index[-1]
 
                 # Resample daily to weekly/monthly so current period is included (match TV)
                 df = _resample_to_timeframe(df, tf)
@@ -826,11 +835,24 @@ if st.session_state.scanning:
     bar.empty()
     st.session_state.results = table_rows
     st.session_state.rejected = rejected_reasons
+    st.session_state.results_as_of = reference_end_date
+    st.session_state.results_tf = tf
 
     with res_area.container():
         if table_rows:
             res_df = pd.DataFrame(table_rows)
             st.dataframe(res_df, use_container_width=True, hide_index=True)
+            if reference_end_date is not None:
+                try:
+                    d = pd.Timestamp(reference_end_date)
+                    as_of_str = d.strftime("%Y-%m-%d")
+                    dow = d.dayofweek
+                    if dow >= 5:
+                        st.caption(f"**Results as of {as_of_str}** (last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency.")
+                    else:
+                        st.caption(f"**Results as of {as_of_str}** ({tf}). Same bar used for all symbols for consistency.")
+                except Exception:
+                    pass
         else:
             st.info("No symbols passed the screener.")
         if p['src'] == "MANUAL INPUT" and rejected_reasons:
@@ -844,11 +866,24 @@ else:
     last_src = st.session_state.run_params.get('src', "TV-LIST")
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
+    as_of = st.session_state.get("results_as_of")
+    as_of_tf = st.session_state.get("results_tf", "Daily")
 
     with res_area.container():
         if table_rows:
             res_df = pd.DataFrame(table_rows)
             st.dataframe(res_df, use_container_width=True, hide_index=True)
+            if as_of is not None:
+                try:
+                    d = pd.Timestamp(as_of)
+                    as_of_str = d.strftime("%Y-%m-%d")
+                    dow = d.dayofweek
+                    if dow >= 5:
+                        st.caption(f"**Results as of {as_of_str}** (last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency.")
+                    else:
+                        st.caption(f"**Results as of {as_of_str}** ({as_of_tf}). Same bar used for all symbols for consistency.")
+                except Exception:
+                    pass
         else:
             st.info("Ready to scan. Click START.")
         if last_src == "MANUAL INPUT" and rejected_reasons:
