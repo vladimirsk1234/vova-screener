@@ -276,6 +276,80 @@ def get_sp500_tickers():
         st.error(f"Error S&P500: {e}")
         return []
 
+@st.cache_data(ttl=3600)
+def get_nasdaq100_tickers():
+    try:
+        url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
+        headers = {"User-Agent": "Mozilla/5.0"}
+        tables = pd.read_html(requests.get(url, headers=headers).text)
+        for tbl in tables:
+            if len(tbl) < 50:
+                continue
+            # First column is often Ticker (or unnamed)
+            col0 = tbl.columns[0] if len(tbl.columns) else None
+            if col0 and ('Ticker' in str(col0) or 'Symbol' in str(col0)):
+                syms = [str(t).strip().replace('.', '-') for t in tbl.iloc[:, 0].tolist() if pd.notna(t) and isinstance(t, str) and 1 <= len(str(t).strip()) <= 6 and str(t).strip().isalpha()]
+                if len(syms) >= 50:
+                    return syms
+            # Try first column as tickers (e.g. ADBE, AMD, ...)
+            syms = [str(t).strip().replace('.', '-') for t in tbl.iloc[:, 0].tolist() if pd.notna(t) and isinstance(t, str) and 2 <= len(str(t).strip()) <= 5 and str(t).strip().isalpha()]
+            if len(syms) >= 50:
+                return syms
+        return []
+    except Exception:
+        return []
+
+def get_us_stock_tickers():
+    """S&P 500 + NASDAQ 100, deduplicated, to match TV's larger US watchlist (more results)."""
+    sp = set(get_sp500_tickers())
+    ndq = set(get_nasdaq100_tickers())
+    return list(sp | ndq)
+
+@st.cache_data(ttl=86400)  # 24h cache - list updates daily
+def get_all_us_listed_tickers():
+    """
+    Fetch all US-listed common stock symbols from NASDAQ symbol directory (nasdaqtraded.txt).
+    Includes NASDAQ, NYSE, AMEX. Filters: no ETF, no test, exclude warrants/rights/units/preferred.
+    """
+    url = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        lines = r.text.strip().split("\n")
+        if not lines:
+            return []
+        # Header: Nasdaq Traded|Symbol|Security Name|Listing Exchange|Market Category|ETF|Round Lot Size|Test Issue|...
+        col = lines[0].split("|")
+        try:
+            sym_idx = col.index("Symbol")
+            name_idx = col.index("Security Name")
+            etf_idx = col.index("ETF")
+            test_idx = col.index("Test Issue")
+        except ValueError:
+            sym_idx, name_idx, etf_idx, test_idx = 1, 2, 5, 7
+        out = []
+        exclude_substrings = ("warrant", " - right", " - unit", " preferred stock", " preferred share", " preferred ", " etf", " bond ", " note due ", " trust units", " depositary share", " unit ")
+        for line in lines[1:]:
+            parts = line.split("|")
+            if len(parts) <= max(sym_idx, name_idx, etf_idx, test_idx):
+                continue
+            sym = (parts[sym_idx] or "").strip()
+            name = (parts[name_idx] or "").lower()
+            etf = (parts[etf_idx] or "").strip().upper()
+            test = (parts[test_idx] or "").strip().upper()
+            if not sym or "$" in sym or "|" in sym or len(sym) > 6:
+                continue
+            if etf == "Y" or test == "Y":
+                continue
+            if any(x in name for x in exclude_substrings):
+                continue
+            out.append(sym.replace(".", "-"))
+        return out
+    except Exception as e:
+        st.warning(f"Could not fetch all US tickers: {e}. Use S&P 500 + NASDAQ 100.")
+        return []
+
 def get_financial_info(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -311,6 +385,7 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
 
         if quote_type and quote_type.upper() != "EQUITY":
             return False, "NOT_EQUITY", None
+        # Only reject if exchange is explicitly non-US (allow empty for index constituents)
         if exchange and exchange not in US_EQUITY_EXCHANGES:
             return False, "NOT_US", None
         if market_cap is None or (min_market_cap and market_cap < min_market_cap):
@@ -491,8 +566,10 @@ st.sidebar.header("⚙️ CONFIGURATION")
 # Disable inputs if scanning
 disabled = st.session_state.scanning
 
-# Source Input
-src = st.sidebar.radio("SOURCE", ["All S&P 500", "Manual Input"], disabled=disabled)
+# Source Input (larger universe = more results, like TV's 1USA_STOCK watchlist)
+src = st.sidebar.radio("SOURCE", ["All US listed", "S&P 500 + NASDAQ 100", "All S&P 500", "Manual Input"], disabled=disabled, index=0)
+if src == "All US listed":
+    st.sidebar.caption("Scans all US common stocks (NASDAQ directory). Slower; uses same filters: MC > 5B, Avg Vol > 300K.")
 man_txt = ""
 if src == "Manual Input":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
@@ -565,7 +642,11 @@ def _extract_ohlcv(all_data, ticker, required_cols):
 
 if st.session_state.scanning:
     p = st.session_state.run_params
-    if p['src'] == "All S&P 500":
+    if p['src'] == "All US listed":
+        tickers = get_all_us_listed_tickers()
+    elif p['src'] == "S&P 500 + NASDAQ 100":
+        tickers = get_us_stock_tickers()
+    elif p['src'] == "All S&P 500":
         tickers = get_sp500_tickers()
     else:
         tickers = [x.strip().upper() for x in p['txt'].split(',') if x.strip()]
@@ -577,106 +658,116 @@ if st.session_state.scanning:
 
     inter, fetch_period = _interval_and_period(p['tf'])
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    # For "All US listed" process in chunks to avoid huge single download
+    CHUNK_SIZE = 350
+    if p['src'] == "All US listed" and len(tickers) > CHUNK_SIZE:
+        batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]
+    else:
+        batches = [tickers]
+
     info_box = st.empty()
-    info_box.info(f"DOWNLOADING DATA FOR {len(tickers)} TICKERS ({p['tf']})... DO NOT REFRESH.")
     bar = st.progress(0)
-
-    try:
-        all_data = yf.download(
-            tickers,
-            period=fetch_period,
-            interval=inter,
-            progress=False,
-            auto_adjust=False,
-            group_by='ticker',
-            threads=True
-        )
-        if all_data is None or all_data.empty:
-            raise ValueError("Batch download returned empty data")
-        info_box.info(f"PROCESSING {len(tickers)} TICKERS... DO NOT REFRESH.")
-        bar.progress(0.1)
-    except Exception as e:
-        st.warning(f"Batch download failed: {e}. Falling back to sequential.")
-        all_data = None
-        bar.progress(0.05)
-
     table_rows = []
     rejected_reasons = []
+    processed = 0
 
-    for i, t in enumerate(tickers):
+    for batch_idx, batch in enumerate(batches):
         if not st.session_state.scanning:
             break
-        bar.progress(0.1 + 0.9 * ((i + 1) / len(tickers)))
+        info_box.info(f"Downloading batch {batch_idx + 1}/{len(batches)} ({len(batch)} tickers)... DO NOT REFRESH.")
         try:
-            passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000)
-            if not passed:
-                if p['src'] == "Manual Input":
-                    rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
-                continue
-
-            df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
-            if df is None or df.empty:
-                try:
-                    df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
-                    if df is not None and not df.empty and all(col in df.columns for col in required_cols):
-                        df = df[required_cols].copy()
-                    else:
-                        df = None
-                except Exception:
-                    df = None
-            if df is None or df.empty or len(df) < MIN_BARS:
-                if p['src'] == "Manual Input":
-                    rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
-                continue
-
-            df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
-            if len(df) < MIN_BARS:
-                if p['src'] == "Manual Input":
-                    rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
-                continue
-
-            out = run_sequence_vova_pine(
-                df,
-                atr_len=ATR_LEN,
-                min_rr=p['rr'],
-                use_last_hl_sl=p['use_last_hl_sl'],
-                risk_dollars=p['risk_per_trade']
+            all_data = yf.download(
+                batch,
+                period=fetch_period,
+                interval=inter,
+                progress=False,
+                auto_adjust=False,
+                group_by='ticker',
+                threads=True
             )
-            if out is None or not out["Valid"]:
-                if p['src'] == "Manual Input":
-                    rejected_reasons.append({"Symbol": t, "Reason": "NO_VALID_SIGNAL"})
-                continue
-            if p['new'] and not out["New"]:
-                continue
-
-            pos_size = out["position_size"]
-            if np.isnan(pos_size) or pos_size < 1:
-                pos_size = 0
+            if all_data is None or all_data.empty:
+                all_data = None
             else:
-                pos_size = int(round(pos_size))
-            pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
+                info_box.info(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
+        except Exception as e:
+            st.warning(f"Batch download failed: {e}")
+            all_data = None
 
-            pe_val = info_dict["pe"]
-            if pe_val is not None and (np.isnan(pe_val) or np.isinf(pe_val)):
-                pe_val = None
+        for i, t in enumerate(batch):
+            if not st.session_state.scanning:
+                break
+            processed += 1
+            bar.progress(0.05 + 0.95 * (processed / len(tickers)))
+            try:
+                passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000)
+                if not passed:
+                    if p['src'] == "Manual Input":
+                        rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
+                    continue
 
-            table_rows.append({
-                "Symbol": t,
-                "Company Name": info_dict["company_name"],
-                "TP": round(float(out["TP"]), 2),
-                "SL": round(float(out["SL"]), 2),
-                "RR": round(float(out["RR"]), 2),
-                "MC (B/M)": round(float(info_dict["mc_display"]), 2),
-                "PE": round(float(pe_val), 2) if pe_val is not None else None,
-                "Position Size (shares)": pos_size,
-                "Position Value ($)": round(float(pos_value), 2),
-                "New": 1 if out["New"] else 0,
-                "Valid": 1 if out["Valid"] else 0,
-                "Strong": 1 if out["Strong"] else 0,
-            })
-        except Exception:
-            if p['src'] == "Manual Input":
-                rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
+                df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
+                if df is None or df.empty:
+                    try:
+                        df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+                        if df is not None and not df.empty and all(col in df.columns for col in required_cols):
+                            df = df[required_cols].copy()
+                        else:
+                            df = None
+                    except Exception:
+                        df = None
+                if df is None or df.empty or len(df) < MIN_BARS:
+                    if p['src'] == "Manual Input":
+                        rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
+                    continue
+
+                df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
+                if len(df) < MIN_BARS:
+                    if p['src'] == "Manual Input":
+                        rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
+                    continue
+
+                out = run_sequence_vova_pine(
+                    df,
+                    atr_len=ATR_LEN,
+                    min_rr=p['rr'],
+                    use_last_hl_sl=p['use_last_hl_sl'],
+                    risk_dollars=p['risk_per_trade']
+                )
+                if out is None or not out["Valid"]:
+                    if p['src'] == "Manual Input":
+                        rejected_reasons.append({"Symbol": t, "Reason": "NO_VALID_SIGNAL"})
+                    continue
+                if p['new'] and not out["New"]:
+                    continue
+
+                pos_size = out["position_size"]
+                if np.isnan(pos_size) or pos_size < 1:
+                    pos_size = 0
+                else:
+                    pos_size = int(round(pos_size))
+                pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
+
+                pe_val = info_dict["pe"]
+                if pe_val is not None and (np.isnan(pe_val) or np.isinf(pe_val)):
+                    pe_val = None
+
+                table_rows.append({
+                    "Symbol": t,
+                    "Company Name": info_dict["company_name"],
+                    "TP": round(float(out["TP"]), 2),
+                    "SL": round(float(out["SL"]), 2),
+                    "RR": round(float(out["RR"]), 2),
+                    "MC (B/M)": round(float(info_dict["mc_display"]), 2),
+                    "PE": round(float(pe_val), 2) if pe_val is not None else None,
+                    "Position Size (shares)": pos_size,
+                    "Position Value ($)": round(float(pos_value), 2),
+                    "New": 1 if out["New"] else 0,
+                    "Valid": 1 if out["Valid"] else 0,
+                    "Strong": 1 if out["Strong"] else 0,
+                })
+            except Exception:
+                if p['src'] == "Manual Input":
+                    rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
 
     bar.empty()
     st.session_state.results = table_rows
@@ -696,7 +787,7 @@ if st.session_state.scanning:
     info_box.success("SCAN COMPLETE")
 
 else:
-    last_src = st.session_state.run_params.get('src', "All S&P 500")
+    last_src = st.session_state.run_params.get('src', "All US listed")
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
 
