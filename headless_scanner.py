@@ -665,6 +665,28 @@ def _resample_to_timeframe(df, tf):
     res = df[req].resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
     return res.dropna(subset=req)
 
+def _fill_last_bar_ohlc(df):
+    """Fill last bar NaNs in OHLC from previous bar so we never drop the reference bar (avoids missing signals)."""
+    if df is None or len(df) < 2:
+        return df
+    ohlc = ["Open", "High", "Low", "Close"]
+    if not all(c in df.columns for c in ohlc):
+        return df
+    last_idx = df.index[-1]
+    last_row = df.loc[last_idx, ohlc]
+    if last_row.isna().any():
+        prev = df.iloc[-2][ohlc]
+        for col in ohlc:
+            if pd.isna(df.at[last_idx, col]) and not pd.isna(prev[col]):
+                df.at[last_idx, col] = prev[col]
+        # if still NaN (e.g. first bar of resampled period), use Close for O/H/L
+        if pd.isna(df.at[last_idx, "Close"]) and not pd.isna(prev["Close"]):
+            df.at[last_idx, "Close"] = prev["Close"]
+        for col in ["Open", "High", "Low"]:
+            if pd.isna(df.at[last_idx, col]):
+                df.at[last_idx, col] = df.at[last_idx, "Close"]
+    return df
+
 def _extract_ohlcv(all_data, ticker, required_cols):
     if isinstance(all_data.columns, pd.MultiIndex):
         if ticker not in all_data.columns.get_level_values(0).unique():
@@ -736,6 +758,9 @@ if st.session_state.scanning:
             else:
                 if reference_end_date is None and hasattr(all_data.index, '__len__') and len(all_data.index) > 0:
                     reference_end_date = all_data.index[-1]
+                # Later batches: truncate to same bar as first batch so all tickers evaluated on same date
+                if reference_end_date is not None and len(all_data.index) > 0 and all_data.index[-1] > reference_end_date:
+                    all_data = all_data.loc[all_data.index <= reference_end_date]
                 info_box.info(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
         except Exception as e:
             st.warning(f"Batch download failed: {e}")
@@ -782,6 +807,8 @@ if st.session_state.scanning:
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
+                # Keep reference bar: fill last-bar NaNs from previous bar so we don't drop it (fixes missing vs TV)
+                df = _fill_last_bar_ohlc(df)
                 df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
                 if len(df) < MIN_BARS:
                     if p['src'] == "MANUAL INPUT":
