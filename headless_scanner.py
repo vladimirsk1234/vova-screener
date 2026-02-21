@@ -390,8 +390,12 @@ def get_financial_info(ticker):
         return i.get('trailingPE') or i.get('forwardPE')
     except: return None
 
-# US exchanges (common stocks); OTC/OTN for over-the-counter
-US_EQUITY_EXCHANGES = {"NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX", "OTC", "OTN"}
+# US exchanges: Yahoo MIC codes and yfinance variants (comparison uses .upper())
+US_EQUITY_EXCHANGES = {
+    "NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX", "OTC", "OTN",
+    "NASDAQ", "NYSE", "AMEX", "BATS", "ARCA",
+    "NASDAQGS", "NASDAQCM", "NASDAQGM",  # yfinance often returns e.g. "NasdaqGS"
+}
 
 def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
     """
@@ -777,7 +781,12 @@ if st.session_state.scanning:
                 if not passed:
                     if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
-                    continue
+                        continue
+                    # TV-LIST: still run sequence with OHLC only (info may fail or use different exchange string)
+                    if p['src'] == "TV-LIST":
+                        info_dict = {"company_name": t, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
+                    else:
+                        continue
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
