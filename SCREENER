@@ -1,0 +1,236 @@
+//@version=6
+indicator("Sequence Vova Screener", overlay=false)
+
+// ==================================================================================
+// INPUTS
+// ==================================================================================
+grp_risk = "Screener Settings"
+minRR = input.float(1.5, "Minimum R/R Ratio", minval=0.5, step=0.1, group=grp_risk)
+atrLen = input.int(14, "ATR Length", minval=1, group=grp_risk)
+useLastHLInSL = input.bool(true, "Use last HL in SL (safety)", group=grp_risk)
+riskDollars = input.float(100, "Risk per trade ($)", minval=0.01, step=10, group=grp_risk)
+
+// ==================================================================================
+// VOVA SEQUENCE LOGIC (STRUCTURE) - Single timeframe, no drawing
+// ==================================================================================
+var int seqState = 0
+var float criticalLevel = na
+
+// Current Developing Sequence Stats
+var float seqHigh = na
+var int seqHighIdx = na
+var float seqLow = na
+var int seqLowIdx = na
+
+// Previous CONFIRMED Peaks/Troughs
+var float lastConfirmedPeak = na
+var int lastConfirmedPeakIdx = na
+var float lastConfirmedTrough = na
+var int lastConfirmedTroughIdx = na
+
+// --- STRUCTURE MEMORY FLAGS ---
+var bool lastPeakWasHH = false
+var bool lastTroughWasHL = false
+
+// Flags
+bool isBreak = false
+bool isBullishBreak = false
+bool isBearishBreak = false
+
+// Init
+if bar_index == 0
+    seqState := 0
+    seqHigh := high
+    seqHighIdx := bar_index
+    seqLow := low
+    seqLowIdx := bar_index
+else
+    prevSeqState = seqState[1]
+
+    // Check for Breaks based on CLOSE vs Critical Level
+    if prevSeqState == 1
+        isBreak := close < criticalLevel[1]
+        isBullishBreak := isBreak
+    else if prevSeqState == -1
+        isBreak := close > criticalLevel[1]
+        isBearishBreak := isBreak
+    else
+        isBreak := false
+
+    // STATE CHANGE HANDLER
+    if isBreak
+        if prevSeqState == 1
+            // >>> UP TREND BROKEN (Bearish) <<<
+            if high >= seqHigh
+                seqHigh := high
+                seqHighIdx := bar_index
+
+            bool isCurrentPeakHH = false
+            if not na(lastConfirmedPeak)
+                if seqHigh > lastConfirmedPeak
+                    isCurrentPeakHH := true
+                else if seqHigh < lastConfirmedPeak
+                    isCurrentPeakHH := false
+                else
+                    isCurrentPeakHH := false
+            else
+                isCurrentPeakHH := true
+
+            lastPeakWasHH := isCurrentPeakHH
+
+            // Update History
+            lastConfirmedPeak := seqHigh
+            lastConfirmedPeakIdx := seqHighIdx
+
+            // Reset for DOWN Trend
+            seqState := -1
+            seqHigh := high
+            seqHighIdx := bar_index
+            seqLow := low
+            seqLowIdx := bar_index
+            criticalLevel := high
+
+        else
+            // >>> DOWN TREND BROKEN (Bullish) <<<
+            if low <= seqLow
+                seqLow := low
+                seqLowIdx := bar_index
+
+            bool isCurrentTroughHL = false
+            if not na(lastConfirmedTrough)
+                if seqLow < lastConfirmedTrough
+                    isCurrentTroughHL := false
+                else if seqLow > lastConfirmedTrough
+                    isCurrentTroughHL := true
+                else
+                    isCurrentTroughHL := true
+            else
+                isCurrentTroughHL := true
+
+            lastTroughWasHL := isCurrentTroughHL
+
+            // Update History
+            lastConfirmedTrough := seqLow
+            lastConfirmedTroughIdx := seqLowIdx
+
+            // Reset for UP Trend
+            seqState := 1
+            seqHigh := high
+            seqHighIdx := bar_index
+            seqLow := low
+            seqLowIdx := bar_index
+            criticalLevel := low
+
+    else
+        // NO BREAK - MAINTAIN LOGIC
+        seqState := prevSeqState
+
+        if seqState == 1
+            // UP TREND LOGIC
+            if high >= seqHigh
+                seqHigh := high
+                seqHighIdx := bar_index
+
+            // Trail Critical Level
+            if high >= seqHigh[1]
+                criticalLevel := low
+            else
+                criticalLevel := criticalLevel[1]
+
+        else if seqState == -1
+            // DOWN TREND LOGIC
+            if low <= seqLow
+                seqLow := low
+                seqLowIdx := bar_index
+
+            // Trail Critical Level
+            if low <= seqLow[1]
+                criticalLevel := high
+            else
+                criticalLevel := criticalLevel[1]
+
+        else
+            // INITIALIZATION
+            if close > seqHigh[1]
+                seqState := 1
+                criticalLevel := low
+            else if close < seqLow[1]
+                seqState := -1
+                criticalLevel := high
+            else
+                seqHigh := math.max(seqHigh[1], high)
+                seqLow := math.min(seqLow[1], low)
+
+// Structure Invalidation: SEQ DOWN + Last HL + Low Below HL
+bool structInvalidSeqDown = (seqState == -1) and lastTroughWasHL and (not na(lastConfirmedTrough)) and (seqLow < lastConfirmedTrough)
+
+// ==================================================================================
+// STRUCTURE VALIDATION (Row 8 style) - Single timeframe
+// ==================================================================================
+bool struct_ok = (lastTroughWasHL or (not na(lastConfirmedPeak) and close > lastConfirmedPeak and lastTroughWasHL)) and (not structInvalidSeqDown)
+
+// ==================================================================================
+// SL AND RR (current timeframe) - conservative: min(critical, ATR, last HL when valid)
+// ==================================================================================
+float cur_atr = ta.atr(atrLen)
+float sl = close - cur_atr
+if not na(criticalLevel) and criticalLevel < close
+    sl := math.min(sl, criticalLevel)
+if useLastHLInSL and lastTroughWasHL and not na(lastConfirmedTrough) and lastConfirmedTrough < close
+    sl := math.min(sl, lastConfirmedTrough)
+float risk = close - sl
+float reward = lastConfirmedPeak - close
+float rr = (risk > 0) ? (reward / risk) : 0.0
+
+float positionSize = (risk > 0 and riskDollars > 0) ? (riskDollars / risk) : na
+float positionValue = positionSize * close
+
+// ==================================================================================
+// MC, PE, DAYS TO EARNINGS (like original indicator)
+// ==================================================================================
+// MC: request.financial works in screener; syminfo.shares_outstanding_total often na
+tso_fin = request.financial(syminfo.tickerid, "TOTAL_SHARES_OUTSTANDING", "FQ", ignore_invalid_symbol=true)
+float marketcap = (not na(tso_fin) and tso_fin > 0) ? (tso_fin * close) : (not na(syminfo.shares_outstanding_total) and syminfo.shares_outstanding_total > 0 ? syminfo.shares_outstanding_total * close : na)
+// MC display: billions (>=1e9) or millions (<1e9) so column is readable
+float mc_display = na(marketcap) ? na : (marketcap >= 1e9 ? marketcap / 1e9 : marketcap / 1e6)
+
+pe_ttm = request.financial(syminfo.tickerid, "PRICE_EARNINGS_TTM", "TTM", ignore_invalid_symbol=true)
+eps_ttm = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE", "TTM", ignore_invalid_symbol=true)
+float pe_final = not na(pe_ttm) ? pe_ttm : (not na(eps_ttm) and eps_ttm != 0 ? close / eps_ttm : na)
+
+// ==================================================================================
+// SIGNAL DEFINITIONS
+// ==================================================================================
+// VALID = SEQ==1, structure last low HL, RR >= minRR, risk/reward > 0 (any bar)
+bool valid_signal = (seqState == 1) and struct_ok and (rr >= minRR) and (risk > 0) and (reward > 0)
+
+// NEW = same as VALID but only when bullish break on current bar
+bool new_signal = valid_signal and isBearishBreak
+
+// STRONG = new signal where same candle made new low in prev SEQ=-1 and broke to SEQ=1
+bool strong_signal = new_signal and not na(seqLow[1]) and (low <= seqLow[1])
+
+// ==================================================================================
+// SCREENER OUTPUT (filter by New or Valid > 0; extra columns only when valid)
+// New and Valid plotted last so they appear on the far right
+// ==================================================================================
+plot(valid_signal ? lastConfirmedPeak : na, "TP")
+plot(valid_signal ? sl : na, "SL")
+plot(valid_signal ? rr : na, "RR")
+plot(valid_signal ? mc_display : na, "MC (B/M)")
+plot(valid_signal ? pe_final : na, "PE")
+plot(valid_signal ? positionSize : na, "Position Size (shares)")
+plot(valid_signal ? positionValue : na, "Position Value ($)")
+plot(new_signal ? 1 : 0, "New", color=color.green)
+plot(valid_signal ? 1 : 0, "Valid", color=color.blue)
+plot(strong_signal ? 1 : 0, "Strong", color=color.purple)
+
+// ==================================================================================
+// ALERT: Push notification when NEW signal occurs (one per candle, one per ticker per day)
+// ==================================================================================
+var int lastAlertDate = na
+int currentDate = year * 10000 + month * 100 + dayofmonth
+bool allow_alert = new_signal and (na(lastAlertDate[1]) or currentDate != lastAlertDate[1])
+lastAlertDate := new_signal ? currentDate : lastAlertDate
+
+alertcondition(allow_alert, title="New Sequence Signal", message="Sequence Vova: NEW long signal on {{ticker}} ({{interval}})")
