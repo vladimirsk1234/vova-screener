@@ -4,6 +4,7 @@ import yfinance as yf
 import numpy as np
 import requests
 import textwrap
+import os
 
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
@@ -265,6 +266,38 @@ render_html("""
 # ==========================================
 # 2. DATA & API
 # ==========================================
+# Watchlist file: update this filename when you replace the list (same folder as this script)
+WATCHLIST_FILENAME = "1USA_STOCK_01124.txt"
+
+def get_watchlist_file_tickers():
+    """
+    Read tickers from 1USA_STOCK file (EXCHANGE:SYMBOL per entry, comma-separated).
+    No cache so you can update the file and next scan uses the new list.
+    """
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, WATCHLIST_FILENAME)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
+        if not raw:
+            return []
+        out = []
+        for part in raw.split(","):
+            part = part.strip()
+            if ":" in part:
+                sym = part.split(":", 1)[1].strip()
+            else:
+                sym = part
+            if sym:
+                out.append(sym.replace(".", "-"))
+        return out
+    except FileNotFoundError:
+        st.warning(f"Watchlist file not found: {path}. Add {WATCHLIST_FILENAME} or choose another source.")
+        return []
+    except Exception as e:
+        st.warning(f"Could not read watchlist file: {e}")
+        return []
+
 @st.cache_data(ttl=3600)
 def get_sp500_tickers():
     try:
@@ -566,8 +599,10 @@ st.sidebar.header("⚙️ CONFIGURATION")
 # Disable inputs if scanning
 disabled = st.session_state.scanning
 
-# Source Input (larger universe = more results, like TV's 1USA_STOCK watchlist)
-src = st.sidebar.radio("SOURCE", ["All US listed", "S&P 500 + NASDAQ 100", "All S&P 500", "Manual Input"], disabled=disabled, index=0)
+# Source Input: 1USA_STOCK file is primary (update file to change list); others are alternatives
+src = st.sidebar.radio("SOURCE", ["1USA_STOCK (file)", "All US listed", "S&P 500 + NASDAQ 100", "All S&P 500", "Manual Input"], disabled=disabled, index=0)
+if src == "1USA_STOCK (file)":
+    st.sidebar.caption(f"Uses {WATCHLIST_FILENAME} in app folder. Edit or replace file to update the list.")
 if src == "All US listed":
     st.sidebar.caption("Scans all US common stocks (NASDAQ directory). Slower; uses same filters: MC > 5B, Avg Vol > 300K.")
 man_txt = ""
@@ -642,7 +677,9 @@ def _extract_ohlcv(all_data, ticker, required_cols):
 
 if st.session_state.scanning:
     p = st.session_state.run_params
-    if p['src'] == "All US listed":
+    if p['src'] == "1USA_STOCK (file)":
+        tickers = get_watchlist_file_tickers()
+    elif p['src'] == "All US listed":
         tickers = get_all_us_listed_tickers()
     elif p['src'] == "S&P 500 + NASDAQ 100":
         tickers = get_us_stock_tickers()
@@ -658,9 +695,9 @@ if st.session_state.scanning:
 
     inter, fetch_period = _interval_and_period(p['tf'])
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-    # For "All US listed" process in chunks to avoid huge single download
+    # Chunk large lists to avoid huge single download (All US listed or big watchlist file)
     CHUNK_SIZE = 350
-    if p['src'] == "All US listed" and len(tickers) > CHUNK_SIZE:
+    if len(tickers) > CHUNK_SIZE:
         batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]
     else:
         batches = [tickers]
@@ -787,7 +824,7 @@ if st.session_state.scanning:
     info_box.success("SCAN COMPLETE")
 
 else:
-    last_src = st.session_state.run_params.get('src', "All US listed")
+    last_src = st.session_state.run_params.get('src', "1USA_STOCK (file)")
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
 
