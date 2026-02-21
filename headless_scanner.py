@@ -267,11 +267,11 @@ render_html("""
 # 2. DATA & API
 # ==========================================
 # Watchlist file: update this filename when you replace the list (same folder as this script)
-WATCHLIST_FILENAME = "1USA_STOCK_01124.txt"
+WATCHLIST_FILENAME = "TV-LIST.txt"
 
 def get_watchlist_file_tickers():
     """
-    Read tickers from 1USA_STOCK file (EXCHANGE:SYMBOL per entry, comma-separated).
+    Read tickers from TV-LIST file (EXCHANGE:SYMBOL per entry, comma-separated).
     No cache so you can update the file and next scan uses the new list.
     """
     base = os.path.dirname(os.path.abspath(__file__))
@@ -390,12 +390,13 @@ def get_financial_info(ticker):
         return i.get('trailingPE') or i.get('forwardPE')
     except: return None
 
-# US exchanges (common stocks)
-US_EQUITY_EXCHANGES = {"NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX"}
+# US exchanges (common stocks); OTC/OTN for over-the-counter
+US_EQUITY_EXCHANGES = {"NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX", "OTC", "OTN"}
 
-def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000):
+def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
     """
-    Fetch ticker info from yfinance. Apply filters: US listed common stock, MC >= min_market_cap, avg vol >= min_avg_volume.
+    Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally MC/vol (require_mc_vol=True).
+    When require_mc_vol=False (e.g. TV-LIST): only filter NOT_EQUITY / NOT_US; allow None MC/vol so more symbols pass.
     Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, market_cap, mc_display, pe, avg_volume.
     """
     try:
@@ -418,15 +419,17 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
 
         if quote_type and quote_type.upper() != "EQUITY":
             return False, "NOT_EQUITY", None
-        # Only reject if exchange is explicitly non-US (allow empty for index constituents)
         if exchange and exchange not in US_EQUITY_EXCHANGES:
             return False, "NOT_US", None
-        if market_cap is None or (min_market_cap and market_cap < min_market_cap):
-            return False, "MC_BELOW_5B", None
-        if avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume):
-            return False, "LOW_VOL", None
+        if require_mc_vol:
+            if market_cap is None or (min_market_cap and market_cap < min_market_cap):
+                return False, "MC_BELOW_5B", None
+            if avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume):
+                return False, "LOW_VOL", None
 
-        mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
+        mc_display = None
+        if market_cap is not None:
+            mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
         info_dict = {
             "company_name": company_name,
             "market_cap": market_cap,
@@ -599,14 +602,12 @@ st.sidebar.header("⚙️ CONFIGURATION")
 # Disable inputs if scanning
 disabled = st.session_state.scanning
 
-# Source Input: 1USA_STOCK file is primary (update file to change list); others are alternatives
-src = st.sidebar.radio("SOURCE", ["1USA_STOCK (file)", "All US listed", "S&P 500 + NASDAQ 100", "All S&P 500", "Manual Input"], disabled=disabled, index=0)
-if src == "1USA_STOCK (file)":
-    st.sidebar.caption(f"Uses {WATCHLIST_FILENAME} in app folder. Edit or replace file to update the list.")
-if src == "All US listed":
-    st.sidebar.caption("Scans all US common stocks (NASDAQ directory). Slower; uses same filters: MC > 5B, Avg Vol > 300K.")
+# Source: 1.TV-LIST 2.S&P500 3.NASDAQ 100 4.MANUAL INPUT
+src = st.sidebar.radio("SOURCE", ["TV-LIST", "S&P500", "NASDAQ 100", "MANUAL INPUT"], disabled=disabled, index=0)
+if src == "TV-LIST":
+    st.sidebar.caption(f"Uses {WATCHLIST_FILENAME}. Edit file to update the list. MC/vol not required (match TV).")
 man_txt = ""
-if src == "Manual Input":
+if src == "MANUAL INPUT":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
 
 # Parameters
@@ -677,14 +678,12 @@ def _extract_ohlcv(all_data, ticker, required_cols):
 
 if st.session_state.scanning:
     p = st.session_state.run_params
-    if p['src'] == "1USA_STOCK (file)":
+    if p['src'] == "TV-LIST":
         tickers = get_watchlist_file_tickers()
-    elif p['src'] == "All US listed":
-        tickers = get_all_us_listed_tickers()
-    elif p['src'] == "S&P 500 + NASDAQ 100":
-        tickers = get_us_stock_tickers()
-    elif p['src'] == "All S&P 500":
+    elif p['src'] == "S&P500":
         tickers = get_sp500_tickers()
+    elif p['src'] == "NASDAQ 100":
+        tickers = get_nasdaq100_tickers()
     else:
         tickers = [x.strip().upper() for x in p['txt'].split(',') if x.strip()]
 
@@ -736,9 +735,10 @@ if st.session_state.scanning:
             processed += 1
             bar.progress(0.05 + 0.95 * (processed / len(tickers)))
             try:
-                passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000)
+                require_mc_vol = (p['src'] != "TV-LIST")
+                passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
                 if not passed:
-                    if p['src'] == "Manual Input":
+                    if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                     continue
 
@@ -753,13 +753,13 @@ if st.session_state.scanning:
                     except Exception:
                         df = None
                 if df is None or df.empty or len(df) < MIN_BARS:
-                    if p['src'] == "Manual Input":
+                    if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
                 df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
                 if len(df) < MIN_BARS:
-                    if p['src'] == "Manual Input":
+                    if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
                     continue
 
@@ -771,7 +771,7 @@ if st.session_state.scanning:
                     risk_dollars=p['risk_per_trade']
                 )
                 if out is None or not out["Valid"]:
-                    if p['src'] == "Manual Input":
+                    if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_VALID_SIGNAL"})
                     continue
                 if p['new'] and not out["New"]:
@@ -788,13 +788,14 @@ if st.session_state.scanning:
                 if pe_val is not None and (np.isnan(pe_val) or np.isinf(pe_val)):
                     pe_val = None
 
+                mc_disp = info_dict.get("mc_display")
                 table_rows.append({
                     "Symbol": t,
                     "Company Name": info_dict["company_name"],
                     "TP": round(float(out["TP"]), 2),
                     "SL": round(float(out["SL"]), 2),
                     "RR": round(float(out["RR"]), 2),
-                    "MC (B/M)": round(float(info_dict["mc_display"]), 2),
+                    "MC (B/M)": round(float(mc_disp), 2) if mc_disp is not None else None,
                     "PE": round(float(pe_val), 2) if pe_val is not None else None,
                     "Position Size (shares)": pos_size,
                     "Position Value ($)": round(float(pos_value), 2),
@@ -803,7 +804,7 @@ if st.session_state.scanning:
                     "Strong": 1 if out["Strong"] else 0,
                 })
             except Exception:
-                if p['src'] == "Manual Input":
+                if p['src'] == "MANUAL INPUT":
                     rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
 
     bar.empty()
@@ -816,7 +817,7 @@ if st.session_state.scanning:
             st.dataframe(res_df, use_container_width=True, hide_index=True)
         else:
             st.info("No symbols passed the screener.")
-        if p['src'] == "Manual Input" and rejected_reasons:
+        if p['src'] == "MANUAL INPUT" and rejected_reasons:
             with st.expander("Rejected (Manual)"):
                 st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
@@ -824,7 +825,7 @@ if st.session_state.scanning:
     info_box.success("SCAN COMPLETE")
 
 else:
-    last_src = st.session_state.run_params.get('src', "1USA_STOCK (file)")
+    last_src = st.session_state.run_params.get('src', "TV-LIST")
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
 
@@ -834,7 +835,7 @@ else:
             st.dataframe(res_df, use_container_width=True, hide_index=True)
         else:
             st.info("Ready to scan. Click START.")
-        if last_src == "Manual Input" and rejected_reasons:
+        if last_src == "MANUAL INPUT" and rejected_reasons:
             with st.expander("Rejected (Manual)"):
                 st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
