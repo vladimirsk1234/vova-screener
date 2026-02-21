@@ -651,11 +651,19 @@ MIN_BARS = 50  # minimum bars for sequence logic
 res_area = st.empty()
 
 def _interval_and_period(tf):
-    if tf == "Daily":
-        return "1d", "2y"
-    if tf == "Weekly":
-        return "1wk", "10y"  # enough bars; last bar = current week (match TV)
-    return "1mo", "10y"  # Monthly: enough bars; last bar = current month (match TV)
+    """Always fetch daily; Weekly/Monthly resampled from daily so current period is included."""
+    return "1d", "10y" if tf != "Daily" else "2y"
+
+def _resample_to_timeframe(df, tf):
+    """Resample daily OHLCV to Weekly or Monthly. Returns df unchanged for Daily."""
+    if tf == "Daily" or df is None or df.empty:
+        return df
+    req = ["Open", "High", "Low", "Close", "Volume"]
+    if not all(c in df.columns for c in req):
+        return df
+    rule = "W-FRI" if tf == "Weekly" else "M"
+    res = df[req].resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
+    return res.dropna(subset=req)
 
 def _extract_ohlcv(all_data, ticker, required_cols):
     if isinstance(all_data.columns, pd.MultiIndex):
@@ -693,6 +701,7 @@ if st.session_state.scanning:
         st.stop()
 
     inter, fetch_period = _interval_and_period(p['tf'])
+    tf = p['tf']
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     # Chunk large lists to avoid huge single download (All US listed or big watchlist file)
     CHUNK_SIZE = 350
@@ -757,19 +766,12 @@ if st.session_state.scanning:
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
-                # For weekly/monthly, keep last bar (current period) even if incomplete so we match TV
-                if inter in ("1wk", "1mo") and len(df) >= 2:
-                    idx_last = df.index[-1]
-                    prev = df.iloc[-2]
-                    last = df.iloc[-1].copy()
-                    c = last["Close"] if pd.notna(last["Close"]) else prev["Close"]
-                    o = last["Open"] if pd.notna(last["Open"]) else prev["Close"]
-                    h = last["High"] if pd.notna(last["High"]) else max(o, c)
-                    l = last["Low"] if pd.notna(last["Low"]) else min(o, c)
-                    df.loc[idx_last, "Close"] = c
-                    df.loc[idx_last, "Open"] = o
-                    df.loc[idx_last, "High"] = h
-                    df.loc[idx_last, "Low"] = l
+                # Resample daily to weekly/monthly so current period is included (match TV)
+                df = _resample_to_timeframe(df, tf)
+                if df is None or df.empty or len(df) < MIN_BARS:
+                    if p['src'] == "MANUAL INPUT":
+                        rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
+                    continue
 
                 df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
                 if len(df) < MIN_BARS:
