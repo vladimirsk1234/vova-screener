@@ -618,7 +618,9 @@ use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disable
 
 st.sidebar.subheader("FILTERS")
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
-new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
+new_p = st.sidebar.checkbox("NEW SIGNALS ONLY (else show all Valid)", False, disabled=disabled)
+if new_p:
+    st.sidebar.caption("Showing only bars with a new breakout. Uncheck to match TV (all Valid signals).")
 
 # Buttons
 c1, c2 = st.sidebar.columns(2)
