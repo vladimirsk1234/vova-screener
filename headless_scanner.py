@@ -654,8 +654,8 @@ def _interval_and_period(tf):
     if tf == "Daily":
         return "1d", "2y"
     if tf == "Weekly":
-        return "1wk", "5y"
-    return "1mo", "5y"  # Monthly
+        return "1wk", "10y"  # enough bars; last bar = current week (match TV)
+    return "1mo", "10y"  # Monthly: enough bars; last bar = current month (match TV)
 
 def _extract_ohlcv(all_data, ticker, required_cols):
     if isinstance(all_data.columns, pd.MultiIndex):
@@ -756,6 +756,20 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL INPUT":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
+
+                # For weekly/monthly, keep last bar (current period) even if incomplete so we match TV
+                if inter in ("1wk", "1mo") and len(df) >= 2:
+                    idx_last = df.index[-1]
+                    prev = df.iloc[-2]
+                    last = df.iloc[-1].copy()
+                    c = last["Close"] if pd.notna(last["Close"]) else prev["Close"]
+                    o = last["Open"] if pd.notna(last["Open"]) else prev["Close"]
+                    h = last["High"] if pd.notna(last["High"]) else max(o, c)
+                    l = last["Low"] if pd.notna(last["Low"]) else min(o, c)
+                    df.loc[idx_last, "Close"] = c
+                    df.loc[idx_last, "Open"] = o
+                    df.loc[idx_last, "High"] = h
+                    df.loc[idx_last, "Low"] = l
 
                 df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
                 if len(df) < MIN_BARS:
