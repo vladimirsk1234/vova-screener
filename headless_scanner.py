@@ -400,47 +400,12 @@ US_EQUITY_EXCHANGES = {
     "NASDAQGS", "NASDAQCM", "NASDAQGM",  # yfinance often returns e.g. "NasdaqGS"
 }
 
-SECTOR_OTHER = "OTHERS"  # non-recognized or missing sector (stocks)
-SECTOR_ETF = "ETF"
-
-# Only treat as ETF when quoteType is explicitly one of these (avoids misclassifying equities with missing/empty quoteType)
-NON_EQUITY_QUOTE_TYPES = {"ETF", "ETP", "MUTUALFUND", "FUND", "INDEX", "CRYPTOCURRENCY", "FUTURE", "OPTION", "CURRENCY"}
-
-def _fetch_quote_type_and_sector(ticker):
-    """Fetch quoteType, sector, industry from yfinance (for fallback when get_ticker_info_and_filter fails). Returns (quote_type, sector, company_name)."""
-    try:
-        i = yf.Ticker(ticker).info
-        qt = (i.get("quoteType") or "").strip()
-        sector = i.get("sector")
-        sector = (sector or None) if (sector and isinstance(sector, str) and sector.strip()) else None
-        if sector is None:
-            industry = i.get("industry")
-            if industry and isinstance(industry, str) and industry.strip():
-                sector = industry.strip()  # use industry so we don't put everything in OTHERS
-        name = i.get("longName") or i.get("shortName") or ticker
-        return qt, sector, name
-    except Exception:
-        return "", None, ticker
-
-def _sector_display_order(sectors_series):
-    """Return ordered list of sectors: alphabetical, then SECTOR_OTHER, then SECTOR_ETF last."""
-    uniq = sectors_series.dropna().unique().tolist()
-    for special in (SECTOR_OTHER, SECTOR_ETF):
-        if special in uniq:
-            uniq.remove(special)
-    uniq.sort(key=str)
-    if (sectors_series == SECTOR_OTHER).any():
-        uniq.append(SECTOR_OTHER)
-    if (sectors_series == SECTOR_ETF).any():
-        uniq.append(SECTOR_ETF)
-    return uniq
-
 def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
     """
     Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally MC/vol (require_mc_vol=True).
     When require_mc_vol=False (e.g. TV-LIST): only filter NOT_EQUITY / NOT_US; allow None MC/vol so more symbols pass.
-    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, market_cap, mc_display, pe, avg_volume, sector.
-    When filter fails but we have info, returns partial info_dict (sector/industry, company_name) so caller doesn't need a second API call.
+    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, market_cap, mc_display, pe, avg_volume.
+    When filter fails but we have info, returns partial info_dict so caller doesn't need a second API call.
     """
     try:
         t = yf.Ticker(ticker)
@@ -460,29 +425,20 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         if pe is not None and (np.isnan(pe) or np.isinf(pe)):
             pe = None
 
-        def _sector_from_info(info):
-            s = info.get("sector")
-            sector = (s or None) if (s and isinstance(s, str) and s.strip()) else None
-            if sector is None:
-                ind = info.get("industry")
-                if ind and isinstance(ind, str) and ind.strip():
-                    sector = ind.strip()
-            return sector
-
         if quote_type and quote_type.upper() != "EQUITY":
-            partial = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+            partial = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
             return False, "NOT_EQUITY", partial
         if exchange and exchange not in US_EQUITY_EXCHANGES:
-            partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+            partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
             if market_cap is not None:
                 partial["mc_display"] = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
             return False, "NOT_US", partial
         if require_mc_vol:
             if market_cap is None or (min_market_cap and market_cap < min_market_cap):
-                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
                 return False, "MC_BELOW_5B", partial
             if avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume):
-                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
                 if market_cap is not None:
                     partial["mc_display"] = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
                 return False, "LOW_VOL", partial
@@ -490,18 +446,24 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         mc_display = None
         if market_cap is not None:
             mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
-        sector = _sector_from_info(i)
         info_dict = {
             "company_name": company_name,
             "market_cap": market_cap,
             "mc_display": mc_display,
             "pe": pe,
             "avg_volume": avg_vol,
-            "sector": sector,
         }
         return True, "", info_dict
     except Exception as e:
         return False, "INFO_ERROR", None
+
+def _fetch_fallback_company_name(ticker):
+    """Fetch company name from yfinance when get_ticker_info_and_filter returns None (INFO_ERROR)."""
+    try:
+        i = yf.Ticker(ticker).info
+        return i.get("longName") or i.get("shortName") or ticker
+    except Exception:
+        return ticker
 
 # ==========================================
 # 3. INDICATOR MATH
@@ -871,19 +833,10 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # Use partial info from first call when we have it (sector from same response); only fetch again on INFO_ERROR
-                    if info_dict is not None:
-                        qt_upper = (info_dict.get("quote_type") or "").upper()
-                        if qt_upper and qt_upper in NON_EQUITY_QUOTE_TYPES:
-                            info_dict = {**info_dict, "sector": SECTOR_ETF}
-                        if "quote_type" in info_dict:
-                            info_dict = {k: v for k, v in info_dict.items() if k != "quote_type"}
-                    else:
-                        quote_type, sector, company_name = _fetch_quote_type_and_sector(t)
-                        qt_upper = (quote_type or "").upper()
-                        if qt_upper and qt_upper in NON_EQUITY_QUOTE_TYPES:
-                            sector = SECTOR_ETF
-                        info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": sector}
+                    # Use partial info from first call when we have it; only fetch again on INFO_ERROR
+                    if info_dict is None:
+                        company_name = _fetch_fallback_company_name(t)
+                        info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -951,7 +904,6 @@ if st.session_state.scanning:
                 table_rows.append({
                     "Symbol": tv_url,
                     "Company Name": info_dict["company_name"],
-                    "Sector": info_dict.get("sector") or SECTOR_OTHER,
                     "TP": round(float(out["TP"]), 2),
                     "SL": round(float(out["SL"]), 2),
                     "RR": round(float(out["RR"]), 2),
@@ -976,15 +928,7 @@ if st.session_state.scanning:
         if table_rows:
             res_df = pd.DataFrame(table_rows)
             col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-            if "Sector" in res_df.columns:
-                for sector in _sector_display_order(res_df["Sector"]):
-                    sector_df = res_df[res_df["Sector"] == sector]
-                    if sector_df.empty:
-                        continue
-                    st.subheader(sector)
-                    st.dataframe(sector_df, use_container_width=True, hide_index=True, column_config=col_config)
-            else:
-                st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
+            st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
             if reference_end_date is not None:
                 try:
                     d = pd.Timestamp(reference_end_date)
@@ -1019,15 +963,7 @@ else:
         if table_rows:
             res_df = pd.DataFrame(table_rows)
             col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-            if "Sector" in res_df.columns:
-                for sector in _sector_display_order(res_df["Sector"]):
-                    sector_df = res_df[res_df["Sector"] == sector]
-                    if sector_df.empty:
-                        continue
-                    st.subheader(sector)
-                    st.dataframe(sector_df, use_container_width=True, hide_index=True, column_config=col_config)
-            else:
-                st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
+            st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
             if as_of is not None:
                 try:
                     d = pd.Timestamp(as_of)
