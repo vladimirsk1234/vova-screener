@@ -3,9 +3,10 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 import requests
-import textwrap
 import os
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
@@ -276,7 +277,7 @@ def read_list_file(filename):
     """
     Read tickers from a list file (EXCHANGE:SYMBOL per entry, comma-separated).
     No cache so you can update the file and next START scan uses the new list.
-    Returns list of symbol strings; empty list on missing file or error.
+    Returns (tickers, error_message). error_message is None on success.
     """
     base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, filename)
@@ -284,7 +285,7 @@ def read_list_file(filename):
         with open(path, "r", encoding="utf-8") as f:
             raw = f.read().strip()
         if not raw:
-            return []
+            return [], None
         out = []
         for part in raw.split(","):
             part = part.strip()
@@ -294,27 +295,26 @@ def read_list_file(filename):
                 sym = part
             if sym:
                 out.append(sym.replace(".", "-"))
-        return out
+        return out, None
     except FileNotFoundError:
-        st.warning(f"List file not found: {path}. Add {filename} or choose another source.")
-        return []
+        return [], f"List file not found: {path}. Add {filename} or choose another source."
     except Exception as e:
-        st.warning(f"Could not read list file {filename}: {e}")
-        return []
+        return [], f"Could not read list file {filename}: {e}"
 
 @st.cache_data(ttl=3600)
 def get_sp500_tickers():
+    """Returns (tickers, error_message). error_message is None on success."""
     try:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
         headers = {"User-Agent": "Mozilla/5.0"}
         html = pd.read_html(requests.get(url, headers=headers).text, header=0)
-        return [t.replace('.', '-') for t in html[0]['Symbol'].tolist()]
+        return [t.replace('.', '-') for t in html[0]['Symbol'].tolist()], None
     except Exception as e:
-        st.error(f"Error S&P500: {e}")
-        return []
+        return [], f"Error S&P500: {e}"
 
 @st.cache_data(ttl=3600)
 def get_nasdaq100_tickers():
+    """Returns (tickers, error_message). error_message is None on success."""
     try:
         url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -327,26 +327,30 @@ def get_nasdaq100_tickers():
             if col0 and ('Ticker' in str(col0) or 'Symbol' in str(col0)):
                 syms = [str(t).strip().replace('.', '-') for t in tbl.iloc[:, 0].tolist() if pd.notna(t) and isinstance(t, str) and 1 <= len(str(t).strip()) <= 6 and str(t).strip().isalpha()]
                 if len(syms) >= 50:
-                    return syms
+                    return syms, None
             # Try first column as tickers (e.g. ADBE, AMD, ...)
             syms = [str(t).strip().replace('.', '-') for t in tbl.iloc[:, 0].tolist() if pd.notna(t) and isinstance(t, str) and 2 <= len(str(t).strip()) <= 5 and str(t).strip().isalpha()]
             if len(syms) >= 50:
-                return syms
-        return []
-    except Exception:
-        return []
+                return syms, None
+        return [], None
+    except Exception as e:
+        return [], f"Error Nasdaq-100: {e}"
 
 def get_us_stock_tickers():
-    """S&P 500 + NASDAQ 100, deduplicated, to match TV's larger US watchlist (more results)."""
-    sp = set(get_sp500_tickers())
-    ndq = set(get_nasdaq100_tickers())
-    return list(sp | ndq)
+    """S&P 500 + NASDAQ 100, deduplicated. Returns (tickers, error_message). error_message is None on success."""
+    sp_list, err1 = get_sp500_tickers()
+    ndq_list, err2 = get_nasdaq100_tickers()
+    if err1:
+        return [], err1
+    if err2:
+        return [], err2
+    return list(set(sp_list) | set(ndq_list)), None
 
 @st.cache_data(ttl=86400)  # 24h cache - list updates daily
 def get_all_us_listed_tickers():
     """
     Fetch all US-listed common stock symbols from NASDAQ symbol directory (nasdaqtraded.txt).
-    Includes NASDAQ, NYSE, AMEX. Filters: no ETF, no test, exclude warrants/rights/units/preferred.
+    Returns (tickers, error_message). error_message is None on success.
     """
     url = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
     try:
@@ -355,7 +359,7 @@ def get_all_us_listed_tickers():
         r.raise_for_status()
         lines = r.text.strip().split("\n")
         if not lines:
-            return []
+            return [], None
         # Header: Nasdaq Traded|Symbol|Security Name|Listing Exchange|Market Category|ETF|Round Lot Size|Test Issue|...
         col = lines[0].split("|")
         try:
@@ -382,17 +386,9 @@ def get_all_us_listed_tickers():
             if any(x in name for x in exclude_substrings):
                 continue
             out.append(sym.replace(".", "-"))
-        return out
+        return out, None
     except Exception as e:
-        st.warning(f"Could not fetch all US tickers: {e}. Use S&P 500 + NASDAQ 100.")
-        return []
-
-def get_financial_info(ticker):
-    try:
-        t = yf.Ticker(ticker)
-        i = t.info
-        return i.get('trailingPE') or i.get('forwardPE')
-    except: return None
+        return [], f"Could not fetch all US tickers: {e}. Use S&P 500 + NASDAQ 100."
 
 # US exchanges: Yahoo MIC codes and yfinance variants (comparison uses .upper())
 US_EQUITY_EXCHANGES = {
@@ -414,9 +410,9 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         quote_type = i.get("quoteType") or ""
         exchange = (i.get("exchange") or "").upper()
         avg_vol = i.get("averageVolume")
-        if avg_vol is None and isinstance(t.history(period="1mo"), pd.DataFrame):
+        if avg_vol is None and require_mc_vol:
             hist = t.history(period="1mo")
-            if not hist.empty and "Volume" in hist.columns:
+            if isinstance(hist, pd.DataFrame) and not hist.empty and "Volume" in hist.columns:
                 avg_vol = float(hist["Volume"].mean())
         company_name = i.get("longName") or i.get("shortName") or ticker
 
@@ -447,179 +443,39 @@ def _fetch_fallback_company_name(ticker):
         return ticker
 
 # ==========================================
-# 3. INDICATOR MATH
+# 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
-def calc_atr(df, length):
-    h, l, c = df['High'], df['Low'], df['Close']
-    tr = pd.concat([h-l, (h-c.shift(1)).abs(), (l-c.shift(1)).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1/length, adjust=False).mean()
+from sequence_vova import run_sequence_vova_pine
 
 # ==========================================
-# 4. SEQUENCE VOVA (EXACT PINE PORT)
+# 4. UI & SIDEBAR
 # ==========================================
-def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk_dollars=100):
-    """
-    Exact port of Pine "Sequence Vova Screener". Returns dict for last bar:
-    TP, SL, RR, Valid, New, Strong, position_size, position_value, last_peak, seq_low_prev (for Strong).
-    """
-    n = len(df)
-    if n < 2:
-        return None
-    atr = calc_atr(df, atr_len)
-    c_a = df['Close'].values
-    h_a = df['High'].values
-    l_a = df['Low'].values
-    atr_a = atr.values
+from ticker_sources import FileListSource, MergedListSource, ManualSource, CallableSource
 
-    seq_state = 0
-    critical_level = np.nan
-    seq_high, seq_low = h_a[0], l_a[0]
-    last_confirmed_peak = np.nan
-    last_confirmed_trough = np.nan
-    last_peak_was_hh = False
-    last_trough_was_hl = False
-
-    # Store outputs for last bar
-    last_crit = np.nan
-    last_peak = np.nan
-    last_valid = False
-    last_new = False
-    last_strong = False
-    last_sl = np.nan
-    last_rr = 0.0
-    last_pos_size = np.nan
-    last_pos_value = np.nan
-    prev_bar_seq_low = l_a[0]  # seq_low of previous bar (for Strong on current bar)
-
-    for i in range(1, n):
-        c, h, l = c_a[i], h_a[i], l_a[i]
-        cur_atr = atr_a[i]
-        prev_state = seq_state
-        prev_crit = critical_level
-        prev_seq_high = seq_high
-        prev_seq_low = seq_low
-
-        is_break = False
-        is_bearish_break = False
-        if prev_state == 1 and not np.isnan(prev_crit):
-            is_break = c < prev_crit
-        elif prev_state == -1 and not np.isnan(prev_crit):
-            is_break = c > prev_crit
-            is_bearish_break = is_break  # bullish break (downtrend broken)
-
-        if is_break:
-            if prev_state == 1:
-                if h >= seq_high:
-                    seq_high = h
-                is_current_peak_hh = (np.isnan(last_confirmed_peak) or seq_high > last_confirmed_peak)
-                last_peak_was_hh = is_current_peak_hh
-                last_confirmed_peak = seq_high
-                seq_state = -1
-                seq_high, seq_low = h, l
-                critical_level = h
-            else:
-                if l <= seq_low:
-                    seq_low = l
-                is_current_trough_hl = (np.isnan(last_confirmed_trough) or
-                    (seq_low > last_confirmed_trough) or (seq_low == last_confirmed_trough))
-                last_trough_was_hl = is_current_trough_hl
-                last_confirmed_trough = seq_low
-                seq_state = 1
-                seq_high, seq_low = h, l
-                critical_level = l
-        else:
-            seq_state = prev_state
-            if seq_state == 1:
-                if h >= seq_high:
-                    seq_high = h
-                if h >= prev_seq_high:
-                    critical_level = l
-                else:
-                    critical_level = prev_crit
-            elif seq_state == -1:
-                if l <= seq_low:
-                    seq_low = l
-                if l <= prev_seq_low:
-                    critical_level = h
-                else:
-                    critical_level = prev_crit
-            else:
-                if c > prev_seq_high:
-                    seq_state = 1
-                    critical_level = l
-                elif c < prev_seq_low:
-                    seq_state = -1
-                    critical_level = h
-                else:
-                    seq_high = max(prev_seq_high, h)
-                    seq_low = min(prev_seq_low, l)
-
-        struct_invalid_seq_down = (seq_state == -1 and last_trough_was_hl and
-            not np.isnan(last_confirmed_trough) and seq_low < last_confirmed_trough)
-        struct_ok = (last_trough_was_hl or (not np.isnan(last_confirmed_peak) and c > last_confirmed_peak and last_trough_was_hl)) and (not struct_invalid_seq_down)
-
-        sl = c - cur_atr
-        if not np.isnan(critical_level) and critical_level < c:
-            sl = min(sl, critical_level)
-        if use_last_hl_sl and last_trough_was_hl and not np.isnan(last_confirmed_trough) and last_confirmed_trough < c:
-            sl = min(sl, last_confirmed_trough)
-        risk = c - sl
-        reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
-        rr = (reward / risk) if risk > 0 else 0.0
-        position_size = (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
-        position_value = position_size * c if not np.isnan(position_size) else np.nan
-
-        valid_signal = (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
-        new_signal = valid_signal and is_bearish_break
-        strong_signal = new_signal and (not np.isnan(prev_bar_seq_low)) and (l <= prev_bar_seq_low)
-
-        prev_bar_seq_low = seq_low
-        last_crit = critical_level
-        last_peak = last_confirmed_peak
-        last_valid = valid_signal
-        last_new = new_signal
-        last_strong = strong_signal
-        last_sl = sl
-        last_rr = rr
-        last_pos_size = position_size
-        last_pos_value = position_value
-
-    close_last = c_a[-1]
-    atr_last = atr_a[-1]
+SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "S&P 500 + NASDAQ 100", "ALL US LISTED", "MANUAL SCAN"]
+# Registry of TickerSource instances (MANUAL SCAN built at run time)
+def _build_source_registry():
     return {
-        "TP": last_peak,
-        "SL": last_sl,
-        "RR": last_rr,
-        "Valid": last_valid,
-        "New": last_new,
-        "Strong": last_strong,
-        "position_size": last_pos_size,
-        "position_value": last_pos_value,
-        "Close": close_last,
-        "ATR": atr_last,
+        "SMALL CAP": FileListSource(TV_LIST_SMALL_CAP, read_list_file),
+        "BIG CAP": FileListSource(TV_LIST_BIG_CAP, read_list_file),
+        "ETFS": FileListSource(TV_LIST_ETF, read_list_file),
+        "ALL": MergedListSource([TV_LIST_SMALL_CAP, TV_LIST_BIG_CAP, TV_LIST_ETF], read_list_file),
+        "S&P 500 + NASDAQ 100": CallableSource(get_us_stock_tickers, "S&P 500 + NASDAQ 100, deduplicated."),
+        "ALL US LISTED": CallableSource(get_all_us_listed_tickers, "All US-listed common stocks (NASDAQ symbol directory)."),
     }
 
-# ==========================================
-# 5. UI & SIDEBAR
-# ==========================================
+SOURCE_REGISTRY = _build_source_registry()
+
 st.sidebar.header("⚙️ CONFIGURATION")
 
 # Disable inputs if scanning
 disabled = st.session_state.scanning
 
-# Source: SMALL CAP, BIG CAP, ETFS, ALL, MANUAL SCAN
-SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "MANUAL SCAN"]
 last_src = st.session_state.get("run_params", {}).get("src", "SMALL CAP")
 default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
 src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
-if src == "SMALL CAP":
-    st.sidebar.caption(f"Uses {TV_LIST_SMALL_CAP}. Edit file — next START uses new tickers.")
-elif src == "BIG CAP":
-    st.sidebar.caption(f"Uses {TV_LIST_BIG_CAP}. Edit file — next START uses new tickers.")
-elif src == "ETFS":
-    st.sidebar.caption(f"Uses {TV_LIST_ETF}. Edit file — next START uses new tickers.")
-elif src == "ALL":
-    st.sidebar.caption("Uses SMALL CAP + BIG CAP + ETFS lists merged (no duplicates).")
+if src in SOURCE_REGISTRY:
+    st.sidebar.caption(SOURCE_REGISTRY[src].description())
 man_txt = ""
 if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
@@ -661,6 +517,12 @@ if stop_btn:
 # ==========================================
 ATR_LEN = 14
 MIN_BARS = 50  # minimum bars for sequence logic
+CHUNK_SIZE = 350  # batch size for yf.download
+YF_INFO_THROTTLE_SEC = 0.12  # fallback: sleep between .info requests when not using parallel fetch
+YF_INFO_RETRY_DELAY_SEC = 0.25  # delay before retrying get_ticker_info_and_filter on INFO_ERROR
+YF_DOWNLOAD_MAX_RETRIES = 2  # retry batch download up to this many times on failure
+YF_INFO_RATE_LIMIT_PER_SEC = 8  # max .info requests per second when using parallel fetch
+YF_INFO_MAX_WORKERS = 5  # thread pool size for parallel get_ticker_info_and_filter
 
 # Results Placeholder
 res_area = st.empty()
@@ -725,70 +587,105 @@ def _extract_ohlcv(all_data, ticker, required_cols):
         return None
     return all_data[required_cols].copy()
 
-if st.session_state.scanning:
-    p = st.session_state.run_params
-    if p['src'] == "SMALL CAP":
-        tickers = read_list_file(TV_LIST_SMALL_CAP)
-    elif p['src'] == "BIG CAP":
-        tickers = read_list_file(TV_LIST_BIG_CAP)
-    elif p['src'] == "ETFS":
-        tickers = read_list_file(TV_LIST_ETF)
-    elif p['src'] == "ALL":
-        tickers = list(dict.fromkeys(
-            read_list_file(TV_LIST_SMALL_CAP) + read_list_file(TV_LIST_BIG_CAP) + read_list_file(TV_LIST_ETF)
-        ))
-    else:
-        tickers = [x.strip().upper() for x in p['txt'].split(',') if x.strip()]
 
-    if not tickers:
-        st.error("NO TICKERS FOUND")
-        st.session_state.scanning = False
-        st.stop()
-
-    inter, fetch_period = _interval_and_period(p['tf'])
-    tf = p['tf']
+def run_scan(
+    tickers,
+    *,
+    risk_per_trade,
+    min_rr,
+    use_last_hl_sl,
+    tf,
+    new_only,
+    is_manual_src,
+    on_progress=None,
+    on_status=None,
+    is_cancelled=None,
+):
+    """
+    Pure scanner: batch download, then per-ticker filter + OHLCV + sequence. No Streamlit calls.
+    Returns (table_rows, rejected_reasons, reference_end_date).
+    """
+    inter, fetch_period = _interval_and_period(tf)
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-    # Chunk large lists to avoid huge single download (All US listed or big watchlist file)
-    CHUNK_SIZE = 350
     if len(tickers) > CHUNK_SIZE:
         batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]
     else:
         batches = [tickers]
 
-    info_box = st.empty()
-    bar = st.progress(0)
     table_rows = []
     rejected_reasons = []
     processed = 0
-    reference_end_date = None  # same bar for all tickers = consistent results
+    reference_end_date = None
+    batches_data = []
 
-    # When multiple batches: download all first, then set reference_end_date = min(end date across batches)
-    # so every ticker is evaluated on the same bar and we don't lose results in later batches.
-    batches_data = []  # list of (batch, all_data or None)
+    # Pre-fetch ticker info in parallel with rate limiter (faster than per-ticker in loop)
+    _rate_limiter_lock = threading.Lock()
+    _rate_limiter_last = [0.0]
+
+    def _rate_limited_info(ticker):
+        with _rate_limiter_lock:
+            now = time.monotonic()
+            wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
+            if wait > 0:
+                time.sleep(wait)
+            passed, reason, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
+            _rate_limiter_last[0] = time.monotonic()
+        if not passed and info_dict is None:
+            time.sleep(YF_INFO_RETRY_DELAY_SEC)
+            with _rate_limiter_lock:
+                now = time.monotonic()
+                wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
+                if wait > 0:
+                    time.sleep(wait)
+                _, _, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
+                _rate_limiter_last[0] = time.monotonic()
+            if info_dict is None:
+                info_dict = {"company_name": _fetch_fallback_company_name(ticker), "avg_volume": None}
+        return (ticker, passed, reason, info_dict)
+
+    info_cache = {}
+    if on_status:
+        on_status("Fetching ticker info... DO NOT REFRESH.")
+    with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
+        futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
+        for future in as_completed(futures):
+            if is_cancelled and is_cancelled():
+                break
+            try:
+                t, passed, reason, info_dict = future.result()
+                info_cache[t] = (passed, reason, info_dict)
+            except Exception:
+                t = futures[future]
+                info_cache[t] = (False, "INFO_ERROR", {"company_name": _fetch_fallback_company_name(t), "avg_volume": None})
+
     for batch_idx, batch in enumerate(batches):
-        if not st.session_state.scanning:
+        if is_cancelled and is_cancelled():
             break
-        info_box.info(f"Downloading batch {batch_idx + 1}/{len(batches)} ({len(batch)} tickers)... DO NOT REFRESH.")
-        try:
-            all_data = yf.download(
-                batch,
-                period=fetch_period,
-                interval=inter,
-                progress=False,
-                auto_adjust=False,
-                group_by='ticker',
-                threads=True
-            )
-            if all_data is None or all_data.empty:
-                batches_data.append((batch, None))
-            else:
-                batch_end = all_data.index[-1] if hasattr(all_data.index, '__len__') and len(all_data.index) > 0 else None
-                if batch_end is not None:
-                    reference_end_date = batch_end if reference_end_date is None else min(reference_end_date, batch_end)
-                batches_data.append((batch, all_data))
-        except Exception as e:
-            st.warning(f"Batch download failed: {e}")
+        if on_status:
+            on_status(f"Downloading batch {batch_idx + 1}/{len(batches)} ({len(batch)} tickers)... DO NOT REFRESH.")
+        all_data = None
+        for attempt in range(YF_DOWNLOAD_MAX_RETRIES):
+            try:
+                all_data = yf.download(
+                    batch,
+                    period=fetch_period,
+                    interval=inter,
+                    progress=False,
+                    auto_adjust=False,
+                    group_by='ticker',
+                    threads=True
+                )
+                break
+            except Exception:
+                if attempt < YF_DOWNLOAD_MAX_RETRIES - 1:
+                    time.sleep(YF_INFO_RETRY_DELAY_SEC * (attempt + 1))
+        if all_data is None or all_data.empty:
             batches_data.append((batch, None))
+        else:
+            batch_end = all_data.index[-1] if hasattr(all_data.index, '__len__') and len(all_data.index) > 0 else None
+            if batch_end is not None:
+                reference_end_date = batch_end if reference_end_date is None else min(reference_end_date, batch_end)
+            batches_data.append((batch, all_data))
 
     if reference_end_date is None and batches_data:
         for _, all_data in batches_data:
@@ -797,33 +694,25 @@ if st.session_state.scanning:
                 break
 
     for batch_idx, (batch, all_data) in enumerate(batches_data):
-        if not st.session_state.scanning:
+        if is_cancelled and is_cancelled():
             break
+        if on_status:
+            on_status(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
         if all_data is not None and not all_data.empty and reference_end_date is not None and len(all_data.index) > 0 and all_data.index[-1] > reference_end_date:
             all_data = all_data.loc[all_data.index <= reference_end_date]
-        info_box.info(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
         for i, t in enumerate(batch):
-            if not st.session_state.scanning:
+            if is_cancelled and is_cancelled():
                 break
             processed += 1
-            bar.progress(0.05 + 0.95 * (processed / len(tickers)))
+            if on_progress:
+                on_progress(processed, len(tickers))
             try:
-                require_mc_vol = False  # all five sources: match TV-style lists, no MC/vol filter
-                passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
-                # Throttle info requests when scanning many tickers (e.g. ALL) to avoid rate limits and INFO_ERROR -> empty PE/MC
-                if len(tickers) > 100:
-                    time.sleep(0.12)
+                passed, reject_reason, info_dict = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
                 if not passed:
-                    if p['src'] == "MANUAL SCAN":
+                    if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # Use partial info from first call when we have it; on INFO_ERROR retry once then fallback
-                    if info_dict is None:
-                        time.sleep(0.25)
-                        passed2, _, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
-                        if info_dict is None:
-                            company_name = _fetch_fallback_company_name(t)
-                            info_dict = {"company_name": company_name, "avg_volume": None}
+                    # info_dict from cache is never None (fallback applied in pre-fetch)
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -836,43 +725,40 @@ if st.session_state.scanning:
                     except Exception:
                         df = None
                 if df is None or df.empty or len(df) < MIN_BARS:
-                    if p['src'] == "MANUAL SCAN":
+                    if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
-                # Use same end date for all tickers so results are consistent (same bar everywhere)
                 if reference_end_date is not None and len(df.index) > 0 and df.index[-1] > reference_end_date:
                     df = df.loc[df.index <= reference_end_date]
                 if reference_end_date is None and len(df.index) > 0:
                     reference_end_date = df.index[-1]
 
-                # Resample daily to weekly/monthly so current period is included (match TV)
                 df = _resample_to_timeframe(df, tf)
                 if df is None or df.empty or len(df) < MIN_BARS:
-                    if p['src'] == "MANUAL SCAN":
+                    if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
-                # Keep reference bar: fill last-bar NaNs from previous bar so we don't drop it (fixes missing vs TV)
                 df = _fill_last_bar_ohlc(df)
                 df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
                 if len(df) < MIN_BARS:
-                    if p['src'] == "MANUAL SCAN":
+                    if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
                     continue
 
                 out = run_sequence_vova_pine(
                     df,
                     atr_len=ATR_LEN,
-                    min_rr=p['rr'],
-                    use_last_hl_sl=p['use_last_hl_sl'],
-                    risk_dollars=p['risk_per_trade']
+                    min_rr=min_rr,
+                    use_last_hl_sl=use_last_hl_sl,
+                    risk_dollars=risk_per_trade
                 )
                 if out is None or not out["Valid"]:
-                    if p['src'] == "MANUAL SCAN":
+                    if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_VALID_SIGNAL"})
                     continue
-                if p['new'] and not out["New"]:
+                if new_only and not out["New"]:
                     continue
 
                 pos_size = out["position_size"]
@@ -897,6 +783,47 @@ if st.session_state.scanning:
                 })
             except Exception:
                 rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
+
+    return (table_rows, rejected_reasons, reference_end_date)
+
+
+if st.session_state.scanning:
+    p = st.session_state.run_params
+    if p['src'] == "MANUAL SCAN":
+        source = ManualSource(lambda: p['txt'])
+    else:
+        source = SOURCE_REGISTRY[p['src']]
+    tickers, err = source.get_tickers()
+    if err:
+        st.warning(err)
+    if not tickers:
+        st.error("NO TICKERS FOUND")
+        st.session_state.scanning = False
+        st.stop()
+
+    tf = p['tf']
+    info_box = st.empty()
+    bar = st.progress(0)
+
+    def on_progress(processed, total):
+        if total:
+            bar.progress(0.05 + 0.95 * (processed / total))
+
+    def on_status(msg):
+        info_box.info(msg)
+
+    table_rows, rejected_reasons, reference_end_date = run_scan(
+        tickers,
+        risk_per_trade=p['risk_per_trade'],
+        min_rr=p['rr'],
+        use_last_hl_sl=p['use_last_hl_sl'],
+        tf=tf,
+        new_only=p['new'],
+        is_manual_src=(p['src'] == "MANUAL SCAN"),
+        on_progress=on_progress,
+        on_status=on_status,
+        is_cancelled=lambda: not st.session_state.scanning,
+    )
 
     bar.empty()
     st.session_state.results = table_rows
