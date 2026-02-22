@@ -609,7 +609,7 @@ disabled = st.session_state.scanning
 # Source: 1.TV-LIST 2.S&P500 3.NASDAQ 100 4.MANUAL INPUT
 src = st.sidebar.radio("SOURCE", ["TV-LIST", "S&P500", "NASDAQ 100", "MANUAL INPUT"], disabled=disabled, index=0)
 if src == "TV-LIST":
-    st.sidebar.caption(f"Uses {WATCHLIST_FILENAME}. Edit file to update the list. MC/vol not required (match TV).")
+    st.sidebar.caption(f"Uses {WATCHLIST_FILENAME}. Edit and save the file — the next START scan will use the new tickers. MC/vol not required (match TV).")
 man_txt = ""
 if src == "MANUAL INPUT":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
