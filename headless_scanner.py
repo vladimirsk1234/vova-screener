@@ -266,16 +266,19 @@ render_html("""
 # ==========================================
 # 2. DATA & API
 # ==========================================
-# Watchlist file: update this filename when you replace the list (same folder as this script)
-WATCHLIST_FILENAME = "TV-LIST.txt"
+# List files (same folder as this script); format: EXCHANGE:SYMBOL comma-separated
+TV_LIST_SMALL_CAP = "TV-LIST-SMALL_CAP_2B-10B.txt"
+TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
+TV_LIST_ETF = "TV-LIST-ETF.txt"
 
-def get_watchlist_file_tickers():
+def read_list_file(filename):
     """
-    Read tickers from TV-LIST file (EXCHANGE:SYMBOL per entry, comma-separated).
-    No cache so you can update the file and next scan uses the new list.
+    Read tickers from a list file (EXCHANGE:SYMBOL per entry, comma-separated).
+    No cache so you can update the file and next START scan uses the new list.
+    Returns list of symbol strings; empty list on missing file or error.
     """
     base = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base, WATCHLIST_FILENAME)
+    path = os.path.join(base, filename)
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw = f.read().strip()
@@ -292,10 +295,10 @@ def get_watchlist_file_tickers():
                 out.append(sym.replace(".", "-"))
         return out
     except FileNotFoundError:
-        st.warning(f"Watchlist file not found: {path}. Add {WATCHLIST_FILENAME} or choose another source.")
+        st.warning(f"List file not found: {path}. Add {filename} or choose another source.")
         return []
     except Exception as e:
-        st.warning(f"Could not read watchlist file: {e}")
+        st.warning(f"Could not read list file {filename}: {e}")
         return []
 
 @st.cache_data(ttl=3600)
@@ -606,13 +609,23 @@ st.sidebar.header("⚙️ CONFIGURATION")
 # Disable inputs if scanning
 disabled = st.session_state.scanning
 
-# Source: 1.TV-LIST 2.S&P500 3.NASDAQ 100 4.MANUAL INPUT
-src = st.sidebar.radio("SOURCE", ["TV-LIST", "S&P500", "NASDAQ 100", "MANUAL INPUT"], disabled=disabled, index=0)
-if src == "TV-LIST":
-    st.sidebar.caption(f"Uses {WATCHLIST_FILENAME}. Edit and save the file — the next START scan will use the new tickers. MC/vol not required (match TV).")
+# Source: SMALL CAP, BIG CAP, ETFS, ALL, MANUAL SCAN
+SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "MANUAL SCAN"]
+last_src = st.session_state.get("run_params", {}).get("src", "SMALL CAP")
+default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
+src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
+if src == "SMALL CAP":
+    st.sidebar.caption(f"Uses {TV_LIST_SMALL_CAP}. Edit file — next START uses new tickers.")
+elif src == "BIG CAP":
+    st.sidebar.caption(f"Uses {TV_LIST_BIG_CAP}. Edit file — next START uses new tickers.")
+elif src == "ETFS":
+    st.sidebar.caption(f"Uses {TV_LIST_ETF}. Edit file — next START uses new tickers.")
+elif src == "ALL":
+    st.sidebar.caption("Uses SMALL CAP + BIG CAP + ETFS lists merged (no duplicates).")
 man_txt = ""
-if src == "MANUAL INPUT":
+if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
+    st.sidebar.caption("Comma-separated symbols. Next START scans these tickers.")
 
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
@@ -712,12 +725,16 @@ def _extract_ohlcv(all_data, ticker, required_cols):
 
 if st.session_state.scanning:
     p = st.session_state.run_params
-    if p['src'] == "TV-LIST":
-        tickers = get_watchlist_file_tickers()
-    elif p['src'] == "S&P500":
-        tickers = get_sp500_tickers()
-    elif p['src'] == "NASDAQ 100":
-        tickers = get_nasdaq100_tickers()
+    if p['src'] == "SMALL CAP":
+        tickers = read_list_file(TV_LIST_SMALL_CAP)
+    elif p['src'] == "BIG CAP":
+        tickers = read_list_file(TV_LIST_BIG_CAP)
+    elif p['src'] == "ETFS":
+        tickers = read_list_file(TV_LIST_ETF)
+    elif p['src'] == "ALL":
+        tickers = list(dict.fromkeys(
+            read_list_file(TV_LIST_SMALL_CAP) + read_list_file(TV_LIST_BIG_CAP) + read_list_file(TV_LIST_ETF)
+        ))
     else:
         tickers = [x.strip().upper() for x in p['txt'].split(',') if x.strip()]
 
@@ -776,17 +793,14 @@ if st.session_state.scanning:
             processed += 1
             bar.progress(0.05 + 0.95 * (processed / len(tickers)))
             try:
-                require_mc_vol = (p['src'] != "TV-LIST")
+                require_mc_vol = False  # all five sources: match TV-style lists, no MC/vol filter
                 passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
                 if not passed:
-                    if p['src'] == "MANUAL INPUT":
+                    if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # TV-LIST: still run sequence with OHLC only (info may fail or use different exchange string)
-                    if p['src'] == "TV-LIST":
-                        info_dict = {"company_name": t, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
-                    else:
-                        continue
+                    # File-based and MANUAL: still run sequence with OHLC only (info may fail or different exchange string)
+                    info_dict = {"company_name": t, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -799,7 +813,7 @@ if st.session_state.scanning:
                     except Exception:
                         df = None
                 if df is None or df.empty or len(df) < MIN_BARS:
-                    if p['src'] == "MANUAL INPUT":
+                    if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
@@ -812,7 +826,7 @@ if st.session_state.scanning:
                 # Resample daily to weekly/monthly so current period is included (match TV)
                 df = _resample_to_timeframe(df, tf)
                 if df is None or df.empty or len(df) < MIN_BARS:
-                    if p['src'] == "MANUAL INPUT":
+                    if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
                     continue
 
@@ -820,7 +834,7 @@ if st.session_state.scanning:
                 df = _fill_last_bar_ohlc(df)
                 df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
                 if len(df) < MIN_BARS:
-                    if p['src'] == "MANUAL INPUT":
+                    if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
                     continue
 
@@ -832,7 +846,7 @@ if st.session_state.scanning:
                     risk_dollars=p['risk_per_trade']
                 )
                 if out is None or not out["Valid"]:
-                    if p['src'] == "MANUAL INPUT":
+                    if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": "NO_VALID_SIGNAL"})
                     continue
                 if p['new'] and not out["New"]:
@@ -865,7 +879,7 @@ if st.session_state.scanning:
                     "Strong": 1 if out["Strong"] else 0,
                 })
             except Exception:
-                if p['src'] == "MANUAL INPUT":
+                if p['src'] == "MANUAL SCAN":
                     rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
 
     bar.empty()
@@ -891,7 +905,7 @@ if st.session_state.scanning:
                     pass
         else:
             st.info("No symbols passed the screener.")
-        if p['src'] == "MANUAL INPUT" and rejected_reasons:
+        if p['src'] == "MANUAL SCAN" and rejected_reasons:
             with st.expander("Rejected (Manual)"):
                 st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
@@ -899,7 +913,7 @@ if st.session_state.scanning:
     info_box.success("SCAN COMPLETE")
 
 else:
-    last_src = st.session_state.run_params.get('src', "TV-LIST")
+    last_src = st.session_state.run_params.get('src', "SMALL CAP")
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
     as_of = st.session_state.get("results_as_of")
@@ -922,7 +936,7 @@ else:
                     pass
         else:
             st.info("Ready to scan. Click START.")
-        if last_src == "MANUAL INPUT" and rejected_reasons:
+        if last_src == "MANUAL SCAN" and rejected_reasons:
             with st.expander("Rejected (Manual)"):
                 st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
