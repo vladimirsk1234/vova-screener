@@ -400,7 +400,7 @@ US_EQUITY_EXCHANGES = {
     "NASDAQGS", "NASDAQCM", "NASDAQGM",  # yfinance often returns e.g. "NasdaqGS"
 }
 
-SECTOR_OTHER = "\u2014"  # fallback for missing sector (stocks)
+SECTOR_OTHER = "OTHERS"  # non-recognized or missing sector (stocks)
 SECTOR_ETF = "ETF"
 
 def _fetch_quote_type_and_sector(ticker):
@@ -908,7 +908,7 @@ if st.session_state.scanning:
                 table_rows.append({
                     "Symbol": tv_url,
                     "Company Name": info_dict["company_name"],
-                    "Sector": info_dict.get("sector") or "\u2014",
+                    "Sector": info_dict.get("sector") or SECTOR_OTHER,
                     "TP": round(float(out["TP"]), 2),
                     "SL": round(float(out["SL"]), 2),
                     "RR": round(float(out["RR"]), 2),
