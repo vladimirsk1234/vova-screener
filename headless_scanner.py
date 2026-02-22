@@ -403,13 +403,20 @@ US_EQUITY_EXCHANGES = {
 SECTOR_OTHER = "OTHERS"  # non-recognized or missing sector (stocks)
 SECTOR_ETF = "ETF"
 
+# Only treat as ETF when quoteType is explicitly one of these (avoids misclassifying equities with missing/empty quoteType)
+NON_EQUITY_QUOTE_TYPES = {"ETF", "ETP", "MUTUALFUND", "FUND", "INDEX", "CRYPTOCURRENCY", "FUTURE", "OPTION", "CURRENCY"}
+
 def _fetch_quote_type_and_sector(ticker):
-    """Fetch quoteType and sector from yfinance (for fallback when get_ticker_info_and_filter fails). Returns (quote_type, sector, company_name)."""
+    """Fetch quoteType, sector, industry from yfinance (for fallback when get_ticker_info_and_filter fails). Returns (quote_type, sector, company_name)."""
     try:
         i = yf.Ticker(ticker).info
         qt = (i.get("quoteType") or "").strip()
         sector = i.get("sector")
         sector = (sector or None) if (sector and isinstance(sector, str) and sector.strip()) else None
+        if sector is None:
+            industry = i.get("industry")
+            if industry and isinstance(industry, str) and industry.strip():
+                sector = industry.strip()  # use industry so we don't put everything in OTHERS
         name = i.get("longName") or i.get("shortName") or ticker
         return qt, sector, name
     except Exception:
@@ -469,6 +476,10 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         if (quote_type or "").upper() == "EQUITY":
             s = i.get("sector")
             sector = (s or None) if (s and isinstance(s, str) and s.strip()) else None
+            if sector is None:
+                ind = i.get("industry")
+                if ind and isinstance(ind, str) and ind.strip():
+                    sector = ind.strip()
         info_dict = {
             "company_name": company_name,
             "market_cap": market_cap,
@@ -836,9 +847,10 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # File-based: still run sequence; fetch quote_type and sector so we show sector for stocks and "ETF" for ETFs
+                    # File-based: still run sequence; fetch quote_type and sector so we show sector for stocks and "ETF" only for real ETFs
                     quote_type, sector, company_name = _fetch_quote_type_and_sector(t)
-                    if (quote_type or "").upper() != "EQUITY":
+                    qt_upper = (quote_type or "").upper()
+                    if qt_upper and qt_upper in NON_EQUITY_QUOTE_TYPES:
                         sector = SECTOR_ETF
                     info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": sector}
 
