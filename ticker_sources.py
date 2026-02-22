@@ -58,17 +58,3 @@ class ManualSource:
 
     def description(self) -> str:
         return "Comma-separated symbols. Next START scans these tickers."
-
-
-class CallableSource:
-    """Generic source that wraps a callable returning (tickers, error)."""
-
-    def __init__(self, get_tickers_fn: Callable[[], tuple[list[str], str | None]], description_text: str):
-        self._get = get_tickers_fn
-        self._desc = description_text
-
-    def get_tickers(self) -> tuple[list[str], str | None]:
-        return self._get()
-
-    def description(self) -> str:
-        return self._desc

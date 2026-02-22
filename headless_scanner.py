@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
-import requests
-import os
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
@@ -23,424 +22,21 @@ if 'rejected' not in st.session_state:
 if 'run_params' not in st.session_state:
     st.session_state.run_params = {} # To freeze params during scan
 
-# --- HELPER FUNCTIONS ---
-def render_html(html_string):
-    """Aggressively strips whitespace to prevent Markdown code block interpretation."""
-    cleaned_html = "".join([line.strip() for line in html_string.splitlines()])
-    st.markdown(cleaned_html, unsafe_allow_html=True)
-
-# --- CSS STYLING ---
-render_html("""
-<style>
-    /* GLOBAL DARK THEME */
-    .stApp { background-color: #050505; }
-    
-    /* FIX: Top padding to prevent header overlap */
-    .block-container { 
-        padding-top: 4rem !important; 
-        padding-left: 1rem !important; 
-        padding-right: 1rem !important; 
-        max-width: 100% !important;
-    }
-    
-    /* LUXURY COMPACT CARD - Responsive */
-    .ticker-card {
-        background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
-        border: 1px solid #2a2a2a;
-        border-radius: 8px;
-        padding: 10px;
-        margin-bottom: 10px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05);
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: visible;
-        width: 100%;
-        box-sizing: border-box;
-    }
-    .ticker-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #00e676, transparent);
-        opacity: 0;
-        transition: opacity 0.3s;
-    }
-    .ticker-card:hover { 
-        border-color: #00e676; 
-        box-shadow: 0 6px 20px rgba(0,230,118,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
-        transform: translateY(-1px);
-    }
-    .ticker-card:hover::before {
-        opacity: 1;
-    }
-
-    /* COMPACT HEADER ROW */
-    .card-header {
-        display: flex; 
-        justify-content: space-between; 
-        align-items: flex-start;
-        padding-bottom: 8px; 
-        margin-bottom: 8px;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-    }
-    .card-header-left {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
-    }
-    .t-link { 
-        font-size: 14px; 
-        font-weight: 700; 
-        color: #448aff !important; 
-        text-decoration: none; 
-        letter-spacing: 0.3px;
-        transition: color 0.2s;
-    }
-    .t-link:hover { color: #00e676 !important; }
-    .header-price-block {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 2px;
-    }
-    .t-price { 
-        font-size: 15px; 
-        color: #fff; 
-        font-weight: 700; 
-        line-height: 1.2;
-    }
-    .t-pe { 
-        font-size: 10px; 
-        color: #78909c; 
-        font-weight: 600;
-        padding: 2px 6px;
-        background: rgba(120,144,156,0.1);
-        border-radius: 4px;
-    }
-    
-    /* BADGE */
-    .new-badge {
-        background: linear-gradient(135deg, #00e676, #00c853);
-        color: #000; 
-        font-size: 9px; 
-        padding: 2px 6px; 
-        border-radius: 4px; 
-        font-weight: 800;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        box-shadow: 0 2px 4px rgba(0,230,118,0.3);
-    }
-
-    /* COMPACT DATA GRID - 2 columns, responsive */
-    .card-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 6px;
-    }
-    
-    /* COMPACT STAT BLOCK */
-    .stat-row {
-        background: rgba(22,22,22,0.6); 
-        padding: 6px 8px; 
-        border-radius: 5px; 
-        border: 1px solid rgba(255,255,255,0.05);
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center;
-        transition: background 0.2s;
-        min-height: 36px;
-    }
-    .stat-row:hover {
-        background: rgba(22,22,22,0.8);
-        border-color: rgba(255,255,255,0.1);
-    }
-    
-    /* TEXT HIERARCHY - COMPACT */
-    .lbl { 
-        font-size: 9px; 
-        color: #78909c; 
-        font-weight: 700; 
-        text-transform: uppercase; 
-        letter-spacing: 0.5px;
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
-    .val { 
-        font-size: 12px; 
-        font-weight: 700; 
-        color: #e0e0e0; 
-        text-align: right; 
-        line-height: 1.2;
-        white-space: nowrap;
-        word-break: keep-all;
-        flex-shrink: 0;
-    }
-    .sub { 
-        font-size: 10px; 
-        font-weight: 500; 
-        opacity: 0.8; 
-        text-align: right; 
-        line-height: 1.2; 
-        display: block; 
-        margin-top: 2px;
-        white-space: nowrap;
-    }
-    
-    /* RESPONSIVE DESIGN - Scales with screen size */
-    /* Tablets: 3 columns */
-    @media (max-width: 991px) and (min-width: 769px) {
-        .ticker-card {
-            padding: 12px;
-        }
-        .t-price { font-size: 16px; }
-        .t-link { font-size: 15px; }
-        .val { font-size: 13px; }
-        .lbl { font-size: 10px; }
-        .sub { font-size: 11px; }
-    }
-    
-    /* Mobile: 2 columns then 1 column */
-    @media (max-width: 768px) {
-        .ticker-card {
-            padding: 12px;
-            margin-bottom: 12px;
-        }
-        .card-grid {
-            grid-template-columns: 1fr;
-            gap: 8px;
-        }
-        .card-header {
-            flex-direction: column;
-            gap: 8px;
-        }
-        .header-price-block {
-            align-items: flex-start;
-            width: 100%;
-        }
-        .t-price { font-size: 18px; }
-        .t-link { font-size: 16px; }
-        .stat-row {
-            padding: 8px 10px;
-            min-height: 40px;
-        }
-        .val { font-size: 14px; }
-        .lbl { font-size: 10px; }
-        .sub { font-size: 11px; }
-    }
-    
-    @media (max-width: 480px) {
-        .ticker-card {
-            padding: 10px;
-        }
-        .t-price { font-size: 20px; }
-        .t-link { font-size: 17px; }
-    }
-    
-    /* REJECTED CARD */
-    .rejected-card {
-        background: #1a0505;
-        border: 1px solid #3b1010;
-        border-left: 3px solid #d32f2f;
-        padding: 4px 6px;
-        margin-bottom: 6px;
-        border-radius: 4px;
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center;
-        min-height: 28px;
-    }
-    .rej-head { font-size: 11px; font-weight: 700; color: #b0bec5; }
-    .rej-sub { font-size: 10px; color: #ff5252; font-weight: 600; text-align: right; font-family: monospace;}
-
-    /* COLORS */
-    .c-green { color: #00e676; }
-    .c-red { color: #ff1744; }
-    .c-blue { color: #448aff; }
-    .c-gold { color: #ffab00; }
-</style>
-""")
+# --- CSS STYLING (from ui_styles.py) ---
+from ui_styles import inject_styles
+inject_styles()
 
 # ==========================================
-# 2. DATA & API
+# 2. DATA & API (from ticker_data.py)
 # ==========================================
-# List files (same folder as this script); format: EXCHANGE:SYMBOL comma-separated
-TV_LIST_SMALL_CAP = "TV-LIST-SMALL_CAP_2B-10B.txt"
-TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
-TV_LIST_ETF = "TV-LIST-ETF.txt"
-
-def read_list_file(filename):
-    """
-    Read tickers from a list file (EXCHANGE:SYMBOL per entry, comma-separated).
-    No cache so you can update the file and next START scan uses the new list.
-    Returns (tickers, error_message). error_message is None on success.
-    """
-    base = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base, filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            raw = f.read().strip()
-        if not raw:
-            return [], None
-        out = []
-        for part in raw.split(","):
-            part = part.strip()
-            if ":" in part:
-                sym = part.split(":", 1)[1].strip()
-            else:
-                sym = part
-            if sym:
-                out.append(sym.replace(".", "-"))
-        return out, None
-    except FileNotFoundError:
-        return [], f"List file not found: {path}. Add {filename} or choose another source."
-    except Exception as e:
-        return [], f"Could not read list file {filename}: {e}"
-
-@st.cache_data(ttl=3600)
-def get_sp500_tickers():
-    """Returns (tickers, error_message). error_message is None on success."""
-    try:
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        headers = {"User-Agent": "Mozilla/5.0"}
-        html = pd.read_html(requests.get(url, headers=headers).text, header=0)
-        return [t.replace('.', '-') for t in html[0]['Symbol'].tolist()], None
-    except Exception as e:
-        return [], f"Error S&P500: {e}"
-
-@st.cache_data(ttl=3600)
-def get_nasdaq100_tickers():
-    """Returns (tickers, error_message). error_message is None on success."""
-    try:
-        url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
-        headers = {"User-Agent": "Mozilla/5.0"}
-        tables = pd.read_html(requests.get(url, headers=headers).text)
-        for tbl in tables:
-            if len(tbl) < 50:
-                continue
-            # First column is often Ticker (or unnamed)
-            col0 = tbl.columns[0] if len(tbl.columns) else None
-            if col0 and ('Ticker' in str(col0) or 'Symbol' in str(col0)):
-                syms = [str(t).strip().replace('.', '-') for t in tbl.iloc[:, 0].tolist() if pd.notna(t) and isinstance(t, str) and 1 <= len(str(t).strip()) <= 6 and str(t).strip().isalpha()]
-                if len(syms) >= 50:
-                    return syms, None
-            # Try first column as tickers (e.g. ADBE, AMD, ...)
-            syms = [str(t).strip().replace('.', '-') for t in tbl.iloc[:, 0].tolist() if pd.notna(t) and isinstance(t, str) and 2 <= len(str(t).strip()) <= 5 and str(t).strip().isalpha()]
-            if len(syms) >= 50:
-                return syms, None
-        return [], None
-    except Exception as e:
-        return [], f"Error Nasdaq-100: {e}"
-
-def get_us_stock_tickers():
-    """S&P 500 + NASDAQ 100, deduplicated. Returns (tickers, error_message). error_message is None on success."""
-    sp_list, err1 = get_sp500_tickers()
-    ndq_list, err2 = get_nasdaq100_tickers()
-    if err1:
-        return [], err1
-    if err2:
-        return [], err2
-    return list(set(sp_list) | set(ndq_list)), None
-
-@st.cache_data(ttl=86400)  # 24h cache - list updates daily
-def get_all_us_listed_tickers():
-    """
-    Fetch all US-listed common stock symbols from NASDAQ symbol directory (nasdaqtraded.txt).
-    Returns (tickers, error_message). error_message is None on success.
-    """
-    url = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
-        lines = r.text.strip().split("\n")
-        if not lines:
-            return [], None
-        # Header: Nasdaq Traded|Symbol|Security Name|Listing Exchange|Market Category|ETF|Round Lot Size|Test Issue|...
-        col = lines[0].split("|")
-        try:
-            sym_idx = col.index("Symbol")
-            name_idx = col.index("Security Name")
-            etf_idx = col.index("ETF")
-            test_idx = col.index("Test Issue")
-        except ValueError:
-            sym_idx, name_idx, etf_idx, test_idx = 1, 2, 5, 7
-        out = []
-        exclude_substrings = ("warrant", " - right", " - unit", " preferred stock", " preferred share", " preferred ", " etf", " bond ", " note due ", " trust units", " depositary share", " unit ")
-        for line in lines[1:]:
-            parts = line.split("|")
-            if len(parts) <= max(sym_idx, name_idx, etf_idx, test_idx):
-                continue
-            sym = (parts[sym_idx] or "").strip()
-            name = (parts[name_idx] or "").lower()
-            etf = (parts[etf_idx] or "").strip().upper()
-            test = (parts[test_idx] or "").strip().upper()
-            if not sym or "$" in sym or "|" in sym or len(sym) > 6:
-                continue
-            if etf == "Y" or test == "Y":
-                continue
-            if any(x in name for x in exclude_substrings):
-                continue
-            out.append(sym.replace(".", "-"))
-        return out, None
-    except Exception as e:
-        return [], f"Could not fetch all US tickers: {e}. Use S&P 500 + NASDAQ 100."
-
-# US exchanges: Yahoo MIC codes and yfinance variants (comparison uses .upper())
-US_EQUITY_EXCHANGES = {
-    "NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX", "OTC", "OTN",
-    "NASDAQ", "NYSE", "AMEX", "BATS", "ARCA",
-    "NASDAQGS", "NASDAQCM", "NASDAQGM",  # yfinance often returns e.g. "NasdaqGS"
-}
-
-def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
-    """
-    Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally avg volume (require_mc_vol=True).
-    When require_mc_vol=False (e.g. TV-LIST): only filter NOT_EQUITY / NOT_US.
-    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, avg_volume.
-    When filter fails but we have info, returns partial info_dict so caller doesn't need a second API call.
-    """
-    try:
-        t = yf.Ticker(ticker)
-        i = t.info
-        quote_type = i.get("quoteType") or ""
-        exchange = (i.get("exchange") or "").upper()
-        avg_vol = i.get("averageVolume")
-        if avg_vol is None and require_mc_vol:
-            hist = t.history(period="1mo")
-            if isinstance(hist, pd.DataFrame) and not hist.empty and "Volume" in hist.columns:
-                avg_vol = float(hist["Volume"].mean())
-        company_name = i.get("longName") or i.get("shortName") or ticker
-
-        if quote_type and quote_type.upper() != "EQUITY":
-            partial = {"company_name": company_name, "avg_volume": avg_vol}
-            return False, "NOT_EQUITY", partial
-        if exchange and exchange not in US_EQUITY_EXCHANGES:
-            partial = {"company_name": company_name, "avg_volume": avg_vol}
-            return False, "NOT_US", partial
-        if require_mc_vol and (avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume)):
-            partial = {"company_name": company_name, "avg_volume": avg_vol}
-            return False, "LOW_VOL", partial
-
-        info_dict = {
-            "company_name": company_name,
-            "avg_volume": avg_vol,
-        }
-        return True, "", info_dict
-    except Exception as e:
-        return False, "INFO_ERROR", None
-
-def _fetch_fallback_company_name(ticker):
-    """Fetch company name from yfinance when get_ticker_info_and_filter returns None (INFO_ERROR)."""
-    try:
-        i = yf.Ticker(ticker).info
-        return i.get("longName") or i.get("shortName") or ticker
-    except Exception:
-        return ticker
+from ticker_data import (
+    TV_LIST_BIG_CAP,
+    TV_LIST_ETF,
+    TV_LIST_SMALL_CAP,
+    fetch_fallback_company_name,
+    get_ticker_info_and_filter,
+    read_list_file,
+)
 
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
@@ -513,17 +109,71 @@ if stop_btn:
 # ==========================================
 # 6. SCANNER EXECUTION
 # ==========================================
+
+
+@dataclass
+class ScanConfig:
+    """Scan parameters; built from run_params dict for type safety and centralization."""
+    risk_per_trade: int
+    min_rr: float
+    use_last_hl_sl: bool
+    tf: str
+    new_only: bool
+    is_manual_src: bool
+
+    @classmethod
+    def from_run_params(cls, p: dict) -> "ScanConfig":
+        return cls(
+            risk_per_trade=int(p.get("risk_per_trade", 100)),
+            min_rr=float(p.get("rr", 1.5)),
+            use_last_hl_sl=bool(p.get("use_last_hl_sl", True)),
+            tf=str(p.get("tf", "Daily")),
+            new_only=bool(p.get("new", True)),
+            is_manual_src=(p.get("src") == "MANUAL SCAN"),
+        )
+
+
 ATR_LEN = 14
 MIN_BARS = 50  # minimum bars for sequence logic
-CHUNK_SIZE = 350  # batch size for yf.download
-YF_INFO_THROTTLE_SEC = 0.12  # fallback: sleep between .info requests when not using parallel fetch
+CHUNK_SIZE = 500  # batch size for yf.download
 YF_INFO_RETRY_DELAY_SEC = 0.25  # delay before retrying get_ticker_info_and_filter on INFO_ERROR
 YF_DOWNLOAD_MAX_RETRIES = 2  # retry batch download up to this many times on failure
-YF_INFO_RATE_LIMIT_PER_SEC = 8  # max .info requests per second when using parallel fetch
-YF_INFO_MAX_WORKERS = 5  # thread pool size for parallel get_ticker_info_and_filter
+YF_INFO_RATE_LIMIT_PER_SEC = 12  # max .info requests per second when using parallel fetch
+YF_INFO_MAX_WORKERS = 8  # thread pool size for parallel get_ticker_info_and_filter
 
 # Results Placeholder
 res_area = st.empty()
+
+
+def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is_manual_src, empty_message="Ready to scan. Click START."):
+    """
+    Render scan results: dataframe, as-of caption, and rejected/skipped expander.
+    Used by both "scan just finished" and "idle show last results" paths.
+    """
+    if table_rows:
+        res_df = pd.DataFrame(table_rows)
+        col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
+        st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
+        if reference_end_date is not None:
+            try:
+                d = pd.Timestamp(reference_end_date)
+                as_of_str = d.strftime("%Y-%m-%d")
+                dow = d.dayofweek
+                if dow >= 5:
+                    st.caption(f"**Results as of {as_of_str}** (last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency.")
+                else:
+                    st.caption(f"**Results as of {as_of_str}** ({tf}). Same bar used for all symbols for consistency.")
+            except Exception:
+                pass
+    else:
+        st.info(empty_message)
+    if is_manual_src and rejected_reasons:
+        with st.expander("Rejected (Manual)"):
+            st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+    elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
+        with st.expander("Skipped (errors)"):
+            st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+
 
 def _interval_and_period(tf):
     """Always fetch daily; Weekly/Monthly resampled from daily so current period is included."""
@@ -641,7 +291,7 @@ def run_scan(
                 _, _, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
                 _rate_limiter_last[0] = time.monotonic()
             if info_dict is None:
-                info_dict = {"company_name": _fetch_fallback_company_name(ticker), "avg_volume": None}
+                info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
         return (ticker, passed, reason, info_dict)
 
     info_cache = {}
@@ -657,7 +307,7 @@ def run_scan(
                 info_cache[t] = (passed, reason, info_dict)
             except Exception:
                 t = futures[future]
-                info_cache[t] = (False, "INFO_ERROR", {"company_name": _fetch_fallback_company_name(t), "avg_volume": None})
+                info_cache[t] = (False, "INFO_ERROR", {"company_name": fetch_fallback_company_name(t), "avg_volume": None})
             step[0] += 1
             if on_progress:
                 on_progress(step[0], total_steps)
@@ -796,10 +446,11 @@ def run_scan(
 
 if st.session_state.scanning:
     p = st.session_state.run_params
-    if p['src'] == "MANUAL SCAN":
-        source = ManualSource(lambda: p['txt'])
+    cfg = ScanConfig.from_run_params(p)
+    if p["src"] == "MANUAL SCAN":
+        source = ManualSource(lambda: p["txt"])
     else:
-        source = SOURCE_REGISTRY[p['src']]
+        source = SOURCE_REGISTRY[p["src"]]
     tickers, err = source.get_tickers()
     if err:
         st.warning(err)
@@ -808,60 +459,45 @@ if st.session_state.scanning:
         st.session_state.scanning = False
         st.stop()
 
-    tf = p['tf']
     info_box = st.empty()
     bar = st.progress(0)
+    pct_placeholder = st.empty()
 
     def on_progress(processed, total):
         if total:
             bar.progress(0.05 + 0.95 * (processed / total))
+            pct = round(100 * processed / total)
+            pct_placeholder.markdown(f"**{pct}%**")
 
     def on_status(msg):
         info_box.info(msg)
 
     table_rows, rejected_reasons, reference_end_date = run_scan(
         tickers,
-        risk_per_trade=p['risk_per_trade'],
-        min_rr=p['rr'],
-        use_last_hl_sl=p['use_last_hl_sl'],
-        tf=tf,
-        new_only=p['new'],
-        is_manual_src=(p['src'] == "MANUAL SCAN"),
+        risk_per_trade=cfg.risk_per_trade,
+        min_rr=cfg.min_rr,
+        use_last_hl_sl=cfg.use_last_hl_sl,
+        tf=cfg.tf,
+        new_only=cfg.new_only,
+        is_manual_src=cfg.is_manual_src,
         on_progress=on_progress,
         on_status=on_status,
         is_cancelled=lambda: not st.session_state.scanning,
     )
 
     bar.empty()
+    pct_placeholder.empty()
     st.session_state.results = table_rows
     st.session_state.rejected = rejected_reasons
     st.session_state.results_as_of = reference_end_date
-    st.session_state.results_tf = tf
+    st.session_state.results_tf = cfg.tf
 
     with res_area.container():
-        if table_rows:
-            res_df = pd.DataFrame(table_rows)
-            col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-            st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
-            if reference_end_date is not None:
-                try:
-                    d = pd.Timestamp(reference_end_date)
-                    as_of_str = d.strftime("%Y-%m-%d")
-                    dow = d.dayofweek
-                    if dow >= 5:
-                        st.caption(f"**Results as of {as_of_str}** (last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency.")
-                    else:
-                        st.caption(f"**Results as of {as_of_str}** ({tf}). Same bar used for all symbols for consistency.")
-                except Exception:
-                    pass
-        else:
-            st.info("No symbols passed the screener.")
-        if p['src'] == "MANUAL SCAN" and rejected_reasons:
-            with st.expander("Rejected (Manual)"):
-                st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
-        elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
-            with st.expander("Skipped (errors)"):
-                st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+        render_scan_results(
+            table_rows, rejected_reasons, reference_end_date, cfg.tf,
+            is_manual_src=cfg.is_manual_src,
+            empty_message="No symbols passed the screener.",
+        )
 
     st.session_state.scanning = False
     info_box.success("SCAN COMPLETE")
@@ -874,27 +510,8 @@ else:
     as_of_tf = st.session_state.get("results_tf", "Daily")
 
     with res_area.container():
-        if table_rows:
-            res_df = pd.DataFrame(table_rows)
-            col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-            st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
-            if as_of is not None:
-                try:
-                    d = pd.Timestamp(as_of)
-                    as_of_str = d.strftime("%Y-%m-%d")
-                    dow = d.dayofweek
-                    if dow >= 5:
-                        st.caption(f"**Results as of {as_of_str}** (last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency.")
-                    else:
-                        st.caption(f"**Results as of {as_of_str}** ({as_of_tf}). Same bar used for all symbols for consistency.")
-                except Exception:
-                    pass
-        else:
-            st.info("Ready to scan. Click START.")
-        if last_src == "MANUAL SCAN" and rejected_reasons:
-            with st.expander("Rejected (Manual)"):
-                st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
-        elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
-            with st.expander("Skipped (errors)"):
-                st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+        render_scan_results(
+            table_rows, rejected_reasons, as_of, as_of_tf,
+            is_manual_src=(last_src == "MANUAL SCAN"),
+        )
 
