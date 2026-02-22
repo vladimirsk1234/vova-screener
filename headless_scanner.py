@@ -5,6 +5,7 @@ import numpy as np
 import requests
 import textwrap
 import os
+import time
 
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
@@ -829,6 +830,9 @@ if st.session_state.scanning:
             try:
                 require_mc_vol = False  # all five sources: match TV-style lists, no MC/vol filter
                 passed, reject_reason, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
+                # Throttle info requests when scanning many tickers (e.g. ALL) to avoid rate limits and INFO_ERROR -> empty PE/MC
+                if len(tickers) > 100:
+                    time.sleep(0.12)
                 if not passed:
                     if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
