@@ -400,16 +400,32 @@ US_EQUITY_EXCHANGES = {
     "NASDAQGS", "NASDAQCM", "NASDAQGM",  # yfinance often returns e.g. "NasdaqGS"
 }
 
-SECTOR_OTHER = "\u2014"  # fallback for missing sector / ETFs
+SECTOR_OTHER = "\u2014"  # fallback for missing sector (stocks)
+SECTOR_ETF = "ETF"
+
+def _fetch_quote_type_and_sector(ticker):
+    """Fetch quoteType and sector from yfinance (for fallback when get_ticker_info_and_filter fails). Returns (quote_type, sector, company_name)."""
+    try:
+        i = yf.Ticker(ticker).info
+        qt = (i.get("quoteType") or "").strip()
+        sector = i.get("sector")
+        sector = (sector or None) if (sector and isinstance(sector, str) and sector.strip()) else None
+        name = i.get("longName") or i.get("shortName") or ticker
+        return qt, sector, name
+    except Exception:
+        return "", None, ticker
 
 def _sector_display_order(sectors_series):
-    """Return ordered list of sectors: alphabetical, with SECTOR_OTHER last."""
+    """Return ordered list of sectors: alphabetical, then SECTOR_OTHER, then SECTOR_ETF last."""
     uniq = sectors_series.dropna().unique().tolist()
-    if SECTOR_OTHER in uniq:
-        uniq.remove(SECTOR_OTHER)
+    for special in (SECTOR_OTHER, SECTOR_ETF):
+        if special in uniq:
+            uniq.remove(special)
     uniq.sort(key=str)
     if (sectors_series == SECTOR_OTHER).any():
         uniq.append(SECTOR_OTHER)
+    if (sectors_series == SECTOR_ETF).any():
+        uniq.append(SECTOR_ETF)
     return uniq
 
 def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
@@ -820,8 +836,11 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # File-based and MANUAL: still run sequence with OHLC only (info may fail or different exchange string)
-                    info_dict = {"company_name": t, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": None}
+                    # File-based: still run sequence; fetch quote_type and sector so we show sector for stocks and "ETF" for ETFs
+                    quote_type, sector, company_name = _fetch_quote_type_and_sector(t)
+                    if (quote_type or "").upper() != "EQUITY":
+                        sector = SECTOR_ETF
+                    info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": sector}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
