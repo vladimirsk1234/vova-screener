@@ -439,7 +439,8 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
     """
     Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally MC/vol (require_mc_vol=True).
     When require_mc_vol=False (e.g. TV-LIST): only filter NOT_EQUITY / NOT_US; allow None MC/vol so more symbols pass.
-    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, market_cap, mc_display, pe, avg_volume.
+    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, market_cap, mc_display, pe, avg_volume, sector.
+    When filter fails but we have info, returns partial info_dict (sector/industry, company_name) so caller doesn't need a second API call.
     """
     try:
         t = yf.Ticker(ticker)
@@ -459,27 +460,37 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         if pe is not None and (np.isnan(pe) or np.isinf(pe)):
             pe = None
 
+        def _sector_from_info(info):
+            s = info.get("sector")
+            sector = (s or None) if (s and isinstance(s, str) and s.strip()) else None
+            if sector is None:
+                ind = info.get("industry")
+                if ind and isinstance(ind, str) and ind.strip():
+                    sector = ind.strip()
+            return sector
+
         if quote_type and quote_type.upper() != "EQUITY":
-            return False, "NOT_EQUITY", None
+            partial = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+            return False, "NOT_EQUITY", partial
         if exchange and exchange not in US_EQUITY_EXCHANGES:
-            return False, "NOT_US", None
+            partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+            if market_cap is not None:
+                partial["mc_display"] = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
+            return False, "NOT_US", partial
         if require_mc_vol:
             if market_cap is None or (min_market_cap and market_cap < min_market_cap):
-                return False, "MC_BELOW_5B", None
+                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+                return False, "MC_BELOW_5B", partial
             if avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume):
-                return False, "LOW_VOL", None
+                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol, "sector": _sector_from_info(i), "quote_type": quote_type}
+                if market_cap is not None:
+                    partial["mc_display"] = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
+                return False, "LOW_VOL", partial
 
         mc_display = None
         if market_cap is not None:
             mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
-        sector = None
-        if (quote_type or "").upper() == "EQUITY":
-            s = i.get("sector")
-            sector = (s or None) if (s and isinstance(s, str) and s.strip()) else None
-            if sector is None:
-                ind = i.get("industry")
-                if ind and isinstance(ind, str) and ind.strip():
-                    sector = ind.strip()
+        sector = _sector_from_info(i)
         info_dict = {
             "company_name": company_name,
             "market_cap": market_cap,
@@ -860,12 +871,19 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # File-based: still run sequence; fetch quote_type and sector so we show sector for stocks and "ETF" only for real ETFs
-                    quote_type, sector, company_name = _fetch_quote_type_and_sector(t)
-                    qt_upper = (quote_type or "").upper()
-                    if qt_upper and qt_upper in NON_EQUITY_QUOTE_TYPES:
-                        sector = SECTOR_ETF
-                    info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": sector}
+                    # Use partial info from first call when we have it (sector from same response); only fetch again on INFO_ERROR
+                    if info_dict is not None:
+                        qt_upper = (info_dict.get("quote_type") or "").upper()
+                        if qt_upper and qt_upper in NON_EQUITY_QUOTE_TYPES:
+                            info_dict = {**info_dict, "sector": SECTOR_ETF}
+                        if "quote_type" in info_dict:
+                            info_dict = {k: v for k, v in info_dict.items() if k != "quote_type"}
+                    else:
+                        quote_type, sector, company_name = _fetch_quote_type_and_sector(t)
+                        qt_upper = (quote_type or "").upper()
+                        if qt_upper and qt_upper in NON_EQUITY_QUOTE_TYPES:
+                            sector = SECTOR_ETF
+                        info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": sector}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
