@@ -288,12 +288,11 @@ def read_list_file(filename):
         for part in raw.split(","):
             part = part.strip()
             if ":" in part:
-                ex, sym = part.split(":", 1)
-                token = ex.strip() + ":" + sym.strip().replace(".", "-")
+                sym = part.split(":", 1)[1].strip()
             else:
-                token = part.replace(".", "-")
-            if token:
-                out.append(token)
+                sym = part
+            if sym:
+                out.append(sym.replace(".", "-"))
         return out
     except FileNotFoundError:
         st.warning(f"List file not found: {path}. Add {filename} or choose another source.")
