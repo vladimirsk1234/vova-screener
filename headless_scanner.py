@@ -450,18 +450,16 @@ from sequence_vova import run_sequence_vova_pine
 # ==========================================
 # 4. UI & SIDEBAR
 # ==========================================
-from ticker_sources import FileListSource, MergedListSource, ManualSource, CallableSource
+from ticker_sources import FileListSource, MergedListSource, ManualSource
 
-SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "S&P 500 + NASDAQ 100", "ALL US LISTED", "MANUAL SCAN"]
-# Registry of TickerSource instances (MANUAL SCAN built at run time)
+# Ticker sources: only from the 3 TXT files (SMALL CAP, BIG CAP, ETF) + ALL (merged) + MANUAL
+SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "MANUAL SCAN"]
 def _build_source_registry():
     return {
         "SMALL CAP": FileListSource(TV_LIST_SMALL_CAP, read_list_file),
         "BIG CAP": FileListSource(TV_LIST_BIG_CAP, read_list_file),
         "ETFS": FileListSource(TV_LIST_ETF, read_list_file),
         "ALL": MergedListSource([TV_LIST_SMALL_CAP, TV_LIST_BIG_CAP, TV_LIST_ETF], read_list_file),
-        "S&P 500 + NASDAQ 100": CallableSource(get_us_stock_tickers, "S&P 500 + NASDAQ 100, deduplicated."),
-        "ALL US LISTED": CallableSource(get_all_us_listed_tickers, "All US-listed common stocks (NASDAQ symbol directory)."),
     }
 
 SOURCE_REGISTRY = _build_source_registry()
@@ -614,9 +612,12 @@ def run_scan(
 
     table_rows = []
     rejected_reasons = []
-    processed = 0
     reference_end_date = None
     batches_data = []
+
+    # Progress: info phase + download phase + process phase so the bar moves through the whole scan
+    total_steps = len(tickers) + len(batches) + len(tickers)
+    step = [0]  # use list so inner function can update
 
     # Pre-fetch ticker info in parallel with rate limiter (faster than per-ticker in loop)
     _rate_limiter_lock = threading.Lock()
@@ -657,6 +658,9 @@ def run_scan(
             except Exception:
                 t = futures[future]
                 info_cache[t] = (False, "INFO_ERROR", {"company_name": _fetch_fallback_company_name(t), "avg_volume": None})
+            step[0] += 1
+            if on_progress:
+                on_progress(step[0], total_steps)
 
     for batch_idx, batch in enumerate(batches):
         if is_cancelled and is_cancelled():
@@ -686,6 +690,9 @@ def run_scan(
             if batch_end is not None:
                 reference_end_date = batch_end if reference_end_date is None else min(reference_end_date, batch_end)
             batches_data.append((batch, all_data))
+        step[0] += 1
+        if on_progress:
+            on_progress(step[0], total_steps)
 
     if reference_end_date is None and batches_data:
         for _, all_data in batches_data:
@@ -703,9 +710,9 @@ def run_scan(
         for i, t in enumerate(batch):
             if is_cancelled and is_cancelled():
                 break
-            processed += 1
+            step[0] += 1
             if on_progress:
-                on_progress(processed, len(tickers))
+                on_progress(step[0], total_steps)
             try:
                 passed, reject_reason, info_dict = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
                 if not passed:
