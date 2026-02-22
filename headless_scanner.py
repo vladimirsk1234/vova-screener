@@ -808,6 +808,9 @@ if st.session_state.scanning:
     processed = 0
     reference_end_date = None  # same bar for all tickers = consistent results
 
+    # When multiple batches: download all first, then set reference_end_date = min(end date across batches)
+    # so every ticker is evaluated on the same bar and we don't lose results in later batches.
+    batches_data = []  # list of (batch, all_data or None)
     for batch_idx, batch in enumerate(batches):
         if not st.session_state.scanning:
             break
@@ -823,18 +826,28 @@ if st.session_state.scanning:
                 threads=True
             )
             if all_data is None or all_data.empty:
-                all_data = None
+                batches_data.append((batch, None))
             else:
-                if reference_end_date is None and hasattr(all_data.index, '__len__') and len(all_data.index) > 0:
-                    reference_end_date = all_data.index[-1]
-                # Later batches: truncate to same bar as first batch so all tickers evaluated on same date
-                if reference_end_date is not None and len(all_data.index) > 0 and all_data.index[-1] > reference_end_date:
-                    all_data = all_data.loc[all_data.index <= reference_end_date]
-                info_box.info(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
+                batch_end = all_data.index[-1] if hasattr(all_data.index, '__len__') and len(all_data.index) > 0 else None
+                if batch_end is not None:
+                    reference_end_date = batch_end if reference_end_date is None else min(reference_end_date, batch_end)
+                batches_data.append((batch, all_data))
         except Exception as e:
             st.warning(f"Batch download failed: {e}")
-            all_data = None
+            batches_data.append((batch, None))
 
+    if reference_end_date is None and batches_data:
+        for _, all_data in batches_data:
+            if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                reference_end_date = all_data.index[-1]
+                break
+
+    for batch_idx, (batch, all_data) in enumerate(batches_data):
+        if not st.session_state.scanning:
+            break
+        if all_data is not None and not all_data.empty and reference_end_date is not None and len(all_data.index) > 0 and all_data.index[-1] > reference_end_date:
+            all_data = all_data.loc[all_data.index <= reference_end_date]
+        info_box.info(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
         for i, t in enumerate(batch):
             if not st.session_state.scanning:
                 break
@@ -933,8 +946,7 @@ if st.session_state.scanning:
                     "Strong": 1 if out["Strong"] else 0,
                 })
             except Exception:
-                if p['src'] == "MANUAL SCAN":
-                    rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
+                rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
 
     bar.empty()
     st.session_state.results = table_rows
@@ -970,6 +982,9 @@ if st.session_state.scanning:
             st.info("No symbols passed the screener.")
         if p['src'] == "MANUAL SCAN" and rejected_reasons:
             with st.expander("Rejected (Manual)"):
+                st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+        elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
+            with st.expander("Skipped (errors)"):
                 st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
     st.session_state.scanning = False
@@ -1010,5 +1025,8 @@ else:
             st.info("Ready to scan. Click START.")
         if last_src == "MANUAL SCAN" and rejected_reasons:
             with st.expander("Rejected (Manual)"):
+                st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+        elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
+            with st.expander("Skipped (errors)"):
                 st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
