@@ -413,21 +413,32 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         i = t.info
         quote_type = i.get("quoteType") or ""
         exchange = (i.get("exchange") or "").upper()
-        market_cap = i.get("marketCap")
+        market_cap = i.get("marketCap") or i.get("market_cap")
         avg_vol = i.get("averageVolume")
         if market_cap is None and i.get("sharesOutstanding") and i.get("regularMarketPrice"):
-            market_cap = i["sharesOutstanding"] * i["regularMarketPrice"]
+            try:
+                market_cap = float(i["sharesOutstanding"]) * float(i["regularMarketPrice"])
+            except (TypeError, ValueError):
+                pass
         if avg_vol is None and isinstance(t.history(period="1mo"), pd.DataFrame):
             hist = t.history(period="1mo")
             if not hist.empty and "Volume" in hist.columns:
                 avg_vol = float(hist["Volume"].mean())
         company_name = i.get("longName") or i.get("shortName") or ticker
-        pe = i.get("trailingPE") or i.get("forwardPE")
-        if pe is not None and (np.isnan(pe) or np.isinf(pe)):
-            pe = None
+        pe = i.get("trailingPE") or i.get("forwardPE") or i.get("peRatio")
+        if pe is not None:
+            try:
+                pe = float(pe)
+                if np.isnan(pe) or np.isinf(pe) or pe <= 0:
+                    pe = None
+            except (TypeError, ValueError):
+                pe = None
 
         if quote_type and quote_type.upper() != "EQUITY":
-            partial = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
+            mc_display = None
+            if market_cap is not None:
+                mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
+            partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": mc_display, "pe": pe, "avg_volume": avg_vol}
             return False, "NOT_EQUITY", partial
         if exchange and exchange not in US_EQUITY_EXCHANGES:
             partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
@@ -837,10 +848,13 @@ if st.session_state.scanning:
                     if p['src'] == "MANUAL SCAN":
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
-                    # Use partial info from first call when we have it; only fetch again on INFO_ERROR
+                    # Use partial info from first call when we have it; on INFO_ERROR retry once then fallback
                     if info_dict is None:
-                        company_name = _fetch_fallback_company_name(t)
-                        info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
+                        time.sleep(0.25)
+                        passed2, _, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
+                        if info_dict is None:
+                            company_name = _fetch_fallback_company_name(t)
+                            info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
