@@ -403,9 +403,9 @@ US_EQUITY_EXCHANGES = {
 
 def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
     """
-    Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally MC/vol (require_mc_vol=True).
-    When require_mc_vol=False (e.g. TV-LIST): only filter NOT_EQUITY / NOT_US; allow None MC/vol so more symbols pass.
-    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, market_cap, mc_display, pe, avg_volume.
+    Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally avg volume (require_mc_vol=True).
+    When require_mc_vol=False (e.g. TV-LIST): only filter NOT_EQUITY / NOT_US.
+    Returns (passed: bool, reject_reason: str, info_dict or None). info_dict: company_name, avg_volume.
     When filter fails but we have info, returns partial info_dict so caller doesn't need a second API call.
     """
     try:
@@ -413,56 +413,25 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         i = t.info
         quote_type = i.get("quoteType") or ""
         exchange = (i.get("exchange") or "").upper()
-        market_cap = i.get("marketCap") or i.get("market_cap")
         avg_vol = i.get("averageVolume")
-        if market_cap is None and i.get("sharesOutstanding") and i.get("regularMarketPrice"):
-            try:
-                market_cap = float(i["sharesOutstanding"]) * float(i["regularMarketPrice"])
-            except (TypeError, ValueError):
-                pass
         if avg_vol is None and isinstance(t.history(period="1mo"), pd.DataFrame):
             hist = t.history(period="1mo")
             if not hist.empty and "Volume" in hist.columns:
                 avg_vol = float(hist["Volume"].mean())
         company_name = i.get("longName") or i.get("shortName") or ticker
-        pe = i.get("trailingPE") or i.get("forwardPE") or i.get("peRatio")
-        if pe is not None:
-            try:
-                pe = float(pe)
-                if np.isnan(pe) or np.isinf(pe) or pe <= 0:
-                    pe = None
-            except (TypeError, ValueError):
-                pe = None
 
         if quote_type and quote_type.upper() != "EQUITY":
-            mc_display = None
-            if market_cap is not None:
-                mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
-            partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": mc_display, "pe": pe, "avg_volume": avg_vol}
+            partial = {"company_name": company_name, "avg_volume": avg_vol}
             return False, "NOT_EQUITY", partial
         if exchange and exchange not in US_EQUITY_EXCHANGES:
-            partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
-            if market_cap is not None:
-                partial["mc_display"] = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
+            partial = {"company_name": company_name, "avg_volume": avg_vol}
             return False, "NOT_US", partial
-        if require_mc_vol:
-            if market_cap is None or (min_market_cap and market_cap < min_market_cap):
-                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
-                return False, "MC_BELOW_5B", partial
-            if avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume):
-                partial = {"company_name": company_name, "market_cap": market_cap, "mc_display": None, "pe": pe, "avg_volume": avg_vol}
-                if market_cap is not None:
-                    partial["mc_display"] = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
-                return False, "LOW_VOL", partial
+        if require_mc_vol and (avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume)):
+            partial = {"company_name": company_name, "avg_volume": avg_vol}
+            return False, "LOW_VOL", partial
 
-        mc_display = None
-        if market_cap is not None:
-            mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
         info_dict = {
             "company_name": company_name,
-            "market_cap": market_cap,
-            "mc_display": mc_display,
-            "pe": pe,
             "avg_volume": avg_vol,
         }
         return True, "", info_dict
@@ -854,7 +823,7 @@ if st.session_state.scanning:
                         passed2, _, info_dict = get_ticker_info_and_filter(t, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=require_mc_vol)
                         if info_dict is None:
                             company_name = _fetch_fallback_company_name(t)
-                            info_dict = {"company_name": company_name, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
+                            info_dict = {"company_name": company_name, "avg_volume": None}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -913,11 +882,6 @@ if st.session_state.scanning:
                     pos_size = int(round(pos_size))
                 pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
 
-                pe_val = info_dict["pe"]
-                if pe_val is not None and (np.isnan(pe_val) or np.isinf(pe_val)):
-                    pe_val = None
-
-                mc_disp = info_dict.get("mc_display")
                 tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
                 table_rows.append({
                     "Symbol": tv_url,
@@ -925,8 +889,6 @@ if st.session_state.scanning:
                     "TP": round(float(out["TP"]), 2),
                     "SL": round(float(out["SL"]), 2),
                     "RR": round(float(out["RR"]), 2),
-                    "MC (B/M)": round(float(mc_disp), 2) if mc_disp is not None else None,
-                    "PE": round(float(pe_val), 2) if pe_val is not None else None,
                     "Position Size (shares)": pos_size,
                     "Position Value ($)": round(float(pos_value), 2),
                     "New": 1 if out["New"] else 0,
