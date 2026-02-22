@@ -868,8 +868,9 @@ if st.session_state.scanning:
                     pe_val = None
 
                 mc_disp = info_dict.get("mc_display")
+                tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
                 table_rows.append({
-                    "Symbol": t,
+                    "Symbol": tv_url,
                     "Company Name": info_dict["company_name"],
                     "TP": round(float(out["TP"]), 2),
                     "SL": round(float(out["SL"]), 2),
@@ -881,7 +882,6 @@ if st.session_state.scanning:
                     "New": 1 if out["New"] else 0,
                     "Valid": 1 if out["Valid"] else 0,
                     "Strong": 1 if out["Strong"] else 0,
-                    "TradingView": f"https://www.tradingview.com/chart/?symbol={t}",
                 })
             except Exception:
                 if p['src'] == "MANUAL SCAN":
@@ -900,7 +900,7 @@ if st.session_state.scanning:
                 res_df,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"TradingView": st.column_config.LinkColumn("TV", display_text="Chart")},
+                column_config={"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")},
             )
             if reference_end_date is not None:
                 try:
@@ -936,7 +936,7 @@ else:
                 res_df,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"TradingView": st.column_config.LinkColumn("TV", display_text="Chart")},
+                column_config={"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")},
             )
             if as_of is not None:
                 try:
