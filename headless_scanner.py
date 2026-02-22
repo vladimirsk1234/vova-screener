@@ -400,6 +400,18 @@ US_EQUITY_EXCHANGES = {
     "NASDAQGS", "NASDAQCM", "NASDAQGM",  # yfinance often returns e.g. "NasdaqGS"
 }
 
+SECTOR_OTHER = "\u2014"  # fallback for missing sector / ETFs
+
+def _sector_display_order(sectors_series):
+    """Return ordered list of sectors: alphabetical, with SECTOR_OTHER last."""
+    uniq = sectors_series.dropna().unique().tolist()
+    if SECTOR_OTHER in uniq:
+        uniq.remove(SECTOR_OTHER)
+    uniq.sort(key=str)
+    if (sectors_series == SECTOR_OTHER).any():
+        uniq.append(SECTOR_OTHER)
+    return uniq
+
 def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=True):
     """
     Fetch ticker info from yfinance. Apply filters: US listed common stock; optionally MC/vol (require_mc_vol=True).
@@ -437,12 +449,17 @@ def get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_00
         mc_display = None
         if market_cap is not None:
             mc_display = market_cap / 1e9 if market_cap >= 1e9 else market_cap / 1e6
+        sector = None
+        if (quote_type or "").upper() == "EQUITY":
+            s = i.get("sector")
+            sector = (s or None) if (s and isinstance(s, str) and s.strip()) else None
         info_dict = {
             "company_name": company_name,
             "market_cap": market_cap,
             "mc_display": mc_display,
             "pe": pe,
             "avg_volume": avg_vol,
+            "sector": sector,
         }
         return True, "", info_dict
     except Exception as e:
@@ -804,7 +821,7 @@ if st.session_state.scanning:
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                         continue
                     # File-based and MANUAL: still run sequence with OHLC only (info may fail or different exchange string)
-                    info_dict = {"company_name": t, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None}
+                    info_dict = {"company_name": t, "market_cap": None, "mc_display": None, "pe": None, "avg_volume": None, "sector": None}
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -872,6 +889,7 @@ if st.session_state.scanning:
                 table_rows.append({
                     "Symbol": tv_url,
                     "Company Name": info_dict["company_name"],
+                    "Sector": info_dict.get("sector") or "\u2014",
                     "TP": round(float(out["TP"]), 2),
                     "SL": round(float(out["SL"]), 2),
                     "RR": round(float(out["RR"]), 2),
@@ -896,12 +914,16 @@ if st.session_state.scanning:
     with res_area.container():
         if table_rows:
             res_df = pd.DataFrame(table_rows)
-            st.dataframe(
-                res_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")},
-            )
+            col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
+            if "Sector" in res_df.columns:
+                for sector in _sector_display_order(res_df["Sector"]):
+                    sector_df = res_df[res_df["Sector"] == sector]
+                    if sector_df.empty:
+                        continue
+                    st.subheader(sector)
+                    st.dataframe(sector_df, use_container_width=True, hide_index=True, column_config=col_config)
+            else:
+                st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
             if reference_end_date is not None:
                 try:
                     d = pd.Timestamp(reference_end_date)
@@ -932,12 +954,16 @@ else:
     with res_area.container():
         if table_rows:
             res_df = pd.DataFrame(table_rows)
-            st.dataframe(
-                res_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")},
-            )
+            col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
+            if "Sector" in res_df.columns:
+                for sector in _sector_display_order(res_df["Sector"]):
+                    sector_df = res_df[res_df["Sector"] == sector]
+                    if sector_df.empty:
+                        continue
+                    st.subheader(sector)
+                    st.dataframe(sector_df, use_container_width=True, hide_index=True, column_config=col_config)
+            else:
+                st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
             if as_of is not None:
                 try:
                     d = pd.Timestamp(as_of)
