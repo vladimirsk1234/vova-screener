@@ -288,11 +288,12 @@ def read_list_file(filename):
         for part in raw.split(","):
             part = part.strip()
             if ":" in part:
-                sym = part.split(":", 1)[1].strip()
+                ex, sym = part.split(":", 1)
+                token = ex.strip() + ":" + sym.strip().replace(".", "-")
             else:
-                sym = part
-            if sym:
-                out.append(sym.replace(".", "-"))
+                token = part.replace(".", "-")
+            if token:
+                out.append(token)
         return out
     except FileNotFoundError:
         st.warning(f"List file not found: {path}. Add {filename} or choose another source.")
@@ -706,16 +707,20 @@ def _fill_last_bar_ohlc(df):
 
 def _extract_ohlcv(all_data, ticker, required_cols):
     if isinstance(all_data.columns, pd.MultiIndex):
-        if ticker not in all_data.columns.get_level_values(0).unique():
+        level0 = all_data.columns.get_level_values(0).unique()
+        key = ticker
+        if key not in level0 and ":" in ticker:
+            key = ticker.split(":")[-1]
+        if key not in level0:
             return None
-        if not all((ticker, col) in all_data.columns for col in required_cols):
+        if not all((key, col) in all_data.columns for col in required_cols):
             return None
         return pd.DataFrame({
-            'Open': all_data[(ticker, 'Open')],
-            'High': all_data[(ticker, 'High')],
-            'Low': all_data[(ticker, 'Low')],
-            'Close': all_data[(ticker, 'Close')],
-            'Volume': all_data[(ticker, 'Volume')]
+            'Open': all_data[(key, 'Open')],
+            'High': all_data[(key, 'High')],
+            'Low': all_data[(key, 'Low')],
+            'Close': all_data[(key, 'Close')],
+            'Volume': all_data[(key, 'Volume')]
         })
     if len(all_data.columns) == 0:
         return None
@@ -877,6 +882,7 @@ if st.session_state.scanning:
                     "New": 1 if out["New"] else 0,
                     "Valid": 1 if out["Valid"] else 0,
                     "Strong": 1 if out["Strong"] else 0,
+                    "TradingView": f"https://www.tradingview.com/chart/?symbol={t}",
                 })
             except Exception:
                 if p['src'] == "MANUAL SCAN":
@@ -891,7 +897,12 @@ if st.session_state.scanning:
     with res_area.container():
         if table_rows:
             res_df = pd.DataFrame(table_rows)
-            st.dataframe(res_df, use_container_width=True, hide_index=True)
+            st.dataframe(
+                res_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={"TradingView": st.column_config.LinkColumn("TV", display_text="Chart")},
+            )
             if reference_end_date is not None:
                 try:
                     d = pd.Timestamp(reference_end_date)
@@ -922,7 +933,12 @@ else:
     with res_area.container():
         if table_rows:
             res_df = pd.DataFrame(table_rows)
-            st.dataframe(res_df, use_container_width=True, hide_index=True)
+            st.dataframe(
+                res_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={"TradingView": st.column_config.LinkColumn("TV", display_text="Chart")},
+            )
             if as_of is not None:
                 try:
                     d = pd.Timestamp(as_of)
