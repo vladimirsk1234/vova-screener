@@ -93,6 +93,7 @@ last_mode = st.session_state.get("run_params", {}).get("scan_mode", SCAN_MODE_TA
 _mode_idx = SCAN_MODE_OPTIONS.index(last_mode) if last_mode in SCAN_MODE_OPTIONS else 0
 scan_mode = st.sidebar.radio("MODE", SCAN_MODE_OPTIONS, disabled=disabled, index=_mode_idx)
 eps_only = scan_mode == SCAN_MODE_EPS
+uses_fundamental_eps = scan_mode in (SCAN_MODE_EPS, SCAN_MODE_BOTH)
 
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
@@ -105,37 +106,59 @@ st.sidebar.subheader("FILTERS")
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled or eps_only)
 
-st.sidebar.subheader("EPS YIELD (FAST Graphs–style)")
 rp = st.session_state.get("run_params", {})
-fair_pe_in = st.sidebar.number_input(
-    "Fair P/E (fair value line)", value=float(rp.get("fair_pe", 15.19)), min_value=0.01, step=0.1, disabled=disabled
-)
-norm_pe_in = st.sidebar.number_input(
-    "Normal P/E (normal line)", value=float(rp.get("norm_pe", 24.05)), min_value=0.01, step=0.1, disabled=disabled
-)
-min_eps_txt = st.sidebar.text_input(
-    "Min EPS Yield % (optional)",
-    value=str(rp.get("min_eps_yield_txt") or ""),
-    disabled=disabled,
-    help="Blank = no minimum filter.",
-)
-max_eps_txt = st.sidebar.text_input(
-    "Max EPS Yield % (optional)",
-    value=str(rp.get("max_eps_yield_txt") or ""),
-    disabled=disabled,
-    help="Blank = no maximum filter.",
-)
-require_eps = st.sidebar.checkbox(
-    "Require valid EPS", value=bool(rp.get("require_eps", False)), disabled=disabled,
-    help="If checked, symbols without TTM EPS are excluded when EPS filters apply.",
-)
-include_negative_eps = st.sidebar.checkbox(
-    "Include negative EPS", value=bool(rp.get("include_negative_eps", False)), disabled=disabled,
-)
-eps_sort_desc = st.sidebar.checkbox(
-    "Sort EPS yield high → low", value=bool(rp.get("eps_sort_desc", True)), disabled=disabled,
-    help="Applies to EPS yield–only scan.",
-)
+if uses_fundamental_eps:
+    st.sidebar.subheader("EPS YIELD (FAST Graphs–style)")
+    st.sidebar.caption(
+        "Fair P/E and Normal P/E are reference only (Fair $, Normal $, vs Fair %). "
+        "They do not filter results. Use Min EPS Yield and the options below to screen."
+    )
+    fair_pe_in = st.sidebar.number_input(
+        "Fair P/E (fair value line)",
+        value=float(rp.get("fair_pe", 15.19)),
+        min_value=0.01,
+        step=0.1,
+        disabled=disabled,
+        help="Reference for Fair $ and vs Fair % columns — not a screening filter.",
+    )
+    norm_pe_in = st.sidebar.number_input(
+        "Normal P/E (normal line)",
+        value=float(rp.get("norm_pe", 24.05)),
+        min_value=0.01,
+        step=0.1,
+        disabled=disabled,
+        help="Reference for Normal $ column — not a screening filter.",
+    )
+    min_eps_txt = st.sidebar.text_input(
+        "Min EPS Yield % (optional)",
+        value=str(rp.get("min_eps_yield_txt") or ""),
+        disabled=disabled,
+        help="Minimum EPS yield % for screening. Blank = no minimum.",
+    )
+    require_eps = st.sidebar.checkbox(
+        "Require valid EPS",
+        value=bool(rp.get("require_eps", False)),
+        disabled=disabled,
+        help="If checked, symbols without TTM EPS are excluded when EPS filters apply.",
+    )
+    include_negative_eps = st.sidebar.checkbox(
+        "Include negative EPS",
+        value=bool(rp.get("include_negative_eps", False)),
+        disabled=disabled,
+    )
+    eps_sort_desc = st.sidebar.checkbox(
+        "Sort EPS yield high → low",
+        value=bool(rp.get("eps_sort_desc", True)),
+        disabled=disabled,
+        help="Applies when MODE is EPS yield (sorts results by EPS Yield %).",
+    )
+else:
+    fair_pe_in = float(rp.get("fair_pe", 15.19))
+    norm_pe_in = float(rp.get("norm_pe", 24.05))
+    min_eps_txt = str(rp.get("min_eps_yield_txt") or "")
+    require_eps = bool(rp.get("require_eps", False))
+    include_negative_eps = bool(rp.get("include_negative_eps", False))
+    eps_sort_desc = bool(rp.get("eps_sort_desc", True))
 
 # Buttons
 c1, c2 = st.sidebar.columns(2)
@@ -155,7 +178,6 @@ if start_btn:
         'fair_pe': fair_pe_in,
         'norm_pe': norm_pe_in,
         'min_eps_yield_txt': min_eps_txt,
-        'max_eps_yield_txt': max_eps_txt,
         'require_eps': require_eps,
         'include_negative_eps': include_negative_eps,
         'eps_sort_desc': eps_sort_desc,
@@ -184,7 +206,6 @@ class ScanConfig:
     fair_pe: float
     norm_pe: float
     min_eps_yield: float | None
-    max_eps_yield: float | None
     require_eps: bool
     include_negative_eps: bool
     eps_sort_desc: bool
@@ -202,7 +223,6 @@ class ScanConfig:
             fair_pe=float(p.get("fair_pe", 15.19)),
             norm_pe=float(p.get("norm_pe", 24.05)),
             min_eps_yield=_parse_optional_float(str(p.get("min_eps_yield_txt", "") or "")),
-            max_eps_yield=_parse_optional_float(str(p.get("max_eps_yield_txt", "") or "")),
             require_eps=bool(p.get("require_eps", False)),
             include_negative_eps=bool(p.get("include_negative_eps", False)),
             eps_sort_desc=bool(p.get("eps_sort_desc", True)),
@@ -346,7 +366,6 @@ def run_scan(
     fair_pe: float = 15.19,
     norm_pe: float = 24.05,
     min_eps_yield: float | None = None,
-    max_eps_yield: float | None = None,
     require_eps: bool = False,
     include_negative_eps: bool = False,
     eps_sort_desc: bool = True,
@@ -547,7 +566,7 @@ def run_scan(
                         y_pct,
                         tr_eps,
                         min_eps_yield=min_eps_yield,
-                        max_eps_yield=max_eps_yield,
+                        max_eps_yield=None,
                         require_eps=require_eps,
                         include_negative_eps=include_negative_eps,
                     ):
@@ -601,7 +620,7 @@ def run_scan(
                         y_pct,
                         tr_eps,
                         min_eps_yield=min_eps_yield,
-                        max_eps_yield=max_eps_yield,
+                        max_eps_yield=None,
                         require_eps=require_eps,
                         include_negative_eps=include_negative_eps,
                     ):
@@ -667,7 +686,6 @@ if st.session_state.scanning:
         fair_pe=cfg.fair_pe,
         norm_pe=cfg.norm_pe,
         min_eps_yield=cfg.min_eps_yield,
-        max_eps_yield=cfg.max_eps_yield,
         require_eps=cfg.require_eps,
         include_negative_eps=cfg.include_negative_eps,
         eps_sort_desc=cfg.eps_sort_desc,
