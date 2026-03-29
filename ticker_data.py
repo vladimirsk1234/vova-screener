@@ -48,6 +48,24 @@ US_EQUITY_EXCHANGES = {
 }
 
 
+def _eps_from_yf_info(i: dict) -> tuple[float | None, float | None]:
+    """Parse trailingEps / forwardEps from yfinance .info (TTM proxy for screening)."""
+    te = i.get("trailingEps")
+    fe = i.get("forwardEps")
+    out_te, out_fe = None, None
+    if te is not None:
+        try:
+            out_te = float(te)
+        except (TypeError, ValueError):
+            pass
+    if fe is not None:
+        try:
+            out_fe = float(fe)
+        except (TypeError, ValueError):
+            pass
+    return out_te, out_fe
+
+
 def get_ticker_info_and_filter(
     ticker: str,
     min_market_cap: float = 5e9,
@@ -71,20 +89,38 @@ def get_ticker_info_and_filter(
             if isinstance(hist, pd.DataFrame) and not hist.empty and "Volume" in hist.columns:
                 avg_vol = float(hist["Volume"].mean())
         company_name = i.get("longName") or i.get("shortName") or ticker
+        trailing_eps, forward_eps = _eps_from_yf_info(i)
 
         if quote_type and quote_type.upper() != "EQUITY":
-            partial = {"company_name": company_name, "avg_volume": avg_vol}
+            partial = {
+                "company_name": company_name,
+                "avg_volume": avg_vol,
+                "trailingEps": trailing_eps,
+                "forwardEps": forward_eps,
+            }
             return False, "NOT_EQUITY", partial
         if exchange and exchange not in US_EQUITY_EXCHANGES:
-            partial = {"company_name": company_name, "avg_volume": avg_vol}
+            partial = {
+                "company_name": company_name,
+                "avg_volume": avg_vol,
+                "trailingEps": trailing_eps,
+                "forwardEps": forward_eps,
+            }
             return False, "NOT_US", partial
         if require_mc_vol and (avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume)):
-            partial = {"company_name": company_name, "avg_volume": avg_vol}
+            partial = {
+                "company_name": company_name,
+                "avg_volume": avg_vol,
+                "trailingEps": trailing_eps,
+                "forwardEps": forward_eps,
+            }
             return False, "LOW_VOL", partial
 
         info_dict = {
             "company_name": company_name,
             "avg_volume": avg_vol,
+            "trailingEps": trailing_eps,
+            "forwardEps": forward_eps,
         }
         return True, "", info_dict
     except Exception:

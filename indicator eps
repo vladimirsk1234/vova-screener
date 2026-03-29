@@ -1,0 +1,43 @@
+//@version=5
+indicator("Оценка стоимости + EPS Yield", overlay=true)
+
+// --- ВХОДНЫЕ ПАРАМЕТРЫ ---
+fair_pe = input.float(15.19, title="Справедливый P/E (Оранжевая линия)", step=0.1)
+norm_pe = input.float(24.05, title="Нормальный P/E (Синяя линия)", step=0.1)
+period_type = input.string("TTM", title="Data period", options=["TTM", "FY"], tooltip="TTM: fastest, current valuation. FY: annual series for historical graph.")
+eps_pos = input.string("Middle left", title="EPS Yield position", options=["Top left", "Middle left", "Bottom left"], tooltip="Table position — adding rows doesn't move it; use this to shift vertically.")
+
+// --- ФУНДАМЕНТАЛЬНЫЕ ДАННЫЕ ---
+// FY: use gaps_off so valuation lines extend until next fiscal period (continuous). TTM: default gaps.
+gaps_val = period_type == "FY" ? barmerge.gaps_off : barmerge.gaps_on
+eps = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_BASIC", period_type, gaps_val, ignore_invalid_symbol=true)
+div = request.financial(syminfo.tickerid, "DIVIDENDS_PER_SHARE", period_type, gaps_val, ignore_invalid_symbol=true)
+
+// --- РАСЧЕТ ЛИНИЙ ОЦЕНКИ ---
+fair_value_price = eps * fair_pe
+normal_pe_price = eps * norm_pe
+div_scaled = div * fair_pe
+
+// --- РАСЧЕТ EPS YIELD ---
+// Формула: (EPS / Текущая цена закрытия) * 100
+eps_yield = (eps / close) * 100
+// Для водяного знака используем последнее известное значение (request.financial часто даёт na на последнем баре)
+eps_yield_display = ta.valuewhen(not na(eps_yield), eps_yield, 0)
+
+// --- ОТРИСОВКА НА ГРАФИКЕ ---
+plot(normal_pe_price, color=color.blue, linewidth=2, title="Normal P/E Line")
+plot(fair_value_price, color=color.orange, linewidth=2, title="Fair Value Line")
+
+p_div = plot(div_scaled, color=color.new(color.green, 20), linewidth=1, title="Граница дивидендов")
+p_zero = plot(0, color=color.new(color.white, 100), display=display.none, title="Ноль")
+fill(p_zero, p_div, color=color.new(color.green, 70), title="Дивидендная зона")
+
+// --- ВЫВОД EPS YIELD ---
+// Pine tables only support fixed positions (top/middle/bottom). Use input to move the table vertically.
+pos = eps_pos == "Top left" ? position.top_left : eps_pos == "Middle left" ? position.middle_left : position.bottom_left
+var table eps_table = table.new(pos, 1, 2, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.new(color.gray, 50))
+if barstate.islast
+    eps_text = na(eps_yield_display) ? "EPS Yield: —" : "EPS Yield: " + str.tostring(eps_yield_display, "#.##") + "%"
+    table.cell(eps_table, 0, 1, eps_text, text_color=color.black, text_size=size.large)
+// Линия не рисуется на графике, только в data window и status line
+plot(eps_yield, title="Текущий EPS Yield (%)", color=color.fuchsia, display=display.data_window + display.status_line)
