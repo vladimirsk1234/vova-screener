@@ -34,6 +34,7 @@ from ticker_data import (
     TV_LIST_ETF,
     TV_LIST_SMALL_CAP,
     fetch_fallback_company_name,
+    get_annual_eps_history_5y,
     get_ticker_info_and_filter,
     read_list_file,
 )
@@ -42,7 +43,7 @@ from ticker_data import (
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
 from sequence_vova import run_sequence_vova_pine
-from eps_yield import eps_row_metrics, eps_yield_pct, passes_eps_filters
+from eps_yield import avg_historical_pe_5y, eps_row_metrics, eps_yield_pct, passes_eps_filters
 
 # ==========================================
 # 4. UI & SIDEBAR
@@ -53,6 +54,7 @@ SCAN_MODE_TA = "TA (Sequence Vova)"
 SCAN_MODE_EPS = "EPS yield"
 SCAN_MODE_BOTH = "TA + EPS yield"
 SCAN_MODE_OPTIONS = [SCAN_MODE_TA, SCAN_MODE_EPS, SCAN_MODE_BOTH]
+FAIR_PE_FIXED = 15.0
 
 
 def _parse_optional_float(text: str) -> float | None:
@@ -110,16 +112,8 @@ rp = st.session_state.get("run_params", {})
 if uses_fundamental_eps:
     st.sidebar.subheader("EPS YIELD (FAST Graphs–style)")
     st.sidebar.caption(
-        "Fair P/E and Normal P/E are reference only (Fair $, Normal $, vs Fair %). "
+        "Fair P/E is fixed to 15 internally. Normal P/E is reference only (Normal $, vs Fair %). "
         "They do not filter results. Use Min EPS Yield and the options below to screen."
-    )
-    fair_pe_in = st.sidebar.number_input(
-        "Fair P/E (fair value line)",
-        value=float(rp.get("fair_pe", 15.19)),
-        min_value=0.01,
-        step=0.1,
-        disabled=disabled,
-        help="Reference for Fair $ and vs Fair % columns — not a screening filter.",
     )
     norm_pe_in = st.sidebar.number_input(
         "Normal P/E (normal line)",
@@ -153,7 +147,6 @@ if uses_fundamental_eps:
         help="Applies when MODE is EPS yield (sorts results by EPS Yield %).",
     )
 else:
-    fair_pe_in = float(rp.get("fair_pe", 15.19))
     norm_pe_in = float(rp.get("norm_pe", 24.05))
     min_eps_txt = str(rp.get("min_eps_yield_txt") or "")
     require_eps = bool(rp.get("require_eps", False))
@@ -175,7 +168,6 @@ if start_btn:
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
         'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
         'scan_mode': scan_mode,
-        'fair_pe': fair_pe_in,
         'norm_pe': norm_pe_in,
         'min_eps_yield_txt': min_eps_txt,
         'require_eps': require_eps,
@@ -220,7 +212,7 @@ class ScanConfig:
             new_only=bool(p.get("new", True)),
             is_manual_src=(p.get("src") == "MANUAL SCAN"),
             scan_mode=str(p.get("scan_mode", SCAN_MODE_TA)),
-            fair_pe=float(p.get("fair_pe", 15.19)),
+            fair_pe=FAIR_PE_FIXED,
             norm_pe=float(p.get("norm_pe", 24.05)),
             min_eps_yield=_parse_optional_float(str(p.get("min_eps_yield_txt", "") or "")),
             require_eps=bool(p.get("require_eps", False)),
@@ -251,7 +243,7 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
         col_config = {
             "Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)"),
         }
-        for num_col in ("EPS Yield %", "P/E (TTM)", "Fair $", "Normal $", "vs Fair %", "Close", "TP", "SL", "RR"):
+        for num_col in ("EPS Yield %", "P/E (TTM)", "Avg Hist P/E (5Y)", "Fair $", "Normal $", "vs Fair %", "Close", "TP", "SL", "RR"):
             if num_col in res_df.columns:
                 col_config[num_col] = st.column_config.NumberColumn(num_col, format="%.2f")
         st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
@@ -363,7 +355,7 @@ def run_scan(
     new_only,
     is_manual_src,
     scan_mode: str = SCAN_MODE_TA,
-    fair_pe: float = 15.19,
+    fair_pe: float = FAIR_PE_FIXED,
     norm_pe: float = 24.05,
     min_eps_yield: float | None = None,
     require_eps: bool = False,
@@ -378,6 +370,8 @@ def run_scan(
     No Streamlit calls. Returns (table_rows, rejected_reasons, reference_end_date).
     """
     inter, fetch_period = _interval_and_period(tf)
+    if scan_mode in (SCAN_MODE_EPS, SCAN_MODE_BOTH):
+        fetch_period = "10y"
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if len(tickers) > CHUNK_SIZE:
         batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]
@@ -424,6 +418,7 @@ def run_scan(
         return (ticker, passed, reason, info_dict)
 
     info_cache = {}
+    annual_eps_cache: dict[str, dict[int, float] | None] = {}
     if on_status:
         on_status("Fetching ticker info... DO NOT REFRESH.")
     with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
@@ -542,6 +537,7 @@ def run_scan(
                 if reference_end_date is None and len(df.index) > 0:
                     reference_end_date = df.index[-1]
 
+                hist_price_df = df.copy()
                 df = _resample_to_timeframe(df, tf)
                 if df is None or df.empty or len(df) < MIN_BARS:
                     if is_manual_src:
@@ -558,6 +554,11 @@ def run_scan(
                 close_last = float(df["Close"].iloc[-1])
                 tr_eps = info_dict.get("trailingEps")
                 y_pct = eps_yield_pct(tr_eps, close_last)
+                avg_hist_pe = None
+                if scan_mode in (SCAN_MODE_EPS, SCAN_MODE_BOTH):
+                    if t not in annual_eps_cache:
+                        annual_eps_cache[t] = get_annual_eps_history_5y(t)
+                    avg_hist_pe = avg_historical_pe_5y(hist_price_df, annual_eps_cache[t])
 
                 tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
 
@@ -578,6 +579,8 @@ def run_scan(
                         "Company Name": info_dict["company_name"],
                     }
                     row.update(eps_row_metrics(close_last, tr_eps, fair_pe, norm_pe))
+                    if avg_hist_pe is not None:
+                        row["Avg Hist P/E (5Y)"] = avg_hist_pe
                     table_rows.append(row)
                     continue
 
@@ -628,6 +631,8 @@ def run_scan(
                             rejected_reasons.append({"Symbol": t, "Reason": "EPS_FILTER"})
                         continue
                     base_row.update(eps_row_metrics(close_last, tr_eps, fair_pe, norm_pe))
+                    if avg_hist_pe is not None:
+                        base_row["Avg Hist P/E (5Y)"] = avg_hist_pe
 
                 table_rows.append(base_row)
             except Exception:

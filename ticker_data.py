@@ -2,6 +2,7 @@
 Ticker list I/O and Yahoo Finance info/filtering. No UI or Streamlit.
 """
 import os
+import math
 import pandas as pd
 import yfinance as yf
 
@@ -134,3 +135,51 @@ def fetch_fallback_company_name(ticker: str) -> str:
         return i.get("longName") or i.get("shortName") or ticker
     except Exception:
         return ticker
+
+
+def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]:
+    """
+    Build {year: eps} from a yfinance annual financials DataFrame.
+    Accepts diluted/basic EPS row naming variants and keeps latest value per year.
+    """
+    if not isinstance(financials, pd.DataFrame) or financials.empty:
+        return {}
+
+    eps_row = None
+    for candidate in ("Diluted EPS", "Basic EPS", "DilutedEPS", "BasicEPS"):
+        if candidate in financials.index:
+            eps_row = financials.loc[candidate]
+            break
+    if eps_row is None:
+        return {}
+
+    out: dict[int, float] = {}
+    for col, raw_val in eps_row.items():
+        try:
+            year = pd.Timestamp(col).year
+            eps_val = float(raw_val)
+        except Exception:
+            continue
+        if not math.isfinite(eps_val):
+            continue
+        out[year] = eps_val
+    return out
+
+
+def get_annual_eps_history_5y(ticker: str) -> dict[int, float] | None:
+    """
+    Return latest up-to-5 annual EPS points as {year: eps} for one ticker.
+    Returns None when no usable annual EPS rows are available.
+    """
+    try:
+        t = yf.Ticker(ticker)
+        eps_map = _extract_annual_eps_map(getattr(t, "financials", None))
+        if not eps_map:
+            eps_map = _extract_annual_eps_map(getattr(t, "income_stmt", None))
+        if not eps_map:
+            return None
+
+        years_desc = sorted(eps_map.keys(), reverse=True)[:5]
+        return {y: eps_map[y] for y in sorted(years_desc)}
+    except Exception:
+        return None

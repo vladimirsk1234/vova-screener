@@ -3,6 +3,8 @@ EPS yield and FAST Graphs–style fair value (eps * P/E). Pure math; no I/O.
 Aligns with Pine: eps_yield_pct = (eps / close) * 100.
 """
 from __future__ import annotations
+import math
+import pandas as pd
 
 
 def eps_yield_pct(eps: float | None, close: float | None) -> float | None:
@@ -118,3 +120,38 @@ def passes_eps_filters(
     if max_eps_yield is not None and eps_yield > max_eps_yield:
         return False
     return True
+
+
+def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict[int, float] | None) -> float | None:
+    """
+    Average of yearly P/E values for available annual EPS points.
+    Uses last available close in each matching calendar year.
+    """
+    if price_df is None or not isinstance(price_df, pd.DataFrame) or price_df.empty:
+        return None
+    if "Close" not in price_df.columns or not annual_eps_by_year:
+        return None
+
+    closes = pd.to_numeric(price_df["Close"], errors="coerce").dropna()
+    if closes.empty:
+        return None
+    year_end_close = closes.groupby(closes.index.year).last()
+
+    pe_values: list[float] = []
+    for year, eps in annual_eps_by_year.items():
+        try:
+            e = float(eps)
+        except (TypeError, ValueError):
+            continue
+        if e <= 0:
+            continue
+        if year not in year_end_close.index:
+            continue
+        price = float(year_end_close.loc[year])
+        pe = price / e
+        if math.isfinite(pe) and pe > 0:
+            pe_values.append(pe)
+
+    if not pe_values:
+        return None
+    return round(sum(pe_values) / len(pe_values), 2)
