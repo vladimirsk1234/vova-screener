@@ -170,7 +170,7 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
     if is_manual_src and rejected_reasons:
         with st.expander("Rejected (Manual)"):
             st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
-    elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
+    elif rejected_reasons and any(str(r.get("Reason", "")).startswith("ERROR") for r in rejected_reasons):
         with st.expander("Skipped (errors)"):
             st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
 
@@ -327,7 +327,7 @@ def run_scan(
                     progress=False,
                     auto_adjust=False,
                     group_by='ticker',
-                    threads=True
+                    threads=False,
                 )
                 break
             except Exception:
@@ -365,6 +365,12 @@ def run_scan(
                 on_progress(step[0], total_steps)
             try:
                 passed, reject_reason, info_dict = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
+                if info_dict is None:
+                    info_dict = {"company_name": t, "avg_volume": None}
+                elif not isinstance(info_dict, dict):
+                    info_dict = {"company_name": str(t), "avg_volume": None}
+                else:
+                    info_dict.setdefault("company_name", t)
                 if not passed:
                     if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
@@ -438,8 +444,11 @@ def run_scan(
                     "Valid": 1 if out["Valid"] else 0,
                     "Strong": 1 if out["Strong"] else 0,
                 })
-            except Exception:
-                rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                if len(msg) > 200:
+                    msg = msg[:197] + "..."
+                rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
 
     return (table_rows, rejected_reasons, reference_end_date)
 
