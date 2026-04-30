@@ -186,7 +186,7 @@ def _resample_to_timeframe(df, tf):
     req = ["Open", "High", "Low", "Close", "Volume"]
     if not all(c in df.columns for c in req):
         return df
-    rule = "W-FRI" if tf == "Weekly" else "M"
+    rule = "W-FRI" if tf == "Weekly" else "ME"
     res = df[req].resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
     return res.dropna(subset=req)
 
