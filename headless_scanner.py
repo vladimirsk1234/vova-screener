@@ -373,8 +373,10 @@ def run_scan(
                     info_dict.setdefault("company_name", t)
                 if not passed:
                     if is_manual_src:
-                        rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
-                        continue
+                        # Manual: Yahoo .info can fail (INFO_ERROR) while history still works — do not block TA scan.
+                        if reject_reason != "INFO_ERROR":
+                            rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
+                            continue
                     # info_dict from cache is never None (fallback applied in pre-fetch)
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
