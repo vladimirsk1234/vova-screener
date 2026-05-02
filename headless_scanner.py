@@ -6,7 +6,6 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlparse
 
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
@@ -17,7 +16,7 @@ st.set_page_config(page_title="Screener Vova (Terminal)", layout="wide", page_ic
 if 'scanning' not in st.session_state:
     st.session_state.scanning = False
 if 'results' not in st.session_state:
-    st.session_state.results = [] 
+    st.session_state.results = []
 if 'rejected' not in st.session_state:
     st.session_state.rejected = []
 if 'run_params' not in st.session_state:
@@ -86,24 +85,6 @@ st.sidebar.subheader("FILTERS")
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
 
-st.sidebar.subheader("SPEED / YAHOO")
-_lazy_default = st.session_state.get("run_params", {}).get("lazy_company_names", False)
-_strict_default = st.session_state.get("run_params", {}).get("strict_listing_filter", False)
-lazy_company_names = st.sidebar.checkbox(
-    "Resolve company names for results only (after scan, Yahoo)",
-    value=_lazy_default,
-    disabled=disabled or (src == "MANUAL SCAN"),
-    help="For file lists without strict filter, bulk Yahoo .info is skipped; enable this to fetch names only for symbols in the result table. No effect when strict filter is on (prefetch already loads names).",
-)
-strict_listing_filter = st.sidebar.checkbox(
-    "Strict US equity filter (Yahoo info prefetch for file lists)",
-    value=_strict_default,
-    disabled=disabled or (src == "MANUAL SCAN"),
-    help="When on, file sources prefetch .info and skip non-equity / non-US symbols before TA. Slower; uses same rate limits as manual scan.",
-)
-if src == "MANUAL SCAN":
-    st.sidebar.caption("Manual scan always prefetches ticker info for filtering.")
-
 # Buttons
 c1, c2 = st.sidebar.columns(2)
 start_btn = c1.button("▶ START", type="primary", disabled=disabled, use_container_width=True)
@@ -117,9 +98,7 @@ if start_btn:
     # FREEZE PARAMS
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
-        'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
-        'lazy_company_names': lazy_company_names,
-        'strict_listing_filter': strict_listing_filter,
+        'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p
     }
     st.rerun()
 
@@ -141,8 +120,6 @@ class ScanConfig:
     tf: str
     new_only: bool
     is_manual_src: bool
-    lazy_company_names: bool
-    strict_listing_filter: bool
 
     @classmethod
     def from_run_params(cls, p: dict) -> "ScanConfig":
@@ -153,10 +130,6 @@ class ScanConfig:
             tf=str(p.get("tf", "Daily")),
             new_only=bool(p.get("new", True)),
             is_manual_src=(p.get("src") == "MANUAL SCAN"),
-            lazy_company_names=bool(p.get("lazy_company_names", False))
-            and (p.get("src") != "MANUAL SCAN"),
-            strict_listing_filter=bool(p.get("strict_listing_filter", False))
-            and (p.get("src") != "MANUAL SCAN"),
         )
 
 
@@ -270,90 +243,6 @@ def _extract_ohlcv(all_data, ticker, required_cols):
     return all_data[required_cols].copy()
 
 
-def _ticker_from_tv_chart_url(url: str) -> str | None:
-    try:
-        sym = parse_qs(urlparse(url).query).get("symbol", [None])[0]
-        return sym if sym else None
-    except Exception:
-        return None
-
-
-def resolve_company_names_for_rows(
-    table_rows: list[dict],
-    *,
-    on_progress=None,
-    on_status=None,
-    is_cancelled=None,
-) -> list[dict]:
-    """Fetch Yahoo company names for result rows only; same rate limits as prefetch."""
-    if not table_rows:
-        return table_rows
-    sym_to_indices: dict[str, list[int]] = {}
-    for i, row in enumerate(table_rows):
-        sym = _ticker_from_tv_chart_url(str(row.get("Symbol", "")))
-        if sym:
-            sym_to_indices.setdefault(sym, []).append(i)
-    if not sym_to_indices:
-        return table_rows
-    symbols = list(sym_to_indices.keys())
-    lock = threading.Lock()
-    last_ts = [0.0]
-    names: dict[str, str] = {}
-
-    def _one(sym: str) -> tuple[str, str]:
-        with lock:
-            now = time.monotonic()
-            wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - last_ts[0])
-            if wait > 0:
-                time.sleep(wait)
-            passed, _reason, info_dict = get_ticker_info_and_filter(
-                sym, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
-            )
-            last_ts[0] = time.monotonic()
-        if info_dict and isinstance(info_dict, dict) and info_dict.get("company_name"):
-            return sym, str(info_dict["company_name"])
-        if not passed and info_dict is None:
-            time.sleep(YF_INFO_RETRY_DELAY_SEC)
-            with lock:
-                now = time.monotonic()
-                wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - last_ts[0])
-                if wait > 0:
-                    time.sleep(wait)
-                _, _, info_dict = get_ticker_info_and_filter(
-                    sym, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
-                )
-                last_ts[0] = time.monotonic()
-            if info_dict and isinstance(info_dict, dict) and info_dict.get("company_name"):
-                return sym, str(info_dict["company_name"])
-        return sym, fetch_fallback_company_name(sym)
-
-    total = len(symbols)
-    done = [0]
-    if on_status:
-        on_status(f"Resolving company names ({total} symbols)... DO NOT REFRESH.")
-    out = [dict(r) for r in table_rows]
-    with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
-        futures = {executor.submit(_one, s): s for s in symbols}
-        for future in as_completed(futures):
-            if is_cancelled and is_cancelled():
-                break
-            try:
-                sym, cname = future.result()
-                names[sym] = cname
-            except Exception:
-                sym = futures[future]
-                names[sym] = fetch_fallback_company_name(sym)
-            done[0] += 1
-            if on_progress:
-                on_progress(done[0], total)
-    for sym, idxs in sym_to_indices.items():
-        cname = names.get(sym, sym)
-        for idx in idxs:
-            if 0 <= idx < len(out):
-                out[idx]["Company Name"] = cname
-    return out
-
-
 def run_scan(
     tickers,
     *,
@@ -363,14 +252,12 @@ def run_scan(
     tf,
     new_only,
     is_manual_src,
-    strict_listing_filter: bool = False,
     on_progress=None,
     on_status=None,
     is_cancelled=None,
 ):
     """
-    Pure scanner: optional Yahoo .info prefetch (manual or strict file lists), batch download,
-    then per-ticker OHLCV + sequence. No Streamlit calls.
+    Pure scanner: batch download, then per-ticker filter + OHLCV + sequence. No Streamlit calls.
     Returns (table_rows, rejected_reasons, reference_end_date).
     """
     inter, fetch_period = _interval_and_period(tf)
@@ -385,64 +272,52 @@ def run_scan(
     reference_end_date = None
     batches_data = []
 
-    prefetch_info = is_manual_src or strict_listing_filter
-    # Progress: optional info phase + download + per-ticker processing
-    total_steps = (len(tickers) if prefetch_info else 0) + len(batches) + len(tickers)
+    # Progress: info phase + download phase + process phase so the bar moves through the whole scan
+    total_steps = len(tickers) + len(batches) + len(tickers)
     step = [0]  # use list so inner function can update
 
-    info_cache: dict[str, tuple] = {}
-    if prefetch_info:
-        _rate_limiter_lock = threading.Lock()
-        _rate_limiter_last = [0.0]
+    # Pre-fetch ticker info in parallel with rate limiter (faster than per-ticker in loop)
+    _rate_limiter_lock = threading.Lock()
+    _rate_limiter_last = [0.0]
 
-        def _rate_limited_info(ticker):
+    def _rate_limited_info(ticker):
+        with _rate_limiter_lock:
+            now = time.monotonic()
+            wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
+            if wait > 0:
+                time.sleep(wait)
+            passed, reason, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
+            _rate_limiter_last[0] = time.monotonic()
+        if not passed and info_dict is None:
+            time.sleep(YF_INFO_RETRY_DELAY_SEC)
             with _rate_limiter_lock:
                 now = time.monotonic()
                 wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
                 if wait > 0:
                     time.sleep(wait)
-                passed, reason, info_dict = get_ticker_info_and_filter(
-                    ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
-                )
+                _, _, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
                 _rate_limiter_last[0] = time.monotonic()
-            if not passed and info_dict is None:
-                time.sleep(YF_INFO_RETRY_DELAY_SEC)
-                with _rate_limiter_lock:
-                    now = time.monotonic()
-                    wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
-                    if wait > 0:
-                        time.sleep(wait)
-                    _, _, info_dict = get_ticker_info_and_filter(
-                        ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
-                    )
-                    _rate_limiter_last[0] = time.monotonic()
-                if info_dict is None:
-                    info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
-            return (ticker, passed, reason, info_dict)
+            if info_dict is None:
+                info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
+        return (ticker, passed, reason, info_dict)
 
-        if on_status:
-            on_status("Fetching ticker info... DO NOT REFRESH.")
-        with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
-            futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
-            for future in as_completed(futures):
-                if is_cancelled and is_cancelled():
-                    break
-                try:
-                    t, passed, reason, info_dict = future.result()
-                    info_cache[t] = (passed, reason, info_dict)
-                except Exception:
-                    t = futures[future]
-                    info_cache[t] = (
-                        False,
-                        "INFO_ERROR",
-                        {"company_name": fetch_fallback_company_name(t), "avg_volume": None},
-                    )
-                step[0] += 1
-                if on_progress:
-                    on_progress(step[0], total_steps)
-    else:
-        for t in tickers:
-            info_cache[t] = (True, "", {"company_name": t, "avg_volume": None})
+    info_cache = {}
+    if on_status:
+        on_status("Fetching ticker info... DO NOT REFRESH.")
+    with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
+        futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
+        for future in as_completed(futures):
+            if is_cancelled and is_cancelled():
+                break
+            try:
+                t, passed, reason, info_dict = future.result()
+                info_cache[t] = (passed, reason, info_dict)
+            except Exception:
+                t = futures[future]
+                info_cache[t] = (False, "INFO_ERROR", {"company_name": fetch_fallback_company_name(t), "avg_volume": None})
+            step[0] += 1
+            if on_progress:
+                on_progress(step[0], total_steps)
 
     for batch_idx, batch in enumerate(batches):
         if is_cancelled and is_cancelled():
@@ -509,9 +384,7 @@ def run_scan(
                         if reject_reason != "INFO_ERROR":
                             rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
                             continue
-                    elif strict_listing_filter:
-                        rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
-                        continue
+                    # info_dict from cache is never None (fallback applied in pre-fetch)
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -625,31 +498,10 @@ if st.session_state.scanning:
         tf=cfg.tf,
         new_only=cfg.new_only,
         is_manual_src=cfg.is_manual_src,
-        strict_listing_filter=cfg.strict_listing_filter,
         on_progress=on_progress,
         on_status=on_status,
         is_cancelled=lambda: not st.session_state.scanning,
     )
-
-    # Lazy resolve only when bulk prefetch was skipped (file lists without strict filter).
-    if (
-        cfg.lazy_company_names
-        and table_rows
-        and not cfg.is_manual_src
-        and not cfg.strict_listing_filter
-    ):
-
-        def on_lazy_progress(done, total):
-            if total:
-                bar.progress(0.05 + 0.95 * (done / total))
-                pct_placeholder.markdown(f"**{round(100 * done / total)}%**")
-
-        table_rows = resolve_company_names_for_rows(
-            table_rows,
-            on_progress=on_lazy_progress,
-            on_status=on_status,
-            is_cancelled=lambda: not st.session_state.scanning,
-        )
 
     bar.empty()
     pct_placeholder.empty()
