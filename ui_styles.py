@@ -7,9 +7,13 @@ _STYLES = """
 <style>
     /* GLOBAL DARK THEME */
     .stApp { background-color: #050505; }
-    /* Stretch layout: give main pane a viewport-based min height so st.container(height="stretch") resolves */
+    /* Main pane: room for tall results table */
     section[data-testid="stMain"] {
         min-height: calc(100vh - 6rem);
+    }
+    /* Boost primary results table when viewport is tall (Python height is capped at 900px) */
+    section[data-testid="stMain"] .st-key-main_screener_df [data-testid="stDataFrame"] {
+        min-height: min(900px, calc(100vh - 12rem)) !important;
     }
     
     /* FIX: Top padding to prevent header overlap */
