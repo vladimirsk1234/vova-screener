@@ -153,17 +153,13 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
     if table_rows:
         res_df = pd.DataFrame(table_rows)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-        # height="stretch" collapses to ~3 rows when parent is st.empty().container() (no flex height).
-        # Use explicit pixel height so the grid fills the main pane; inner scroll for many rows.
-        _row_px, _hdr_px = 38, 100
-        _df_h = min(900, max(520, len(res_df) * _row_px + _hdr_px))
+        # height="content": table grows with all rows; only the page scrolls (no nested grid scroll until Streamlit cap).
         st.dataframe(
             res_df,
             hide_index=True,
             column_config=col_config,
             width="stretch",
-            height=_df_h,
-            key="main_screener_df",
+            height="content",
         )
         if reference_end_date is not None:
             try:

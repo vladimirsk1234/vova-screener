@@ -11,10 +11,6 @@ _STYLES = """
     section[data-testid="stMain"] {
         min-height: calc(100vh - 6rem);
     }
-    /* Boost primary results table when viewport is tall (Python height is capped at 900px) */
-    section[data-testid="stMain"] .st-key-main_screener_df [data-testid="stDataFrame"] {
-        min-height: min(900px, calc(100vh - 12rem)) !important;
-    }
     
     /* FIX: Top padding to prevent header overlap */
     .block-container { 
