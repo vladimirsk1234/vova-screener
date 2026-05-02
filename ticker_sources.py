@@ -27,26 +27,6 @@ class FileListSource:
         return f"Uses {self.filename}. Edit file — next START uses new tickers."
 
 
-class MergedListSource:
-    def __init__(self, filenames: list[str], read_list_file_fn: Callable[[str], tuple[list[str], str | None]]):
-        self.filenames = filenames
-        self._read = read_list_file_fn
-
-    def get_tickers(self) -> tuple[list[str], str | None]:
-        out = []
-        first_error = None
-        for fn in self.filenames:
-            tickers, err = self._read(fn)
-            if err and first_error is None:
-                first_error = err
-            out.extend(tickers)
-        # deduplicate preserve order
-        return list(dict.fromkeys(out)), first_error
-
-    def description(self) -> str:
-        return "Uses SMALL CAP + BIG CAP + ETFS lists merged (no duplicates)."
-
-
 class ManualSource:
     def __init__(self, get_text_fn: Callable[[], str]):
         self._get_text = get_text_fn

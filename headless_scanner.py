@@ -1,3 +1,5 @@
+import logging
+import os
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -6,6 +8,8 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+
+_log = logging.getLogger(__name__)
 
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
@@ -31,8 +35,6 @@ inject_styles()
 # ==========================================
 from ticker_data import (
     TV_LIST_BIG_CAP,
-    TV_LIST_ETF,
-    TV_LIST_SMALL_CAP,
     fetch_fallback_company_name,
     get_ticker_info_and_filter,
     read_list_file,
@@ -46,16 +48,13 @@ from sequence_vova import run_sequence_vova_pine
 # ==========================================
 # 4. UI & SIDEBAR
 # ==========================================
-from ticker_sources import FileListSource, MergedListSource, ManualSource
+from ticker_sources import FileListSource, ManualSource
 
-# Ticker sources: only from the 3 TXT files (SMALL CAP, BIG CAP, ETF) + ALL (merged) + MANUAL
-SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "MANUAL SCAN"]
+# Ticker sources: BIG CAP list file + optional MANUAL symbols
+SOURCE_OPTIONS = ["BIG CAP", "MANUAL SCAN"]
 def _build_source_registry():
     return {
-        "SMALL CAP": FileListSource(TV_LIST_SMALL_CAP, read_list_file),
         "BIG CAP": FileListSource(TV_LIST_BIG_CAP, read_list_file),
-        "ETFS": FileListSource(TV_LIST_ETF, read_list_file),
-        "ALL": MergedListSource([TV_LIST_SMALL_CAP, TV_LIST_BIG_CAP, TV_LIST_ETF], read_list_file),
     }
 
 SOURCE_REGISTRY = _build_source_registry()
@@ -65,7 +64,7 @@ st.sidebar.header("⚙️ CONFIGURATION")
 # Disable inputs if scanning
 disabled = st.session_state.scanning
 
-last_src = st.session_state.get("run_params", {}).get("src", "SMALL CAP")
+last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
 default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
 src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
 if src in SOURCE_REGISTRY:
@@ -140,6 +139,7 @@ YF_INFO_RETRY_DELAY_SEC = 0.25  # delay before retrying get_ticker_info_and_filt
 YF_DOWNLOAD_MAX_RETRIES = 2  # retry batch download up to this many times on failure
 YF_INFO_RATE_LIMIT_PER_SEC = 12  # max .info requests per second when using parallel fetch
 YF_INFO_MAX_WORKERS = 8  # thread pool size for parallel get_ticker_info_and_filter
+TA_MAX_WORKERS = min(16, max(4, (os.cpu_count() or 8) * 2))  # parallel per-ticker TA after download
 
 # Results Placeholder
 res_area = st.empty()
@@ -243,6 +243,130 @@ def _extract_ohlcv(all_data, ticker, required_cols):
     return all_data[required_cols].copy()
 
 
+def _process_ticker_for_scan(
+    t: str,
+    all_data,
+    required_cols: list[str],
+    fetch_period: str,
+    inter: str,
+    tf: str,
+    reference_end_date,
+    risk_per_trade: int,
+    min_rr: float,
+    use_last_hl_sl: bool,
+    new_only: bool,
+    is_manual_src: bool,
+    lazy_metadata: bool,
+    info_cache_entry: tuple[bool, str, dict | None] | None,
+) -> dict:
+    """
+    Pure per-ticker work for one symbol. Returns:
+    {"kind": "skip"} | {"kind": "reject", "row": dict} | {"kind": "row", "row": dict}
+    """
+    try:
+        if lazy_metadata:
+            passed = True
+            reject_reason = ""
+            info_dict: dict = {"company_name": t, "avg_volume": None}
+        else:
+            passed, reject_reason, info_dict = info_cache_entry or (
+                False,
+                "INFO_ERROR",
+                {"company_name": t, "avg_volume": None},
+            )
+            if info_dict is None:
+                info_dict = {"company_name": t, "avg_volume": None}
+            elif not isinstance(info_dict, dict):
+                info_dict = {"company_name": str(t), "avg_volume": None}
+            else:
+                info_dict.setdefault("company_name", t)
+            if not passed:
+                if is_manual_src:
+                    if reject_reason != "INFO_ERROR":
+                        return {"kind": "reject", "row": {"Symbol": t, "Reason": reject_reason}}
+                # file list: still run TA (same as previous inline behavior)
+
+        df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
+        if df is None or df.empty:
+            try:
+                df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
+                if df is not None and not df.empty and all(col in df.columns for col in required_cols):
+                    df = df[required_cols].copy()
+                else:
+                    df = None
+            except Exception:
+                df = None
+        if df is None or df.empty or len(df) < MIN_BARS:
+            if is_manual_src:
+                return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_DATA"}}
+            return {"kind": "skip"}
+
+        ref_end = reference_end_date
+        if ref_end is not None and len(df.index) > 0 and df.index[-1] > ref_end:
+            df = df.loc[df.index <= ref_end]
+        if ref_end is None and len(df.index) > 0:
+            pass  # reference_end_date alignment handled in main scan
+
+        df = _resample_to_timeframe(df, tf)
+        if df is None or df.empty or len(df) < MIN_BARS:
+            if is_manual_src:
+                return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_DATA"}}
+            return {"kind": "skip"}
+
+        df = _fill_last_bar_ohlc(df)
+        df = df.dropna(subset=["Close", "High", "Low", "Open"])
+        if len(df) < MIN_BARS:
+            if is_manual_src:
+                return {"kind": "reject", "row": {"Symbol": t, "Reason": "INSUFFICIENT_DATA"}}
+            return {"kind": "skip"}
+
+        out = run_sequence_vova_pine(
+            df,
+            atr_len=ATR_LEN,
+            min_rr=min_rr,
+            use_last_hl_sl=use_last_hl_sl,
+            risk_dollars=risk_per_trade,
+        )
+        if out is None or not out["Valid"]:
+            if is_manual_src:
+                return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_VALID_SIGNAL"}}
+            return {"kind": "skip"}
+        if new_only and not out["New"]:
+            return {"kind": "skip"}
+
+        pos_size = out["position_size"]
+        if np.isnan(pos_size) or pos_size < 1:
+            pos_size = 0
+        else:
+            pos_size = int(round(pos_size))
+        pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
+
+        tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
+        company_name = info_dict.get("company_name", t)
+        if lazy_metadata:
+            # Winners only: resolve display name (fast_info cache often has symbol as shortName).
+            company_name = fetch_fallback_company_name(t)
+
+        table_row = {
+            "Symbol": tv_url,
+            "Company Name": company_name,
+            "TP": round(float(out["TP"]), 2),
+            "SL": round(float(out["SL"]), 2),
+            "RR": round(float(out["RR"]), 2),
+            "Position Size (shares)": pos_size,
+            "Position Value ($)": round(float(pos_value), 2),
+            "New": 1 if out["New"] else 0,
+            "Valid": 1 if out["Valid"] else 0,
+            "Strong": 1 if out["Strong"] else 0,
+        }
+        return {"kind": "row", "row": table_row}
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        if len(msg) > 200:
+            msg = msg[:197] + "..."
+        return {"kind": "reject", "row": {"Symbol": t, "Reason": f"ERROR: {msg}"}}
+
+
 def run_scan(
     tickers,
     *,
@@ -257,7 +381,9 @@ def run_scan(
     is_cancelled=None,
 ):
     """
-    Pure scanner: batch download, then per-ticker filter + OHLCV + sequence. No Streamlit calls.
+    Pure scanner: optional parallel Yahoo metadata (manual only), threaded batch download,
+    then parallel per-ticker OHLCV + sequence for list sources (lazy metadata: .info only for passes).
+    Logs phase timings to the logger and stdout. No Streamlit calls.
     Returns (table_rows, rejected_reasons, reference_end_date).
     """
     inter, fetch_period = _interval_and_period(tf)
@@ -272,53 +398,70 @@ def run_scan(
     reference_end_date = None
     batches_data = []
 
-    # Progress: info phase + download phase + process phase so the bar moves through the whole scan
-    total_steps = len(tickers) + len(batches) + len(tickers)
-    step = [0]  # use list so inner function can update
+    lazy_metadata = not is_manual_src
+    if lazy_metadata:
+        total_steps = len(batches) + len(tickers)
+    else:
+        total_steps = len(tickers) + len(batches) + len(tickers)
+    step = [0]
 
-    # Pre-fetch ticker info in parallel with rate limiter (faster than per-ticker in loop)
-    _rate_limiter_lock = threading.Lock()
-    _rate_limiter_last = [0.0]
+    t_scan0 = time.perf_counter()
+    info_sec = 0.0
+    info_cache: dict[str, tuple[bool, str, dict | None]] = {}
 
-    def _rate_limited_info(ticker):
-        with _rate_limiter_lock:
-            now = time.monotonic()
-            wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
-            if wait > 0:
-                time.sleep(wait)
-            passed, reason, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
-            _rate_limiter_last[0] = time.monotonic()
-        if not passed and info_dict is None:
-            time.sleep(YF_INFO_RETRY_DELAY_SEC)
+    if not lazy_metadata:
+        t_info0 = time.perf_counter()
+        _rate_limiter_lock = threading.Lock()
+        _rate_limiter_last = [0.0]
+
+        def _rate_limited_info(ticker):
             with _rate_limiter_lock:
                 now = time.monotonic()
                 wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
                 if wait > 0:
                     time.sleep(wait)
-                _, _, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
+                passed, reason, info_dict = get_ticker_info_and_filter(
+                    ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
+                )
                 _rate_limiter_last[0] = time.monotonic()
-            if info_dict is None:
-                info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
-        return (ticker, passed, reason, info_dict)
+            if not passed and info_dict is None:
+                time.sleep(YF_INFO_RETRY_DELAY_SEC)
+                with _rate_limiter_lock:
+                    now = time.monotonic()
+                    wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _rate_limiter_last[0])
+                    if wait > 0:
+                        time.sleep(wait)
+                    _, _, info_dict = get_ticker_info_and_filter(
+                        ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
+                    )
+                    _rate_limiter_last[0] = time.monotonic()
+                if info_dict is None:
+                    info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
+            return (ticker, passed, reason, info_dict)
 
-    info_cache = {}
-    if on_status:
-        on_status("Fetching ticker info... DO NOT REFRESH.")
-    with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
-        futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
-        for future in as_completed(futures):
-            if is_cancelled and is_cancelled():
-                break
-            try:
-                t, passed, reason, info_dict = future.result()
-                info_cache[t] = (passed, reason, info_dict)
-            except Exception:
-                t = futures[future]
-                info_cache[t] = (False, "INFO_ERROR", {"company_name": fetch_fallback_company_name(t), "avg_volume": None})
-            step[0] += 1
-            if on_progress:
-                on_progress(step[0], total_steps)
+        if on_status:
+            on_status("Fetching ticker info... DO NOT REFRESH.")
+        with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
+            futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
+            for future in as_completed(futures):
+                if is_cancelled and is_cancelled():
+                    break
+                try:
+                    t, passed, reason, info_dict = future.result()
+                    info_cache[t] = (passed, reason, info_dict)
+                except Exception:
+                    t = futures[future]
+                    info_cache[t] = (
+                        False,
+                        "INFO_ERROR",
+                        {"company_name": fetch_fallback_company_name(t), "avg_volume": None},
+                    )
+                step[0] += 1
+                if on_progress:
+                    on_progress(step[0], total_steps)
+        info_sec = time.perf_counter() - t_info0
 
+    t_dl0 = time.perf_counter()
     for batch_idx, batch in enumerate(batches):
         if is_cancelled and is_cancelled():
             break
@@ -334,7 +477,7 @@ def run_scan(
                     progress=False,
                     auto_adjust=False,
                     group_by='ticker',
-                    threads=False,
+                    threads=True,
                 )
                 break
             except Exception:
@@ -351,113 +494,113 @@ def run_scan(
         if on_progress:
             on_progress(step[0], total_steps)
 
+    dl_sec = time.perf_counter() - t_dl0
+
     if reference_end_date is None and batches_data:
         for _, all_data in batches_data:
             if all_data is not None and not all_data.empty and len(all_data.index) > 0:
                 reference_end_date = all_data.index[-1]
                 break
 
+    def _merge_ticker_result(res: dict) -> None:
+        if res["kind"] == "row":
+            table_rows.append(res["row"])
+        elif res["kind"] == "reject":
+            rejected_reasons.append(res["row"])
+
+    t_proc0 = time.perf_counter()
     for batch_idx, (batch, all_data) in enumerate(batches_data):
         if is_cancelled and is_cancelled():
             break
         if on_status:
             on_status(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
-        if all_data is not None and not all_data.empty and reference_end_date is not None and len(all_data.index) > 0 and all_data.index[-1] > reference_end_date:
-            all_data = all_data.loc[all_data.index <= reference_end_date]
-        for i, t in enumerate(batch):
-            if is_cancelled and is_cancelled():
-                break
-            step[0] += 1
-            if on_progress:
-                on_progress(step[0], total_steps)
-            try:
-                passed, reject_reason, info_dict = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
-                if info_dict is None:
-                    info_dict = {"company_name": t, "avg_volume": None}
-                elif not isinstance(info_dict, dict):
-                    info_dict = {"company_name": str(t), "avg_volume": None}
-                else:
-                    info_dict.setdefault("company_name", t)
-                if not passed:
-                    if is_manual_src:
-                        # Manual: Yahoo .info can fail (INFO_ERROR) while history still works — do not block TA scan.
-                        if reject_reason != "INFO_ERROR":
-                            rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
-                            continue
-                    # info_dict from cache is never None (fallback applied in pre-fetch)
+        slice_data = all_data
+        if (
+            slice_data is not None
+            and not slice_data.empty
+            and reference_end_date is not None
+            and len(slice_data.index) > 0
+            and slice_data.index[-1] > reference_end_date
+        ):
+            slice_data = slice_data.loc[slice_data.index <= reference_end_date]
 
-                df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
-                if df is None or df.empty:
+        use_parallel = TA_MAX_WORKERS > 1 and len(batch) > 1
+        if use_parallel:
+            with ThreadPoolExecutor(max_workers=TA_MAX_WORKERS) as pool:
+                pairs = []
+                for t in batch:
+                    if is_cancelled and is_cancelled():
+                        break
+                    ent = None
+                    if not lazy_metadata:
+                        ent = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
+                    fut = pool.submit(
+                        _process_ticker_for_scan,
+                        t,
+                        slice_data,
+                        required_cols,
+                        fetch_period,
+                        inter,
+                        tf,
+                        reference_end_date,
+                        risk_per_trade,
+                        min_rr,
+                        use_last_hl_sl,
+                        new_only,
+                        is_manual_src,
+                        lazy_metadata,
+                        ent,
+                    )
+                    pairs.append((t, fut))
+                for t, fut in pairs:
+                    if is_cancelled and is_cancelled():
+                        break
                     try:
-                        df = yf.download(t, period=fetch_period, interval=inter, progress=False, auto_adjust=False, multi_level_index=False)
-                        if df is not None and not df.empty and all(col in df.columns for col in required_cols):
-                            df = df[required_cols].copy()
-                        else:
-                            df = None
-                    except Exception:
-                        df = None
-                if df is None or df.empty or len(df) < MIN_BARS:
-                    if is_manual_src:
-                        rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
-                    continue
-
-                if reference_end_date is not None and len(df.index) > 0 and df.index[-1] > reference_end_date:
-                    df = df.loc[df.index <= reference_end_date]
-                if reference_end_date is None and len(df.index) > 0:
-                    reference_end_date = df.index[-1]
-
-                df = _resample_to_timeframe(df, tf)
-                if df is None or df.empty or len(df) < MIN_BARS:
-                    if is_manual_src:
-                        rejected_reasons.append({"Symbol": t, "Reason": "NO_DATA"})
-                    continue
-
-                df = _fill_last_bar_ohlc(df)
-                df = df.dropna(subset=['Close', 'High', 'Low', 'Open'])
-                if len(df) < MIN_BARS:
-                    if is_manual_src:
-                        rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
-                    continue
-
-                out = run_sequence_vova_pine(
-                    df,
-                    atr_len=ATR_LEN,
-                    min_rr=min_rr,
-                    use_last_hl_sl=use_last_hl_sl,
-                    risk_dollars=risk_per_trade
+                        _merge_ticker_result(fut.result())
+                    except Exception as e:
+                        msg = f"{type(e).__name__}: {e}"
+                        if len(msg) > 200:
+                            msg = msg[:197] + "..."
+                        rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
+                    step[0] += 1
+                    if on_progress:
+                        on_progress(step[0], total_steps)
+        else:
+            for t in batch:
+                if is_cancelled and is_cancelled():
+                    break
+                ent = None
+                if not lazy_metadata:
+                    ent = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
+                res = _process_ticker_for_scan(
+                    t,
+                    slice_data,
+                    required_cols,
+                    fetch_period,
+                    inter,
+                    tf,
+                    reference_end_date,
+                    risk_per_trade,
+                    min_rr,
+                    use_last_hl_sl,
+                    new_only,
+                    is_manual_src,
+                    lazy_metadata,
+                    ent,
                 )
-                if out is None or not out["Valid"]:
-                    if is_manual_src:
-                        rejected_reasons.append({"Symbol": t, "Reason": "NO_VALID_SIGNAL"})
-                    continue
-                if new_only and not out["New"]:
-                    continue
+                _merge_ticker_result(res)
+                step[0] += 1
+                if on_progress:
+                    on_progress(step[0], total_steps)
 
-                pos_size = out["position_size"]
-                if np.isnan(pos_size) or pos_size < 1:
-                    pos_size = 0
-                else:
-                    pos_size = int(round(pos_size))
-                pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
-
-                tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
-                table_rows.append({
-                    "Symbol": tv_url,
-                    "Company Name": info_dict["company_name"],
-                    "TP": round(float(out["TP"]), 2),
-                    "SL": round(float(out["SL"]), 2),
-                    "RR": round(float(out["RR"]), 2),
-                    "Position Size (shares)": pos_size,
-                    "Position Value ($)": round(float(pos_value), 2),
-                    "New": 1 if out["New"] else 0,
-                    "Valid": 1 if out["Valid"] else 0,
-                    "Strong": 1 if out["Strong"] else 0,
-                })
-            except Exception as e:
-                msg = f"{type(e).__name__}: {e}"
-                if len(msg) > 200:
-                    msg = msg[:197] + "..."
-                rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
+    proc_sec = time.perf_counter() - t_proc0
+    total_sec = time.perf_counter() - t_scan0
+    timing_msg = (
+        f"Screener scan timings: symbols={len(tickers)} "
+        f"info={info_sec:.2f}s download={dl_sec:.2f}s process={proc_sec:.2f}s total={total_sec:.2f}s"
+    )
+    _log.info(timing_msg)
+    print(timing_msg, flush=True)
 
     return (table_rows, rejected_reasons, reference_end_date)
 
@@ -521,7 +664,7 @@ if st.session_state.scanning:
     info_box.success("SCAN COMPLETE")
 
 else:
-    last_src = st.session_state.run_params.get('src', "SMALL CAP")
+    last_src = st.session_state.run_params.get('src', "BIG CAP")
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
     as_of = st.session_state.get("results_as_of")
