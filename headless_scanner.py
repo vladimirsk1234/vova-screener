@@ -34,7 +34,6 @@ from ticker_data import (
     TV_LIST_ETF,
     TV_LIST_SMALL_CAP,
     fetch_fallback_company_name,
-    get_annual_eps_history_5y,
     get_ticker_info_and_filter,
     read_list_file,
 )
@@ -43,25 +42,11 @@ from ticker_data import (
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
 from sequence_vova import run_sequence_vova_pine
-from eps_yield import avg_historical_pe_5y, eps_row_metrics, eps_yield_pct, passes_eps_filters
 
 # ==========================================
 # 4. UI & SIDEBAR
 # ==========================================
 from ticker_sources import FileListSource, MergedListSource, ManualSource
-
-SCAN_MODE_TA = "TA (Sequence Vova)"
-SCAN_MODE_EPS = "EPS yield"
-SCAN_MODE_BOTH = "TA + EPS yield"
-SCAN_MODE_OPTIONS = [SCAN_MODE_TA, SCAN_MODE_EPS, SCAN_MODE_BOTH]
-FAIR_PE_FIXED = 15.0
-
-
-def _parse_optional_float(text: str) -> float | None:
-    s = (text or "").strip()
-    if not s:
-        return None
-    return float(s)
 
 # Ticker sources: only from the 3 TXT files (SMALL CAP, BIG CAP, ETF) + ALL (merged) + MANUAL
 SOURCE_OPTIONS = ["SMALL CAP", "BIG CAP", "ETFS", "ALL", "MANUAL SCAN"]
@@ -90,68 +75,15 @@ if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
     st.sidebar.caption("Comma-separated symbols. Next START scans these tickers.")
 
-st.sidebar.subheader("SCAN MODE")
-last_mode = st.session_state.get("run_params", {}).get("scan_mode", SCAN_MODE_TA)
-_mode_idx = SCAN_MODE_OPTIONS.index(last_mode) if last_mode in SCAN_MODE_OPTIONS else 0
-scan_mode = st.sidebar.radio("MODE", SCAN_MODE_OPTIONS, disabled=disabled, index=_mode_idx)
-eps_only = scan_mode == SCAN_MODE_EPS
-uses_fundamental_eps = scan_mode in (SCAN_MODE_EPS, SCAN_MODE_BOTH)
-
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
-risk_disabled = disabled or eps_only
-risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=risk_disabled)
-min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=risk_disabled)
-use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=risk_disabled)
+risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
+min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
+use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
-new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled or eps_only)
-
-rp = st.session_state.get("run_params", {})
-if uses_fundamental_eps:
-    st.sidebar.subheader("EPS YIELD (FAST Graphs–style)")
-    st.sidebar.caption(
-        "Fair P/E is fixed to 15 internally. Normal P/E is reference only (Normal $, vs Fair %). "
-        "They do not filter results. Use Min EPS Yield and the options below to screen."
-    )
-    norm_pe_in = st.sidebar.number_input(
-        "Normal P/E (normal line)",
-        value=float(rp.get("norm_pe", 24.05)),
-        min_value=0.01,
-        step=0.1,
-        disabled=disabled,
-        help="Reference for Normal $ column — not a screening filter.",
-    )
-    min_eps_txt = st.sidebar.text_input(
-        "Min EPS Yield % (optional)",
-        value=str(rp.get("min_eps_yield_txt") or ""),
-        disabled=disabled,
-        help="Minimum EPS yield % for screening. Blank = no minimum.",
-    )
-    require_eps = st.sidebar.checkbox(
-        "Require valid EPS",
-        value=bool(rp.get("require_eps", False)),
-        disabled=disabled,
-        help="If checked, symbols without TTM EPS are excluded when EPS filters apply.",
-    )
-    include_negative_eps = st.sidebar.checkbox(
-        "Include negative EPS",
-        value=bool(rp.get("include_negative_eps", False)),
-        disabled=disabled,
-    )
-    eps_sort_desc = st.sidebar.checkbox(
-        "Sort EPS yield high → low",
-        value=bool(rp.get("eps_sort_desc", True)),
-        disabled=disabled,
-        help="Applies when MODE is EPS yield (sorts results by EPS Yield %).",
-    )
-else:
-    norm_pe_in = float(rp.get("norm_pe", 24.05))
-    min_eps_txt = str(rp.get("min_eps_yield_txt") or "")
-    require_eps = bool(rp.get("require_eps", False))
-    include_negative_eps = bool(rp.get("include_negative_eps", False))
-    eps_sort_desc = bool(rp.get("eps_sort_desc", True))
+new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
 
 # Buttons
 c1, c2 = st.sidebar.columns(2)
@@ -166,13 +98,7 @@ if start_btn:
     # FREEZE PARAMS
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
-        'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
-        'scan_mode': scan_mode,
-        'norm_pe': norm_pe_in,
-        'min_eps_yield_txt': min_eps_txt,
-        'require_eps': require_eps,
-        'include_negative_eps': include_negative_eps,
-        'eps_sort_desc': eps_sort_desc,
+        'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p
     }
     st.rerun()
 
@@ -194,13 +120,6 @@ class ScanConfig:
     tf: str
     new_only: bool
     is_manual_src: bool
-    scan_mode: str
-    fair_pe: float
-    norm_pe: float
-    min_eps_yield: float | None
-    require_eps: bool
-    include_negative_eps: bool
-    eps_sort_desc: bool
 
     @classmethod
     def from_run_params(cls, p: dict) -> "ScanConfig":
@@ -211,13 +130,6 @@ class ScanConfig:
             tf=str(p.get("tf", "Daily")),
             new_only=bool(p.get("new", True)),
             is_manual_src=(p.get("src") == "MANUAL SCAN"),
-            scan_mode=str(p.get("scan_mode", SCAN_MODE_TA)),
-            fair_pe=FAIR_PE_FIXED,
-            norm_pe=float(p.get("norm_pe", 24.05)),
-            min_eps_yield=_parse_optional_float(str(p.get("min_eps_yield_txt", "") or "")),
-            require_eps=bool(p.get("require_eps", False)),
-            include_negative_eps=bool(p.get("include_negative_eps", False)),
-            eps_sort_desc=bool(p.get("eps_sort_desc", True)),
         )
 
 
@@ -240,13 +152,15 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
     """
     if table_rows:
         res_df = pd.DataFrame(table_rows)
-        col_config = {
-            "Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)"),
-        }
-        for num_col in ("EPS Yield %", "P/E (TTM)", "Avg Hist P/E (5Y)", "Fair $", "Normal $", "vs Fair %", "Close", "TP", "SL", "RR"):
-            if num_col in res_df.columns:
-                col_config[num_col] = st.column_config.NumberColumn(num_col, format="%.2f")
-        st.dataframe(res_df, use_container_width=True, hide_index=True, column_config=col_config)
+        col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
+        with st.container(height="stretch", gap="small"):
+            st.dataframe(
+                res_df,
+                hide_index=True,
+                column_config=col_config,
+                width="stretch",
+                height="stretch",
+            )
         if reference_end_date is not None:
             try:
                 d = pd.Timestamp(reference_end_date)
@@ -262,10 +176,10 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
         st.info(empty_message)
     if is_manual_src and rejected_reasons:
         with st.expander("Rejected (Manual)"):
-            st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
-    elif rejected_reasons and any(r.get("Reason") == "ERROR" for r in rejected_reasons):
+            st.dataframe(pd.DataFrame(rejected_reasons), width="stretch", hide_index=True)
+    elif rejected_reasons and any(str(r.get("Reason", "")).startswith("ERROR") for r in rejected_reasons):
         with st.expander("Skipped (errors)"):
-            st.dataframe(pd.DataFrame(rejected_reasons), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rejected_reasons), width="stretch", hide_index=True)
 
 
 def _interval_and_period(tf):
@@ -279,7 +193,7 @@ def _resample_to_timeframe(df, tf):
     req = ["Open", "High", "Low", "Close", "Volume"]
     if not all(c in df.columns for c in req):
         return df
-    rule = "W-FRI" if tf == "Weekly" else "M"
+    rule = "W-FRI" if tf == "Weekly" else "ME"
     res = df[req].resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
     return res.dropna(subset=req)
 
@@ -329,22 +243,6 @@ def _extract_ohlcv(all_data, ticker, required_cols):
     return all_data[required_cols].copy()
 
 
-def _normalize_info_dict(info_dict: dict | None, ticker: str) -> dict:
-    if not info_dict:
-        return {
-            "company_name": ticker,
-            "avg_volume": None,
-            "trailingEps": None,
-            "forwardEps": None,
-        }
-    d = dict(info_dict)
-    d.setdefault("company_name", ticker)
-    d.setdefault("avg_volume", None)
-    d.setdefault("trailingEps", None)
-    d.setdefault("forwardEps", None)
-    return d
-
-
 def run_scan(
     tickers,
     *,
@@ -354,24 +252,15 @@ def run_scan(
     tf,
     new_only,
     is_manual_src,
-    scan_mode: str = SCAN_MODE_TA,
-    fair_pe: float = FAIR_PE_FIXED,
-    norm_pe: float = 24.05,
-    min_eps_yield: float | None = None,
-    require_eps: bool = False,
-    include_negative_eps: bool = False,
-    eps_sort_desc: bool = True,
     on_progress=None,
     on_status=None,
     is_cancelled=None,
 ):
     """
-    Pure scanner: batch download, then per-ticker filter + OHLCV + sequence and/or EPS yield.
-    No Streamlit calls. Returns (table_rows, rejected_reasons, reference_end_date).
+    Pure scanner: batch download, then per-ticker filter + OHLCV + sequence. No Streamlit calls.
+    Returns (table_rows, rejected_reasons, reference_end_date).
     """
     inter, fetch_period = _interval_and_period(tf)
-    if scan_mode in (SCAN_MODE_EPS, SCAN_MODE_BOTH):
-        fetch_period = "10y"
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if len(tickers) > CHUNK_SIZE:
         batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]
@@ -409,16 +298,10 @@ def run_scan(
                 _, _, info_dict = get_ticker_info_and_filter(ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False)
                 _rate_limiter_last[0] = time.monotonic()
             if info_dict is None:
-                info_dict = {
-                    "company_name": fetch_fallback_company_name(ticker),
-                    "avg_volume": None,
-                    "trailingEps": None,
-                    "forwardEps": None,
-                }
+                info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
         return (ticker, passed, reason, info_dict)
 
     info_cache = {}
-    annual_eps_cache: dict[str, dict[int, float] | None] = {}
     if on_status:
         on_status("Fetching ticker info... DO NOT REFRESH.")
     with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
@@ -431,16 +314,7 @@ def run_scan(
                 info_cache[t] = (passed, reason, info_dict)
             except Exception:
                 t = futures[future]
-                info_cache[t] = (
-                    False,
-                    "INFO_ERROR",
-                    {
-                        "company_name": fetch_fallback_company_name(t),
-                        "avg_volume": None,
-                        "trailingEps": None,
-                        "forwardEps": None,
-                    },
-                )
+                info_cache[t] = (False, "INFO_ERROR", {"company_name": fetch_fallback_company_name(t), "avg_volume": None})
             step[0] += 1
             if on_progress:
                 on_progress(step[0], total_steps)
@@ -460,7 +334,7 @@ def run_scan(
                     progress=False,
                     auto_adjust=False,
                     group_by='ticker',
-                    threads=True
+                    threads=False,
                 )
                 break
             except Exception:
@@ -497,25 +371,20 @@ def run_scan(
             if on_progress:
                 on_progress(step[0], total_steps)
             try:
-                _raw = info_cache.get(
-                    t,
-                    (
-                        False,
-                        "INFO_ERROR",
-                        {
-                            "company_name": t,
-                            "avg_volume": None,
-                            "trailingEps": None,
-                            "forwardEps": None,
-                        },
-                    ),
-                )
-                passed, reject_reason, info_dict = _raw
-                info_dict = _normalize_info_dict(info_dict, t)
+                passed, reject_reason, info_dict = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
+                if info_dict is None:
+                    info_dict = {"company_name": t, "avg_volume": None}
+                elif not isinstance(info_dict, dict):
+                    info_dict = {"company_name": str(t), "avg_volume": None}
+                else:
+                    info_dict.setdefault("company_name", t)
                 if not passed:
                     if is_manual_src:
-                        rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
-                        continue
+                        # Manual: Yahoo .info can fail (INFO_ERROR) while history still works — do not block TA scan.
+                        if reject_reason != "INFO_ERROR":
+                            rejected_reasons.append({"Symbol": t, "Reason": reject_reason})
+                            continue
+                    # info_dict from cache is never None (fallback applied in pre-fetch)
 
                 df = _extract_ohlcv(all_data, t, required_cols) if all_data is not None else None
                 if df is None or df.empty:
@@ -537,7 +406,6 @@ def run_scan(
                 if reference_end_date is None and len(df.index) > 0:
                     reference_end_date = df.index[-1]
 
-                hist_price_df = df.copy()
                 df = _resample_to_timeframe(df, tf)
                 if df is None or df.empty or len(df) < MIN_BARS:
                     if is_manual_src:
@@ -549,39 +417,6 @@ def run_scan(
                 if len(df) < MIN_BARS:
                     if is_manual_src:
                         rejected_reasons.append({"Symbol": t, "Reason": "INSUFFICIENT_DATA"})
-                    continue
-
-                close_last = float(df["Close"].iloc[-1])
-                tr_eps = info_dict.get("trailingEps")
-                y_pct = eps_yield_pct(tr_eps, close_last)
-                avg_hist_pe = None
-                if scan_mode in (SCAN_MODE_EPS, SCAN_MODE_BOTH):
-                    if t not in annual_eps_cache:
-                        annual_eps_cache[t] = get_annual_eps_history_5y(t)
-                    avg_hist_pe = avg_historical_pe_5y(hist_price_df, annual_eps_cache[t])
-
-                tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
-
-                if scan_mode == SCAN_MODE_EPS:
-                    if not passes_eps_filters(
-                        y_pct,
-                        tr_eps,
-                        min_eps_yield=min_eps_yield,
-                        max_eps_yield=None,
-                        require_eps=require_eps,
-                        include_negative_eps=include_negative_eps,
-                    ):
-                        if is_manual_src:
-                            rejected_reasons.append({"Symbol": t, "Reason": "EPS_FILTER"})
-                        continue
-                    row = {
-                        "Symbol": tv_url,
-                        "Company Name": info_dict["company_name"],
-                    }
-                    row.update(eps_row_metrics(close_last, tr_eps, fair_pe, norm_pe))
-                    if avg_hist_pe is not None:
-                        row["Avg Hist P/E (5Y)"] = avg_hist_pe
-                    table_rows.append(row)
                     continue
 
                 out = run_sequence_vova_pine(
@@ -605,7 +440,8 @@ def run_scan(
                     pos_size = int(round(pos_size))
                 pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
 
-                base_row = {
+                tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
+                table_rows.append({
                     "Symbol": tv_url,
                     "Company Name": info_dict["company_name"],
                     "TP": round(float(out["TP"]), 2),
@@ -616,37 +452,12 @@ def run_scan(
                     "New": 1 if out["New"] else 0,
                     "Valid": 1 if out["Valid"] else 0,
                     "Strong": 1 if out["Strong"] else 0,
-                }
-
-                if scan_mode == SCAN_MODE_BOTH:
-                    if not passes_eps_filters(
-                        y_pct,
-                        tr_eps,
-                        min_eps_yield=min_eps_yield,
-                        max_eps_yield=None,
-                        require_eps=require_eps,
-                        include_negative_eps=include_negative_eps,
-                    ):
-                        if is_manual_src:
-                            rejected_reasons.append({"Symbol": t, "Reason": "EPS_FILTER"})
-                        continue
-                    base_row.update(eps_row_metrics(close_last, tr_eps, fair_pe, norm_pe))
-                    if avg_hist_pe is not None:
-                        base_row["Avg Hist P/E (5Y)"] = avg_hist_pe
-
-                table_rows.append(base_row)
-            except Exception:
-                rejected_reasons.append({"Symbol": t, "Reason": "ERROR"})
-
-    if scan_mode == SCAN_MODE_EPS and table_rows:
-
-        def _eps_sort_key(row):
-            v = row.get("EPS Yield %")
-            if v is None:
-                return float("-inf") if eps_sort_desc else float("inf")
-            return float(v)
-
-        table_rows.sort(key=_eps_sort_key, reverse=eps_sort_desc)
+                })
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                if len(msg) > 200:
+                    msg = msg[:197] + "..."
+                rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
 
     return (table_rows, rejected_reasons, reference_end_date)
 
@@ -687,13 +498,6 @@ if st.session_state.scanning:
         tf=cfg.tf,
         new_only=cfg.new_only,
         is_manual_src=cfg.is_manual_src,
-        scan_mode=cfg.scan_mode,
-        fair_pe=cfg.fair_pe,
-        norm_pe=cfg.norm_pe,
-        min_eps_yield=cfg.min_eps_yield,
-        require_eps=cfg.require_eps,
-        include_negative_eps=cfg.include_negative_eps,
-        eps_sort_desc=cfg.eps_sort_desc,
         on_progress=on_progress,
         on_status=on_status,
         is_cancelled=lambda: not st.session_state.scanning,

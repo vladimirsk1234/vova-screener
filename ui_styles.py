@@ -7,6 +7,10 @@ _STYLES = """
 <style>
     /* GLOBAL DARK THEME */
     .stApp { background-color: #050505; }
+    /* Stretch layout: give main pane a viewport-based min height so st.container(height="stretch") resolves */
+    section[data-testid="stMain"] {
+        min-height: calc(100vh - 6rem);
+    }
     
     /* FIX: Top padding to prevent header overlap */
     .block-container { 
