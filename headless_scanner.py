@@ -49,6 +49,11 @@ from ticker_data import (
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
 from sequence_vova import run_sequence_vova_pine
+from data_utils import (
+    fill_last_bar_ohlc as _fill_last_bar_ohlc,
+    interval_and_period as _interval_and_period,
+    resample_to_timeframe as _resample_to_timeframe,
+)
 from tradingview_embed import (
     build_chart_url,
     infer_tv_symbol,
@@ -174,6 +179,18 @@ def _row_preview_options(table_rows: list[dict]) -> list[tuple[str, int]]:
     return opts
 
 
+def _yahoo_from_row(row: dict) -> str:
+    """Extract a Yahoo ticker (e.g. BRK-B) from a result row's Symbol/tv_symbol fields."""
+    sym_url = str(row.get("Symbol", ""))
+    if "symbol=" in sym_url:
+        raw = sym_url.split("symbol=")[-1].split("&")[0]
+    else:
+        raw = sym_url
+    if ":" in raw:
+        raw = raw.split(":", 1)[1]
+    return raw.replace(".", "-").upper()
+
+
 def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is_manual_src, empty_message="Ready to scan. Click START."):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -184,7 +201,7 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
         res_df = pd.DataFrame(table_rows)
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-        st.caption("Select one row in the table below to preview chart and ideas at the scan timeframe.")
+        st.caption("Select one row in the table below to preview the Sequence Vova chart.")
         event = st.dataframe(
             display_df,
             hide_index=True,
@@ -217,18 +234,20 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
 
         if selected_idx is not None and 0 <= selected_idx < len(table_rows):
             row = table_rows[selected_idx]
-            tv_sym = row.get("tv_symbol") or infer_tv_symbol(
-                str(row.get("Symbol", "")).split("symbol=")[-1].split("&")[0]
-                if "symbol=" in str(row.get("Symbol", ""))
-                else str(row.get("Symbol", ""))
-            )
-            with st.expander("TradingView preview", expanded=True):
+            yahoo = _yahoo_from_row(row)
+            tv_sym = row.get("tv_symbol") or infer_tv_symbol(yahoo)
+            run_params = st.session_state.get("run_params", {}) or {}
+            with st.expander("Sequence Vova preview", expanded=True):
                 render_symbol_preview(
                     tv_sym,
                     tf,
+                    yahoo_ticker=yahoo,
                     company_name=str(row.get("Company Name", "")),
                     tp=row.get("TP"),
                     sl=row.get("SL"),
+                    risk_per_trade=int(run_params.get("risk_per_trade", 100)),
+                    min_rr=float(run_params.get("rr", 1.5)),
+                    use_last_hl_sl=bool(run_params.get("use_last_hl_sl", True)),
                 )
 
         if reference_end_date is not None:
@@ -251,43 +270,6 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
         with st.expander("Skipped (errors)"):
             st.dataframe(pd.DataFrame(rejected_reasons), width="stretch", hide_index=True)
 
-
-def _interval_and_period(tf):
-    """Always fetch daily; Weekly/Monthly resampled from daily so current period is included."""
-    return "1d", "10y" if tf != "Daily" else "2y"
-
-def _resample_to_timeframe(df, tf):
-    """Resample daily OHLCV to Weekly or Monthly. Returns df unchanged for Daily."""
-    if tf == "Daily" or df is None or df.empty:
-        return df
-    req = ["Open", "High", "Low", "Close", "Volume"]
-    if not all(c in df.columns for c in req):
-        return df
-    rule = "W-FRI" if tf == "Weekly" else "ME"
-    res = df[req].resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
-    return res.dropna(subset=req)
-
-def _fill_last_bar_ohlc(df):
-    """Fill last bar NaNs in OHLC from previous bar so we never drop the reference bar (avoids missing signals)."""
-    if df is None or len(df) < 2:
-        return df
-    ohlc = ["Open", "High", "Low", "Close"]
-    if not all(c in df.columns for c in ohlc):
-        return df
-    last_idx = df.index[-1]
-    last_row = df.loc[last_idx, ohlc]
-    if last_row.isna().any():
-        prev = df.iloc[-2][ohlc]
-        for col in ohlc:
-            if pd.isna(df.at[last_idx, col]) and not pd.isna(prev[col]):
-                df.at[last_idx, col] = prev[col]
-        # if still NaN (e.g. first bar of resampled period), use Close for O/H/L
-        if pd.isna(df.at[last_idx, "Close"]) and not pd.isna(prev["Close"]):
-            df.at[last_idx, "Close"] = prev["Close"]
-        for col in ["Open", "High", "Low"]:
-            if pd.isna(df.at[last_idx, col]):
-                df.at[last_idx, col] = df.at[last_idx, "Close"]
-    return df
 
 def _extract_ohlcv(all_data, ticker, required_cols):
     if isinstance(all_data.columns, pd.MultiIndex):
