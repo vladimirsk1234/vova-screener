@@ -91,16 +91,24 @@ def build_ideas_url(tv_symbol: str) -> str:
     return f"https://www.tradingview.com/symbols/{slug}/ideas/"
 
 
-def _widget_script(src: str, config: dict) -> str:
-    payload = json.dumps(config, separators=(",", ":"))
-    return (
-        f'<script type="text/javascript" src="{src}" async>\n'
-        f"{payload}\n"
-        f"</script>"
-    )
+_FULL_DOC_TEMPLATE = """<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html, body {{ height: 100%; margin: 0; padding: 0; background: transparent; overflow: hidden; }}
+  .tradingview-widget-container {{ height: 100%; width: 100%; }}
+  .tradingview-widget-container__widget {{ height: 100%; width: 100%; }}
+</style></head><body>
+<div class="tradingview-widget-container">
+  <div class="tradingview-widget-container__widget"></div>
+  <script type="text/javascript" src="{src}" async>{config}</script>
+</div>
+</body></html>"""
 
 
-def render_advanced_chart_html(tv_symbol: str, interval: str, height: int = 480) -> str:
+def _widget_doc(src: str, config: dict) -> str:
+    return _FULL_DOC_TEMPLATE.format(src=src, config=json.dumps(config, separators=(",", ":")))
+
+
+def render_advanced_chart_html(tv_symbol: str, interval: str, height: int = 640) -> str:
     sym = normalize_tv_symbol(tv_symbol)
     cfg = {
         "autosize": True,
@@ -112,21 +120,16 @@ def render_advanced_chart_html(tv_symbol: str, interval: str, height: int = 480)
         "locale": "en",
         "allow_symbol_change": False,
         "calendar": False,
+        "hide_side_toolbar": False,
         "support_host": "https://www.tradingview.com",
     }
-    script = _widget_script(
+    return _widget_doc(
         "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js",
         cfg,
     )
-    return (
-        f'<div class="tradingview-widget-container" style="height:{height}px;width:100%;">'
-        f'<div class="tradingview-widget-container__widget" style="height:100%;width:100%;"></div>'
-        f"{script}"
-        f"</div>"
-    )
 
 
-def render_timeline_html(tv_symbol: str, height: int = 400) -> str:
+def render_timeline_html(tv_symbol: str, height: int = 420) -> str:
     """Timeline widget: symbol-specific ideas and news (not in-chart chat)."""
     sym = normalize_tv_symbol(tv_symbol)
     cfg = {
@@ -136,18 +139,12 @@ def render_timeline_html(tv_symbol: str, height: int = 400) -> str:
         "isTransparent": False,
         "displayMode": "regular",
         "width": "100%",
-        "height": height,
+        "height": "100%",
         "locale": "en",
     }
-    script = _widget_script(
+    return _widget_doc(
         "https://s3.tradingview.com/external-embedding/embed-widget-timeline.js",
         cfg,
-    )
-    return (
-        f'<div class="tradingview-widget-container" style="height:{height}px;width:100%;">'
-        f'<div class="tradingview-widget-container__widget" style="height:100%;width:100%;"></div>'
-        f"{script}"
-        f"</div>"
     )
 
 
@@ -185,10 +182,22 @@ def render_symbol_preview(
     tab_chart, tab_social = st.tabs(["Chart", "Ideas & news"])
 
     with tab_chart:
-        components.html(render_advanced_chart_html(sym, interval), height=500, scrolling=False)
+        chart_h = st.slider(
+            "Chart height (px)",
+            min_value=400,
+            max_value=1200,
+            value=720,
+            step=20,
+            key=f"tv_chart_h_{sym}",
+        )
+        components.html(
+            render_advanced_chart_html(sym, interval, height=chart_h),
+            height=chart_h,
+            scrolling=False,
+        )
 
     with tab_social:
         st.caption(
             "Headlines and symbol feed from TradingView. Live **chat** is only on the full chart page when you are logged in."
         )
-        components.html(render_timeline_html(sym), height=420, scrolling=True)
+        components.html(render_timeline_html(sym), height=520, scrolling=True)
