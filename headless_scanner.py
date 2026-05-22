@@ -180,12 +180,19 @@ def _row_preview_options(table_rows: list[dict]) -> list[tuple[str, int]]:
 
 
 def _yahoo_from_row(row: dict) -> str:
-    """Extract a Yahoo ticker (e.g. BRK-B) from a result row's Symbol/tv_symbol fields."""
-    sym_url = str(row.get("Symbol", ""))
-    if "symbol=" in sym_url:
-        raw = sym_url.split("symbol=")[-1].split("&")[0]
+    """Extract a Yahoo ticker (e.g. BRK-B) from a result row's tv_symbol/Symbol fields."""
+    from urllib.parse import unquote
+    # Prefer the unencoded tv_symbol stored on the row
+    tv_sym = str(row.get("tv_symbol", "") or "").strip()
+    if tv_sym:
+        raw = tv_sym
     else:
-        raw = sym_url
+        sym_url = str(row.get("Symbol", ""))
+        if "symbol=" in sym_url:
+            raw = sym_url.split("symbol=")[-1].split("&")[0]
+        else:
+            raw = sym_url
+        raw = unquote(raw)
     if ":" in raw:
         raw = raw.split(":", 1)[1]
     return raw.replace(".", "-").upper()
