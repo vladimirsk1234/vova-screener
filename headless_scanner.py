@@ -49,6 +49,12 @@ from ticker_data import (
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
 from sequence_vova import run_sequence_vova_pine
+from tradingview_embed import (
+    build_chart_url,
+    infer_tv_symbol,
+    render_symbol_preview,
+    tf_to_tv_interval,
+)
 
 # ==========================================
 # 4. UI & SIDEBAR
@@ -150,6 +156,24 @@ TA_MAX_WORKERS = min(16, max(4, (os.cpu_count() or 8) * 2))  # parallel per-tick
 res_area = st.empty()
 
 
+def _display_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Hide internal tv_symbol from the results grid."""
+    hide = {"tv_symbol"}
+    cols = [c for c in df.columns if c not in hide]
+    return df[cols] if cols else df
+
+
+def _row_preview_options(table_rows: list[dict]) -> list[tuple[str, int]]:
+    """Labels for mobile selectbox: (label, row_index)."""
+    opts = []
+    for i, row in enumerate(table_rows):
+        name = str(row.get("Company Name", "") or "").strip()
+        sym = str(row.get("tv_symbol", "") or row.get("Symbol", ""))
+        label = f"{name} ({sym})" if name else sym
+        opts.append((label, i))
+    return opts
+
+
 def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is_manual_src, empty_message="Ready to scan. Click START."):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -158,15 +182,55 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
     if table_rows:
         render_mobile_cards(table_rows)
         res_df = pd.DataFrame(table_rows)
+        display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-        # height="content": table grows with all rows; only the page scrolls (no nested grid scroll until Streamlit cap).
-        st.dataframe(
-            res_df,
+        st.caption("Select one row in the table below to preview chart and ideas at the scan timeframe.")
+        event = st.dataframe(
+            display_df,
             hide_index=True,
             column_config=col_config,
             width="stretch",
             height="content",
+            on_select="rerun",
+            selection_mode="single-row",
+            key="scan_results_table",
         )
+        selected_idx = None
+        if event is not None and hasattr(event, "selection") and event.selection.rows:
+            selected_idx = int(event.selection.rows[0])
+
+        # Mobile / fallback when dataframe selection is unavailable
+        if selected_idx is None and table_rows:
+            options = _row_preview_options(table_rows)
+            labels = [o[0] for o in options]
+            pick = st.selectbox(
+                "Preview symbol (optional)",
+                options=["—"] + labels,
+                index=0,
+                key="preview_symbol_pick",
+            )
+            if pick != "—":
+                for label, idx in options:
+                    if label == pick:
+                        selected_idx = idx
+                        break
+
+        if selected_idx is not None and 0 <= selected_idx < len(table_rows):
+            row = table_rows[selected_idx]
+            tv_sym = row.get("tv_symbol") or infer_tv_symbol(
+                str(row.get("Symbol", "")).split("symbol=")[-1].split("&")[0]
+                if "symbol=" in str(row.get("Symbol", ""))
+                else str(row.get("Symbol", ""))
+            )
+            with st.expander("TradingView preview", expanded=True):
+                render_symbol_preview(
+                    tv_sym,
+                    tf,
+                    company_name=str(row.get("Company Name", "")),
+                    tp=row.get("TP"),
+                    sl=row.get("SL"),
+                )
+
         if reference_end_date is not None:
             try:
                 d = pd.Timestamp(reference_end_date)
@@ -264,6 +328,7 @@ def _process_ticker_for_scan(
     is_manual_src: bool,
     lazy_metadata: bool,
     info_cache_entry: tuple[bool, str, dict | None] | None,
+    tv_symbol_by_ticker: dict[str, str] | None = None,
 ) -> dict:
     """
     Pure per-ticker work for one symbol. Returns:
@@ -347,7 +412,9 @@ def _process_ticker_for_scan(
             pos_size = int(round(pos_size))
         pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
 
-        tv_url = f"https://www.tradingview.com/chart/?symbol={t}"
+        tv_sym = (tv_symbol_by_ticker or {}).get(t) or infer_tv_symbol(t)
+        interval = tf_to_tv_interval(tf)
+        tv_url = build_chart_url(tv_sym, interval)
         company_name = info_dict.get("company_name", t)
         if lazy_metadata:
             # Winners only: resolve display name (fast_info cache often has symbol as shortName).
@@ -355,6 +422,7 @@ def _process_ticker_for_scan(
 
         table_row = {
             "Symbol": tv_url,
+            "tv_symbol": tv_sym,
             "Company Name": company_name,
             "TP": round(float(out["TP"]), 2),
             "SL": round(float(out["SL"]), 2),
@@ -382,6 +450,7 @@ def run_scan(
     tf,
     new_only,
     is_manual_src,
+    tv_symbol_by_ticker: dict[str, str] | None = None,
     on_progress=None,
     on_status=None,
     is_cancelled=None,
@@ -556,6 +625,7 @@ def run_scan(
                         is_manual_src,
                         lazy_metadata,
                         ent,
+                        tv_symbol_by_ticker,
                     )
                     pairs.append((t, fut))
                 for t, fut in pairs:
@@ -593,6 +663,7 @@ def run_scan(
                     is_manual_src,
                     lazy_metadata,
                     ent,
+                    tv_symbol_by_ticker,
                 )
                 _merge_ticker_result(res)
                 step[0] += 1
@@ -618,7 +689,7 @@ if st.session_state.scanning:
         source = ManualSource(lambda: p["txt"])
     else:
         source = SOURCE_REGISTRY[p["src"]]
-    tickers, err = source.get_tickers()
+    tickers, tv_symbol_by_ticker, err = source.get_tickers()
     if err:
         st.warning(err)
     if not tickers:
@@ -647,6 +718,7 @@ if st.session_state.scanning:
         tf=cfg.tf,
         new_only=cfg.new_only,
         is_manual_src=cfg.is_manual_src,
+        tv_symbol_by_ticker=tv_symbol_by_ticker,
         on_progress=on_progress,
         on_status=on_status,
         is_cancelled=lambda: not st.session_state.scanning,

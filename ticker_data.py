@@ -16,11 +16,12 @@ _info_cache_lock = threading.Lock()
 TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
 
 
-def read_list_file(filename: str) -> tuple[list[str], str | None]:
+def read_list_file(filename: str) -> tuple[list[str], dict[str, str], str | None]:
     """
     Read tickers from a list file (EXCHANGE:SYMBOL per entry, comma-separated).
     No cache so you can update the file and next START scan uses the new list.
-    Returns (tickers, error_message). error_message is None on success.
+    Returns (yahoo_tickers, tv_symbol_by_yahoo, error_message). error_message is None on success.
+    tv_symbol_by_yahoo maps Yahoo ticker (e.g. BRK-B) -> TradingView symbol (e.g. NYSE:BRK.B).
     """
     base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, filename)
@@ -28,21 +29,29 @@ def read_list_file(filename: str) -> tuple[list[str], str | None]:
         with open(path, "r", encoding="utf-8") as f:
             raw = f.read().strip()
         if not raw:
-            return [], None
-        out = []
+            return [], {}, None
+        out: list[str] = []
+        tv_map: dict[str, str] = {}
         for part in raw.split(","):
             part = part.strip()
+            if not part:
+                continue
             if ":" in part:
-                sym = part.split(":", 1)[1].strip()
+                ex, raw_sym = part.split(":", 1)
+                ex = ex.strip().upper()
+                raw_sym = raw_sym.strip()
+                yahoo_sym = raw_sym.replace(".", "-").upper()
+                tv_sym = f"{ex}:{raw_sym.upper()}"
             else:
-                sym = part
-            if sym:
-                out.append(sym.replace(".", "-"))
-        return out, None
+                yahoo_sym = part.replace(".", "-").upper()
+                tv_sym = yahoo_sym
+            out.append(yahoo_sym)
+            tv_map[yahoo_sym] = tv_sym
+        return out, tv_map, None
     except FileNotFoundError:
-        return [], f"List file not found: {path}. Add {filename} or choose another source."
+        return [], {}, f"List file not found: {path}. Add {filename} or choose another source."
     except Exception as e:
-        return [], f"Could not read list file {filename}: {e}"
+        return [], {}, f"Could not read list file {filename}: {e}"
 
 
 # US exchanges: Yahoo MIC codes and yfinance variants (comparison uses .upper())

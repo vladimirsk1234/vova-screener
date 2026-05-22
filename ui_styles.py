@@ -364,20 +364,20 @@ def _build_ticker_card(row: dict) -> str:
         _stat_row("Value", f"${pos_val}"),
     ])
 
-    return f"""
-    <div class="ticker-card">
-        <div class="card-header">
-            <div class="card-header-left">
-                <a class="t-link" href="{url_esc}" target="_blank" rel="noopener">{html.escape(symbol_label)}</a>
-                {badges_html}
-            </div>
-            <div class="header-price-block">
-                <span class="card-company">{company}</span>
-            </div>
-        </div>
-        <div class="card-grid">{stats}</div>
-    </div>
-    """
+    return (
+        '<div class="ticker-card">'
+        '<div class="card-header">'
+        '<div class="card-header-left">'
+        f'<a class="t-link" href="{url_esc}" target="_blank" rel="noopener">{html.escape(symbol_label)}</a>'
+        f"{badges_html}"
+        "</div>"
+        '<div class="header-price-block">'
+        f'<span class="card-company">{company}</span>'
+        "</div>"
+        "</div>"
+        f'<div class="card-grid">{stats}</div>'
+        "</div>"
+    )
 
 
 def render_mobile_cards(table_rows: list[dict]) -> None:
