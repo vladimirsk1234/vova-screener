@@ -14,7 +14,12 @@ _log = logging.getLogger(__name__)
 # ==========================================
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
 # ==========================================
-st.set_page_config(page_title="Screener Vova (Terminal)", layout="wide", page_icon="💎")
+st.set_page_config(
+    page_title="Screener Vova (Terminal)",
+    layout="wide",
+    page_icon="💎",
+    initial_sidebar_state="collapsed",
+)
 
 # --- SESSION STATE INITIALIZATION ---
 if 'scanning' not in st.session_state:
@@ -27,7 +32,7 @@ if 'run_params' not in st.session_state:
     st.session_state.run_params = {} # To freeze params during scan
 
 # --- CSS STYLING (from ui_styles.py) ---
-from ui_styles import inject_styles
+from ui_styles import inject_styles, render_mobile_cards
 inject_styles()
 
 # ==========================================
@@ -151,6 +156,7 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
     Used by both "scan just finished" and "idle show last results" paths.
     """
     if table_rows:
+        render_mobile_cards(table_rows)
         res_df = pd.DataFrame(table_rows)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
         # height="content": table grows with all rows; only the page scrolls (no nested grid scroll until Streamlit cap).
