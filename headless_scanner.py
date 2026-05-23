@@ -83,8 +83,6 @@ disabled = st.session_state.scanning
 last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
 default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
 src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
-if src in SOURCE_REGISTRY:
-    st.sidebar.caption(SOURCE_REGISTRY[src].description())
 man_txt = ""
 if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
