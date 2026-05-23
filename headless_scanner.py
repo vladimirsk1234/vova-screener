@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -40,9 +41,9 @@ inject_styles()
 # ==========================================
 from ticker_data import (
     TV_LIST_BIG_CAP,
-    fetch_fallback_company_name,
     get_ticker_info_and_filter,
     read_list_file,
+    resolve_company_name,
 )
 
 # ==========================================
@@ -155,6 +156,53 @@ YF_DOWNLOAD_MAX_RETRIES = 2  # retry batch download up to this many times on fai
 YF_INFO_RATE_LIMIT_PER_SEC = 12  # max .info requests per second when using parallel fetch
 YF_INFO_MAX_WORKERS = 8  # thread pool size for parallel get_ticker_info_and_filter
 TA_MAX_WORKERS = min(16, max(4, (os.cpu_count() or 8) * 2))  # parallel per-ticker TA after download
+
+_name_resolve_lock = threading.Lock()
+_name_resolve_last = [0.0]
+
+
+def _rate_limited_resolve_company_name(ticker: str) -> str:
+    with _name_resolve_lock:
+        now = time.monotonic()
+        wait = (1.0 / YF_INFO_RATE_LIMIT_PER_SEC) - (now - _name_resolve_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        name = resolve_company_name(ticker)
+        _name_resolve_last[0] = time.monotonic()
+    return name
+
+
+def _yahoo_ticker_from_row(row: dict) -> str:
+    tv = str(row.get("tv_symbol", "") or "")
+    if ":" in tv:
+        return tv.split(":", 1)[1].replace(".", "-").upper()
+    sym = str(row.get("Symbol", "") or "")
+    if "symbol=" in sym:
+        m = re.search(r"symbol=([^&]+)", sym)
+        if m:
+            return m.group(1).replace(".", "-").upper()
+    return sym.replace(".", "-").upper()
+
+
+def _patch_symbol_only_company_names(table_rows: list[dict]) -> None:
+    """Second pass: resolve names for rows that still show only the ticker symbol."""
+    pending: list[tuple[dict, str]] = []
+    for row in table_rows:
+        ticker = _yahoo_ticker_from_row(row)
+        company = str(row.get("Company Name", "") or "").strip()
+        if not company or company.upper() == ticker.upper():
+            pending.append((row, ticker))
+    if not pending:
+        return
+
+    def _resolve_one(item: tuple[dict, str]) -> tuple[dict, str, str]:
+        row, ticker = item
+        return row, ticker, _rate_limited_resolve_company_name(ticker)
+
+    with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as pool:
+        for row, ticker, name in pool.map(_resolve_one, pending):
+            if name and name.upper() != ticker.upper():
+                row["Company Name"] = name
 
 # Results Placeholder
 res_area = st.empty()
@@ -334,8 +382,7 @@ def _process_ticker_for_scan(
         tv_url = build_chart_url(tv_sym, interval)
         company_name = info_dict.get("company_name", t)
         if lazy_metadata:
-            # Winners only: resolve display name (fast_info cache often has symbol as shortName).
-            company_name = fetch_fallback_company_name(t)
+            company_name = _rate_limited_resolve_company_name(t)
 
         table_row = {
             "Symbol": tv_url,
@@ -428,7 +475,7 @@ def run_scan(
                     )
                     _rate_limiter_last[0] = time.monotonic()
                 if info_dict is None:
-                    info_dict = {"company_name": fetch_fallback_company_name(ticker), "avg_volume": None}
+                    info_dict = {"company_name": resolve_company_name(ticker), "avg_volume": None}
             return (ticker, passed, reason, info_dict)
 
         if on_status:
@@ -446,7 +493,7 @@ def run_scan(
                     info_cache[t] = (
                         False,
                         "INFO_ERROR",
-                        {"company_name": fetch_fallback_company_name(t), "avg_volume": None},
+                        {"company_name": resolve_company_name(t), "avg_volume": None},
                     )
                 step[0] += 1
                 if on_progress:
@@ -588,6 +635,10 @@ def run_scan(
                     on_progress(step[0], total_steps)
 
     proc_sec = time.perf_counter() - t_proc0
+
+    if table_rows:
+        _patch_symbol_only_company_names(table_rows)
+
     total_sec = time.perf_counter() - t_scan0
     timing_msg = (
         f"Screener scan timings: symbols={len(tickers)} "

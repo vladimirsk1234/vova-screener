@@ -10,6 +10,7 @@ import pandas as pd
 import yfinance as yf
 
 _INFO_CACHE_TTL_SEC = 86400.0  # 24h disk cache for Yahoo metadata
+_NAME_RETRY_DELAY_SEC = 0.25
 _info_cache_lock = threading.Lock()
 
 # List files (same folder as this package); format: EXCHANGE:SYMBOL comma-separated
@@ -90,7 +91,15 @@ def _load_info_cache(ticker: str) -> tuple[bool, str, dict] | None:
         return None
 
 
+def _is_symbol_only_name(name: str | None, ticker: str) -> bool:
+    if not name or not str(name).strip():
+        return True
+    return str(name).strip().upper() == ticker.strip().upper()
+
+
 def _save_info_cache(ticker: str, passed: bool, reason: str, info_dict: dict) -> None:
+    if _is_symbol_only_name(info_dict.get("company_name"), ticker):
+        return
     try:
         payload = {
             "saved_at": time.time(),
@@ -104,6 +113,48 @@ def _save_info_cache(ticker: str, passed: bool, reason: str, info_dict: dict) ->
                 json.dump(payload, f, separators=(",", ":"))
     except Exception:
         pass
+
+
+def _company_name_from_info(i: dict, ticker: str) -> str:
+    long_name = (i.get("longName") or "").strip()
+    if long_name:
+        return long_name
+    short_name = (i.get("shortName") or "").strip()
+    if short_name and not _is_symbol_only_name(short_name, ticker):
+        return short_name
+    return ticker
+
+
+def resolve_company_name(ticker: str, *, retries: int = 2) -> str:
+    """
+    Resolve display company name from Yahoo metadata.
+    Prefers longName; shortName only when it differs from the ticker symbol.
+    Retries .info on failure; does not treat symbol-only cached names as final.
+    """
+    try:
+        _, _, info_dict = get_ticker_info_and_filter(
+            ticker, min_market_cap=5e9, min_avg_volume=300_000, require_mc_vol=False
+        )
+        if isinstance(info_dict, dict):
+            cached = info_dict.get("company_name")
+            if cached and not _is_symbol_only_name(str(cached), ticker):
+                return str(cached).strip()
+    except Exception:
+        pass
+
+    last = ticker
+    for attempt in range(retries + 1):
+        try:
+            i = yf.Ticker(ticker).info
+            name = _company_name_from_info(i, ticker)
+            if not _is_symbol_only_name(name, ticker):
+                return name
+            last = name
+        except Exception:
+            pass
+        if attempt < retries:
+            time.sleep(_NAME_RETRY_DELAY_SEC)
+    return last
 
 
 def _apply_yahoo_info_filters(
@@ -122,7 +173,7 @@ def _apply_yahoo_info_filters(
         hist = ticker_obj.history(period="1mo")
         if isinstance(hist, pd.DataFrame) and not hist.empty and "Volume" in hist.columns:
             avg_vol = float(hist["Volume"].mean())
-    company_name = i.get("longName") or i.get("shortName") or ticker
+    company_name = _company_name_from_info(i, ticker)
     trailing_eps, forward_eps = _eps_from_yf_info(i)
 
     if quote_type and quote_type.upper() != "EQUITY":
@@ -208,11 +259,7 @@ def get_ticker_info_and_filter(
 
 def fetch_fallback_company_name(ticker: str) -> str:
     """Fetch company name from yfinance when get_ticker_info_and_filter returns None (INFO_ERROR)."""
-    try:
-        i = yf.Ticker(ticker).info
-        return i.get("longName") or i.get("shortName") or ticker
-    except Exception:
-        return ticker
+    return resolve_company_name(ticker)
 
 
 def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]:
