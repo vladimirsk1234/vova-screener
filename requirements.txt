@@ -4,4 +4,3 @@ yfinance
 numpy
 requests
 lxml
-plotly>=5.22

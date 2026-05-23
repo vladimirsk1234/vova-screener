@@ -57,7 +57,6 @@ from data_utils import (
 from tradingview_embed import (
     build_chart_url,
     infer_tv_symbol,
-    render_symbol_preview,
     tf_to_tv_interval,
 )
 
@@ -168,36 +167,6 @@ def _display_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df[cols] if cols else df
 
 
-def _row_preview_options(table_rows: list[dict]) -> list[tuple[str, int]]:
-    """Labels for mobile selectbox: (label, row_index)."""
-    opts = []
-    for i, row in enumerate(table_rows):
-        name = str(row.get("Company Name", "") or "").strip()
-        sym = str(row.get("tv_symbol", "") or row.get("Symbol", ""))
-        label = f"{name} ({sym})" if name else sym
-        opts.append((label, i))
-    return opts
-
-
-def _yahoo_from_row(row: dict) -> str:
-    """Extract a Yahoo ticker (e.g. BRK-B) from a result row's tv_symbol/Symbol fields."""
-    from urllib.parse import unquote
-    # Prefer the unencoded tv_symbol stored on the row
-    tv_sym = str(row.get("tv_symbol", "") or "").strip()
-    if tv_sym:
-        raw = tv_sym
-    else:
-        sym_url = str(row.get("Symbol", ""))
-        if "symbol=" in sym_url:
-            raw = sym_url.split("symbol=")[-1].split("&")[0]
-        else:
-            raw = sym_url
-        raw = unquote(raw)
-    if ":" in raw:
-        raw = raw.split(":", 1)[1]
-    return raw.replace(".", "-").upper()
-
-
 def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is_manual_src, empty_message="Ready to scan. Click START."):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -208,54 +177,13 @@ def render_scan_results(table_rows, rejected_reasons, reference_end_date, tf, is
         res_df = pd.DataFrame(table_rows)
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-        st.caption("Select one row in the table below to preview the Sequence Vova chart.")
-        event = st.dataframe(
+        st.dataframe(
             display_df,
             hide_index=True,
             column_config=col_config,
             width="stretch",
             height="content",
-            on_select="rerun",
-            selection_mode="single-row",
-            key="scan_results_table",
         )
-        selected_idx = None
-        if event is not None and hasattr(event, "selection") and event.selection.rows:
-            selected_idx = int(event.selection.rows[0])
-
-        # Mobile / fallback when dataframe selection is unavailable
-        if selected_idx is None and table_rows:
-            options = _row_preview_options(table_rows)
-            labels = [o[0] for o in options]
-            pick = st.selectbox(
-                "Preview symbol (optional)",
-                options=["—"] + labels,
-                index=0,
-                key="preview_symbol_pick",
-            )
-            if pick != "—":
-                for label, idx in options:
-                    if label == pick:
-                        selected_idx = idx
-                        break
-
-        if selected_idx is not None and 0 <= selected_idx < len(table_rows):
-            row = table_rows[selected_idx]
-            yahoo = _yahoo_from_row(row)
-            tv_sym = row.get("tv_symbol") or infer_tv_symbol(yahoo)
-            run_params = st.session_state.get("run_params", {}) or {}
-            with st.expander("Sequence Vova preview", expanded=True):
-                render_symbol_preview(
-                    tv_sym,
-                    tf,
-                    yahoo_ticker=yahoo,
-                    company_name=str(row.get("Company Name", "")),
-                    tp=row.get("TP"),
-                    sl=row.get("SL"),
-                    risk_per_trade=int(run_params.get("risk_per_trade", 100)),
-                    min_rr=float(run_params.get("rr", 1.5)),
-                    use_last_hl_sl=bool(run_params.get("use_last_hl_sl", True)),
-                )
 
         if reference_end_date is not None:
             try:
