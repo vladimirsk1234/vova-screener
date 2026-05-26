@@ -238,46 +238,41 @@ def render_scan_results(
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
 
-        col_table, col_chart = st.columns([3, 2], gap="medium")
-        with col_table:
-            event = st.dataframe(
-                display_df,
-                hide_index=True,
-                column_config=col_config,
-                width="stretch",
-                height="content",
-                on_select="rerun",
-                selection_mode="single-row",
-                key="scan_results_table",
-            )
-            st.caption(f"Клик по строке — превью графика ({tf})")
+        event = st.dataframe(
+            display_df,
+            hide_index=True,
+            column_config=col_config,
+            width="stretch",
+            height="content",
+            on_select="rerun",
+            selection_mode="single-row",
+            key="scan_results_table",
+        )
+        if chart_cache:
+            st.caption(f"Click a row for chart preview ({tf}).")
+        else:
+            st.caption("Run a scan to enable chart previews.")
 
-        with col_chart:
-            st.markdown('<div class="desktop-chart-panel">', unsafe_allow_html=True)
-            if not chart_cache:
-                st.caption("Запустите скан снова для превью графика.")
-            else:
-                selected = getattr(event, "selection", None)
-                sel_rows = list(selected.rows) if selected and selected.rows else []
-                if sel_rows:
-                    idx = sel_rows[0]
-                    tv_sym = str(res_df.iloc[idx].get("tv_symbol", "") or "")
-                    payload = chart_cache.get(tv_sym)
-                    if payload:
-                        fig = figure_from_payload(payload, symbol=tv_sym)
-                        if fig is not None:
+        if chart_cache:
+            selected = getattr(event, "selection", None)
+            sel_rows = list(selected.rows) if selected and getattr(selected, "rows", None) else []
+            if sel_rows:
+                idx = sel_rows[0]
+                tv_sym = str(res_df.iloc[idx].get("tv_symbol", "") or "")
+                payload = chart_cache.get(tv_sym)
+                if payload:
+                    fig = figure_from_payload(payload, symbol=tv_sym)
+                    if fig is not None:
+                        with st.container(border=True):
                             st.plotly_chart(
                                 fig,
                                 use_container_width=True,
                                 config={"displayModeBar": False},
                             )
-                        else:
-                            st.caption("Не удалось построить график.")
                     else:
-                        st.caption("Нет кэша графика для выбранной строки.")
+                        st.caption("Failed to build chart.")
                 else:
-                    st.caption(f"Выберите строку в таблице — график {tf}")
-            st.markdown("</div>", unsafe_allow_html=True)
+                    st.caption("No chart cache for the selected row.")
 
         if reference_end_date is not None:
             try:

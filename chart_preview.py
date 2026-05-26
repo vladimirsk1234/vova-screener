@@ -14,8 +14,22 @@ from plotly.utils import PlotlyJSONEncoder
 
 from sequence_vova import run_sequence_vova_full
 
-CACHE_TRIM_BARS = 150
+CACHE_TRIM_BARS = 200
 DEFAULT_MAX_BARS = 120
+
+DAY_MS = 86_400_000
+
+
+def _max_bars_for_tf(tf: str) -> int:
+    return {"Daily": 180, "Weekly": 80, "Monthly": 36}.get(tf, DEFAULT_MAX_BARS)
+
+
+def _xperiod_ms(tf: str) -> int:
+    return {
+        "Daily": DAY_MS,
+        "Weekly": 7 * DAY_MS,
+        "Monthly": 30 * DAY_MS,
+    }.get(tf, DAY_MS)
 
 BG = "#0d0d0d"
 PAPER = "#0d0d0d"
@@ -90,25 +104,25 @@ def build_chart_payload(
     }
 
 
-def _chart_dates(index: pd.Index) -> list[str]:
-    return [pd.Timestamp(x).strftime("%Y-%m-%d") for x in index]
-
-
 def build_sequence_vova_figure(
     df: pd.DataFrame,
     full: dict,
     *,
     title: str = "",
     tf: str = "Daily",
-    max_bars: int = DEFAULT_MAX_BARS,
+    max_bars: int | None = None,
     bar_offset: int = 0,
+    height: int = 580,
 ) -> go.Figure:
     """Candlestick chart with Sequence Vova overlays (scan timeframe bars)."""
+    if max_bars is None:
+        max_bars = _max_bars_for_tf(tf)
+
     plot_df = df.iloc[-max_bars:].copy() if len(df) > max_bars else df.copy()
     extra_offset = max(0, len(df) - len(plot_df))
     display_offset = bar_offset + extra_offset
-    dates = _chart_dates(plot_df.index)
-    n = len(dates)
+    x_index = pd.DatetimeIndex(plot_df.index)
+    n = len(x_index)
 
     crit = np.array(full.get("critical_level_series") or [], dtype=float)
     state = np.array(full.get("seq_state_series") or [], dtype=int)
@@ -122,11 +136,13 @@ def build_sequence_vova_figure(
         crit = np.pad(crit, (0, n - len(crit)), constant_values=np.nan)
         state = np.pad(state, (0, n - len(state)), constant_values=0)
 
+    xperiod = _xperiod_ms(tf)
+
     fig = go.Figure()
 
     fig.add_trace(
         go.Candlestick(
-            x=dates,
+            x=x_index,
             open=plot_df["Open"],
             high=plot_df["High"],
             low=plot_df["Low"],
@@ -136,6 +152,8 @@ def build_sequence_vova_figure(
             increasing_fillcolor=UP,
             decreasing_line_color=DOWN,
             decreasing_fillcolor=DOWN,
+            xperiod=xperiod,
+            xperiodalignment="middle",
         )
     )
 
@@ -143,7 +161,7 @@ def build_sequence_vova_figure(
     crit_dn = np.where(state == -1, crit, np.nan)
     fig.add_trace(
         go.Scatter(
-            x=dates,
+            x=x_index,
             y=crit_up,
             mode="lines",
             name="Critical (up)",
@@ -153,7 +171,7 @@ def build_sequence_vova_figure(
     )
     fig.add_trace(
         go.Scatter(
-            x=dates,
+            x=x_index,
             y=crit_dn,
             mode="lines",
             name="Critical (down)",
@@ -168,7 +186,7 @@ def build_sequence_vova_figure(
         if idx < display_offset or idx - display_offset >= n:
             continue
         xi = idx - display_offset
-        peak_x.append(dates[xi])
+        peak_x.append(x_index[xi])
         peak_y.append(float(p["price"]))
         peak_txt.append(str(p.get("label", "")))
     if peak_x:
@@ -180,8 +198,8 @@ def build_sequence_vova_figure(
                 name="Peaks",
                 text=peak_txt,
                 textposition="top center",
-                marker=dict(color=PEAK_COLOR, size=8, symbol="triangle-down"),
-                textfont=dict(size=9, color=PEAK_COLOR),
+                marker=dict(color=PEAK_COLOR, size=10, symbol="triangle-down"),
+                textfont=dict(size=10, color=PEAK_COLOR),
             )
         )
 
@@ -191,7 +209,7 @@ def build_sequence_vova_figure(
         if idx < display_offset or idx - display_offset >= n:
             continue
         xi = idx - display_offset
-        trough_x.append(dates[xi])
+        trough_x.append(x_index[xi])
         trough_y.append(float(t["price"]))
         trough_txt.append(str(t.get("label", "")))
     if trough_x:
@@ -203,8 +221,8 @@ def build_sequence_vova_figure(
                 name="Troughs",
                 text=trough_txt,
                 textposition="bottom center",
-                marker=dict(color=TROUGH_COLOR, size=8, symbol="triangle-up"),
-                textfont=dict(size=9, color=TROUGH_COLOR),
+                marker=dict(color=TROUGH_COLOR, size=10, symbol="triangle-up"),
+                textfont=dict(size=10, color=TROUGH_COLOR),
             )
         )
 
@@ -245,34 +263,48 @@ def build_sequence_vova_figure(
                 )
 
     chart_title = title or f"Sequence Vova - {tf}"
+    xaxis_kwargs = dict(
+        gridcolor=GRID,
+        rangeslider=dict(visible=False),
+        type="date",
+        showspikes=True,
+        spikemode="across",
+        spikecolor="#444",
+        spikethickness=1,
+    )
+    if tf == "Daily":
+        xaxis_kwargs["rangebreaks"] = [dict(bounds=["sat", "mon"])]
+
     fig.update_layout(
-        title=dict(text=chart_title, font=dict(color="#e0e0e0", size=14)),
+        title=dict(text=chart_title, font=dict(color="#e0e0e0", size=15)),
         template="plotly_dark",
         paper_bgcolor=PAPER,
         plot_bgcolor=BG,
-        xaxis=dict(
-            gridcolor=GRID,
-            rangeslider=dict(visible=False),
-            type="category",
-        ),
+        xaxis=xaxis_kwargs,
         yaxis=dict(gridcolor=GRID, side="right"),
-        margin=dict(l=8, r=48, t=40, b=24),
+        margin=dict(l=12, r=56, t=44, b=72),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            font=dict(size=9),
+            yanchor="top",
+            y=-0.12,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=10),
         ),
-        height=420,
+        height=height,
+        hovermode="x unified",
     )
     fig.update_xaxes(fixedrange=False)
     fig.update_yaxes(fixedrange=False)
     return fig
 
 
-def figure_from_payload(payload: dict, *, symbol: str = "") -> go.Figure | None:
+def figure_from_payload(
+    payload: dict,
+    *,
+    symbol: str = "",
+    height: int = 580,
+) -> go.Figure | None:
     """Build figure from cached chart_payload."""
     if not payload:
         return None
@@ -290,6 +322,7 @@ def figure_from_payload(payload: dict, *, symbol: str = "") -> go.Figure | None:
         title=title,
         tf=tf,
         bar_offset=int(payload.get("bar_offset", 0)),
+        height=height,
     )
 
 
@@ -298,7 +331,12 @@ def figure_to_plotly_json(fig: go.Figure) -> dict[str, Any]:
     return json.loads(json.dumps(fig.to_dict(), cls=PlotlyJSONEncoder))
 
 
-def chart_json_for_mobile(chart_cache: dict, table_rows: list[dict]) -> dict[str, dict]:
+def chart_json_for_mobile(
+    chart_cache: dict,
+    table_rows: list[dict],
+    *,
+    height: int = 460,
+) -> dict[str, dict]:
     """Pre-build plotly JSON per tv_symbol for hover popup."""
     out: dict[str, dict] = {}
     for row in table_rows:
@@ -308,7 +346,7 @@ def chart_json_for_mobile(chart_cache: dict, table_rows: list[dict]) -> dict[str
         payload = chart_cache.get(key)
         if not payload:
             continue
-        fig = figure_from_payload(payload, symbol=key)
+        fig = figure_from_payload(payload, symbol=key, height=height)
         if fig is not None:
             out[key] = figure_to_plotly_json(fig)
     return out

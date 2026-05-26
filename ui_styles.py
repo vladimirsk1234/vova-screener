@@ -41,6 +41,7 @@ _STYLES = """
     @media (min-width: 769px) {
         .mobile-results { display: none !important; }
         .mobile-only-chart-component { display: none !important; }
+        div[data-testid="stIFrame"]:has(iframe[srcdoc*="chart-hover-popup"]) { display: none !important; }
     }
 
     /* Desktop/tablet: horizontal scroll for wide table */
@@ -309,14 +310,6 @@ _STYLES = """
     .c-blue { color: #448aff; }
     .c-gold { color: #ffab00; }
 
-    /* Desktop chart panel hidden on mobile */
-    @media (max-width: 768px) {
-        .desktop-chart-panel { display: none !important; }
-        .mobile-chart-hint { display: block; color: #78909c; font-size: 12px; margin: 8px 0 12px 0; }
-    }
-    @media (min-width: 769px) {
-        .mobile-chart-hint { display: none !important; }
-    }
 </style>
 """
 
@@ -398,34 +391,63 @@ def _build_ticker_card(row: dict) -> str:
 
 _MOBILE_CHART_STYLES = """
 <style>
-body { margin: 0; background: #050505; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+html, body { height: 100%; }
+body { margin: 0; padding: 4px; background: #050505; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow-x: hidden; }
+.mobile-results { padding-bottom: 8px; }
 .ticker-card {
     background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%);
     border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px; margin-bottom: 12px;
     transition: border-color 0.2s;
+    cursor: pointer;
 }
 .ticker-card:hover, .ticker-card.chart-active { border-color: #00e676; }
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.card-header-left { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .t-link { font-size: 16px; font-weight: 700; color: #448aff !important; text-decoration: none; }
+.card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .card-company { font-size: 11px; color: #b0bec5; }
-.card-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .stat-row {
     background: rgba(22,22,22,0.6); padding: 8px 10px; border-radius: 5px;
-    border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between;
+    border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;
 }
 .lbl { font-size: 10px; color: #78909c; font-weight: 700; text-transform: uppercase; }
 .val { font-size: 14px; font-weight: 700; color: #e0e0e0; }
-.new-badge { background: #00e676; color: #000; font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
-.status-badge.valid { background: rgba(0,230,118,0.15); color: #00e676; font-size: 9px; padding: 2px 6px; border-radius: 4px; }
-.status-badge.strong { background: rgba(255,171,0,0.15); color: #ffab00; font-size: 9px; padding: 2px 6px; border-radius: 4px; }
+.val.c-green { color: #00e676; }
+.new-badge { background: #00e676; color: #000; font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 800; text-transform: uppercase; }
+.status-badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 700; text-transform: uppercase; }
+.status-badge.valid { background: rgba(0,230,118,0.15); color: #00e676; }
+.status-badge.strong { background: rgba(255,171,0,0.15); color: #ffab00; }
+
+.chart-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    z-index: 99998;
+    background: rgba(0,0,0,0.7);
+}
+.chart-overlay.visible { display: block; }
+
 #chart-hover-popup {
     display: none; position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    width: 90vw; max-width: 480px; height: 45vh; min-height: 260px;
+    width: 96vw; max-width: 720px; height: 70vh; min-height: 380px;
     z-index: 99999; background: #0d0d0d; border: 2px solid #00e676;
-    border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.8);
-    pointer-events: none;
+    border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.9);
 }
 #chart-hover-popup.visible { display: block; }
-.mobile-chart-hint-inner { color: #78909c; font-size: 12px; margin-bottom: 10px; }
+
+#chart-popup-close {
+    display: none;
+    position: fixed; z-index: 100000;
+    top: calc(50% - 35vh - 6px); right: calc(2vw + 4px);
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: #0d0d0d; border: 2px solid #00e676; color: #00e676;
+    font-size: 20px; font-weight: 700; line-height: 28px; text-align: center;
+    cursor: pointer; padding: 0;
+}
+#chart-popup-close.visible { display: block; }
+
+.mobile-chart-hint-inner { color: #78909c; font-size: 12px; margin: 0 0 10px 0; padding: 0 4px; }
 </style>
 """
 
@@ -437,24 +459,35 @@ def _mobile_chart_component_html(cards_html: str, charts_json: str, tf: str) -> 
 {_MOBILE_CHART_STYLES}
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head><body>
-<p class="mobile-chart-hint-inner">Наведите или нажмите карточку — график {tf_esc}</p>
+<p class="mobile-chart-hint-inner">Tap or hover a card to preview the chart ({tf_esc}).</p>
 <div class="mobile-results">{cards_html}</div>
+<div class="chart-overlay" id="chart-overlay"></div>
 <div id="chart-hover-popup"></div>
+<button id="chart-popup-close" type="button" aria-label="Close chart">&times;</button>
 <script>
 const charts = {charts_json};
 let hideTimer = null;
 let pinnedKey = null;
 const popup = document.getElementById('chart-hover-popup');
+const overlay = document.getElementById('chart-overlay');
+const closeBtn = document.getElementById('chart-popup-close');
 
 function showChart(key) {{
   if (!key || !charts[key]) return;
   const spec = charts[key];
   popup.classList.add('visible');
-  Plotly.react(popup, spec.data, spec.layout, {{responsive: true, displayModeBar: false}});
+  overlay.classList.add('visible');
+  closeBtn.classList.add('visible');
+  Plotly.react(popup, spec.data, spec.layout, {{responsive: true, displayModeBar: false}})
+    .then(() => {{
+      try {{ Plotly.Plots.resize(popup); }} catch (e) {{}}
+    }});
 }}
 
 function hideChart() {{
   popup.classList.remove('visible');
+  overlay.classList.remove('visible');
+  closeBtn.classList.remove('visible');
   pinnedKey = null;
   document.querySelectorAll('.ticker-card.chart-active').forEach(el => el.classList.remove('chart-active'));
 }}
@@ -463,6 +496,19 @@ function scheduleHide() {{
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {{ if (!pinnedKey) hideChart(); }}, 220);
 }}
+
+closeBtn.addEventListener('click', (e) => {{ e.preventDefault(); e.stopPropagation(); hideChart(); }});
+overlay.addEventListener('click', () => hideChart());
+
+document.addEventListener('keydown', (e) => {{
+  if (e.key === 'Escape') hideChart();
+}});
+
+window.addEventListener('resize', () => {{
+  if (popup.classList.contains('visible')) {{
+    try {{ Plotly.Plots.resize(popup); }} catch (e) {{}}
+  }}
+}});
 
 document.querySelectorAll('.ticker-card[data-chart-key]').forEach(card => {{
   const key = card.getAttribute('data-chart-key');
@@ -505,7 +551,7 @@ def render_mobile_cards(
     if chart_json:
         charts_str = json.dumps(chart_json)
         comp_html = _mobile_chart_component_html(cards_html, charts_str, tf)
-        est_height = min(1200, 140 * len(table_rows) + 80)
+        est_height = max(420, min(720, 220 * len(table_rows) + 80))
         st.markdown('<div class="mobile-only-chart-component">', unsafe_allow_html=True)
         components.html(comp_html, height=est_height, scrolling=True)
         st.markdown("</div>", unsafe_allow_html=True)
