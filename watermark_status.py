@@ -81,6 +81,31 @@ def snapshot_for_df(df: pd.DataFrame, params: IndicatorParams) -> dict | None:
     return snap
 
 
+def _resample_safe(frame: pd.DataFrame, target_tf: str) -> pd.DataFrame:
+    if not isinstance(frame.index, pd.DatetimeIndex):
+        return frame
+    out = resample_to_timeframe(frame, target_tf)
+    return out if out is not None and not out.empty else frame
+
+
+def _htf_snapshot(
+    df_chart: pd.DataFrame,
+    df_daily: pd.DataFrame,
+    params: IndicatorParams,
+    *,
+    chart_tf: str,
+    target_tf: str,
+) -> dict | None:
+    """Pine request.security_lower_tf parity: use in-progress chart bar when TF matches."""
+    if chart_tf == target_tf:
+        return snapshot_for_df(df_chart, params)
+    source = df_daily if target_tf == "Daily" else df_daily
+    if target_tf == "Daily":
+        return snapshot_for_df(source, params)
+    resampled = _resample_safe(source, target_tf)
+    return snapshot_for_df(resampled, params)
+
+
 def build_dwm_lines(
     df_chart: pd.DataFrame,
     df_daily: pd.DataFrame | None,
@@ -95,18 +120,9 @@ def build_dwm_lines(
     if chart_tf == "Daily":
         daily = df_chart
 
-    def _resample_safe(frame: pd.DataFrame, target_tf: str) -> pd.DataFrame:
-        if not isinstance(frame.index, pd.DatetimeIndex):
-            return frame
-        out = resample_to_timeframe(frame, target_tf)
-        return out if out is not None and not out.empty else frame
-
-    weekly = _resample_safe(daily, "Weekly")
-    monthly = _resample_safe(daily, "Monthly")
-
-    d_snap = snapshot_for_df(daily, params)
-    w_snap = snapshot_for_df(weekly, params)
-    m_snap = snapshot_for_df(monthly, params)
+    d_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Daily")
+    w_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Weekly")
+    m_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Monthly")
 
     lines: dict[str, str] = {}
     if d_snap:

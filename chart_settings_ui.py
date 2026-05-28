@@ -8,6 +8,22 @@ import streamlit as st
 from indicator_params import IndicatorParams, default_chart_params
 
 
+def _rgba_to_hex(color: str) -> str:
+    """Best-effort rgba(...) -> #rrggbb for Streamlit color_picker."""
+    c = (color or "").strip()
+    if c.startswith("#"):
+        return c
+    if c.startswith("rgba(") and c.endswith(")"):
+        parts = [p.strip() for p in c[5:-1].split(",")]
+        if len(parts) >= 3:
+            try:
+                r, g, b = (int(float(parts[0])), int(float(parts[1])), int(float(parts[2])))
+                return f"#{r:02x}{g:02x}{b:02x}"
+            except ValueError:
+                pass
+    return "#808080"
+
+
 def _init_chart_params() -> None:
     if "chart_params" not in st.session_state:
         st.session_state.chart_params = default_chart_params().as_dict()
@@ -61,18 +77,29 @@ def render_chart_settings() -> IndicatorParams:
             p.bg_color = st.color_picker("Background", p.bg_color)
             p.paper_color = st.color_picker("Paper", p.paper_color)
             p.grid_color = st.color_picker("Grid", p.grid_color)
-        with r2:
             p.candle_up = st.color_picker("Candle up", p.candle_up)
             p.candle_down = st.color_picker("Candle down", p.candle_down)
+        with r2:
             p.hhll_color = st.color_picker("HH/LL labels", p.hhll_color)
-        with r3:
             p.crit_stop_color_up = st.color_picker("Critical (up)", p.crit_stop_color_up)
             p.crit_stop_color_down = st.color_picker("Critical (down)", p.crit_stop_color_down)
+            p.crit_custom_color = st.color_picker("Critical label text", p.crit_custom_color)
             p.fib_color = st.color_picker("Fibonacci", p.fib_color)
-        with r4:
+            p.fib_width = int(st.number_input("Fib line width", value=int(p.fib_width), min_value=1, max_value=5, step=1))
+        with r3:
             p.short_ema_color = st.color_picker("Short EMA", p.short_ema_color)
             p.center_ema_color = st.color_picker("Center EMA", p.center_ema_color)
             p.sma_major_color = st.color_picker("Major SMA", p.sma_major_color)
+            p.elder_bull_color = st.color_picker("Impulse bull", p.elder_bull_color)
+            p.elder_bear_color = st.color_picker("Impulse bear", p.elder_bear_color)
+            p.elder_neut_color = st.color_picker("Impulse neutral", p.elder_neut_color)
+        with r4:
+            p.env_upper_color = st.color_picker("Envelope upper", _rgba_to_hex(p.env_upper_color))
+            p.env_lower_color = st.color_picker("Envelope lower", _rgba_to_hex(p.env_lower_color))
+            p.bb_basis_color = st.color_picker("BB basis", p.bb_basis_color)
+            p.bb_upper_color = st.color_picker("BB upper", p.bb_upper_color)
+            p.bb_lower_color = st.color_picker("BB lower", p.bb_lower_color)
+            p.bb_fill_color = st.color_picker("BB fill", _rgba_to_hex(p.bb_fill_color))
             p.wm_text_color = st.color_picker("Watermark text", p.wm_text_color)
 
         st.markdown("**Dashboard / risk (watermark & trade row)**")

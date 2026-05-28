@@ -71,8 +71,14 @@ def build_chart_payload(
     yahoo_ticker: str = "",
     df_daily: pd.DataFrame | None = None,
     trim_bars: int = CACHE_TRIM_BARS,
+    **legacy: Any,
 ) -> dict | None:
-    """Cache trimmed OHLC only; indicator recomputed at display time."""
+    """Cache trimmed OHLC only; indicator recomputed at display time.
+
+    Accepts legacy kwargs (atr_len, min_rr, use_last_hl_sl, risk_dollars) from
+    older callers; those are ignored because indicator params apply at display time.
+    """
+    _ = legacy  # backward-compatible no-op
     if df is None or df.empty:
         return None
     trim = min(len(df), trim_bars)
@@ -93,6 +99,14 @@ def build_chart_payload(
     }
 
 
+def _extend_right_y(y0: float, y1: float, x0_idx: int, x1_idx: int, x_end_idx: int) -> float:
+    """Extend line segment to x_end_idx at the same slope (Pine extend.right)."""
+    if x1_idx == x0_idx:
+        return y1
+    slope = (y1 - y0) / (x1_idx - x0_idx)
+    return y1 + slope * (x_end_idx - x1_idx)
+
+
 def _add_extension_lines(
     fig: go.Figure,
     extension_lines: list[dict],
@@ -101,6 +115,7 @@ def _add_extension_lines(
     n: int,
     color: str,
 ) -> None:
+    x_end = n - 1
     for seg in extension_lines or []:
         x0 = int(seg["x0_idx"]) - display_offset
         x1 = int(seg["x1_idx"]) - display_offset
@@ -110,16 +125,30 @@ def _add_extension_lines(
             continue
         x0c = max(0, min(x0, n - 1))
         x1c = max(0, min(x1, n - 1))
+        y0 = float(seg["y0"])
+        y1 = float(seg["y1"])
+        y_end = _extend_right_y(y0, y1, x0c, x1c, x_end)
         fig.add_shape(
             type="line",
             x0=x_index[x0c],
-            y0=float(seg["y0"]),
+            y0=y0,
             x1=x_index[x1c],
-            y1=float(seg["y1"]),
+            y1=y1,
             line=dict(color=color, width=2),
             xref="x",
             yref="y",
         )
+        if x1c < x_end:
+            fig.add_shape(
+                type="line",
+                x0=x_index[x1c],
+                y0=y1,
+                x1=x_index[x_end],
+                y1=y_end,
+                line=dict(color=color, width=2),
+                xref="x",
+                yref="y",
+            )
 
 
 def build_sequence_vova_figure(
@@ -408,6 +437,10 @@ def build_sequence_vova_figure(
     if params.show_fib:
         fib = full.get("fib")
         if fib:
+            fib_start_idx = int(fib.get("high_idx", 0)) - display_offset
+            fib_start_idx = max(0, min(fib_start_idx, n - 1))
+            fib_x0 = x_index[fib_start_idx]
+            fib_x1 = x_index[-1] + pd.Timedelta(days=3 if tf == "Daily" else 14)
             for key, label in (
                 ("fib_382", "0.382"),
                 ("fib_500", "0.5"),
@@ -415,13 +448,24 @@ def build_sequence_vova_figure(
             ):
                 val = fib.get(key)
                 if val is not None:
-                    fig.add_hline(
+                    fig.add_shape(
+                        type="line",
+                        x0=fib_x0,
+                        y0=float(val),
+                        x1=fib_x1,
+                        y1=float(val),
+                        line=dict(color=params.fib_color, width=params.fib_width, dash="dash"),
+                        xref="x",
+                        yref="y",
+                    )
+                    fig.add_annotation(
+                        x=fib_x1,
                         y=float(val),
-                        line_dash="dash",
-                        line_color=params.fib_color,
-                        line_width=params.fib_width,
-                        annotation_text=f"{label} ({val:.2f})",
-                        annotation_position="left",
+                        text=f"{label} ({val:.2f})",
+                        showarrow=False,
+                        xanchor="left",
+                        yanchor="middle",
+                        font=dict(color=params.fib_color, size=10),
                     )
 
     chart_title = title or f"Sequence Vova - {tf}"
