@@ -31,12 +31,9 @@ if 'rejected' not in st.session_state:
     st.session_state.rejected = []
 if 'run_params' not in st.session_state:
     st.session_state.run_params = {} # To freeze params during scan
-if 'chart_cache' not in st.session_state:
-    st.session_state.chart_cache = {}
 
 # --- CSS STYLING (from ui_styles.py) ---
-from ui_styles import inject_styles, render_mobile_cards
-from chart_preview import build_chart_payload, figure_from_payload
+from ui_styles import inject_styles
 inject_styles()
 
 # ==========================================
@@ -111,7 +108,6 @@ if start_btn:
     st.session_state.scanning = True
     st.session_state.results = []   # RESET Valid
     st.session_state.rejected = [] # RESET Rejected
-    st.session_state.chart_cache = {}
     # FREEZE PARAMS
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
@@ -223,56 +219,23 @@ def render_scan_results(
     reference_end_date,
     tf,
     is_manual_src,
-    chart_cache=None,
     empty_message="Ready to scan. Click START.",
 ):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
     Used by both "scan just finished" and "idle show last results" paths.
     """
-    chart_cache = chart_cache if chart_cache is not None else {}
-
     if table_rows:
-        render_mobile_cards(table_rows, chart_cache, tf)
         res_df = pd.DataFrame(table_rows)
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
-
-        event = st.dataframe(
+        st.dataframe(
             display_df,
             hide_index=True,
             column_config=col_config,
             width="stretch",
             height="content",
-            on_select="rerun",
-            selection_mode="single-row",
-            key="scan_results_table",
         )
-        if chart_cache:
-            st.caption(f"Click a row for chart preview ({tf}).")
-        else:
-            st.caption("Run a scan to enable chart previews.")
-
-        if chart_cache:
-            selected = getattr(event, "selection", None)
-            sel_rows = list(selected.rows) if selected and getattr(selected, "rows", None) else []
-            if sel_rows:
-                idx = sel_rows[0]
-                tv_sym = str(res_df.iloc[idx].get("tv_symbol", "") or "")
-                payload = chart_cache.get(tv_sym)
-                if payload:
-                    fig = figure_from_payload(payload, symbol=tv_sym)
-                    if fig is not None:
-                        with st.container(border=True):
-                            st.plotly_chart(
-                                fig,
-                                use_container_width=True,
-                                config={"displayModeBar": False},
-                            )
-                    else:
-                        st.caption("Failed to build chart.")
-                else:
-                    st.caption("No chart cache for the selected row.")
 
         if reference_end_date is not None:
             try:
@@ -438,20 +401,7 @@ def _process_ticker_for_scan(
             "Valid": 1 if out["Valid"] else 0,
             "Strong": 1 if out["Strong"] else 0,
         }
-        chart_payload = build_chart_payload(
-            df,
-            tf,
-            atr_len=ATR_LEN,
-            min_rr=min_rr,
-            use_last_hl_sl=use_last_hl_sl,
-            risk_dollars=risk_per_trade,
-        )
-        return {
-            "kind": "row",
-            "row": table_row,
-            "chart_key": tv_sym,
-            "chart_payload": chart_payload,
-        }
+        return {"kind": "row", "row": table_row}
     except Exception as e:
         msg = f"{type(e).__name__}: {e}"
         if len(msg) > 200:
@@ -477,7 +427,7 @@ def run_scan(
     Pure scanner: optional parallel Yahoo metadata (manual only), threaded batch download,
     then parallel per-ticker OHLCV + sequence for list sources (lazy metadata: .info only for passes).
     Logs phase timings to the logger and stdout. No Streamlit calls.
-    Returns (table_rows, rejected_reasons, reference_end_date, chart_cache).
+    Returns (table_rows, rejected_reasons, reference_end_date).
     """
     inter, fetch_period = _interval_and_period(tf)
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
@@ -488,7 +438,6 @@ def run_scan(
 
     table_rows = []
     rejected_reasons = []
-    chart_cache: dict[str, dict] = {}
     reference_end_date = None
     batches_data = []
 
@@ -599,10 +548,6 @@ def run_scan(
     def _merge_ticker_result(res: dict) -> None:
         if res["kind"] == "row":
             table_rows.append(res["row"])
-            key = res.get("chart_key")
-            payload = res.get("chart_payload")
-            if key and payload:
-                chart_cache[key] = payload
         elif res["kind"] == "reject":
             rejected_reasons.append(res["row"])
 
@@ -706,7 +651,7 @@ def run_scan(
     _log.info(timing_msg)
     print(timing_msg, flush=True)
 
-    return (table_rows, rejected_reasons, reference_end_date, chart_cache)
+    return (table_rows, rejected_reasons, reference_end_date)
 
 
 if st.session_state.scanning:
@@ -737,7 +682,7 @@ if st.session_state.scanning:
     def on_status(msg):
         info_box.info(msg)
 
-    table_rows, rejected_reasons, reference_end_date, chart_cache = run_scan(
+    table_rows, rejected_reasons, reference_end_date = run_scan(
         tickers,
         risk_per_trade=cfg.risk_per_trade,
         min_rr=cfg.min_rr,
@@ -757,13 +702,11 @@ if st.session_state.scanning:
     st.session_state.rejected = rejected_reasons
     st.session_state.results_as_of = reference_end_date
     st.session_state.results_tf = cfg.tf
-    st.session_state.chart_cache = chart_cache
 
     with res_area.container():
         render_scan_results(
             table_rows, rejected_reasons, reference_end_date, cfg.tf,
             is_manual_src=cfg.is_manual_src,
-            chart_cache=chart_cache,
             empty_message="No symbols passed the screener.",
         )
 
@@ -781,6 +724,5 @@ else:
         render_scan_results(
             table_rows, rejected_reasons, as_of, as_of_tf,
             is_manual_src=(last_src == "MANUAL SCAN"),
-            chart_cache=st.session_state.get("chart_cache", {}),
         )
 
