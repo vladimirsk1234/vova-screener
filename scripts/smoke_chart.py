@@ -91,6 +91,27 @@ def main() -> int:
     assert fig2 is not None and len(fig2.data) == trace_count
     print("OK: chart_cache -> figure_from_payload round-trip")
 
+    # Simulate cached payload with bar_offset (must not hide overlays)
+    long_df = df
+    if len(long_df) > 120:
+        trim = 120
+        off = len(long_df) - trim
+        trimmed = long_df.iloc[off:].copy()
+        payload2 = build_chart_payload(trimmed, tf, symbol="NASDAQ:MSFT", yahoo_ticker=ticker)
+        payload2["bar_offset"] = off  # legacy field; chart must ignore for overlay indices
+        fig3 = figure_from_payload(payload2, symbol="NASDAQ:MSFT", params=params)
+        full3 = run_sequence_vova_full(trimmed, params=params)
+        peaks3 = full3.get("peaks") or []
+        peak_pts = sum(
+            len(getattr(t, "x", []) or [])
+            for t in fig3.data
+            if getattr(t, "name", None) == "Peaks"
+        )
+        assert fig3 is not None
+        if peaks3:
+            assert peak_pts > 0, "Peaks trace empty despite structure labels in cache df"
+        print(f"OK: bar_offset={off} ignored; peak markers on chart={peak_pts}")
+
     params_fib = IndicatorParams.from_dict({**params.as_dict(), "show_fib": True})
     fig_fib = figure_from_payload(cached, symbol="NASDAQ:MSFT", params=params_fib)
     assert fig_fib is not None

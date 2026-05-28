@@ -228,7 +228,8 @@ def build_sequence_vova_figure(
 
     plot_df = df.iloc[-max_bars:].copy() if len(df) > max_bars else df.copy()
     extra_offset = max(0, len(df) - len(plot_df))
-    display_offset = bar_offset + extra_offset
+    # Indicator runs on cached `df`; peak/line indices are 0..len(df)-1 (not pre-trim history).
+    display_offset = extra_offset
     x_index = pd.DatetimeIndex(plot_df.index)
     n = len(x_index)
     xperiod = _xperiod_ms(tf)
@@ -642,7 +643,6 @@ def figure_from_payload(
         p,
         title=title,
         tf=tf,
-        bar_offset=int(payload.get("bar_offset", 0)),
         height=height,
         fundamentals=fundamentals,
         df_daily=df_daily,
