@@ -93,7 +93,6 @@ def build_chart_payload(
         "df": out_df,
         "df_daily": daily_out,
         "tf": tf,
-        "bar_offset": offset,
         "symbol": symbol,
         "yahoo_ticker": yahoo_ticker,
     }
@@ -216,20 +215,22 @@ def build_sequence_vova_figure(
     title: str = "",
     tf: str = "Daily",
     max_bars: int | None = None,
-    bar_offset: int = 0,
     height: int = 580,
     fundamentals: dict | None = None,
     df_daily: pd.DataFrame | None = None,
+    df_chart: pd.DataFrame | None = None,
     yahoo_ticker: str = "",
 ) -> go.Figure:
-    """Candlestick chart with Sequence Vova overlays."""
+    """Candlestick chart with Sequence Vova overlays.
+
+    `df` is the visible plot window; indicator arrays in `full` must match its length.
+    `df_chart` optional longer series for watermark HTF (defaults to `df`).
+    """
     if max_bars is None:
         max_bars = _max_bars_for_tf(tf)
 
     plot_df = df.iloc[-max_bars:].copy() if len(df) > max_bars else df.copy()
-    extra_offset = max(0, len(df) - len(plot_df))
-    # Indicator runs on cached `df`; peak/line indices are 0..len(df)-1 (not pre-trim history).
-    display_offset = extra_offset
+    display_offset = 0
     x_index = pd.DatetimeIndex(plot_df.index)
     n = len(x_index)
     xperiod = _xperiod_ms(tf)
@@ -567,8 +568,9 @@ def build_sequence_vova_figure(
 
     if params.show_watermark:
         fund = fundamentals or {}
-        dwm = build_dwm_lines(df, df_daily, params, chart_tf=tf)
-        trade = build_trade_line(full, params, len(df) - 1)
+        chart_df = df_chart if df_chart is not None else plot_df
+        dwm = build_dwm_lines(chart_df, df_daily, params, chart_tf=tf)
+        trade = build_trade_line(full, params, len(plot_df) - 1)
         wm = build_watermark_text(
             fundamentals=fund,
             full=full,
@@ -613,11 +615,13 @@ def figure_from_payload(
     if isinstance(df, dict):
         df = pd.DataFrame(df)
     p = params or IndicatorParams()
-    full = run_sequence_vova_full(df, params=p)
+    tf = str(payload.get("tf", "Daily"))
+    max_bars = _max_bars_for_tf(tf)
+    plot_df = df.iloc[-max_bars:].copy() if len(df) > max_bars else df.copy()
+    full = run_sequence_vova_full(plot_df, params=p)
     if full is None:
         return None
 
-    tf = str(payload.get("tf", "Daily"))
     title = f"{symbol} - {tf}" if symbol else f"Sequence Vova - {tf}"
     yahoo = str(payload.get("yahoo_ticker", "") or "")
     df_daily = payload.get("df_daily")
@@ -633,12 +637,12 @@ def figure_from_payload(
             prev_close = float(df["Close"].iloc[-2])
         fundamentals = get_chart_fundamentals(
             yahoo,
-            close=float(df["Close"].iloc[-1]),
+            close=float(plot_df["Close"].iloc[-1]),
             prev_daily_close=prev_close,
         )
 
     return build_sequence_vova_figure(
-        df,
+        plot_df,
         full,
         p,
         title=title,
@@ -646,6 +650,7 @@ def figure_from_payload(
         height=height,
         fundamentals=fundamentals,
         df_daily=df_daily,
+        df_chart=df,
         yahoo_ticker=yahoo or symbol,
     )
 
