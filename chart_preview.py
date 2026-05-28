@@ -377,7 +377,7 @@ def build_sequence_vova_figure(
                 line=dict(color=line_color, width=2, dash="dash"),
             )
             fig.add_annotation(
-                x=x_index[min(n - 1, max(0, n - params.crit_lbl_offset))],
+                x=x_index[-1],
                 y=float(last_crit),
                 text=f"Critical Level = {last_crit:.2f}",
                 showarrow=False,
@@ -537,6 +537,10 @@ def build_sequence_vova_figure(
     )
     if tf == "Daily":
         xaxis_kwargs["rangebreaks"] = [dict(bounds=["sat", "mon"])]
+
+    x_pad = pd.Timedelta(days=7 if tf == "Daily" else (21 if tf == "Weekly" else 45))
+    xaxis_kwargs["range"] = [x_index[0], x_index[-1] + x_pad]
+    xaxis_kwargs["autorange"] = False
 
     y_lo, y_hi = _compute_y_range(plot_df, full, params, display_offset, n)
 

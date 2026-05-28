@@ -379,7 +379,8 @@ def run_sequence_vova_full(
 
     peaks: list[dict] = []
     troughs: list[dict] = []
-    extension_lines: list[dict] = []
+    line_high_ext: dict | None = None
+    line_low_ext: dict | None = None
 
     last_crit = np.nan
     last_peak_val = np.nan
@@ -436,13 +437,13 @@ def run_sequence_vova_full(
                 peaks.append({"idx": seq_high_idx, "price": seq_high, "label": label})
 
                 if last_confirmed_peak_idx >= 0 and not np.isnan(last_confirmed_peak):
-                    extension_lines.append({
+                    line_high_ext = {
                         "kind": "high",
                         "x0_idx": last_confirmed_peak_idx,
                         "y0": float(last_confirmed_peak),
                         "x1_idx": seq_high_idx,
                         "y1": float(seq_high),
-                    })
+                    }
 
                 last_confirmed_peak = seq_high
                 last_confirmed_peak_idx = seq_high_idx
@@ -470,13 +471,13 @@ def run_sequence_vova_full(
                 troughs.append({"idx": seq_low_idx, "price": seq_low, "label": label})
 
                 if last_confirmed_trough_idx >= 0 and not np.isnan(last_confirmed_trough):
-                    extension_lines.append({
+                    line_low_ext = {
                         "kind": "low",
                         "x0_idx": last_confirmed_trough_idx,
                         "y0": float(last_confirmed_trough),
                         "x1_idx": seq_low_idx,
                         "y1": float(seq_low),
-                    })
+                    }
 
                 last_confirmed_trough = seq_low
                 last_confirmed_trough_idx = seq_low_idx
@@ -633,7 +634,7 @@ def run_sequence_vova_full(
         "bearish_break": bearish_break,
         "peaks": peaks,
         "troughs": troughs,
-        "extension_lines": extension_lines,
+        "extension_lines": [ln for ln in (line_high_ext, line_low_ext) if ln is not None],
         "seq_state_final": int(seq_state),
         "seq_high_final": float(seq_high),
         "last_peak": float(last_confirmed_peak) if not np.isnan(last_confirmed_peak) else None,

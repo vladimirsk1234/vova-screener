@@ -13,7 +13,7 @@ import yfinance as yf
 from chart_preview import build_chart_payload, figure_from_payload
 from data_utils import fill_last_bar_ohlc, resample_to_timeframe
 from indicator_params import IndicatorParams, default_chart_params
-from sequence_vova import run_sequence_vova_pine
+from sequence_vova import run_sequence_vova_full, run_sequence_vova_pine
 
 
 def main() -> int:
@@ -60,6 +60,14 @@ def main() -> int:
         return 1
 
     params = default_chart_params()
+    full = run_sequence_vova_full(df, params=params)
+    if full is None:
+        print("FAIL: full indicator returned None")
+        return 1
+    ext = full.get("extension_lines") or []
+    assert len(ext) <= 2, f"expected at most 2 extension lines (Pine parity), got {len(ext)}"
+    print(f"OK: extension lines count = {len(ext)} (Pine: max 2)")
+
     print("Building Plotly figure...")
     fig = figure_from_payload(payload, symbol="NASDAQ:MSFT", params=params)
     if fig is None:
