@@ -107,6 +107,60 @@ def _extend_right_y(y0: float, y1: float, x0_idx: int, x1_idx: int, x_end_idx: i
     return y1 + slope * (x_end_idx - x1_idx)
 
 
+def _interp_y(x: int, x0: int, y0: float, x1: int, y1: float) -> float:
+    if x1 == x0:
+        return y1
+    return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+
+
+def _compute_y_range(
+    plot_df: pd.DataFrame,
+    full: dict,
+    params: IndicatorParams,
+    display_offset: int,
+    n: int,
+) -> tuple[float, float]:
+    """Y-axis from OHLC + nearby overlays (ignore off-screen shape extremes)."""
+    lo = float(plot_df["Low"].min())
+    hi = float(plot_df["High"].max())
+    extras: list[float] = []
+
+    if params.show_crit_level:
+        crit = full.get("critical_level")
+        if crit is not None and not np.isnan(crit):
+            extras.append(float(crit))
+
+    if params.show_tp_sl:
+        for key in ("TP", "SL"):
+            val = full.get(key)
+            if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                extras.append(float(val))
+
+    if params.show_fib:
+        fib = full.get("fib") or {}
+        for key in ("fib_382", "fib_500", "fib_618"):
+            val = fib.get(key)
+            if val is not None:
+                extras.append(float(val))
+
+    for p in full.get("peaks") or []:
+        idx = int(p["idx"]) - display_offset
+        if 0 <= idx < n:
+            extras.append(float(p["price"]))
+    for t in full.get("troughs") or []:
+        idx = int(t["idx"]) - display_offset
+        if 0 <= idx < n:
+            extras.append(float(t["price"]))
+
+    if extras:
+        lo = min(lo, min(extras))
+        hi = max(hi, max(extras))
+
+    span = hi - lo
+    pad = max(span * 0.06, hi * 0.02)
+    return lo - pad, hi + pad
+
+
 def _add_extension_lines(
     fig: go.Figure,
     extension_lines: list[dict],
@@ -127,13 +181,16 @@ def _add_extension_lines(
         x1c = max(0, min(x1, n - 1))
         y0 = float(seg["y0"])
         y1 = float(seg["y1"])
-        y_end = _extend_right_y(y0, y1, x0c, x1c, x_end)
+        # Slope must use true bar indices; clamped x0c/x1c alone steepen lines off-screen.
+        y_start = _interp_y(x0c, x0, y0, x1, y1)
+        y_at_x1 = _interp_y(x1c, x0, y0, x1, y1)
+        y_end = _extend_right_y(y0, y1, x0, x1, x_end)
         fig.add_shape(
             type="line",
             x0=x_index[x0c],
-            y0=y0,
+            y0=y_start,
             x1=x_index[x1c],
-            y1=y1,
+            y1=y_at_x1,
             line=dict(color=color, width=2),
             xref="x",
             yref="y",
@@ -142,7 +199,7 @@ def _add_extension_lines(
             fig.add_shape(
                 type="line",
                 x0=x_index[x1c],
-                y0=y1,
+                y0=y_at_x1,
                 x1=x_index[x_end],
                 y1=y_end,
                 line=dict(color=color, width=2),
@@ -481,13 +538,15 @@ def build_sequence_vova_figure(
     if tf == "Daily":
         xaxis_kwargs["rangebreaks"] = [dict(bounds=["sat", "mon"])]
 
+    y_lo, y_hi = _compute_y_range(plot_df, full, params, display_offset, n)
+
     fig.update_layout(
         title=dict(text=chart_title, font=dict(color="#e0e0e0", size=15)),
         template="plotly_dark",
         paper_bgcolor=params.paper_color,
         plot_bgcolor=params.bg_color,
         xaxis=xaxis_kwargs,
-        yaxis=dict(gridcolor=params.grid_color, side="right"),
+        yaxis=dict(gridcolor=params.grid_color, side="right", range=[y_lo, y_hi], autorange=False),
         margin=dict(l=12, r=56, t=44, b=72),
         legend=dict(
             orientation="h",

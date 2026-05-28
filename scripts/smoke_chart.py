@@ -68,6 +68,9 @@ def main() -> int:
 
     trace_count = len(fig.data)
     print(f"OK: figure has {trace_count} traces")
+    y_range = fig.layout.yaxis.range
+    assert y_range is not None and y_range[1] < 1500, f"y-axis too wide: {y_range}"
+    print(f"OK: y-axis range {y_range[0]:.1f} .. {y_range[1]:.1f}")
     defaults = params
     assert defaults.show_hhll and defaults.show_extension_lines and defaults.show_crit_level
     assert not defaults.show_fib and not defaults.show_bb and not defaults.show_watermark
