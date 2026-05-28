@@ -39,6 +39,7 @@ if 'selected_tv_symbol' not in st.session_state:
 # --- CSS STYLING (from ui_styles.py) ---
 from ui_styles import inject_styles
 from chart_preview import build_chart_payload, figure_from_payload
+from chart_settings_ui import render_chart_settings
 inject_styles()
 
 # ==========================================
@@ -267,9 +268,14 @@ def render_scan_results(
             elif st.session_state.get("selected_tv_symbol"):
                 tv_sym = st.session_state.selected_tv_symbol
 
+            chart_params = render_chart_settings()
             payload = chart_cache.get(tv_sym) if tv_sym else None
             if payload:
-                fig = figure_from_payload(payload, symbol=tv_sym or "")
+                fig = figure_from_payload(
+                    payload,
+                    symbol=tv_sym or "",
+                    params=chart_params,
+                )
                 if fig is not None:
                     with st.container(border=True):
                         st.plotly_chart(
@@ -392,6 +398,7 @@ def _process_ticker_for_scan(
         if ref_end is None and len(df.index) > 0:
             pass  # reference_end_date alignment handled in main scan
 
+        df_daily_chart = df.copy()
         df = _resample_to_timeframe(df, tf)
         if df is None or df.empty or len(df) < MIN_BARS:
             if is_manual_src:
@@ -449,10 +456,9 @@ def _process_ticker_for_scan(
         chart_payload = build_chart_payload(
             df,
             tf,
-            atr_len=ATR_LEN,
-            min_rr=min_rr,
-            use_last_hl_sl=use_last_hl_sl,
-            risk_dollars=risk_per_trade,
+            symbol=tv_sym,
+            yahoo_ticker=t,
+            df_daily=df_daily_chart,
         )
         return {
             "kind": "row",

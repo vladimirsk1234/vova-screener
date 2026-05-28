@@ -291,6 +291,103 @@ def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]
     return out
 
 
+def _round_mcap(val: float) -> str:
+    if val >= 1e12:
+        return f"{round(val / 1e12, 2)}T"
+    if val >= 1e9:
+        return f"{round(val / 1e9, 2)}B"
+    return f"{round(val / 1e6, 2)}M"
+
+
+def _days_to_earnings(ticker_obj: yf.Ticker) -> str:
+    try:
+        cal = ticker_obj.calendar
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date") or cal.get("Earnings Date High")
+            if ed is not None:
+                if isinstance(ed, (list, tuple)) and ed:
+                    ed = ed[0]
+                ts = pd.Timestamp(ed)
+                days = (ts.normalize() - pd.Timestamp.now().normalize()).days
+                if days < 0:
+                    return "Today"
+                return f"{days}d"
+        dates = ticker_obj.get_earnings_dates(limit=4)
+        if isinstance(dates, pd.DataFrame) and not dates.empty:
+            future = dates.index[dates.index >= pd.Timestamp.now().normalize()]
+            if len(future) > 0:
+                days = (future[0].normalize() - pd.Timestamp.now().normalize()).days
+                return "Today" if days <= 0 else f"{days}d"
+    except Exception:
+        pass
+    return "N/A"
+
+
+def get_chart_fundamentals(
+    ticker: str,
+    *,
+    close: float | None = None,
+    prev_daily_close: float | None = None,
+) -> dict:
+    """
+    Yahoo-backed fundamentals for chart watermark (PE, cap, earnings, description).
+    Degrades gracefully to N/A when data is missing.
+    """
+    out: dict = {
+        "company_name": ticker,
+        "description": ticker,
+        "pe_str": "N/A",
+        "mcap_str": "N/A",
+        "earn_str": "N/A",
+        "daily_chg_str": "+0.00%",
+        "market_cap": None,
+        "pe": None,
+    }
+    try:
+        t = yf.Ticker(ticker)
+        i = t.info or {}
+        name = _company_name_from_info(i, ticker)
+        out["company_name"] = name
+        out["description"] = (i.get("longBusinessSummary") or name)[:120]
+        if len(out["description"]) > 120:
+            out["description"] = out["description"][:117] + "..."
+
+        mcap = i.get("marketCap")
+        if mcap is None:
+            shares = i.get("sharesOutstanding") or i.get("impliedSharesOutstanding")
+            px = close if close is not None else i.get("regularMarketPrice") or i.get("currentPrice")
+            if shares and px:
+                mcap = float(shares) * float(px)
+        if mcap is not None and mcap > 0:
+            out["market_cap"] = float(mcap)
+            out["mcap_str"] = _round_mcap(float(mcap))
+
+        pe_ttm = i.get("trailingPE")
+        te, _ = _eps_from_yf_info(i)
+        px = close if close is not None else i.get("regularMarketPrice")
+        pe_final = None
+        if pe_ttm is not None:
+            try:
+                pe_final = float(pe_ttm)
+            except (TypeError, ValueError):
+                pass
+        elif te is not None and te != 0 and px is not None:
+            pe_final = float(px) / float(te)
+        if pe_final is not None and math.isfinite(pe_final):
+            out["pe"] = pe_final
+            out["pe_str"] = f"{pe_final:.2f}"
+
+        out["earn_str"] = _days_to_earnings(t)
+
+        if close is not None and prev_daily_close is not None and prev_daily_close != 0:
+            chg = (close - prev_daily_close) / prev_daily_close * 100
+            sign = "+" if chg >= 0 else ""
+            out["daily_chg_str"] = f"{sign}{chg:.2f}%"
+    except Exception:
+        pass
+    return out
+
+
 def get_annual_eps_history_5y(ticker: str) -> dict[int, float] | None:
     """
     Return latest up-to-5 annual EPS points as {year: eps} for one ticker.

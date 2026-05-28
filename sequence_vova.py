@@ -1,15 +1,148 @@
 """
-Sequence Vova logic: exact port of Pine "Sequence Vova Screener".
+Sequence Vova logic: exact port of Pine "Sequence Vova Indicator" / Screener.
 No UI or I/O dependencies; pure indicator math.
 """
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 
+from indicator_params import IndicatorParams
 
-def calc_atr(df, length):
-    h, l, c = df['High'], df['Low'], df['Close']
-    tr = pd.concat([h-l, (h-c.shift(1)).abs(), (l-c.shift(1)).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1/length, adjust=False).mean()
+
+def calc_atr(df: pd.DataFrame, length: int) -> pd.Series:
+    h, l, c = df["High"], df["Low"], df["Close"]
+    tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / length, adjust=False).mean()
+
+
+def _ema(series: pd.Series, length: int) -> pd.Series:
+    return series.ewm(span=length, adjust=False).mean()
+
+
+def _sma(series: pd.Series, length: int) -> pd.Series:
+    return series.rolling(length, min_periods=1).mean()
+
+
+def calc_macd(
+    close: pd.Series,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    ema_fast = _ema(close, fast)
+    ema_slow = _ema(close, slow)
+    macd_line = ema_fast - ema_slow
+    signal_line = _ema(macd_line, signal)
+    hist = macd_line - signal_line
+    return macd_line, signal_line, hist
+
+
+def calc_dmi(df: pd.DataFrame, length: int) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """ADX system: +DI, -DI, ADX (Wilder-style EWM)."""
+    h, l, c = df["High"], df["Low"], df["Close"]
+    up = h.diff()
+    down = -l.diff()
+    plus_dm = np.where((up > down) & (up > 0), up, 0.0)
+    minus_dm = np.where((down > up) & (down > 0), down, 0.0)
+    tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / length, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1 / length, adjust=False).mean() / atr
+    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1 / length, adjust=False).mean() / atr
+    dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di)).replace([np.inf, -np.inf], np.nan)
+    adx = dx.ewm(alpha=1 / length, adjust=False).mean()
+    return plus_di, minus_di, adx
+
+
+def compute_elder_envelope(
+    close: pd.Series,
+    len_slow: int,
+    lookback: int,
+    multiplier: float,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    ema_slow = _ema(close, len_slow)
+    myvar = (close - ema_slow).abs()
+    myvars = myvar * myvar
+    mymov = np.sqrt(_sma(myvars, lookback))
+    # Pine: max of current + 5 prior (nz)
+    newmax = mymov.copy()
+    for lag in range(1, 6):
+        newmax = np.maximum(newmax, mymov.shift(lag).fillna(0))
+    env_upper = ema_slow + newmax * multiplier
+    env_lower = ema_slow - newmax * multiplier
+    return ema_slow, env_upper, env_lower
+
+
+def compute_bollinger(
+    close: pd.Series,
+    length: int,
+    mult: float,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    basis = _sma(close, length)
+    std = close.rolling(length, min_periods=1).std()
+    upper = basis + mult * std
+    lower = basis - mult * std
+    return basis, upper, lower
+
+
+def compute_impulse_colors(
+    close: pd.Series,
+    len_fast: int,
+    bull_color: str,
+    bear_color: str,
+    neut_color: str,
+) -> np.ndarray:
+    ema_fast = _ema(close, len_fast)
+    _, _, macd_hist = calc_macd(close)
+    ef = ema_fast.values
+    mh = macd_hist.values
+    colors = np.empty(len(close), dtype=object)
+    for i in range(1, len(close)):
+        bulls = ef[i] > ef[i - 1] and mh[i] > mh[i - 1]
+        bears = ef[i] < ef[i - 1] and mh[i] < mh[i - 1]
+        if bulls:
+            colors[i] = bull_color
+        elif bears:
+            colors[i] = bear_color
+        else:
+            colors[i] = neut_color
+    colors[0] = neut_color
+    return colors
+
+
+def compute_overlays(
+    df: pd.DataFrame,
+    *,
+    len_fast: int = 20,
+    len_slow: int = 40,
+    length_major: int = 200,
+    lookback: int = 100,
+    multiplier: float = 2.0,
+    bb_length: int = 20,
+    bb_mult: float = 2.0,
+    elder_bull_color: str = "#00c853",
+    elder_bear_color: str = "#ff1744",
+    elder_neut_color: str = "#4eadfc",
+) -> dict:
+    close = df["Close"]
+    ema_fast = _ema(close, len_fast)
+    ema_slow, env_upper, env_lower = compute_elder_envelope(close, len_slow, lookback, multiplier)
+    sma_major = _sma(close, length_major)
+    bb_basis, bb_upper, bb_lower = compute_bollinger(close, bb_length, bb_mult)
+    impulse_colors = compute_impulse_colors(
+        close, len_fast, elder_bull_color, elder_bear_color, elder_neut_color
+    )
+    return {
+        "ema_fast": ema_fast,
+        "ema_slow": ema_slow,
+        "sma_major": sma_major,
+        "env_upper": env_upper,
+        "env_lower": env_lower,
+        "bb_basis": bb_basis,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+        "impulse_colors": impulse_colors,
+    }
 
 
 def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk_dollars=100):
@@ -21,9 +154,9 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
     if n < 2:
         return None
     atr = calc_atr(df, atr_len)
-    c_a = df['Close'].values
-    h_a = df['High'].values
-    l_a = df['Low'].values
+    c_a = df["Close"].values
+    h_a = df["High"].values
+    l_a = df["Low"].values
     atr_a = atr.values
 
     seq_state = 0
@@ -34,7 +167,6 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
     last_peak_was_hh = False
     last_trough_was_hl = False
 
-    # Store outputs for last bar
     last_crit = np.nan
     last_peak = np.nan
     last_valid = False
@@ -44,7 +176,7 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
     last_rr = 0.0
     last_pos_size = np.nan
     last_pos_value = np.nan
-    prev_bar_seq_low = l_a[0]  # seq_low of previous bar (for Strong on current bar)
+    prev_bar_seq_low = l_a[0]
 
     for i in range(1, n):
         c, h, l = c_a[i], h_a[i], l_a[i]
@@ -60,13 +192,13 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
             is_break = c < prev_crit
         elif prev_state == -1 and not np.isnan(prev_crit):
             is_break = c > prev_crit
-            is_bearish_break = is_break  # bullish break (downtrend broken)
+            is_bearish_break = is_break
 
         if is_break:
             if prev_state == 1:
                 if h >= seq_high:
                     seq_high = h
-                is_current_peak_hh = (np.isnan(last_confirmed_peak) or seq_high > last_confirmed_peak)
+                is_current_peak_hh = np.isnan(last_confirmed_peak) or seq_high > last_confirmed_peak
                 last_peak_was_hh = is_current_peak_hh
                 last_confirmed_peak = seq_high
                 seq_state = -1
@@ -75,8 +207,11 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
             else:
                 if l <= seq_low:
                     seq_low = l
-                is_current_trough_hl = (np.isnan(last_confirmed_trough) or
-                    (seq_low > last_confirmed_trough) or (seq_low == last_confirmed_trough))
+                is_current_trough_hl = (
+                    np.isnan(last_confirmed_trough)
+                    or (seq_low > last_confirmed_trough)
+                    or (seq_low == last_confirmed_trough)
+                )
                 last_trough_was_hl = is_current_trough_hl
                 last_confirmed_trough = seq_low
                 seq_state = 1
@@ -109,14 +244,30 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
                     seq_high = max(prev_seq_high, h)
                     seq_low = min(prev_seq_low, l)
 
-        struct_invalid_seq_down = (seq_state == -1 and last_trough_was_hl and
-            not np.isnan(last_confirmed_trough) and seq_low < last_confirmed_trough)
-        struct_ok = (last_trough_was_hl or (not np.isnan(last_confirmed_peak) and c > last_confirmed_peak and last_trough_was_hl)) and (not struct_invalid_seq_down)
+        struct_invalid_seq_down = (
+            seq_state == -1
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and seq_low < last_confirmed_trough
+        )
+        struct_ok = (
+            last_trough_was_hl
+            or (
+                not np.isnan(last_confirmed_peak)
+                and c > last_confirmed_peak
+                and last_trough_was_hl
+            )
+        ) and (not struct_invalid_seq_down)
 
         sl = c - cur_atr
         if not np.isnan(critical_level) and critical_level < c:
             sl = min(sl, critical_level)
-        if use_last_hl_sl and last_trough_was_hl and not np.isnan(last_confirmed_trough) and last_confirmed_trough < c:
+        if (
+            use_last_hl_sl
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and last_confirmed_trough < c
+        ):
             sl = min(sl, last_confirmed_trough)
         risk = c - sl
         reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
@@ -124,7 +275,9 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         position_size = (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
         position_value = position_size * c if not np.isnan(position_size) else np.nan
 
-        valid_signal = (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+        valid_signal = (
+            (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+        )
         new_signal = valid_signal and is_bearish_break
         strong_signal = new_signal and (not np.isnan(prev_bar_seq_low)) and (l <= prev_bar_seq_low)
 
@@ -155,19 +308,53 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
     }
 
 
-def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk_dollars=100):
+def run_sequence_vova_full(
+    df: pd.DataFrame,
+    params: IndicatorParams | None = None,
+    *,
+    atr_len: int = 14,
+    min_rr: float = 1.5,
+    use_last_hl_sl: bool = True,
+    risk_dollars: float = 100,
+    len_fast: int = 20,
+    len_slow: int = 40,
+    length_major: int = 200,
+    lookback: int = 100,
+    multiplier: float = 2.0,
+    bb_length: int = 20,
+    bb_mult: float = 2.0,
+    elder_bull_color: str = "#00c853",
+    elder_bear_color: str = "#ff1744",
+    elder_neut_color: str = "#4eadfc",
+) -> dict | None:
     """
-    Full-history version of run_sequence_vova_pine: returns per-bar arrays + confirmed
-    peak/trough events + final Fibonacci anchors, in addition to the same last-bar
-    summary fields. Used by the Plotly preview chart.
+    Full-history version: per-bar arrays, peaks/troughs, extension lines, overlays, fib.
+  Used by Plotly chart preview.
     """
+    if params is not None:
+        kw = params.to_runner_kwargs()
+        atr_len = int(kw["atr_len"])
+        min_rr = float(kw["min_rr"])
+        use_last_hl_sl = bool(kw["use_last_hl_sl"])
+        risk_dollars = float(kw["risk_dollars"])
+        len_fast = int(kw["len_fast"])
+        len_slow = int(kw["len_slow"])
+        length_major = int(kw["length_major"])
+        lookback = int(kw["lookback"])
+        multiplier = float(kw["multiplier"])
+        bb_length = params.bb_length
+        bb_mult = params.bb_mult
+        elder_bull_color = params.elder_bull_color
+        elder_bear_color = params.elder_bear_color
+        elder_neut_color = params.elder_neut_color
+
     n = len(df)
     if n < 2:
         return None
     atr = calc_atr(df, atr_len)
-    c_a = df['Close'].values
-    h_a = df['High'].values
-    l_a = df['Low'].values
+    c_a = df["Close"].values
+    h_a = df["High"].values
+    l_a = df["Low"].values
     atr_a = atr.values
 
     seq_state = 0
@@ -187,9 +374,12 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
 
     critical_level_series = np.full(n, np.nan, dtype=float)
     seq_state_series = np.zeros(n, dtype=int)
+    bullish_break = np.zeros(n, dtype=bool)
+    bearish_break = np.zeros(n, dtype=bool)
 
     peaks: list[dict] = []
     troughs: list[dict] = []
+    extension_lines: list[dict] = []
 
     last_crit = np.nan
     last_peak_val = np.nan
@@ -201,6 +391,7 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
     last_pos_size = np.nan
     last_pos_value = np.nan
     prev_bar_seq_low = l_a[0]
+    signal_bar_index: int | None = None
 
     for i in range(1, n):
         c, h, l = c_a[i], h_a[i], l_a[i]
@@ -211,9 +402,11 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         prev_seq_low = seq_low
 
         is_break = False
+        is_bullish_break = False
         is_bearish_break = False
         if prev_state == 1 and not np.isnan(prev_crit):
             is_break = c < prev_crit
+            is_bullish_break = is_break
         elif prev_state == -1 and not np.isnan(prev_crit):
             is_break = c > prev_crit
             is_bearish_break = is_break
@@ -242,6 +435,15 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
                 prev_trough_before_peak_idx = last_confirmed_trough_idx
                 peaks.append({"idx": seq_high_idx, "price": seq_high, "label": label})
 
+                if last_confirmed_peak_idx >= 0 and not np.isnan(last_confirmed_peak):
+                    extension_lines.append({
+                        "kind": "high",
+                        "x0_idx": last_confirmed_peak_idx,
+                        "y0": float(last_confirmed_peak),
+                        "x1_idx": seq_high_idx,
+                        "y1": float(seq_high),
+                    })
+
                 last_confirmed_peak = seq_high
                 last_confirmed_peak_idx = seq_high_idx
                 seq_state = -1
@@ -266,6 +468,15 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
                     is_current_trough_hl = True
                 last_trough_was_hl = is_current_trough_hl
                 troughs.append({"idx": seq_low_idx, "price": seq_low, "label": label})
+
+                if last_confirmed_trough_idx >= 0 and not np.isnan(last_confirmed_trough):
+                    extension_lines.append({
+                        "kind": "low",
+                        "x0_idx": last_confirmed_trough_idx,
+                        "y0": float(last_confirmed_trough),
+                        "x1_idx": seq_low_idx,
+                        "y1": float(seq_low),
+                    })
 
                 last_confirmed_trough = seq_low
                 last_confirmed_trough_idx = seq_low_idx
@@ -304,15 +515,39 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
 
         critical_level_series[i] = critical_level
         seq_state_series[i] = seq_state
+        bullish_break[i] = is_bullish_break
+        bearish_break[i] = is_bearish_break
 
-        struct_invalid_seq_down = (seq_state == -1 and last_trough_was_hl and
-            not np.isnan(last_confirmed_trough) and seq_low < last_confirmed_trough)
-        struct_ok = (last_trough_was_hl or (not np.isnan(last_confirmed_peak) and c > last_confirmed_peak and last_trough_was_hl)) and (not struct_invalid_seq_down)
+        struct_invalid_seq_down = (
+            seq_state == -1
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and seq_low < last_confirmed_trough
+        )
+        struct_ok = (
+            last_trough_was_hl
+            or (
+                not np.isnan(last_confirmed_peak)
+                and c > last_confirmed_peak
+                and last_trough_was_hl
+            )
+        ) and (not struct_invalid_seq_down)
+
+        cur_cond_seq_ok = seq_state == 1
+        if is_bearish_break and cur_cond_seq_ok and struct_ok:
+            signal_bar_index = i
+        elif is_bearish_break:
+            signal_bar_index = None
 
         sl = c - cur_atr
         if not np.isnan(critical_level) and critical_level < c:
             sl = min(sl, critical_level)
-        if use_last_hl_sl and last_trough_was_hl and not np.isnan(last_confirmed_trough) and last_confirmed_trough < c:
+        if (
+            use_last_hl_sl
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and last_confirmed_trough < c
+        ):
             sl = min(sl, last_confirmed_trough)
         risk = c - sl
         reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
@@ -320,7 +555,9 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         position_size = (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
         position_value = position_size * c if not np.isnan(position_size) else np.nan
 
-        valid_signal = (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+        valid_signal = (
+            (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+        )
         new_signal = valid_signal and is_bearish_break
         strong_signal = new_signal and (not np.isnan(prev_bar_seq_low)) and (l <= prev_bar_seq_low)
 
@@ -335,12 +572,18 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         last_pos_size = position_size
         last_pos_value = position_value
 
-    # Fibonacci anchors: drawn when uptrend + valid struct (mirrors Pine)
     fib_levels: dict | None = None
-    if (seq_state == 1
-            and not np.isnan(last_confirmed_peak)
-            and not np.isnan(prev_trough_before_peak)
-            and last_trough_was_hl):
+    daily_struct_valid_fib = last_trough_was_hl or (
+        not np.isnan(last_confirmed_peak)
+        and c_a[-1] > last_confirmed_peak
+        and last_trough_was_hl
+    )
+    if (
+        seq_state == 1
+        and not np.isnan(last_confirmed_peak)
+        and not np.isnan(prev_trough_before_peak)
+        and daily_struct_valid_fib
+    ):
         fib_range = last_confirmed_peak - prev_trough_before_peak
         fib_levels = {
             "high": float(last_confirmed_peak),
@@ -352,10 +595,26 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
             "fib_618": float(last_confirmed_peak - fib_range * 0.618),
         }
 
+    overlays = compute_overlays(
+        df,
+        len_fast=len_fast,
+        len_slow=len_slow,
+        length_major=length_major,
+        lookback=lookback,
+        multiplier=multiplier,
+        bb_length=bb_length,
+        bb_mult=bb_mult,
+        elder_bull_color=elder_bull_color,
+        elder_bear_color=elder_bear_color,
+        elder_neut_color=elder_neut_color,
+    )
+
+    _, _, adx = calc_dmi(df, params.adx_len if params else 14)
+    atr_pct = (atr / df["Close"]) * 100
+
     close_last = c_a[-1]
     atr_last = atr_a[-1]
     return {
-        # Summary (same shape as run_sequence_vova_pine)
         "TP": last_peak_val,
         "SL": last_sl,
         "RR": last_rr,
@@ -366,21 +625,49 @@ def run_sequence_vova_full(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         "position_value": last_pos_value,
         "Close": close_last,
         "ATR": atr_last,
-        # Per-bar arrays
+        "ATR_pct": float(atr_pct.iloc[-1]) if len(atr_pct) else 0.0,
+        "ADX": float(adx.iloc[-1]) if len(adx) else 0.0,
         "critical_level_series": critical_level_series,
         "seq_state_series": seq_state_series,
-        # Event lists (already in display order)
+        "bullish_break": bullish_break,
+        "bearish_break": bearish_break,
         "peaks": peaks,
         "troughs": troughs,
-        # Final structural state
+        "extension_lines": extension_lines,
         "seq_state_final": int(seq_state),
-        "last_peak": (float(last_confirmed_peak) if not np.isnan(last_confirmed_peak) else None),
+        "seq_high_final": float(seq_high),
+        "last_peak": float(last_confirmed_peak) if not np.isnan(last_confirmed_peak) else None,
         "last_peak_idx": int(last_confirmed_peak_idx) if last_confirmed_peak_idx >= 0 else None,
-        "last_trough": (float(last_confirmed_trough) if not np.isnan(last_confirmed_trough) else None),
+        "last_trough": float(last_confirmed_trough) if not np.isnan(last_confirmed_trough) else None,
         "last_trough_idx": int(last_confirmed_trough_idx) if last_confirmed_trough_idx >= 0 else None,
         "last_peak_was_hh": bool(last_peak_was_hh),
         "last_trough_was_hl": bool(last_trough_was_hl),
-        "last_lh": (float(last_lh) if not np.isnan(last_lh) else None),
-        "critical_level": (float(last_crit) if not np.isnan(last_crit) else None),
+        "last_lh": float(last_lh) if not np.isnan(last_lh) else None,
+        "critical_level": float(last_crit) if not np.isnan(last_crit) else None,
+        "struct_invalid_seq_down": bool(
+            seq_state == -1
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and seq_low < last_confirmed_trough
+        ),
+        "signal_bar_index": signal_bar_index,
         "fib": fib_levels,
+        "overlays": {k: v for k, v in overlays.items() if k != "impulse_colors"},
+        "impulse_colors": overlays["impulse_colors"],
+    }
+
+
+def structure_snapshot_from_full(full: dict) -> dict:
+    """Last-bar structural state for watermark / HTF helpers."""
+    return {
+        "seq_state": full.get("seq_state_final", 0),
+        "critical_level": full.get("critical_level"),
+        "close": full.get("Close"),
+        "last_peak_was_hh": full.get("last_peak_was_hh", False),
+        "last_trough_was_hl": full.get("last_trough_was_hl", False),
+        "last_peak": full.get("last_peak"),
+        "last_trough": full.get("last_trough"),
+        "last_lh": full.get("last_lh"),
+        "seq_high": full.get("seq_high_final"),
+        "struct_invalid": full.get("struct_invalid_seq_down", False),
     }
