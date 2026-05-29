@@ -50,6 +50,17 @@ def _bar_align_kwargs(xperiod: int) -> dict:
     return {"xperiod": xperiod, "xperiodalignment": "middle"}
 
 
+BAR_MARKER_OFFSET_PCT = 0.012  # 1.2% above High / below Low
+
+
+def _offset_above_bar(high: float) -> float:
+    return high * (1 + BAR_MARKER_OFFSET_PCT)
+
+
+def _offset_below_bar(low: float) -> float:
+    return low * (1 - BAR_MARKER_OFFSET_PCT)
+
+
 def _to_list(arr) -> list:
     if arr is None:
         return []
@@ -156,11 +167,11 @@ def _compute_y_range(
     for p in full.get("peaks") or []:
         idx = int(p["idx"]) - display_offset
         if 0 <= idx < n:
-            extras.append(float(p["price"]))
+            extras.append(_offset_above_bar(float(plot_df["High"].iloc[idx])))
     for t in full.get("troughs") or []:
         idx = int(t["idx"]) - display_offset
         if 0 <= idx < n:
-            extras.append(float(t["price"]))
+            extras.append(_offset_below_bar(float(plot_df["Low"].iloc[idx])))
 
     if extras:
         lo = min(lo, min(extras))
@@ -420,7 +431,7 @@ def build_sequence_vova_figure(
             xi = idx - display_offset
             lbl = str(p.get("label", ""))
             peak_x.append(x_index[xi])
-            peak_y.append(float(p["price"]))
+            peak_y.append(_offset_above_bar(float(plot_df["High"].iloc[xi])))
             peak_txt.append(f"{lbl}<br>↓")
         if peak_x:
             fig.add_trace(
@@ -445,7 +456,7 @@ def build_sequence_vova_figure(
             xi = idx - display_offset
             lbl = str(t.get("label", ""))
             trough_x.append(x_index[xi])
-            trough_y.append(float(t["price"]))
+            trough_y.append(_offset_below_bar(float(plot_df["Low"].iloc[xi])))
             trough_txt.append(f"↑<br>{lbl}")
         if trough_x:
             fig.add_trace(
@@ -471,7 +482,7 @@ def build_sequence_vova_figure(
             for i, flag in enumerate(bslice):
                 if flag and i < n:
                     bx.append(x_index[i])
-                    by.append(float(plot_df["High"].iloc[i]) * 1.002)
+                    by.append(_offset_above_bar(float(plot_df["High"].iloc[i])))
             if bx:
                 fig.add_trace(
                     go.Scatter(
@@ -486,7 +497,7 @@ def build_sequence_vova_figure(
             for i, flag in enumerate(bslice):
                 if flag and i < n:
                     bx.append(x_index[i])
-                    by.append(float(plot_df["Low"].iloc[i]) * 0.998)
+                    by.append(_offset_below_bar(float(plot_df["Low"].iloc[i])))
             if bx:
                 fig.add_trace(
                     go.Scatter(
