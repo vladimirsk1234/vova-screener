@@ -23,6 +23,13 @@ from watermark_status import (
 
 CACHE_TRIM_BARS = 200
 DEFAULT_MAX_BARS = 120
+DEFAULT_CHART_HEIGHT = 720
+
+PLOTLY_CHART_CONFIG = {
+    "displayModeBar": False,
+    "scrollZoom": True,
+    "doubleClick": "reset",
+}
 
 DAY_MS = 86_400_000
 
@@ -156,7 +163,7 @@ def _compute_y_range(
         hi = max(hi, max(extras))
 
     span = hi - lo
-    pad = max(span * 0.06, hi * 0.02)
+    pad = max(span * 0.12, hi * 0.03)
     return lo - pad, hi + pad
 
 
@@ -215,7 +222,7 @@ def build_sequence_vova_figure(
     title: str = "",
     tf: str = "Daily",
     max_bars: int | None = None,
-    height: int = 580,
+    height: int = DEFAULT_CHART_HEIGHT,
     fundamentals: dict | None = None,
     df_daily: pd.DataFrame | None = None,
     df_chart: pd.DataFrame | None = None,
@@ -269,6 +276,7 @@ def build_sequence_vova_figure(
             increasing_fillcolor=params.candle_up,
             decreasing_line_color=params.candle_down,
             decreasing_fillcolor=params.candle_down,
+            line=dict(width=1),
             xperiod=xperiod,
             xperiodalignment="middle",
         )
@@ -530,6 +538,9 @@ def build_sequence_vova_figure(
     chart_title = title or f"Sequence Vova - {tf}"
     xaxis_kwargs = dict(
         gridcolor=params.grid_color,
+        showgrid=True,
+        gridwidth=1,
+        zeroline=False,
         rangeslider=dict(visible=False),
         type="date",
         showspikes=True,
@@ -551,8 +562,17 @@ def build_sequence_vova_figure(
         template="plotly_dark",
         paper_bgcolor=params.paper_color,
         plot_bgcolor=params.bg_color,
+        dragmode="pan",
         xaxis=xaxis_kwargs,
-        yaxis=dict(gridcolor=params.grid_color, side="right", range=[y_lo, y_hi], autorange=False),
+        yaxis=dict(
+            gridcolor=params.grid_color,
+            showgrid=True,
+            gridwidth=1,
+            zeroline=False,
+            side="right",
+            range=[y_lo, y_hi],
+            autorange=False,
+        ),
         margin=dict(l=12, r=56, t=44, b=72),
         legend=dict(
             orientation="h",
@@ -604,7 +624,7 @@ def figure_from_payload(
     *,
     symbol: str = "",
     params: IndicatorParams | None = None,
-    height: int = 580,
+    height: int = DEFAULT_CHART_HEIGHT,
 ) -> go.Figure | None:
     """Build figure from cached OHLC payload + live indicator params."""
     if not payload:

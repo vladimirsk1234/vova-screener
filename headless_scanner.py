@@ -38,7 +38,12 @@ if 'selected_tv_symbol' not in st.session_state:
 
 # --- CSS STYLING (from ui_styles.py) ---
 from ui_styles import inject_styles
-from chart_preview import build_chart_payload, figure_from_payload
+from chart_preview import (
+    DEFAULT_CHART_HEIGHT,
+    PLOTLY_CHART_CONFIG,
+    build_chart_payload,
+    figure_from_payload,
+)
 from chart_settings_ui import render_chart_settings
 inject_styles()
 
@@ -275,13 +280,14 @@ def render_scan_results(
                     payload,
                     symbol=tv_sym or "",
                     params=chart_params,
+                    height=DEFAULT_CHART_HEIGHT,
                 )
                 if fig is not None:
                     with st.container(border=True):
                         st.plotly_chart(
                             fig,
                             use_container_width=True,
-                            config={"displayModeBar": False},
+                            config=PLOTLY_CHART_CONFIG,
                         )
                 elif tv_sym:
                     st.caption("Failed to build chart.")

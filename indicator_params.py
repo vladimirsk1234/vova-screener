@@ -64,12 +64,12 @@ class IndicatorParams:
     wm_text_color: str = "#e0e0e0"
     wm_font_size: int = 11
 
-    # Chart theme
-    bg_color: str = "#0d0d0d"
-    paper_color: str = "#0d0d0d"
-    grid_color: str = "#1e1e1e"
-    candle_up: str = "#00e676"
-    candle_down: str = "#ff1744"
+    # Chart theme (TradingView dark defaults)
+    bg_color: str = "#131722"
+    paper_color: str = "#131722"
+    grid_color: str = "#363a45"
+    candle_up: str = "#26a69a"
+    candle_down: str = "#ef5350"
 
     # Visibility (defaults: structure + critical only)
     show_crit_level: bool = True
