@@ -46,6 +46,10 @@ def _xperiod_ms(tf: str) -> int:
     }.get(tf, DAY_MS)
 
 
+def _bar_align_kwargs(xperiod: int) -> dict:
+    return {"xperiod": xperiod, "xperiodalignment": "middle"}
+
+
 def _to_list(arr) -> list:
     if arr is None:
         return []
@@ -429,6 +433,7 @@ def build_sequence_vova_figure(
                     textposition="top center",
                     marker=dict(color=params.hhll_color, size=10, symbol="triangle-down"),
                     textfont=dict(size=params.hhll_label_size, color=params.hhll_color),
+                    **_bar_align_kwargs(xperiod),
                 )
             )
 
@@ -453,6 +458,7 @@ def build_sequence_vova_figure(
                     textposition="bottom center",
                     marker=dict(color=params.hhll_color, size=10, symbol="triangle-up"),
                     textfont=dict(size=params.hhll_label_size, color=params.hhll_color),
+                    **_bar_align_kwargs(xperiod),
                 )
             )
 
@@ -471,6 +477,7 @@ def build_sequence_vova_figure(
                     go.Scatter(
                         x=bx, y=by, mode="markers", name="Bear break",
                         marker=dict(symbol="triangle-down", size=8, color="#000"),
+                        **_bar_align_kwargs(xperiod),
                     )
                 )
         if bear is not None and len(bear) > display_offset:
@@ -485,6 +492,7 @@ def build_sequence_vova_figure(
                     go.Scatter(
                         x=bx, y=by, mode="markers", name="Bull break",
                         marker=dict(symbol="triangle-up", size=8, color="#000"),
+                        **_bar_align_kwargs(xperiod),
                     )
                 )
 
