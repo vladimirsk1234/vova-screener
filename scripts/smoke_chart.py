@@ -81,7 +81,8 @@ def main() -> int:
     print(f"OK: y-axis range {y_range[0]:.1f} .. {y_range[1]:.1f}")
     defaults = params
     assert defaults.show_hhll and defaults.show_extension_lines and defaults.show_crit_level
-    assert not defaults.show_fib and not defaults.show_bb and not defaults.show_watermark
+    assert not defaults.show_fib and not defaults.show_bb
+    assert defaults.show_watermark
     print("OK: default visibility matches spec")
 
     # E2E: chart_cache round-trip (scan -> cache -> display)

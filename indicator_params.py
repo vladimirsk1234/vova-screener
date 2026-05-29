@@ -85,7 +85,7 @@ class IndicatorParams:
     show_bb_background: bool = True
     show_breaks: bool = False
     show_tp_sl: bool = False
-    show_watermark: bool = False
+    show_watermark: bool = True  # always rendered on chart; kept for session compat
 
     def to_runner_kwargs(self) -> dict[str, Any]:
         return {

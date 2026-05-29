@@ -60,7 +60,7 @@ def render_chart_settings() -> IndicatorParams:
             p.show_bb_background = st.checkbox("BB fill", value=p.show_bb_background)
             p.show_breaks = st.checkbox("Break triangles", value=p.show_breaks)
             p.show_tp_sl = st.checkbox("TP / SL lines", value=p.show_tp_sl)
-            p.show_watermark = st.checkbox("Watermark table", value=p.show_watermark)
+            p.show_watermark = True
         with c3:
             st.markdown("**Moving averages**")
             p.len_fast = st.number_input("Fast EMA", value=int(p.len_fast), min_value=1, step=1)

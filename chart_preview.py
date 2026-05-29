@@ -537,9 +537,7 @@ def build_sequence_vova_figure(
 
     chart_title = title or f"Sequence Vova - {tf}"
     xaxis_kwargs = dict(
-        gridcolor=params.grid_color,
-        showgrid=True,
-        gridwidth=1,
+        showgrid=False,
         zeroline=False,
         rangeslider=dict(visible=False),
         type="date",
@@ -565,9 +563,7 @@ def build_sequence_vova_figure(
         dragmode="pan",
         xaxis=xaxis_kwargs,
         yaxis=dict(
-            gridcolor=params.grid_color,
-            showgrid=True,
-            gridwidth=1,
+            showgrid=False,
             zeroline=False,
             side="right",
             range=[y_lo, y_hi],
@@ -586,33 +582,32 @@ def build_sequence_vova_figure(
         hovermode="x unified",
     )
 
-    if params.show_watermark:
-        fund = fundamentals or {}
-        chart_df = df_chart if df_chart is not None else plot_df
-        dwm = build_dwm_lines(chart_df, df_daily, params, chart_tf=tf)
-        trade = build_trade_line(full, params, len(plot_df) - 1)
-        wm = build_watermark_text(
-            fundamentals=fund,
-            full=full,
-            params=params,
-            dwm_lines=dwm,
-            chart_tf=tf,
-            ticker=yahoo_ticker or title,
-            trade_line=trade,
-        )
-        fig.add_annotation(
-            xref="paper",
-            yref="paper",
-            x=0.01,
-            y=0.99,
-            xanchor="left",
-            yanchor="top",
-            text=wm,
-            showarrow=False,
-            align="left",
-            font=dict(size=params.wm_font_size, color=params.wm_text_color),
-            bgcolor="rgba(0,0,0,0.35)",
-        )
+    fund = fundamentals or {}
+    chart_df = df_chart if df_chart is not None else plot_df
+    dwm = build_dwm_lines(chart_df, df_daily, params, chart_tf=tf)
+    trade = build_trade_line(full, params, len(plot_df) - 1)
+    wm = build_watermark_text(
+        fundamentals=fund,
+        full=full,
+        params=params,
+        dwm_lines=dwm,
+        chart_tf=tf,
+        ticker=yahoo_ticker or title,
+        trade_line=trade,
+    )
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.01,
+        y=0.99,
+        xanchor="left",
+        yanchor="top",
+        text=wm,
+        showarrow=False,
+        align="left",
+        font=dict(size=params.wm_font_size, color=params.wm_text_color),
+        bgcolor="rgba(0,0,0,0.35)",
+    )
 
     fig.update_xaxes(fixedrange=False)
     fig.update_yaxes(fixedrange=False)
@@ -649,7 +644,7 @@ def figure_from_payload(
         df_daily = pd.DataFrame(df_daily)
 
     fundamentals = None
-    if p.show_watermark and yahoo:
+    if yahoo:
         prev_close = None
         if df_daily is not None and len(df_daily) >= 2:
             prev_close = float(df_daily["Close"].iloc[-2])
