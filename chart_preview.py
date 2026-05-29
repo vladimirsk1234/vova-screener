@@ -272,12 +272,12 @@ def build_sequence_vova_figure(
             low=plot_df["Low"],
             close=plot_df["Close"],
             name="OHLC",
-            increasing_line_color=params.candle_wick,
+            increasing_line_color=params.candle_border,
             increasing_fillcolor=params.candle_up,
-            decreasing_line_color=params.candle_wick,
+            decreasing_line_color=params.candle_border,
             decreasing_fillcolor=params.candle_down,
-            whiskerwidth=0.4,
-            line=dict(width=1),
+            whiskerwidth=0.5,
+            line=dict(width=1.5),
             xperiod=xperiod,
             xperiodalignment="middle",
         )
@@ -540,6 +540,8 @@ def build_sequence_vova_figure(
     xaxis_kwargs = dict(
         showgrid=False,
         zeroline=False,
+        tickfont=dict(color="#d1d4dc"),
+        linecolor="#2a2e39",
         rangeslider=dict(visible=False),
         type="date",
         showspikes=True,
@@ -557,7 +559,7 @@ def build_sequence_vova_figure(
     y_lo, y_hi = _compute_y_range(plot_df, full, params, display_offset, n)
 
     fig.update_layout(
-        title=dict(text=chart_title, font=dict(color="#e0e0e0", size=15)),
+        title=dict(text=chart_title, font=dict(color="#d1d4dc", size=15)),
         template="plotly_dark",
         paper_bgcolor=params.paper_color,
         plot_bgcolor=params.bg_color,
@@ -566,6 +568,8 @@ def build_sequence_vova_figure(
         yaxis=dict(
             showgrid=False,
             zeroline=False,
+            tickfont=dict(color="#d1d4dc"),
+            linecolor="#2a2e39",
             side="right",
             range=[y_lo, y_hi],
             autorange=False,
@@ -577,7 +581,7 @@ def build_sequence_vova_figure(
             y=-0.12,
             xanchor="center",
             x=0.5,
-            font=dict(size=10),
+            font=dict(size=10, color="#d1d4dc"),
         ),
         height=height,
         hovermode="x unified",
@@ -607,7 +611,7 @@ def build_sequence_vova_figure(
         showarrow=False,
         align="left",
         font=dict(size=params.wm_font_size, color=params.wm_text_color),
-        bgcolor="rgba(0,0,0,0.35)",
+        bgcolor="rgba(42,46,57,0.75)",
     )
 
     fig.update_xaxes(fixedrange=False)
