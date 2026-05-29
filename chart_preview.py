@@ -276,7 +276,7 @@ def build_sequence_vova_figure(
             increasing_fillcolor=params.candle_up,
             decreasing_line_color=params.candle_border,
             decreasing_fillcolor=params.candle_down,
-            whiskerwidth=0.5,
+            whiskerwidth=0,
             line=dict(width=1.5),
             xperiod=xperiod,
             xperiodalignment="middle",

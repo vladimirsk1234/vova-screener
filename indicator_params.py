@@ -65,7 +65,7 @@ class IndicatorParams:
     wm_font_size: int = 11
 
     # Chart theme (TradingView grey plot + high-contrast candles)
-    bg_color: str = "#434651"
+    bg_color: str = "#707585"
     paper_color: str = "#2a2e39"
     grid_color: str = "#363a45"
     candle_up: str = "#089981"
