@@ -70,6 +70,8 @@ class IndicatorParams:
     grid_color: str = "#363a45"
     candle_up: str = "#26a69a"
     candle_down: str = "#ef5350"
+    candle_border: str = "#434651"
+    candle_wick: str = "#434651"
 
     # Visibility (defaults: structure + critical only)
     show_crit_level: bool = True

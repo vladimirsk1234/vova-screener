@@ -77,8 +77,10 @@ def render_chart_settings() -> IndicatorParams:
             p.bg_color = st.color_picker("Background", p.bg_color)
             p.paper_color = st.color_picker("Paper", p.paper_color)
             p.grid_color = st.color_picker("Grid", p.grid_color)
-            p.candle_up = st.color_picker("Candle up", p.candle_up)
-            p.candle_down = st.color_picker("Candle down", p.candle_down)
+            p.candle_up = st.color_picker("Candle body up", p.candle_up)
+            p.candle_down = st.color_picker("Candle body down", p.candle_down)
+            p.candle_border = st.color_picker("Candle border", p.candle_border)
+            p.candle_wick = st.color_picker("Candle wick", p.candle_wick)
         with r2:
             p.hhll_color = st.color_picker("HH/LL labels", p.hhll_color)
             p.crit_stop_color_up = st.color_picker("Critical (up)", p.crit_stop_color_up)
