@@ -533,10 +533,7 @@ class ScanPhaseProgressUI:
         self._phases = phases
         self._state = {phase_id: self._blank_state() for phase_id, _, _ in phases}
         self._placeholder = st.empty()
-        if "prep" in self._state:
-            self.start_indeterminate("prep")
-        else:
-            self._render_all()
+        self._render_all()
 
     def start_indeterminate(self, phase: str) -> None:
         state = self._state[phase]
@@ -547,9 +544,6 @@ class ScanPhaseProgressUI:
         self._render_all()
 
     def on_phase_start(self, phase: str) -> None:
-        prep = self._state.get("prep")
-        if prep and prep["status"] != self.STATUS_DONE:
-            self.complete("prep")
         if phase in self._state:
             self.start_indeterminate(phase)
 
@@ -985,9 +979,7 @@ if st.session_state.scanning:
 
     info_box = st.empty()
 
-    phases: list[tuple[str, str, str]] = [
-        ("prep", "Preparing scan", "🧠"),
-    ]
+    phases: list[tuple[str, str, str]] = []
     if cfg.is_manual_src:
         phases.append(("info", "Fetching ticker info", "📋"))
     phases.append(("download", "Downloading OHLC", "📥"))
