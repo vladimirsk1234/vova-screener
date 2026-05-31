@@ -50,7 +50,7 @@ def _bar_align_kwargs(xperiod: int) -> dict:
     return {"xperiod": xperiod, "xperiodalignment": "middle"}
 
 
-BAR_MARKER_OFFSET_PCT = 0.015  # 1.2% above High / below Low
+BAR_MARKER_OFFSET_PCT = 0.02  # 1.2% above High / below Low
 
 
 def _offset_above_bar(high: float) -> float:
