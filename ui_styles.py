@@ -52,6 +52,16 @@ _STYLES = """
         50% { box-shadow: 0 0 16px rgba(0, 255, 136, 0.55); }
     }
 
+    @keyframes scanShimmer {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(320%); }
+    }
+
+    @keyframes scanThink {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 1; }
+    }
+
     .scan-phases {
         display: flex;
         flex-direction: column;
@@ -114,8 +124,27 @@ _STYLES = """
         transition: width 0.35s ease;
     }
 
-    .scan-phase-row.is-active .scan-phase-fill {
+    .scan-phase-row.is-active:not(.is-indeterminate) .scan-phase-fill {
         animation: scanPulse 1.5s ease-in-out infinite;
+    }
+
+    .scan-phase-row.is-indeterminate .scan-phase-bar {
+        position: relative;
+    }
+
+    .scan-phase-fill-indeterminate {
+        width: 45% !important;
+        animation: scanShimmer 1.4s ease-in-out infinite;
+    }
+
+    .scan-phase-row.is-indeterminate .scan-phase-status {
+        animation: scanThink 1.2s ease-in-out infinite;
+    }
+
+    .scan-phase-pct.is-indeterminate-pct {
+        color: #00d4aa;
+        animation: scanThink 1.2s ease-in-out infinite;
+        letter-spacing: 0.12em;
     }
 
     .scan-phase-pct {
@@ -145,7 +174,7 @@ _STYLES = """
             height: 10px;
         }
 
-        .scan-phase-pct:not(.is-active-pct) {
+        .scan-phase-pct:not(.is-active-pct):not(.is-indeterminate-pct) {
             display: none;
         }
     }

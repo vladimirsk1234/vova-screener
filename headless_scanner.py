@@ -517,6 +517,7 @@ class ScanPhaseProgressUI:
 
     STATUS_PENDING = "⏳"
     STATUS_ACTIVE = "🔄"
+    STATUS_THINKING = "💭"
     STATUS_DONE = "✅"
     STATUS_CANCELLED = "⏹️"
 
@@ -525,14 +526,32 @@ class ScanPhaseProgressUI:
         self._state: dict[str, dict] = {}
         self._placeholder = None
 
+    def _blank_state(self) -> dict:
+        return {"pct": 0, "status": self.STATUS_PENDING, "active": False, "indeterminate": False}
+
     def setup(self, phases: list[tuple[str, str, str]]) -> None:
         self._phases = phases
-        self._state = {
-            phase_id: {"pct": 0, "status": self.STATUS_PENDING, "active": False}
-            for phase_id, _, _ in phases
-        }
+        self._state = {phase_id: self._blank_state() for phase_id, _, _ in phases}
         self._placeholder = st.empty()
+        if "prep" in self._state:
+            self.start_indeterminate("prep")
+        else:
+            self._render_all()
+
+    def start_indeterminate(self, phase: str) -> None:
+        state = self._state[phase]
+        state["pct"] = 0
+        state["status"] = self.STATUS_THINKING
+        state["active"] = True
+        state["indeterminate"] = True
         self._render_all()
+
+    def on_phase_start(self, phase: str) -> None:
+        prep = self._state.get("prep")
+        if prep and prep["status"] != self.STATUS_DONE:
+            self.complete("prep")
+        if phase in self._state:
+            self.start_indeterminate(phase)
 
     def update(self, phase: str, current: int, total: int) -> None:
         pct = 0 if total <= 0 else min(100, round(100 * current / total))
@@ -540,6 +559,7 @@ class ScanPhaseProgressUI:
         state["pct"] = pct
         state["status"] = self.STATUS_ACTIVE
         state["active"] = True
+        state["indeterminate"] = False
         self._render_all()
 
     def complete(self, phase: str) -> None:
@@ -547,13 +567,15 @@ class ScanPhaseProgressUI:
         state["pct"] = 100
         state["status"] = self.STATUS_DONE
         state["active"] = False
+        state["indeterminate"] = False
         self._render_all()
 
     def cancel_active(self) -> None:
         for state in self._state.values():
-            if state["status"] == self.STATUS_ACTIVE:
+            if state["active"] or state["indeterminate"]:
                 state["status"] = self.STATUS_CANCELLED
                 state["active"] = False
+                state["indeterminate"] = False
         self._render_all()
 
     def _render_row(
@@ -564,21 +586,29 @@ class ScanPhaseProgressUI:
         pct: int,
         status: str,
         is_active: bool,
+        indeterminate: bool,
     ) -> str:
-        active_cls = " is-active" if is_active else ""
-        pct_cls = " is-active-pct" if is_active else ""
+        row_cls = "scan-phase-row"
+        if is_active:
+            row_cls += " is-active"
+        if indeterminate:
+            row_cls += " is-indeterminate"
+        pct_cls = " is-indeterminate-pct" if indeterminate else (" is-active-pct" if is_active else "")
+        pct_text = "···" if indeterminate else f"{pct}%"
         safe_label = html.escape(label)
+        if indeterminate:
+            fill_html = '<div class="scan-phase-fill scan-phase-fill-indeterminate"></div>'
+        else:
+            fill_html = f'<div class="scan-phase-fill" style="width:{pct}%;"></div>'
         return (
-            f'<div class="scan-phase-row{active_cls}" data-phase="{phase_id}">'
+            f'<div class="{row_cls}" data-phase="{phase_id}">'
             f'<div class="scan-phase-head">'
             f'<span class="scan-phase-label">{label_emoji} {safe_label}</span>'
             f'<span class="scan-phase-status">{status}</span>'
             f"</div>"
             f'<div class="scan-phase-track">'
-            f'<div class="scan-phase-bar">'
-            f'<div class="scan-phase-fill" style="width:{pct}%;"></div>'
-            f"</div>"
-            f'<span class="scan-phase-pct{pct_cls}">{pct}%</span>'
+            f'<div class="scan-phase-bar">{fill_html}</div>'
+            f'<span class="scan-phase-pct{pct_cls}">{pct_text}</span>'
             f"</div></div>"
         )
 
@@ -591,6 +621,7 @@ class ScanPhaseProgressUI:
                 self._state[phase_id]["pct"],
                 self._state[phase_id]["status"],
                 self._state[phase_id]["active"],
+                self._state[phase_id]["indeterminate"],
             )
             for phase_id, label, emoji in self._phases
         )
@@ -655,6 +686,7 @@ def run_scan(
     tv_symbol_by_ticker: dict[str, str] | None = None,
     company_name_by_ticker: dict[str, str] | None = None,
     on_phase_progress=None,
+    on_phase_start=None,
     on_phase_complete=None,
     on_scan_cancelled=None,
     is_cancelled=None,
@@ -721,6 +753,8 @@ def run_scan(
                     info_dict = {"company_name": resolve_company_name(ticker), "avg_volume": None}
             return (ticker, passed, reason, info_dict)
 
+        if on_phase_start:
+            on_phase_start("info")
         with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
             futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
             for future in as_completed(futures):
@@ -755,6 +789,8 @@ def run_scan(
                 if on_phase_progress:
                     on_phase_progress("download", dl_done[0], n_batches)
 
+            if on_phase_start:
+                on_phase_start("download")
             batches_data, reference_end_date = _parallel_download_batches(
                 batches,
                 fetch_period,
@@ -766,6 +802,8 @@ def run_scan(
                 on_phase_complete("download")
         else:
             # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
+            if on_phase_start:
+                on_phase_start("download")
             with ThreadPoolExecutor(max_workers=2) as prep_pool:
                 name_future = prep_pool.submit(
                     build_name_cache,
@@ -797,6 +835,8 @@ def run_scan(
             if on_phase_progress:
                 on_phase_progress("download", dl_done[0], n_batches)
 
+        if on_phase_start:
+            on_phase_start("download")
         batches_data, reference_end_date = _parallel_download_batches(
             batches,
             fetch_period,
@@ -826,6 +866,8 @@ def run_scan(
             rejected_reasons.append(res["row"])
 
     t_proc0 = time.perf_counter()
+    if on_phase_start:
+        on_phase_start("process")
     for _batch_idx, (batch, all_data) in enumerate(batches_data):
         if is_cancelled and is_cancelled():
             break
@@ -940,6 +982,20 @@ def run_scan(
 if st.session_state.scanning:
     p = st.session_state.run_params
     cfg = ScanConfig.from_run_params(p)
+
+    info_box = st.empty()
+
+    phases: list[tuple[str, str, str]] = [
+        ("prep", "Preparing scan", "🧠"),
+    ]
+    if cfg.is_manual_src:
+        phases.append(("info", "Fetching ticker info", "📋"))
+    phases.append(("download", "Downloading OHLC", "📥"))
+    phases.append(("process", "Processing symbols", "⚙️"))
+
+    progress_ui = ScanPhaseProgressUI()
+    progress_ui.setup(phases)
+
     if p["src"] == "MANUAL SCAN":
         source = ManualSource(lambda: p["txt"])
     else:
@@ -952,16 +1008,8 @@ if st.session_state.scanning:
         st.session_state.scanning = False
         st.stop()
 
-    info_box = st.empty()
-
-    phases: list[tuple[str, str, str]] = []
-    if cfg.is_manual_src:
-        phases.append(("info", "Fetching ticker info", "📋"))
-    phases.append(("download", "Downloading OHLC", "📥"))
-    phases.append(("process", "Processing symbols", "⚙️"))
-
-    progress_ui = ScanPhaseProgressUI()
-    progress_ui.setup(phases)
+    def on_phase_start(phase):
+        progress_ui.on_phase_start(phase)
 
     def on_phase_progress(phase, current, total):
         progress_ui.update(phase, current, total)
@@ -983,6 +1031,7 @@ if st.session_state.scanning:
         tv_symbol_by_ticker=tv_symbol_by_ticker,
         company_name_by_ticker=company_names,
         on_phase_progress=on_phase_progress,
+        on_phase_start=on_phase_start,
         on_phase_complete=on_phase_complete,
         on_scan_cancelled=on_scan_cancelled,
         is_cancelled=lambda: not st.session_state.scanning,
