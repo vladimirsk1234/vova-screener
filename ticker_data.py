@@ -687,8 +687,7 @@ def get_chart_fundamentals(
         out["company_name"] = str(name)
         desc = merged.get("longBusinessSummary") or name or ticker
         desc_str = str(desc)
-        truncated = desc_str[:120] if len(desc_str) <= 120 else desc_str[:117] + "..."
-        out["description"] = _strip_company_name_prefix(str(name), truncated)
+        out["description"] = _strip_company_name_prefix(str(name), desc_str)
 
         px = close
         if px is None:

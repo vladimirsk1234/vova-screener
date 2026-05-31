@@ -203,8 +203,8 @@ def build_watermark_parts(
     chart_tf: str,
     ticker: str,
     trade_line: str,
-) -> tuple[str, str | None, str]:
-    """Name, optional description, and metrics blocks for stacked Plotly annotations."""
+) -> tuple[str, str | None]:
+    """Main watermark block (name + metrics) and optional full description."""
     name = str(fundamentals.get("company_name") or ticker)
     raw_desc = fundamentals.get("description")
     description: str | None = None
@@ -214,7 +214,6 @@ def build_watermark_parts(
             description = desc_str
 
     rows: list[str] = []
-    rows.append("")
     d_chg = fundamentals.get("daily_chg_str", "")
     mcap = fundamentals.get("mcap_str", "N/A")
     rows.append(f"{ticker} ({chart_tf}) | {d_chg} | {mcap}")
@@ -236,7 +235,8 @@ def build_watermark_parts(
     if "monthly" in dwm_lines:
         rows.append(dwm_lines["monthly"])
     rows.append(trade_line)
-    return name, description, "<br>".join(rows)
+    main = f"{name}<br>{'<br>'.join(rows)}"
+    return main, description
 
 
 def build_watermark_text(
@@ -250,7 +250,7 @@ def build_watermark_text(
     trade_line: str,
 ) -> str:
     """Multi-line watermark block for Plotly annotation (single annotation fallback)."""
-    name, description, metrics = build_watermark_parts(
+    main, description = build_watermark_parts(
         fundamentals=fundamentals,
         full=full,
         params=params,
@@ -259,8 +259,6 @@ def build_watermark_text(
         ticker=ticker,
         trade_line=trade_line,
     )
-    parts = [name]
     if description:
-        parts.append(description)
-    parts.append(metrics)
-    return "<br>".join(parts)
+        return f"{main}<br>{description}"
+    return main
