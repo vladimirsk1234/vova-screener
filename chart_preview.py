@@ -19,6 +19,7 @@ from watermark_status import (
     build_dwm_lines,
     build_trade_line,
     build_watermark_parts,
+    extract_company_description,
 )
 
 CACHE_TRIM_BARS = 200
@@ -229,51 +230,27 @@ def _add_extension_lines(
             )
 
 
-def _estimate_text_lines(text: str, *, chars_per_line: int = 80) -> int:
-    lines = 0
-    for part in text.split("<br>"):
-        part = part.strip()
-        if not part:
-            continue
-        lines += max(1, (len(part) + chars_per_line - 1) // chars_per_line)
-    return max(1, lines)
-
-
 def _add_watermark_annotations(
     fig: go.Figure,
     params: IndicatorParams,
     *,
     main: str,
-    description: str | None,
 ) -> None:
     wm_bg = "rgba(42,46,57,0.75)"
     wm_font = dict(size=params.wm_font_size, color=params.wm_text_color)
-    line_h = params.wm_font_size + 10
-    pad = 4
-    yshift = 0
-
-    def add_block(text: str) -> None:
-        nonlocal yshift
-        fig.add_annotation(
-            xref="paper",
-            yref="paper",
-            x=0.01,
-            y=0.99,
-            xanchor="left",
-            yanchor="top",
-            yshift=yshift,
-            text=text,
-            showarrow=False,
-            align="left",
-            font=wm_font,
-            bgcolor=wm_bg,
-        )
-
-    add_block(main)
-    yshift -= _estimate_text_lines(main) * line_h + pad
-
-    if description:
-        add_block(description)
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.01,
+        y=0.99,
+        xanchor="left",
+        yanchor="top",
+        text=main,
+        showarrow=False,
+        align="left",
+        font=wm_font,
+        bgcolor=wm_bg,
+    )
 
 
 def build_sequence_vova_figure(
@@ -657,7 +634,7 @@ def build_sequence_vova_figure(
     chart_df = df_chart if df_chart is not None else plot_df
     dwm = build_dwm_lines(chart_df, df_daily, params, chart_tf=tf)
     trade = build_trade_line(full, params, len(plot_df) - 1)
-    wm_main, wm_desc = build_watermark_parts(
+    wm_main, _wm_desc = build_watermark_parts(
         fundamentals=fund,
         full=full,
         params=params,
@@ -666,12 +643,7 @@ def build_sequence_vova_figure(
         ticker=yahoo_ticker or title,
         trade_line=trade,
     )
-    _add_watermark_annotations(
-        fig,
-        params,
-        main=wm_main,
-        description=wm_desc,
-    )
+    _add_watermark_annotations(fig, params, main=wm_main)
 
     fig.update_xaxes(fixedrange=False)
     fig.update_yaxes(fixedrange=False)
@@ -721,6 +693,46 @@ def _yahoo_ticker_from_symbol(symbol: str) -> str:
     return sym.replace(".", "-").upper()
 
 
+def _fundamentals_for_payload(payload: dict, *, symbol: str = "") -> dict | None:
+    df = payload.get("df")
+    if df is None:
+        return None
+    if isinstance(df, dict):
+        df = pd.DataFrame(df)
+    tf = str(payload.get("tf", "Daily"))
+    max_bars = _max_bars_for_tf(tf)
+    plot_df = df.iloc[-max_bars:].copy() if len(df) > max_bars else df.copy()
+    yahoo = str(payload.get("yahoo_ticker", "") or "")
+    if not yahoo and symbol:
+        yahoo = _yahoo_ticker_from_symbol(symbol)
+    if not yahoo:
+        return None
+    df_daily = payload.get("df_daily")
+    if isinstance(df_daily, dict):
+        df_daily = pd.DataFrame(df_daily)
+    prev_close = None
+    if df_daily is not None and len(df_daily) >= 2:
+        prev_close = float(df_daily["Close"].iloc[-2])
+    elif len(df) >= 2:
+        prev_close = float(df["Close"].iloc[-2])
+    return get_chart_fundamentals(
+        yahoo,
+        close=float(plot_df["Close"].iloc[-1]),
+        prev_daily_close=prev_close,
+    )
+
+
+def company_description_from_payload(payload: dict, *, symbol: str = "") -> str | None:
+    """Return company business summary for Streamlit display below the chart."""
+    fundamentals = _fundamentals_for_payload(payload, symbol=symbol)
+    if not fundamentals:
+        return None
+    yahoo = str(payload.get("yahoo_ticker", "") or "")
+    if not yahoo and symbol:
+        yahoo = _yahoo_ticker_from_symbol(symbol)
+    return extract_company_description(fundamentals, ticker=yahoo or symbol)
+
+
 def figure_from_payload(
     payload: dict,
     *,
@@ -752,18 +764,7 @@ def figure_from_payload(
     if isinstance(df_daily, dict):
         df_daily = pd.DataFrame(df_daily)
 
-    fundamentals = None
-    if yahoo:
-        prev_close = None
-        if df_daily is not None and len(df_daily) >= 2:
-            prev_close = float(df_daily["Close"].iloc[-2])
-        elif len(df) >= 2:
-            prev_close = float(df["Close"].iloc[-2])
-        fundamentals = get_chart_fundamentals(
-            yahoo,
-            close=float(plot_df["Close"].iloc[-1]),
-            prev_daily_close=prev_close,
-        )
+    fundamentals = _fundamentals_for_payload(payload, symbol=symbol)
 
     return build_sequence_vova_figure(
         plot_df,

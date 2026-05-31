@@ -194,6 +194,18 @@ def atr_emoji(val: float, low_t: float, high_t: float) -> str:
     return "🟢"
 
 
+def extract_company_description(fundamentals: dict[str, Any], *, ticker: str = "") -> str | None:
+    """Business summary text for display below chart (not on chart watermark)."""
+    name = str(fundamentals.get("company_name") or ticker)
+    raw_desc = fundamentals.get("description")
+    if not raw_desc:
+        return None
+    desc_str = str(raw_desc).strip()
+    if desc_str and desc_str.lower() != name.lower():
+        return desc_str
+    return None
+
+
 def build_watermark_parts(
     *,
     fundamentals: dict[str, Any],
@@ -206,12 +218,7 @@ def build_watermark_parts(
 ) -> tuple[str, str | None]:
     """Main watermark block (name + metrics) and optional full description."""
     name = str(fundamentals.get("company_name") or ticker)
-    raw_desc = fundamentals.get("description")
-    description: str | None = None
-    if raw_desc:
-        desc_str = str(raw_desc).strip()
-        if desc_str and desc_str.lower() != name.lower():
-            description = desc_str
+    description = extract_company_description(fundamentals, ticker=ticker)
 
     rows: list[str] = []
     d_chg = fundamentals.get("daily_chg_str", "")
@@ -250,7 +257,7 @@ def build_watermark_text(
     trade_line: str,
 ) -> str:
     """Multi-line watermark block for Plotly annotation (single annotation fallback)."""
-    main, description = build_watermark_parts(
+    main, _description = build_watermark_parts(
         fundamentals=fundamentals,
         full=full,
         params=params,
@@ -259,6 +266,4 @@ def build_watermark_text(
         ticker=ticker,
         trade_line=trade_line,
     )
-    if description:
-        return f"{main}<br>{description}"
     return main

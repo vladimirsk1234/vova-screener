@@ -43,6 +43,7 @@ from ui_styles import inject_styles
 from chart_preview import (
     DEFAULT_CHART_HEIGHT,
     PLOTLY_CHART_CONFIG,
+    company_description_from_payload,
     figure_from_payload,
     resolve_chart_payload,
 )
@@ -308,6 +309,12 @@ def render_scan_results(
                             use_container_width=True,
                             config=PLOTLY_CHART_CONFIG,
                         )
+                        desc = company_description_from_payload(
+                            payload, symbol=tv_sym or ""
+                        )
+                        if desc:
+                            st.markdown("**About**")
+                            st.markdown(desc)
                 elif tv_sym:
                     st.caption("Failed to build chart.")
             elif tv_sym and has_charts:
