@@ -81,6 +81,7 @@ def main() -> int:
     print(f"OK: y-axis range {y_range[0]:.1f} .. {y_range[1]:.1f}")
     defaults = params
     assert defaults.show_hhll and defaults.show_extension_lines and defaults.show_crit_level
+    assert defaults.show_breaks
     assert not defaults.show_fib and not defaults.show_bb
     assert defaults.show_watermark
     print("OK: default visibility matches spec")

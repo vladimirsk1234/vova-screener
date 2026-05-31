@@ -84,8 +84,8 @@ class IndicatorParams:
     show_elder_envelope: bool = False
     show_elder_impulse: bool = False
     show_bb: bool = False
-    show_bb_background: bool = True
-    show_breaks: bool = False
+    show_bb_background: bool = False
+    show_breaks: bool = True
     show_tp_sl: bool = False
     show_watermark: bool = True  # always rendered on chart; kept for session compat
 
