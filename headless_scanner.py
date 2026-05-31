@@ -1,3 +1,4 @@
+import html
 import logging
 import os
 import re
@@ -511,12 +512,99 @@ def _process_ticker_for_scan(
         return {"kind": "reject", "row": {"Symbol": t, "Reason": f"ERROR: {msg}"}}
 
 
+class ScanPhaseProgressUI:
+    """Multi-step scan progress: custom HTML bars + emoji status per phase."""
+
+    STATUS_PENDING = "⏳"
+    STATUS_ACTIVE = "🔄"
+    STATUS_DONE = "✅"
+    STATUS_CANCELLED = "⏹️"
+
+    def __init__(self) -> None:
+        self._phases: list[tuple[str, str, str]] = []
+        self._state: dict[str, dict] = {}
+        self._placeholder = None
+
+    def setup(self, phases: list[tuple[str, str, str]]) -> None:
+        self._phases = phases
+        self._state = {
+            phase_id: {"pct": 0, "status": self.STATUS_PENDING, "active": False}
+            for phase_id, _, _ in phases
+        }
+        self._placeholder = st.empty()
+        self._render_all()
+
+    def update(self, phase: str, current: int, total: int) -> None:
+        pct = 0 if total <= 0 else min(100, round(100 * current / total))
+        state = self._state[phase]
+        state["pct"] = pct
+        state["status"] = self.STATUS_ACTIVE
+        state["active"] = True
+        self._render_all()
+
+    def complete(self, phase: str) -> None:
+        state = self._state[phase]
+        state["pct"] = 100
+        state["status"] = self.STATUS_DONE
+        state["active"] = False
+        self._render_all()
+
+    def cancel_active(self) -> None:
+        for state in self._state.values():
+            if state["status"] == self.STATUS_ACTIVE:
+                state["status"] = self.STATUS_CANCELLED
+                state["active"] = False
+        self._render_all()
+
+    def _render_row(
+        self,
+        phase_id: str,
+        label: str,
+        label_emoji: str,
+        pct: int,
+        status: str,
+        is_active: bool,
+    ) -> str:
+        active_cls = " is-active" if is_active else ""
+        pct_cls = " is-active-pct" if is_active else ""
+        safe_label = html.escape(label)
+        return (
+            f'<div class="scan-phase-row{active_cls}" data-phase="{phase_id}">'
+            f'<div class="scan-phase-head">'
+            f'<span class="scan-phase-label">{label_emoji} {safe_label}</span>'
+            f'<span class="scan-phase-status">{status}</span>'
+            f"</div>"
+            f'<div class="scan-phase-track">'
+            f'<div class="scan-phase-bar">'
+            f'<div class="scan-phase-fill" style="width:{pct}%;"></div>'
+            f"</div>"
+            f'<span class="scan-phase-pct{pct_cls}">{pct}%</span>'
+            f"</div></div>"
+        )
+
+    def _render_all(self) -> None:
+        rows = "".join(
+            self._render_row(
+                phase_id,
+                label,
+                emoji,
+                self._state[phase_id]["pct"],
+                self._state[phase_id]["status"],
+                self._state[phase_id]["active"],
+            )
+            for phase_id, label, emoji in self._phases
+        )
+        self._placeholder.markdown(
+            f'<div class="scan-phases">{rows}</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _parallel_download_batches(
     batches: list[list[str]],
     fetch_period: str,
     inter: str,
     is_cancelled=None,
-    on_status=None,
     on_batch_done=None,
 ) -> tuple[list[tuple[list[str], pd.DataFrame | None]], object | None]:
     """Download all chunks in parallel; return batches sorted by index."""
@@ -526,11 +614,6 @@ def _parallel_download_batches(
 
     workers = min(DOWNLOAD_MAX_WORKERS, len(batches))
     raw: list[tuple[int, list[str], pd.DataFrame | None]] = []
-
-    if on_status:
-        on_status(
-            f"Downloading {len(batches)} batches in parallel (up to {workers} workers)... DO NOT REFRESH."
-        )
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [
@@ -571,8 +654,9 @@ def run_scan(
     is_manual_src,
     tv_symbol_by_ticker: dict[str, str] | None = None,
     company_name_by_ticker: dict[str, str] | None = None,
-    on_progress=None,
-    on_status=None,
+    on_phase_progress=None,
+    on_phase_complete=None,
+    on_scan_cancelled=None,
     is_cancelled=None,
 ):
     """
@@ -596,13 +680,11 @@ def run_scan(
 
     lazy_metadata = not is_manual_src
     use_embedded_names = lazy_metadata
-    if lazy_metadata:
-        total_steps = (len(batches) + len(tickers)) if use_embedded_names else (
-            len(tickers) + len(batches) + len(tickers)
-        )
-    else:
-        total_steps = len(tickers) + len(batches) + len(tickers)
-    step = [0]
+    info_done = [0]
+    dl_done = [0]
+    proc_done = [0]
+    n_tickers = len(tickers)
+    n_batches = len(batches)
 
     t_scan0 = time.perf_counter()
     info_sec = 0.0
@@ -639,8 +721,6 @@ def run_scan(
                     info_dict = {"company_name": resolve_company_name(ticker), "avg_volume": None}
             return (ticker, passed, reason, info_dict)
 
-        if on_status:
-            on_status("Fetching ticker info... DO NOT REFRESH.")
         with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
             futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
             for future in as_completed(futures):
@@ -656,9 +736,11 @@ def run_scan(
                         "INFO_ERROR",
                         {"company_name": resolve_company_name(t), "avg_volume": None},
                     )
-                step[0] += 1
-                if on_progress:
-                    on_progress(step[0], total_steps)
+                info_done[0] += 1
+                if on_phase_progress:
+                    on_phase_progress("info", info_done[0], n_tickers)
+        if on_phase_complete and not (is_cancelled and is_cancelled()):
+            on_phase_complete("info")
         info_sec = time.perf_counter() - t_info0
 
     t_names_dl0 = time.perf_counter()
@@ -667,26 +749,22 @@ def run_scan(
             name_cache = dict(company_name_by_ticker or {})
             for t in tickers:
                 name_cache.setdefault(t, t)
-            if on_status:
-                on_status("Downloading OHLC... DO NOT REFRESH.")
 
             def _dl_batch_done_embedded():
-                step[0] += 1
-                if on_progress:
-                    on_progress(step[0], total_steps)
+                dl_done[0] += 1
+                if on_phase_progress:
+                    on_phase_progress("download", dl_done[0], n_batches)
 
             batches_data, reference_end_date = _parallel_download_batches(
                 batches,
                 fetch_period,
                 inter,
                 is_cancelled,
-                on_status,
                 _dl_batch_done_embedded,
             )
+            if on_phase_complete and not (is_cancelled and is_cancelled()):
+                on_phase_complete("download")
         else:
-            if on_status:
-                on_status("Loading company names (parallel with download)... DO NOT REFRESH.")
-
             # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
             with ThreadPoolExecutor(max_workers=2) as prep_pool:
                 name_future = prep_pool.submit(
@@ -704,29 +782,30 @@ def run_scan(
                     inter,
                     None,
                     None,
-                    None,
                 )
                 name_cache = name_future.result()
                 batches_data, reference_end_date = dl_future.result()
 
-            step[0] = len(tickers) + len(batches)
-            if on_progress:
-                on_progress(step[0], total_steps)
+            if on_phase_progress:
+                on_phase_progress("download", n_batches, n_batches)
+            if on_phase_complete:
+                on_phase_complete("download")
     else:
 
         def _dl_batch_done_manual():
-            step[0] += 1
-            if on_progress:
-                on_progress(step[0], total_steps)
+            dl_done[0] += 1
+            if on_phase_progress:
+                on_phase_progress("download", dl_done[0], n_batches)
 
         batches_data, reference_end_date = _parallel_download_batches(
             batches,
             fetch_period,
             inter,
             is_cancelled,
-            on_status,
             _dl_batch_done_manual,
         )
+        if on_phase_complete and not (is_cancelled and is_cancelled()):
+            on_phase_complete("download")
 
     prefetch_sec = time.perf_counter() - t_names_dl0
 
@@ -747,11 +826,9 @@ def run_scan(
             rejected_reasons.append(res["row"])
 
     t_proc0 = time.perf_counter()
-    for batch_idx, (batch, all_data) in enumerate(batches_data):
+    for _batch_idx, (batch, all_data) in enumerate(batches_data):
         if is_cancelled and is_cancelled():
             break
-        if on_status:
-            on_status(f"Processing batch {batch_idx + 1}/{len(batches)}... DO NOT REFRESH.")
         slice_data = all_data
         if (
             slice_data is not None
@@ -805,9 +882,9 @@ def run_scan(
                         if len(msg) > 200:
                             msg = msg[:197] + "..."
                         rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
-                    step[0] += 1
-                    if on_progress:
-                        on_progress(step[0], total_steps)
+                    proc_done[0] += 1
+                    if on_phase_progress:
+                        on_phase_progress("process", proc_done[0], n_tickers)
         else:
             for t in batch:
                 if is_cancelled and is_cancelled():
@@ -834,11 +911,17 @@ def run_scan(
                     nc,
                 )
                 _merge_ticker_result(res)
-                step[0] += 1
-                if on_progress:
-                    on_progress(step[0], total_steps)
+                proc_done[0] += 1
+                if on_phase_progress:
+                    on_phase_progress("process", proc_done[0], n_tickers)
 
     proc_sec = time.perf_counter() - t_proc0
+
+    if is_cancelled and is_cancelled():
+        if on_scan_cancelled:
+            on_scan_cancelled()
+    elif on_phase_complete:
+        on_phase_complete("process")
 
     if table_rows and not use_embedded_names:
         _patch_symbol_only_company_names(table_rows)
@@ -870,17 +953,24 @@ if st.session_state.scanning:
         st.stop()
 
     info_box = st.empty()
-    bar = st.progress(0)
-    pct_placeholder = st.empty()
 
-    def on_progress(processed, total):
-        if total:
-            bar.progress(0.05 + 0.95 * (processed / total))
-            pct = round(100 * processed / total)
-            pct_placeholder.markdown(f"**{pct}%**")
+    phases: list[tuple[str, str, str]] = []
+    if cfg.is_manual_src:
+        phases.append(("info", "Fetching ticker info", "📋"))
+    phases.append(("download", "Downloading OHLC", "📥"))
+    phases.append(("process", "Processing symbols", "⚙️"))
 
-    def on_status(msg):
-        info_box.info(msg)
+    progress_ui = ScanPhaseProgressUI()
+    progress_ui.setup(phases)
+
+    def on_phase_progress(phase, current, total):
+        progress_ui.update(phase, current, total)
+
+    def on_phase_complete(phase):
+        progress_ui.complete(phase)
+
+    def on_scan_cancelled():
+        progress_ui.cancel_active()
 
     table_rows, rejected_reasons, reference_end_date, ohlc_cache = run_scan(
         tickers,
@@ -892,13 +982,12 @@ if st.session_state.scanning:
         is_manual_src=cfg.is_manual_src,
         tv_symbol_by_ticker=tv_symbol_by_ticker,
         company_name_by_ticker=company_names,
-        on_progress=on_progress,
-        on_status=on_status,
+        on_phase_progress=on_phase_progress,
+        on_phase_complete=on_phase_complete,
+        on_scan_cancelled=on_scan_cancelled,
         is_cancelled=lambda: not st.session_state.scanning,
     )
 
-    bar.empty()
-    pct_placeholder.empty()
     st.session_state.results = table_rows
     st.session_state.rejected = rejected_reasons
     st.session_state.results_as_of = reference_end_date
@@ -916,7 +1005,7 @@ if st.session_state.scanning:
         )
 
     st.session_state.scanning = False
-    info_box.success("SCAN COMPLETE")
+    info_box.success("SCAN COMPLETE ✅")
 
 else:
     last_src = st.session_state.run_params.get('src', "BIG CAP")
