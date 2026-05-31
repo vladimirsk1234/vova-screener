@@ -20,6 +20,8 @@ _info_cache_lock = threading.Lock()
 
 # List files (same folder as this package); format: EXCHANGE:SYMBOL|Company Name (one per line)
 TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
+TV_LIST_SMALL_CAP = "TV-LIST-SMALL_CAP_2B-10B.txt"
+TV_LIST_ETF = "TV-LIST-ETF.txt"
 
 
 def _list_file_path(filename: str) -> str:

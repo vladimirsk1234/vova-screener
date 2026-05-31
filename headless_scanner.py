@@ -54,6 +54,8 @@ inject_styles()
 # ==========================================
 from ticker_data import (
     TV_LIST_BIG_CAP,
+    TV_LIST_ETF,
+    TV_LIST_SMALL_CAP,
     build_name_cache,
     get_ticker_info_and_filter,
     has_complete_embedded_names,
@@ -83,11 +85,13 @@ from tradingview_embed import (
 # ==========================================
 from ticker_sources import FileListSource, ManualSource
 
-# Ticker sources: BIG CAP list file + optional MANUAL symbols
-SOURCE_OPTIONS = ["BIG CAP", "MANUAL SCAN"]
+# Ticker sources: list files + optional MANUAL symbols
+SOURCE_OPTIONS = ["BIG CAP", "SMALL CAP", "ETF", "MANUAL SCAN"]
 def _build_source_registry():
     return {
         "BIG CAP": FileListSource(TV_LIST_BIG_CAP, read_list_file),
+        "SMALL CAP": FileListSource(TV_LIST_SMALL_CAP, read_list_file),
+        "ETF": FileListSource(TV_LIST_ETF, read_list_file),
     }
 
 SOURCE_REGISTRY = _build_source_registry()
@@ -100,6 +104,8 @@ disabled = st.session_state.scanning
 last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
 default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
 src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
+if src != "MANUAL SCAN":
+    st.sidebar.caption(SOURCE_REGISTRY[src].description())
 man_txt = ""
 if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
