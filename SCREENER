@@ -5,9 +5,10 @@ indicator("Sequence Vova Screener", overlay=false)
 // INPUTS
 // ==================================================================================
 grp_risk = "Screener Settings"
+scanDirection = input.string("BUY", "Scan Direction", options=["BUY", "SELL"], group=grp_risk)
 minRR = input.float(1.5, "Minimum R/R Ratio", minval=0.5, step=0.1, group=grp_risk)
 atrLen = input.int(14, "ATR Length", minval=1, group=grp_risk)
-useLastHLInSL = input.bool(true, "Use last HL in SL (safety)", group=grp_risk)
+useLastHLInSL = input.bool(true, "Use last HL/LH in SL (safety)", group=grp_risk)
 riskDollars = input.float(100, "Risk per trade ($)", minval=0.01, step=10, group=grp_risk)
 
 // ==================================================================================
@@ -163,24 +164,46 @@ else
 
 // Structure Invalidation: SEQ DOWN + Last HL + Low Below HL
 bool structInvalidSeqDown = (seqState == -1) and lastTroughWasHL and (not na(lastConfirmedTrough)) and (seqLow < lastConfirmedTrough)
+bool structInvalidSeqUp = (seqState == 1) and lastPeakWasHH and (not na(lastConfirmedPeak)) and (seqHigh > lastConfirmedPeak)
 
 // ==================================================================================
 // STRUCTURE VALIDATION (Row 8 style) - Single timeframe
 // ==================================================================================
 bool struct_ok = (lastTroughWasHL or (not na(lastConfirmedPeak) and close > lastConfirmedPeak and lastTroughWasHL)) and (not structInvalidSeqDown)
+bool lastPeakWasLH = not lastPeakWasHH
+bool struct_ok_sell = (lastPeakWasLH or (not na(lastConfirmedTrough) and close < lastConfirmedTrough and lastPeakWasLH)) and (not structInvalidSeqUp)
 
 // ==================================================================================
-// SL AND RR (current timeframe) - conservative: min(critical, ATR, last HL when valid)
+// SL AND RR (current timeframe) - conservative: min/max(critical, ATR, last HL/LH when valid)
 // ==================================================================================
 float cur_atr = ta.atr(atrLen)
-float sl = close - cur_atr
+
+// BUY (long)
+float sl_buy = close - cur_atr
 if not na(criticalLevel) and criticalLevel < close
-    sl := math.min(sl, criticalLevel)
+    sl_buy := math.min(sl_buy, criticalLevel)
 if useLastHLInSL and lastTroughWasHL and not na(lastConfirmedTrough) and lastConfirmedTrough < close
-    sl := math.min(sl, lastConfirmedTrough)
-float risk = close - sl
-float reward = lastConfirmedPeak - close
-float rr = (risk > 0) ? (reward / risk) : 0.0
+    sl_buy := math.min(sl_buy, lastConfirmedTrough)
+float risk_buy = close - sl_buy
+float reward_buy = lastConfirmedPeak - close
+float rr_buy = (risk_buy > 0) ? (reward_buy / risk_buy) : 0.0
+
+// SELL (short)
+float sl_sell = close + cur_atr
+if not na(criticalLevel) and criticalLevel > close
+    sl_sell := math.max(sl_sell, criticalLevel)
+if useLastHLInSL and lastPeakWasLH and not na(lastConfirmedPeak) and lastConfirmedPeak > close
+    sl_sell := math.max(sl_sell, lastConfirmedPeak)
+float risk_sell = sl_sell - close
+float reward_sell = close - lastConfirmedTrough
+float rr_sell = (risk_sell > 0) ? (reward_sell / risk_sell) : 0.0
+
+bool isSellScan = scanDirection == "SELL"
+float sl = isSellScan ? sl_sell : sl_buy
+float risk = isSellScan ? risk_sell : risk_buy
+float reward = isSellScan ? reward_sell : reward_buy
+float rr = isSellScan ? rr_sell : rr_buy
+float tp = isSellScan ? lastConfirmedTrough : lastConfirmedPeak
 
 float positionSize = (risk > 0 and riskDollars > 0) ? (riskDollars / risk) : na
 float positionValue = positionSize * close
@@ -201,20 +224,22 @@ float pe_final = not na(pe_ttm) ? pe_ttm : (not na(eps_ttm) and eps_ttm != 0 ? c
 // ==================================================================================
 // SIGNAL DEFINITIONS
 // ==================================================================================
-// VALID = SEQ==1, structure last low HL, RR >= minRR, risk/reward > 0 (any bar)
-bool valid_signal = (seqState == 1) and struct_ok and (rr >= minRR) and (risk > 0) and (reward > 0)
+bool valid_buy = (seqState == 1) and struct_ok and (rr_buy >= minRR) and (risk_buy > 0) and (reward_buy > 0)
+bool valid_sell = (seqState == -1) and struct_ok_sell and (rr_sell >= minRR) and (risk_sell > 0) and (reward_sell > 0)
+bool new_buy = valid_buy and isBearishBreak
+bool new_sell = valid_sell and isBullishBreak
+bool strong_buy = new_buy and not na(seqLow[1]) and (low <= seqLow[1])
+bool strong_sell = new_sell and not na(seqHigh[1]) and (high >= seqHigh[1])
 
-// NEW = same as VALID but only when bullish break on current bar
-bool new_signal = valid_signal and isBearishBreak
-
-// STRONG = new signal where same candle made new low in prev SEQ=-1 and broke to SEQ=1
-bool strong_signal = new_signal and not na(seqLow[1]) and (low <= seqLow[1])
+bool valid_signal = isSellScan ? valid_sell : valid_buy
+bool new_signal = isSellScan ? new_sell : new_buy
+bool strong_signal = isSellScan ? strong_sell : strong_buy
 
 // ==================================================================================
 // SCREENER OUTPUT (filter by New or Valid > 0; extra columns only when valid)
 // New and Valid plotted last so they appear on the far right
 // ==================================================================================
-plot(valid_signal ? lastConfirmedPeak : na, "TP")
+plot(valid_signal ? tp : na, "TP")
 plot(valid_signal ? sl : na, "SL")
 plot(valid_signal ? rr : na, "RR")
 plot(valid_signal ? mc_display : na, "MC (B/M)")
@@ -233,4 +258,4 @@ int currentDate = year * 10000 + month * 100 + dayofmonth
 bool allow_alert = new_signal and (na(lastAlertDate[1]) or currentDate != lastAlertDate[1])
 lastAlertDate := new_signal ? currentDate : lastAlertDate
 
-alertcondition(allow_alert, title="New Sequence Signal", message="Sequence Vova: NEW long signal on {{ticker}} ({{interval}})")
+alertcondition(allow_alert, title="New Sequence Signal", message="Sequence Vova: NEW " + (isSellScan ? "short" : "long") + " signal on {{ticker}} ({{interval}})")

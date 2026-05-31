@@ -114,9 +114,21 @@ if src == "MANUAL SCAN":
 st.sidebar.subheader("RISK MANAGEMENT")
 risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
 min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
-use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
+SCAN_DIRECTION_OPTIONS = ["BUY", "SELL"]
+last_dir = st.session_state.get("run_params", {}).get("scan_direction", "buy").upper()
+dir_default_idx = SCAN_DIRECTION_OPTIONS.index(last_dir) if last_dir in SCAN_DIRECTION_OPTIONS else 0
+scan_dir = st.sidebar.radio(
+    "SCAN DIRECTION",
+    SCAN_DIRECTION_OPTIONS,
+    disabled=disabled,
+    index=dir_default_idx,
+    horizontal=True,
+)
+is_sell_scan = scan_dir == "SELL"
+sl_safety_label = "Use last LH in SL (safety)" if is_sell_scan else "Use last HL in SL (safety)"
+use_last_hl_sl = st.sidebar.checkbox(sl_safety_label, True, disabled=disabled)
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
 
@@ -136,7 +148,8 @@ if start_btn:
     # FREEZE PARAMS
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
-        'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p
+        'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
+        'scan_direction': scan_dir.lower(),
     }
     st.rerun()
 
@@ -158,9 +171,12 @@ class ScanConfig:
     tf: str
     new_only: bool
     is_manual_src: bool
+    scan_direction: str
 
     @classmethod
     def from_run_params(cls, p: dict) -> "ScanConfig":
+        raw_dir = str(p.get("scan_direction", "buy")).lower()
+        scan_direction = raw_dir if raw_dir in ("buy", "sell") else "buy"
         return cls(
             risk_per_trade=int(p.get("risk_per_trade", 100)),
             min_rr=float(p.get("rr", 1.5)),
@@ -168,6 +184,7 @@ class ScanConfig:
             tf=str(p.get("tf", "Daily")),
             new_only=bool(p.get("new", True)),
             is_manual_src=(p.get("src") == "MANUAL SCAN"),
+            scan_direction=scan_direction,
         )
 
 
@@ -249,6 +266,7 @@ def render_scan_results(
     chart_cache=None,
     ohlc_cache=None,
     empty_message="Ready to scan. Click START.",
+    scan_direction="buy",
 ):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -275,7 +293,8 @@ def render_scan_results(
         )
 
         if has_charts:
-            st.caption(f"Click a row for chart preview ({tf}).")
+            dir_label = scan_direction.upper() if scan_direction else "BUY"
+            st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
         else:
             st.caption("Run a scan to enable chart previews.")
 
@@ -327,9 +346,15 @@ def render_scan_results(
                 as_of_str = d.strftime("%Y-%m-%d")
                 dow = d.dayofweek
                 if dow >= 5:
-                    st.caption(f"**Results as of {as_of_str}** (last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency.")
+                    st.caption(
+                        f"**Results as of {as_of_str}** ({scan_direction.upper()} · {tf}) "
+                        f"(last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency."
+                    )
                 else:
-                    st.caption(f"**Results as of {as_of_str}** ({tf}). Same bar used for all symbols for consistency.")
+                    st.caption(
+                        f"**Results as of {as_of_str}** ({scan_direction.upper()} · {tf}). "
+                        f"Same bar used for all symbols for consistency."
+                    )
             except Exception:
                 pass
     else:
@@ -386,6 +411,7 @@ def _process_ticker_for_scan(
     info_cache_entry: tuple[bool, str, dict | None] | None,
     tv_symbol_by_ticker: dict[str, str] | None = None,
     name_cache: dict[str, str] | None = None,
+    scan_direction: str = "buy",
 ) -> dict:
     """
     Pure per-ticker work for one symbol. Returns:
@@ -456,6 +482,7 @@ def _process_ticker_for_scan(
             min_rr=min_rr,
             use_last_hl_sl=use_last_hl_sl,
             risk_dollars=risk_per_trade,
+            direction=scan_direction,
         )
         if out is None or not out["Valid"]:
             if is_manual_src:
@@ -677,6 +704,7 @@ def run_scan(
     tf,
     new_only,
     is_manual_src,
+    scan_direction="buy",
     tv_symbol_by_ticker: dict[str, str] | None = None,
     company_name_by_ticker: dict[str, str] | None = None,
     on_phase_progress=None,
@@ -906,6 +934,7 @@ def run_scan(
                         ent,
                         tv_symbol_by_ticker,
                         nc,
+                        scan_direction,
                     )
                     pairs.append((t, fut))
                 for t, fut in pairs:
@@ -945,6 +974,7 @@ def run_scan(
                     ent,
                     tv_symbol_by_ticker,
                     nc,
+                    scan_direction,
                 )
                 _merge_ticker_result(res)
                 proc_done[0] += 1
@@ -1020,6 +1050,7 @@ if st.session_state.scanning:
         tf=cfg.tf,
         new_only=cfg.new_only,
         is_manual_src=cfg.is_manual_src,
+        scan_direction=cfg.scan_direction,
         tv_symbol_by_ticker=tv_symbol_by_ticker,
         company_name_by_ticker=company_names,
         on_phase_progress=on_phase_progress,
@@ -1033,6 +1064,7 @@ if st.session_state.scanning:
     st.session_state.rejected = rejected_reasons
     st.session_state.results_as_of = reference_end_date
     st.session_state.results_tf = cfg.tf
+    st.session_state.results_direction = cfg.scan_direction
     st.session_state.ohlc_cache = ohlc_cache
     st.session_state.chart_cache = {}
     st.session_state.selected_tv_symbol = None
@@ -1043,6 +1075,7 @@ if st.session_state.scanning:
             is_manual_src=cfg.is_manual_src,
             ohlc_cache=ohlc_cache,
             empty_message="No symbols passed the screener.",
+            scan_direction=cfg.scan_direction,
         )
 
     st.session_state.scanning = False
@@ -1054,6 +1087,7 @@ else:
     rejected_reasons = st.session_state.rejected
     as_of = st.session_state.get("results_as_of")
     as_of_tf = st.session_state.get("results_tf", "Daily")
+    as_of_dir = st.session_state.get("results_direction", "buy")
 
     with res_area.container():
         render_scan_results(
@@ -1061,5 +1095,6 @@ else:
             is_manual_src=(last_src == "MANUAL SCAN"),
             chart_cache=st.session_state.get("chart_cache", {}),
             ohlc_cache=st.session_state.get("ohlc_cache", {}),
+            scan_direction=as_of_dir,
         )
 
