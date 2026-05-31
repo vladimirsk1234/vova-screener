@@ -58,7 +58,6 @@ from ticker_data import (
     TV_LIST_SMALL_CAP,
     build_name_cache,
     get_ticker_info_and_filter,
-    has_complete_embedded_names,
     read_list_file,
     resolve_company_name,
 )
@@ -104,8 +103,6 @@ disabled = st.session_state.scanning
 last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
 default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
 src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
-if src != "MANUAL SCAN":
-    st.sidebar.caption(SOURCE_REGISTRY[src].description())
 man_txt = ""
 if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
@@ -591,9 +588,7 @@ def run_scan(
     batches_data: list[tuple[list[str], pd.DataFrame | None]] = []
 
     lazy_metadata = not is_manual_src
-    use_embedded_names = lazy_metadata and has_complete_embedded_names(
-        tickers, company_name_by_ticker or {}
-    )
+    use_embedded_names = lazy_metadata
     if lazy_metadata:
         total_steps = (len(batches) + len(tickers)) if use_embedded_names else (
             len(tickers) + len(batches) + len(tickers)
@@ -663,6 +658,8 @@ def run_scan(
     if lazy_metadata:
         if use_embedded_names:
             name_cache = dict(company_name_by_ticker or {})
+            for t in tickers:
+                name_cache.setdefault(t, t)
             if on_status:
                 on_status("Downloading OHLC... DO NOT REFRESH.")
 
