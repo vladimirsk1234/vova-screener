@@ -18,49 +18,112 @@ _INFO_CACHE_TTL_SEC = 86400.0  # 24h disk cache for Yahoo metadata
 _NAME_RETRY_DELAY_SEC = 0.25
 _info_cache_lock = threading.Lock()
 
-# List files (same folder as this package); format: EXCHANGE:SYMBOL comma-separated
+# List files (same folder as this package); format: EXCHANGE:SYMBOL|Company Name (one per line)
 TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
 
 
-def read_list_file(filename: str) -> tuple[list[str], dict[str, str], str | None]:
-    """
-    Read tickers from a list file (EXCHANGE:SYMBOL per entry, comma-separated).
-    No cache so you can update the file and next START scan uses the new list.
-    Returns (yahoo_tickers, tv_symbol_by_yahoo, error_message). error_message is None on success.
-    tv_symbol_by_yahoo maps Yahoo ticker (e.g. BRK-B) -> TradingView symbol (e.g. NYSE:BRK.B).
-    """
+def _list_file_path(filename: str) -> str:
     base = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base, filename)
+    return os.path.join(base, filename)
+
+
+def _parse_list_entry(part: str) -> tuple[str, str, str | None] | None:
+    """Parse one entry -> (yahoo_sym, tv_sym, company_name or None). Returns None if empty."""
+    part = part.strip()
+    if not part or part.startswith("#"):
+        return None
+    company_name: str | None = None
+    if "|" in part:
+        tv_part, name = part.split("|", 1)
+        name = name.strip()
+        if name:
+            company_name = name
+    else:
+        tv_part = part
+    tv_part = tv_part.strip()
+    if not tv_part:
+        return None
+    if ":" in tv_part:
+        ex, raw_sym = tv_part.split(":", 1)
+        ex = ex.strip().upper()
+        raw_sym = raw_sym.strip()
+        yahoo_sym = raw_sym.replace(".", "-").upper()
+        tv_sym = f"{ex}:{raw_sym.upper()}"
+    else:
+        yahoo_sym = tv_part.replace(".", "-").upper()
+        tv_sym = yahoo_sym
+    return yahoo_sym, tv_sym, company_name
+
+
+def _iter_list_parts(raw: str) -> list[str]:
+    """Split file content into entries (newline or legacy comma-separated)."""
+    if "\n" in raw:
+        return raw.splitlines()
+    return raw.split(",")
+
+
+def read_list_file(filename: str) -> tuple[list[str], dict[str, str], dict[str, str], str | None]:
+    """
+    Read tickers from a list file.
+    Format: EXCHANGE:SYMBOL|Company Name (one per line), or legacy comma-separated EXCHANGE:SYMBOL.
+    No cache so you can update the file and next START scan uses the new list.
+    Returns (yahoo_tickers, tv_symbol_by_yahoo, company_name_by_yahoo, error_message).
+    error_message is None on success.
+    """
+    path = _list_file_path(filename)
     try:
         with open(path, "r", encoding="utf-8") as f:
             raw = f.read().strip()
         if not raw:
-            return [], {}, None
+            return [], {}, {}, None
         out: list[str] = []
         tv_map: dict[str, str] = {}
-        for part in raw.split(","):
-            part = part.strip()
-            if not part:
+        name_map: dict[str, str] = {}
+        for part in _iter_list_parts(raw):
+            parsed = _parse_list_entry(part)
+            if parsed is None:
                 continue
-            if ":" in part:
-                ex, raw_sym = part.split(":", 1)
-                ex = ex.strip().upper()
-                raw_sym = raw_sym.strip()
-                yahoo_sym = raw_sym.replace(".", "-").upper()
-                tv_sym = f"{ex}:{raw_sym.upper()}"
-            else:
-                yahoo_sym = part.replace(".", "-").upper()
-                tv_sym = yahoo_sym
+            yahoo_sym, tv_sym, company_name = parsed
             out.append(yahoo_sym)
             tv_map[yahoo_sym] = tv_sym
-        return out, tv_map, None
+            if company_name:
+                name_map[yahoo_sym] = company_name
+        return out, tv_map, name_map, None
     except FileNotFoundError:
-        return [], {}, f"List file not found: {path}. Add {filename} or choose another source."
+        return [], {}, {}, f"List file not found: {path}. Add {filename} or choose another source."
     except Exception as e:
-        return [], {}, f"Could not read list file {filename}: {e}"
+        return [], {}, {}, f"Could not read list file {filename}: {e}"
 
 
-# US exchanges: Yahoo MIC codes and yfinance variants (comparison uses .upper())
+def write_list_file(
+    filename: str,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """
+    Write list file: one line per entry as EXCHANGE:SYMBOL|Company Name.
+    entries: (tv_symbol e.g. NYSE:AAPL, yahoo_ticker, company_name).
+    """
+    path = _list_file_path(filename)
+    lines: list[str] = []
+    for tv_sym, _yahoo, company_name in entries:
+        name = (company_name or "").strip()
+        if name:
+            lines.append(f"{tv_sym}|{name}")
+        else:
+            lines.append(tv_sym)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines) + ("\n" if lines else ""))
+
+
+def has_complete_embedded_names(tickers: list[str], name_map: dict[str, str]) -> bool:
+    """True when every ticker has a non-empty display name that is not just the symbol."""
+    if not tickers or not name_map:
+        return False
+    for t in tickers:
+        name = str(name_map.get(t, "") or "").strip()
+        if not name or _is_symbol_only_name(name, t):
+            return False
+    return True
 US_EQUITY_EXCHANGES = {
     "NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX", "OTC", "OTN",
     "NASDAQ", "NYSE", "AMEX", "BATS", "ARCA",

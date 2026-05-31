@@ -56,6 +56,7 @@ from ticker_data import (
     TV_LIST_BIG_CAP,
     build_name_cache,
     get_ticker_info_and_filter,
+    has_complete_embedded_names,
     read_list_file,
     resolve_company_name,
 )
@@ -559,6 +560,7 @@ def run_scan(
     new_only,
     is_manual_src,
     tv_symbol_by_ticker: dict[str, str] | None = None,
+    company_name_by_ticker: dict[str, str] | None = None,
     on_progress=None,
     on_status=None,
     is_cancelled=None,
@@ -583,8 +585,13 @@ def run_scan(
     batches_data: list[tuple[list[str], pd.DataFrame | None]] = []
 
     lazy_metadata = not is_manual_src
+    use_embedded_names = lazy_metadata and has_complete_embedded_names(
+        tickers, company_name_by_ticker or {}
+    )
     if lazy_metadata:
-        total_steps = len(tickers) + len(batches) + len(tickers)
+        total_steps = (len(batches) + len(tickers)) if use_embedded_names else (
+            len(tickers) + len(batches) + len(tickers)
+        )
     else:
         total_steps = len(tickers) + len(batches) + len(tickers)
     step = [0]
@@ -648,34 +655,53 @@ def run_scan(
 
     t_names_dl0 = time.perf_counter()
     if lazy_metadata:
-        if on_status:
-            on_status("Loading company names (parallel with download)... DO NOT REFRESH.")
+        if use_embedded_names:
+            name_cache = dict(company_name_by_ticker or {})
+            if on_status:
+                on_status("Downloading OHLC... DO NOT REFRESH.")
 
-        # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
-        with ThreadPoolExecutor(max_workers=2) as prep_pool:
-            name_future = prep_pool.submit(
-                build_name_cache,
-                tickers,
-                rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
-                max_workers=YF_INFO_MAX_WORKERS,
-                is_cancelled=None,
-                on_one_done=None,
-            )
-            dl_future = prep_pool.submit(
-                _parallel_download_batches,
+            def _dl_batch_done_embedded():
+                step[0] += 1
+                if on_progress:
+                    on_progress(step[0], total_steps)
+
+            batches_data, reference_end_date = _parallel_download_batches(
                 batches,
                 fetch_period,
                 inter,
-                None,
-                None,
-                None,
+                is_cancelled,
+                on_status,
+                _dl_batch_done_embedded,
             )
-            name_cache = name_future.result()
-            batches_data, reference_end_date = dl_future.result()
+        else:
+            if on_status:
+                on_status("Loading company names (parallel with download)... DO NOT REFRESH.")
 
-        step[0] = len(tickers) + len(batches)
-        if on_progress:
-            on_progress(step[0], total_steps)
+            # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
+            with ThreadPoolExecutor(max_workers=2) as prep_pool:
+                name_future = prep_pool.submit(
+                    build_name_cache,
+                    tickers,
+                    rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
+                    max_workers=YF_INFO_MAX_WORKERS,
+                    is_cancelled=None,
+                    on_one_done=None,
+                )
+                dl_future = prep_pool.submit(
+                    _parallel_download_batches,
+                    batches,
+                    fetch_period,
+                    inter,
+                    None,
+                    None,
+                    None,
+                )
+                name_cache = name_future.result()
+                batches_data, reference_end_date = dl_future.result()
+
+            step[0] = len(tickers) + len(batches)
+            if on_progress:
+                on_progress(step[0], total_steps)
     else:
 
         def _dl_batch_done_manual():
@@ -804,7 +830,7 @@ def run_scan(
 
     proc_sec = time.perf_counter() - t_proc0
 
-    if table_rows:
+    if table_rows and not use_embedded_names:
         _patch_symbol_only_company_names(table_rows)
 
     total_sec = time.perf_counter() - t_scan0
@@ -825,7 +851,7 @@ if st.session_state.scanning:
         source = ManualSource(lambda: p["txt"])
     else:
         source = SOURCE_REGISTRY[p["src"]]
-    tickers, tv_symbol_by_ticker, err = source.get_tickers()
+    tickers, tv_symbol_by_ticker, company_names, err = source.get_tickers()
     if err:
         st.warning(err)
     if not tickers:
@@ -855,6 +881,7 @@ if st.session_state.scanning:
         new_only=cfg.new_only,
         is_manual_src=cfg.is_manual_src,
         tv_symbol_by_ticker=tv_symbol_by_ticker,
+        company_name_by_ticker=company_names,
         on_progress=on_progress,
         on_status=on_status,
         is_cancelled=lambda: not st.session_state.scanning,

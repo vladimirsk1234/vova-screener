@@ -1,14 +1,16 @@
 """
-Ticker source abstraction: strategy-style sources return (tickers, tv_map, error_message).
+Ticker source abstraction: strategy-style sources return (tickers, tv_map, name_map, error_message).
 No UI or Streamlit; callers show errors.
 """
+from __future__ import annotations
+
 from typing import Callable, Protocol
 
 
 class TickerSource(Protocol):
-    """Returns (tickers, tv_symbol_by_yahoo, error_message). error_message is None on success."""
+    """Returns (tickers, tv_symbol_by_yahoo, company_name_by_yahoo, error_message). error_message is None on success."""
 
-    def get_tickers(self) -> tuple[list[str], dict[str, str], str | None]:
+    def get_tickers(self) -> tuple[list[str], dict[str, str], dict[str, str], str | None]:
         ...
 
     def description(self) -> str:
@@ -19,12 +21,12 @@ class FileListSource:
     def __init__(
         self,
         filename: str,
-        read_list_file_fn: Callable[[str], tuple[list[str], dict[str, str], str | None]],
+        read_list_file_fn: Callable[[str], tuple[list[str], dict[str, str], dict[str, str], str | None]],
     ):
         self.filename = filename
         self._read = read_list_file_fn
 
-    def get_tickers(self) -> tuple[list[str], dict[str, str], str | None]:
+    def get_tickers(self) -> tuple[list[str], dict[str, str], dict[str, str], str | None]:
         return self._read(self.filename)
 
     def description(self) -> str:
@@ -35,10 +37,10 @@ class ManualSource:
     def __init__(self, get_text_fn: Callable[[], str]):
         self._get_text = get_text_fn
 
-    def get_tickers(self) -> tuple[list[str], dict[str, str], str | None]:
+    def get_tickers(self) -> tuple[list[str], dict[str, str], dict[str, str], str | None]:
         text = self._get_text()
         tickers = [x.strip().upper() for x in text.split(",") if x.strip()]
-        return tickers, {}, None
+        return tickers, {}, {}, None
 
     def description(self) -> str:
         return "Comma-separated symbols. Next START scans these tickers."
