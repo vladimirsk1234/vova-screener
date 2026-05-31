@@ -651,14 +651,14 @@ def run_scan(
         if on_status:
             on_status("Loading company names (parallel with download)... DO NOT REFRESH.")
 
-        # UI callbacks must run on the main Streamlit thread only (NoSessionContext in workers).
+        # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
         with ThreadPoolExecutor(max_workers=2) as prep_pool:
             name_future = prep_pool.submit(
                 build_name_cache,
                 tickers,
                 rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
                 max_workers=YF_INFO_MAX_WORKERS,
-                is_cancelled=is_cancelled,
+                is_cancelled=None,
                 on_one_done=None,
             )
             dl_future = prep_pool.submit(
@@ -666,7 +666,7 @@ def run_scan(
                 batches,
                 fetch_period,
                 inter,
-                is_cancelled,
+                None,
                 None,
                 None,
             )
