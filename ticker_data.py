@@ -649,6 +649,17 @@ def _days_to_earnings(ticker_obj: yf.Ticker) -> str:
     return "N/A"
 
 
+def _strip_company_name_prefix(company_name: str, description: str) -> str:
+    name = str(company_name or "").strip()
+    desc = str(description or "").strip()
+    if not name or not desc:
+        return desc
+    if desc.lower().startswith(name.lower()):
+        rest = desc[len(name) :].lstrip(" ,.;:-")
+        return rest if rest else desc
+    return desc
+
+
 def get_chart_fundamentals(
     ticker: str,
     *,
@@ -676,7 +687,8 @@ def get_chart_fundamentals(
         out["company_name"] = str(name)
         desc = merged.get("longBusinessSummary") or name or ticker
         desc_str = str(desc)
-        out["description"] = desc_str[:120] if len(desc_str) <= 120 else desc_str[:117] + "..."
+        truncated = desc_str[:120] if len(desc_str) <= 120 else desc_str[:117] + "..."
+        out["description"] = _strip_company_name_prefix(str(name), truncated)
 
         px = close
         if px is None:

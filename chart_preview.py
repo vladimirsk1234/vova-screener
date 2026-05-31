@@ -18,7 +18,7 @@ from ticker_data import get_chart_fundamentals
 from watermark_status import (
     build_dwm_lines,
     build_trade_line,
-    build_watermark_text,
+    build_watermark_parts,
 )
 
 CACHE_TRIM_BARS = 200
@@ -227,6 +227,48 @@ def _add_extension_lines(
                 xref="x",
                 yref="y",
             )
+
+
+def _add_watermark_annotations(
+    fig: go.Figure,
+    params: IndicatorParams,
+    *,
+    name: str,
+    description: str | None,
+    metrics: str,
+) -> None:
+    wm_bg = "rgba(42,46,57,0.75)"
+    wm_font = dict(size=params.wm_font_size, color=params.wm_text_color)
+    line_h = params.wm_font_size + 10
+    pad = 4
+    yshift = 0
+
+    def add_block(text: str) -> None:
+        nonlocal yshift
+        fig.add_annotation(
+            xref="paper",
+            yref="paper",
+            x=0.01,
+            y=0.99,
+            xanchor="left",
+            yanchor="top",
+            yshift=yshift,
+            text=text,
+            showarrow=False,
+            align="left",
+            font=wm_font,
+            bgcolor=wm_bg,
+        )
+
+    add_block(name)
+    yshift -= line_h + pad
+
+    if description:
+        desc_lines = max(1, (len(description) + 79) // 80)
+        add_block(description)
+        yshift -= desc_lines * line_h + pad
+
+    add_block(metrics)
 
 
 def build_sequence_vova_figure(
@@ -610,7 +652,7 @@ def build_sequence_vova_figure(
     chart_df = df_chart if df_chart is not None else plot_df
     dwm = build_dwm_lines(chart_df, df_daily, params, chart_tf=tf)
     trade = build_trade_line(full, params, len(plot_df) - 1)
-    wm = build_watermark_text(
+    wm_name, wm_desc, wm_metrics = build_watermark_parts(
         fundamentals=fund,
         full=full,
         params=params,
@@ -619,18 +661,12 @@ def build_sequence_vova_figure(
         ticker=yahoo_ticker or title,
         trade_line=trade,
     )
-    fig.add_annotation(
-        xref="paper",
-        yref="paper",
-        x=0.01,
-        y=0.99,
-        xanchor="left",
-        yanchor="top",
-        text=wm,
-        showarrow=False,
-        align="left",
-        font=dict(size=params.wm_font_size, color=params.wm_text_color),
-        bgcolor="rgba(42,46,57,0.75)",
+    _add_watermark_annotations(
+        fig,
+        params,
+        name=wm_name,
+        description=wm_desc,
+        metrics=wm_metrics,
     )
 
     fig.update_xaxes(fixedrange=False)

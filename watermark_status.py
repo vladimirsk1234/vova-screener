@@ -194,7 +194,7 @@ def atr_emoji(val: float, low_t: float, high_t: float) -> str:
     return "🟢"
 
 
-def build_watermark_text(
+def build_watermark_parts(
     *,
     fundamentals: dict[str, Any],
     full: dict,
@@ -203,12 +203,18 @@ def build_watermark_text(
     chart_tf: str,
     ticker: str,
     trade_line: str,
-) -> str:
-    """Multi-line watermark block for Plotly annotation."""
+) -> tuple[str, str | None, str]:
+    """Name, optional description, and metrics blocks for stacked Plotly annotations."""
+    name = str(fundamentals.get("company_name") or ticker)
+    raw_desc = fundamentals.get("description")
+    description: str | None = None
+    if raw_desc:
+        desc_str = str(raw_desc).strip()
+        if desc_str and desc_str.lower() != name.lower():
+            description = desc_str
+
     rows: list[str] = []
     rows.append("")
-    desc = fundamentals.get("description") or fundamentals.get("company_name") or ticker
-    rows.append(str(desc))
     d_chg = fundamentals.get("daily_chg_str", "")
     mcap = fundamentals.get("mcap_str", "N/A")
     rows.append(f"{ticker} ({chart_tf}) | {d_chg} | {mcap}")
@@ -230,4 +236,31 @@ def build_watermark_text(
     if "monthly" in dwm_lines:
         rows.append(dwm_lines["monthly"])
     rows.append(trade_line)
-    return "<br>".join(rows)
+    return name, description, "<br>".join(rows)
+
+
+def build_watermark_text(
+    *,
+    fundamentals: dict[str, Any],
+    full: dict,
+    params: IndicatorParams,
+    dwm_lines: dict[str, str],
+    chart_tf: str,
+    ticker: str,
+    trade_line: str,
+) -> str:
+    """Multi-line watermark block for Plotly annotation (single annotation fallback)."""
+    name, description, metrics = build_watermark_parts(
+        fundamentals=fundamentals,
+        full=full,
+        params=params,
+        dwm_lines=dwm_lines,
+        chart_tf=chart_tf,
+        ticker=ticker,
+        trade_line=trade_line,
+    )
+    parts = [name]
+    if description:
+        parts.append(description)
+    parts.append(metrics)
+    return "<br>".join(parts)
