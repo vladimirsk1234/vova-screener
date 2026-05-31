@@ -1,11 +1,16 @@
 """
 Ticker list I/O and Yahoo Finance info/filtering. No UI or Streamlit.
 """
+from __future__ import annotations
+
 import json
 import math
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
+
 import pandas as pd
 import yfinance as yf
 
@@ -123,6 +128,105 @@ def _company_name_from_info(i: dict, ticker: str) -> str:
     if short_name and not _is_symbol_only_name(short_name, ticker):
         return short_name
     return ticker
+
+
+def get_cached_company_name(ticker: str) -> str | None:
+    """Company name from 24h disk cache only; no network."""
+    hit = _load_info_cache(ticker)
+    if hit is None:
+        return None
+    _, _, info_dict = hit
+    if not isinstance(info_dict, dict):
+        return None
+    cached = info_dict.get("company_name")
+    if cached and not _is_symbol_only_name(str(cached), ticker):
+        return str(cached).strip()
+    return None
+
+
+def _company_name_from_fast_info(fi, ticker: str) -> str | None:
+    try:
+        if hasattr(fi, "get"):
+            data = fi
+        elif hasattr(fi, "__iter__") and not isinstance(fi, (str, bytes)):
+            data = dict(fi)
+        else:
+            data = {}
+    except Exception:
+        data = {}
+    for key in ("longName", "shortName"):
+        val = data.get(key) if isinstance(data, dict) else None
+        if val is None and hasattr(fi, key):
+            val = getattr(fi, key, None)
+        if val is not None:
+            name = str(val).strip()
+            if name and not _is_symbol_only_name(name, ticker):
+                return name
+    return None
+
+
+def resolve_company_name_fast(ticker: str, *, retries: int = 1) -> str:
+    """
+    Resolve display name: disk cache -> fast_info -> full .info (same quality as resolve_company_name).
+    """
+    cached = get_cached_company_name(ticker)
+    if cached:
+        return cached
+    try:
+        fi = yf.Ticker(ticker).fast_info
+        name = _company_name_from_fast_info(fi, ticker)
+        if name:
+            return name
+    except Exception:
+        pass
+    return resolve_company_name(ticker, retries=retries)
+
+
+def build_name_cache(
+    tickers: list[str],
+    *,
+    rate_limit_per_sec: float = 12.0,
+    max_workers: int = 8,
+    is_cancelled: Callable[[], bool] | None = None,
+    on_one_done: Callable[[], None] | None = None,
+) -> dict[str, str]:
+    """
+    Build ticker -> company name for all symbols. Disk hits are instant; misses use fast_info/.info.
+    """
+    result: dict[str, str] = {}
+    pending: list[str] = []
+    for t in tickers:
+        cached = get_cached_company_name(t)
+        if cached:
+            result[t] = cached
+            if on_one_done:
+                on_one_done()
+        else:
+            pending.append(t)
+
+    if not pending:
+        return result
+
+    lock = threading.Lock()
+    last_ts = [0.0]
+
+    def _fetch_one(ticker: str) -> tuple[str, str]:
+        if is_cancelled and is_cancelled():
+            return ticker, ticker
+        with lock:
+            now = time.monotonic()
+            wait = (1.0 / rate_limit_per_sec) - (now - last_ts[0])
+            if wait > 0:
+                time.sleep(wait)
+            last_ts[0] = time.monotonic()
+        return ticker, resolve_company_name_fast(ticker)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for ticker, name in pool.map(_fetch_one, pending):
+            result[ticker] = name
+            if on_one_done:
+                on_one_done()
+    return result
 
 
 def resolve_company_name(ticker: str, *, retries: int = 2) -> str:

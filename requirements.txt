@@ -5,3 +5,4 @@ numpy
 requests
 lxml
 plotly>=5.18
+numba>=0.59

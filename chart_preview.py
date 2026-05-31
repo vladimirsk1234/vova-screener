@@ -638,6 +638,42 @@ def build_sequence_vova_figure(
     return fig
 
 
+def chart_payload_from_ohlc(ohlc_cache: dict, tv_symbol: str) -> dict | None:
+    """Build display payload from lazy ohlc_cache entry (same as scan-time build_chart_payload)."""
+    entry = ohlc_cache.get(tv_symbol) if ohlc_cache else None
+    if not entry:
+        return None
+    df = entry.get("df")
+    if df is None:
+        return None
+    if isinstance(df, dict):
+        df = pd.DataFrame(df)
+    df_daily = entry.get("df_daily")
+    if isinstance(df_daily, dict):
+        df_daily = pd.DataFrame(df_daily)
+    return build_chart_payload(
+        df,
+        str(entry.get("tf", "Daily")),
+        symbol=str(entry.get("symbol", "") or tv_symbol),
+        yahoo_ticker=str(entry.get("yahoo_ticker", "") or ""),
+        df_daily=df_daily,
+    )
+
+
+def resolve_chart_payload(
+    tv_symbol: str,
+    *,
+    chart_cache: dict | None = None,
+    ohlc_cache: dict | None = None,
+) -> dict | None:
+    """Legacy chart_cache first, else lazy ohlc_cache."""
+    if chart_cache and tv_symbol in chart_cache:
+        payload = chart_cache[tv_symbol]
+        if payload and payload.get("df") is not None:
+            return payload
+    return chart_payload_from_ohlc(ohlc_cache or {}, tv_symbol)
+
+
 def figure_from_payload(
     payload: dict,
     *,
@@ -704,6 +740,7 @@ def chart_json_for_mobile(
     *,
     height: int = 460,
     params: IndicatorParams | None = None,
+    ohlc_cache: dict | None = None,
 ) -> dict[str, dict]:
     out: dict[str, dict] = {}
     p = params or IndicatorParams()
@@ -711,7 +748,7 @@ def chart_json_for_mobile(
         key = str(row.get("tv_symbol", "") or "")
         if not key or key in out:
             continue
-        payload = chart_cache.get(key)
+        payload = resolve_chart_payload(key, chart_cache=chart_cache, ohlc_cache=ohlc_cache)
         if not payload:
             continue
         fig = figure_from_payload(payload, symbol=key, params=p, height=height)

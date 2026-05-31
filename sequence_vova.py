@@ -4,10 +4,30 @@ No UI or I/O dependencies; pure indicator math.
 """
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import numpy as np
 
 from indicator_params import IndicatorParams
+
+try:
+    from numba import njit
+
+    _NUMBA_AVAILABLE = True
+except ImportError:
+    _NUMBA_AVAILABLE = False
+
+    def njit(*args, **kwargs):  # type: ignore[misc]
+        def _wrap(fn):
+            return fn
+
+        if args and callable(args[0]):
+            return args[0]
+        return _wrap
+
+
+_PINE_USE_NUMBA = os.environ.get("PINE_USE_NUMBA", "1") != "0"
 
 
 def calc_atr(df: pd.DataFrame, length: int) -> pd.Series:
@@ -145,20 +165,31 @@ def compute_overlays(
     }
 
 
-def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk_dollars=100):
-    """
-    Exact port of Pine "Sequence Vova Screener". Returns dict for last bar:
-    TP, SL, RR, Valid, New, Strong, position_size, position_value, last_peak, seq_low_prev (for Strong).
-    """
-    n = len(df)
-    if n < 2:
-        return None
-    atr = calc_atr(df, atr_len)
-    c_a = df["Close"].values
-    h_a = df["High"].values
-    l_a = df["Low"].values
-    atr_a = atr.values
+def _calc_atr_numpy(h: np.ndarray, l: np.ndarray, c: np.ndarray, length: int) -> np.ndarray:
+    """Wilder ATR matching pandas ewm(alpha=1/length, adjust=False)."""
+    n = len(c)
+    tr = np.empty(n, dtype=np.float64)
+    tr[0] = h[0] - l[0]
+    for i in range(1, n):
+        tr[i] = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+    atr = np.empty(n, dtype=np.float64)
+    atr[0] = tr[0]
+    alpha = 1.0 / length
+    for i in range(1, n):
+        atr[i] = alpha * tr[i] + (1.0 - alpha) * atr[i - 1]
+    return atr
 
+
+def _run_sequence_vova_pine_python(
+    c_a: np.ndarray,
+    h_a: np.ndarray,
+    l_a: np.ndarray,
+    atr_a: np.ndarray,
+    min_rr: float,
+    use_last_hl_sl: bool,
+    risk_dollars: float,
+) -> tuple:
+    n = len(c_a)
     seq_state = 0
     critical_level = np.nan
     seq_high, seq_low = h_a[0], l_a[0]
@@ -167,7 +198,6 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
     last_peak_was_hh = False
     last_trough_was_hl = False
 
-    last_crit = np.nan
     last_peak = np.nan
     last_valid = False
     last_new = False
@@ -282,7 +312,6 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         strong_signal = new_signal and (not np.isnan(prev_bar_seq_low)) and (l <= prev_bar_seq_low)
 
         prev_bar_seq_low = seq_low
-        last_crit = critical_level
         last_peak = last_confirmed_peak
         last_valid = valid_signal
         last_new = new_signal
@@ -292,20 +321,249 @@ def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk
         last_pos_size = position_size
         last_pos_value = position_value
 
-    close_last = c_a[-1]
-    atr_last = atr_a[-1]
+    return (
+        last_peak,
+        last_sl,
+        last_rr,
+        last_valid,
+        last_new,
+        last_strong,
+        last_pos_size,
+        last_pos_value,
+        c_a[-1],
+        atr_a[-1],
+    )
+
+
+if _NUMBA_AVAILABLE:
+
+    @njit(cache=True)
+    def _run_sequence_vova_pine_numba(
+        c_a,
+        h_a,
+        l_a,
+        atr_a,
+        min_rr,
+        use_last_hl_sl,
+        risk_dollars,
+    ):
+        n = len(c_a)
+        seq_state = 0
+        critical_level = np.nan
+        seq_high = h_a[0]
+        seq_low = l_a[0]
+        last_confirmed_peak = np.nan
+        last_confirmed_trough = np.nan
+        last_peak_was_hh = False
+        last_trough_was_hl = False
+
+        last_peak = np.nan
+        last_valid = False
+        last_new = False
+        last_strong = False
+        last_sl = np.nan
+        last_rr = 0.0
+        last_pos_size = np.nan
+        last_pos_value = np.nan
+        prev_bar_seq_low = l_a[0]
+
+        for i in range(1, n):
+            c = c_a[i]
+            h = h_a[i]
+            l = l_a[i]
+            cur_atr = atr_a[i]
+            prev_state = seq_state
+            prev_crit = critical_level
+            prev_seq_high = seq_high
+            prev_seq_low = seq_low
+
+            is_break = False
+            is_bearish_break = False
+            if prev_state == 1 and not np.isnan(prev_crit):
+                is_break = c < prev_crit
+            elif prev_state == -1 and not np.isnan(prev_crit):
+                is_break = c > prev_crit
+                is_bearish_break = is_break
+
+            if is_break:
+                if prev_state == 1:
+                    if h >= seq_high:
+                        seq_high = h
+                    if np.isnan(last_confirmed_peak) or seq_high > last_confirmed_peak:
+                        last_peak_was_hh = True
+                    else:
+                        last_peak_was_hh = False
+                    last_confirmed_peak = seq_high
+                    seq_state = -1
+                    seq_high = h
+                    seq_low = l
+                    critical_level = h
+                else:
+                    if l <= seq_low:
+                        seq_low = l
+                    if (
+                        np.isnan(last_confirmed_trough)
+                        or seq_low > last_confirmed_trough
+                        or seq_low == last_confirmed_trough
+                    ):
+                        last_trough_was_hl = True
+                    else:
+                        last_trough_was_hl = False
+                    last_confirmed_trough = seq_low
+                    seq_state = 1
+                    seq_high = h
+                    seq_low = l
+                    critical_level = l
+            else:
+                seq_state = prev_state
+                if seq_state == 1:
+                    if h >= seq_high:
+                        seq_high = h
+                    if h >= prev_seq_high:
+                        critical_level = l
+                    else:
+                        critical_level = prev_crit
+                elif seq_state == -1:
+                    if l <= seq_low:
+                        seq_low = l
+                    if l <= prev_seq_low:
+                        critical_level = h
+                    else:
+                        critical_level = prev_crit
+                else:
+                    if c > prev_seq_high:
+                        seq_state = 1
+                        critical_level = l
+                    elif c < prev_seq_low:
+                        seq_state = -1
+                        critical_level = h
+                    else:
+                        if prev_seq_high > h:
+                            seq_high = prev_seq_high
+                        else:
+                            seq_high = h
+                        if prev_seq_low < l:
+                            seq_low = prev_seq_low
+                        else:
+                            seq_low = l
+
+            struct_invalid_seq_down = (
+                seq_state == -1
+                and last_trough_was_hl
+                and not np.isnan(last_confirmed_trough)
+                and seq_low < last_confirmed_trough
+            )
+            struct_ok = (
+                last_trough_was_hl
+                or (
+                    not np.isnan(last_confirmed_peak)
+                    and c > last_confirmed_peak
+                    and last_trough_was_hl
+                )
+            ) and (not struct_invalid_seq_down)
+
+            sl = c - cur_atr
+            if not np.isnan(critical_level) and critical_level < c:
+                sl = min(sl, critical_level)
+            if (
+                use_last_hl_sl
+                and last_trough_was_hl
+                and not np.isnan(last_confirmed_trough)
+                and last_confirmed_trough < c
+            ):
+                sl = min(sl, last_confirmed_trough)
+            risk = c - sl
+            if not np.isnan(last_confirmed_peak):
+                reward = last_confirmed_peak - c
+            else:
+                reward = 0.0
+            if risk > 0:
+                rr = reward / risk
+            else:
+                rr = 0.0
+            if risk > 0 and risk_dollars > 0:
+                position_size = risk_dollars / risk
+            else:
+                position_size = np.nan
+            if not np.isnan(position_size):
+                position_value = position_size * c
+            else:
+                position_value = np.nan
+
+            valid_signal = (
+                seq_state == 1 and struct_ok and rr >= min_rr and risk > 0 and reward > 0
+            )
+            new_signal = valid_signal and is_bearish_break
+            strong_signal = new_signal and (not np.isnan(prev_bar_seq_low)) and l <= prev_bar_seq_low
+
+            prev_bar_seq_low = seq_low
+            last_peak = last_confirmed_peak
+            last_valid = valid_signal
+            last_new = new_signal
+            last_strong = strong_signal
+            last_sl = sl
+            last_rr = rr
+            last_pos_size = position_size
+            last_pos_value = position_value
+
+        return (
+            last_peak,
+            last_sl,
+            last_rr,
+            last_valid,
+            last_new,
+            last_strong,
+            last_pos_size,
+            last_pos_value,
+            c_a[-1],
+            atr_a[-1],
+        )
+
+else:
+    _run_sequence_vova_pine_numba = None  # type: ignore[misc, assignment]
+
+
+def _pine_result_dict(tup: tuple) -> dict:
     return {
-        "TP": last_peak,
-        "SL": last_sl,
-        "RR": last_rr,
-        "Valid": last_valid,
-        "New": last_new,
-        "Strong": last_strong,
-        "position_size": last_pos_size,
-        "position_value": last_pos_value,
-        "Close": close_last,
-        "ATR": atr_last,
+        "TP": tup[0],
+        "SL": tup[1],
+        "RR": tup[2],
+        "Valid": tup[3],
+        "New": tup[4],
+        "Strong": tup[5],
+        "position_size": tup[6],
+        "position_value": tup[7],
+        "Close": tup[8],
+        "ATR": tup[9],
     }
+
+
+def run_sequence_vova_pine(df, atr_len=14, min_rr=1.5, use_last_hl_sl=True, risk_dollars=100):
+    """
+    Exact port of Pine "Sequence Vova Screener". Returns dict for last bar:
+    TP, SL, RR, Valid, New, Strong, position_size, position_value, last_peak, seq_low_prev (for Strong).
+    """
+    n = len(df)
+    if n < 2:
+        return None
+    c_a = np.ascontiguousarray(df["Close"].values, dtype=np.float64)
+    h_a = np.ascontiguousarray(df["High"].values, dtype=np.float64)
+    l_a = np.ascontiguousarray(df["Low"].values, dtype=np.float64)
+    atr_a = _calc_atr_numpy(h_a, l_a, c_a, atr_len)
+
+    use_last = bool(use_last_hl_sl)
+    min_rr_f = float(min_rr)
+    risk_f = float(risk_dollars)
+
+    if _PINE_USE_NUMBA and _NUMBA_AVAILABLE and _run_sequence_vova_pine_numba is not None:
+        tup = _run_sequence_vova_pine_numba(
+            c_a, h_a, l_a, atr_a, min_rr_f, use_last, risk_f
+        )
+    else:
+        tup = _run_sequence_vova_pine_python(
+            c_a, h_a, l_a, atr_a, min_rr_f, use_last, risk_f
+        )
+    return _pine_result_dict(tup)
 
 
 def run_sequence_vova_full(
