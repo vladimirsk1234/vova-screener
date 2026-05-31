@@ -324,6 +324,51 @@ def resolve_company_name(ticker: str, *, retries: int = 2) -> str:
     return last
 
 
+def _float_field(i: dict, key: str) -> float | None:
+    val = i.get(key)
+    if val is None:
+        return None
+    try:
+        out = float(val)
+        return out if math.isfinite(out) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _info_dict_extras(i: dict) -> dict:
+    """PE/MC fields persisted in disk cache for watermark fallbacks."""
+    out: dict = {}
+    for key in (
+        "marketCap",
+        "trailingPE",
+        "forwardPE",
+        "sharesOutstanding",
+        "impliedSharesOutstanding",
+    ):
+        val = _float_field(i, key)
+        if val is not None:
+            out[key] = val
+    return out
+
+
+def _partial_info_dict(
+    i: dict,
+    *,
+    company_name: str,
+    avg_vol,
+    trailing_eps: float | None,
+    forward_eps: float | None,
+) -> dict:
+    out = {
+        "company_name": company_name,
+        "avg_volume": avg_vol,
+        "trailingEps": trailing_eps,
+        "forwardEps": forward_eps,
+    }
+    out.update(_info_dict_extras(i))
+    return out
+
+
 def _apply_yahoo_info_filters(
     i: dict,
     ticker: str,
@@ -344,37 +389,37 @@ def _apply_yahoo_info_filters(
     trailing_eps, forward_eps = _eps_from_yf_info(i)
 
     if quote_type and quote_type.upper() != "EQUITY":
-        partial = {
-            "company_name": company_name,
-            "avg_volume": avg_vol,
-            "trailingEps": trailing_eps,
-            "forwardEps": forward_eps,
-        }
-        return False, "NOT_EQUITY", partial
+        return False, "NOT_EQUITY", _partial_info_dict(
+            i,
+            company_name=company_name,
+            avg_vol=avg_vol,
+            trailing_eps=trailing_eps,
+            forward_eps=forward_eps,
+        )
     if exchange and exchange not in US_EQUITY_EXCHANGES:
-        partial = {
-            "company_name": company_name,
-            "avg_volume": avg_vol,
-            "trailingEps": trailing_eps,
-            "forwardEps": forward_eps,
-        }
-        return False, "NOT_US", partial
+        return False, "NOT_US", _partial_info_dict(
+            i,
+            company_name=company_name,
+            avg_vol=avg_vol,
+            trailing_eps=trailing_eps,
+            forward_eps=forward_eps,
+        )
     if require_mc_vol and (avg_vol is None or (min_avg_volume and avg_vol < min_avg_volume)):
-        partial = {
-            "company_name": company_name,
-            "avg_volume": avg_vol,
-            "trailingEps": trailing_eps,
-            "forwardEps": forward_eps,
-        }
-        return False, "LOW_VOL", partial
+        return False, "LOW_VOL", _partial_info_dict(
+            i,
+            company_name=company_name,
+            avg_vol=avg_vol,
+            trailing_eps=trailing_eps,
+            forward_eps=forward_eps,
+        )
 
-    info_dict = {
-        "company_name": company_name,
-        "avg_volume": avg_vol,
-        "trailingEps": trailing_eps,
-        "forwardEps": forward_eps,
-    }
-    return True, "", info_dict
+    return True, "", _partial_info_dict(
+        i,
+        company_name=company_name,
+        avg_vol=avg_vol,
+        trailing_eps=trailing_eps,
+        forward_eps=forward_eps,
+    )
 
 
 def _eps_from_yf_info(i: dict) -> tuple[float | None, float | None]:
@@ -466,6 +511,118 @@ def _round_mcap(val: float) -> str:
     return f"{round(val / 1e6, 2)}M"
 
 
+def _cached_info_dict(ticker: str) -> dict:
+    hit = _load_info_cache(ticker)
+    if hit is None:
+        return {}
+    _, _, info_dict = hit
+    return dict(info_dict) if isinstance(info_dict, dict) else {}
+
+
+def _set_if_missing(target: dict, key: str, value) -> None:
+    if value is None:
+        return
+    if target.get(key) is None:
+        target[key] = value
+
+
+def _fast_info_as_dict(fi) -> dict:
+    try:
+        if hasattr(fi, "get"):
+            raw = fi
+        elif hasattr(fi, "__iter__") and not isinstance(fi, (str, bytes)):
+            raw = dict(fi)
+        else:
+            raw = {}
+    except Exception:
+        return {}
+
+    out: dict = {}
+    mcap = raw.get("market_cap") or raw.get("marketCap")
+    if mcap is None and hasattr(fi, "market_cap"):
+        mcap = getattr(fi, "market_cap", None)
+    val = _float_field({"marketCap": mcap}, "marketCap") if mcap is not None else None
+    if val is not None:
+        out["marketCap"] = val
+
+    price = raw.get("last_price") or raw.get("lastPrice") or raw.get("regularMarketPrice")
+    if price is None and hasattr(fi, "last_price"):
+        price = getattr(fi, "last_price", None)
+    val = _float_field({"regularMarketPrice": price}, "regularMarketPrice") if price is not None else None
+    if val is not None:
+        out["regularMarketPrice"] = val
+
+    shares = (
+        raw.get("shares")
+        or raw.get("shares_outstanding")
+        or raw.get("sharesOutstanding")
+    )
+    if shares is None and hasattr(fi, "shares"):
+        shares = getattr(fi, "shares", None)
+    val = _float_field({"sharesOutstanding": shares}, "sharesOutstanding") if shares is not None else None
+    if val is not None:
+        out["sharesOutstanding"] = val
+    return out
+
+
+_RESOLVE_INFO_TTL_SEC = 3600.0
+_resolve_info_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _resolve_fundamentals_info(ticker: str) -> tuple[dict, yf.Ticker | None]:
+    """Merge disk cache, yfinance .info, and fast_info for watermark PE/MC."""
+    now = time.time()
+    cached = _resolve_info_cache.get(ticker)
+    if cached and now - cached[0] <= _RESOLVE_INFO_TTL_SEC:
+        try:
+            return dict(cached[1]), yf.Ticker(ticker)
+        except Exception:
+            return dict(cached[1]), None
+
+    merged: dict = {}
+    disk = _cached_info_dict(ticker)
+    merged.update({k: v for k, v in disk.items() if v is not None})
+
+    ticker_obj: yf.Ticker | None = None
+    info: dict = {}
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        info = ticker_obj.info or {}
+    except Exception:
+        info = {}
+
+    if info:
+        _set_if_missing(merged, "company_name", _company_name_from_info(info, ticker))
+        summary = info.get("longBusinessSummary")
+        if summary:
+            _set_if_missing(merged, "longBusinessSummary", summary)
+        te, fe = _eps_from_yf_info(info)
+        _set_if_missing(merged, "trailingEps", te)
+        _set_if_missing(merged, "forwardEps", fe)
+        for key in (
+            "marketCap",
+            "trailingPE",
+            "forwardPE",
+            "sharesOutstanding",
+            "impliedSharesOutstanding",
+            "regularMarketPrice",
+            "currentPrice",
+        ):
+            _set_if_missing(merged, key, _float_field(info, key))
+
+    if ticker_obj is not None:
+        try:
+            fi_map = _fast_info_as_dict(ticker_obj.fast_info)
+        except Exception:
+            fi_map = {}
+        _set_if_missing(merged, "marketCap", fi_map.get("marketCap"))
+        _set_if_missing(merged, "sharesOutstanding", fi_map.get("sharesOutstanding"))
+        _set_if_missing(merged, "regularMarketPrice", fi_map.get("regularMarketPrice"))
+
+    _resolve_info_cache[ticker] = (now, dict(merged))
+    return merged, ticker_obj
+
+
 def _days_to_earnings(ticker_obj: yf.Ticker) -> str:
     try:
         cal = ticker_obj.calendar
@@ -511,40 +668,55 @@ def get_chart_fundamentals(
         "pe": None,
     }
     try:
-        t = yf.Ticker(ticker)
-        i = t.info or {}
-        name = _company_name_from_info(i, ticker)
-        out["company_name"] = name
-        out["description"] = (i.get("longBusinessSummary") or name)[:120]
-        if len(out["description"]) > 120:
-            out["description"] = out["description"][:117] + "..."
+        merged, ticker_obj = _resolve_fundamentals_info(ticker)
 
-        mcap = i.get("marketCap")
+        name = merged.get("company_name") or ticker
+        out["company_name"] = str(name)
+        desc = merged.get("longBusinessSummary") or name or ticker
+        desc_str = str(desc)
+        out["description"] = desc_str[:120] if len(desc_str) <= 120 else desc_str[:117] + "..."
+
+        px = close
+        if px is None:
+            px = merged.get("regularMarketPrice") or merged.get("currentPrice")
+        if px is not None:
+            try:
+                px = float(px)
+            except (TypeError, ValueError):
+                px = None
+
+        mcap = merged.get("marketCap")
         if mcap is None:
-            shares = i.get("sharesOutstanding") or i.get("impliedSharesOutstanding")
-            px = close if close is not None else i.get("regularMarketPrice") or i.get("currentPrice")
-            if shares and px:
+            shares = merged.get("sharesOutstanding") or merged.get("impliedSharesOutstanding")
+            if shares and px is not None:
                 mcap = float(shares) * float(px)
-        if mcap is not None and mcap > 0:
-            out["market_cap"] = float(mcap)
-            out["mcap_str"] = _round_mcap(float(mcap))
+        if mcap is not None:
+            try:
+                mcap = float(mcap)
+            except (TypeError, ValueError):
+                mcap = None
+        if mcap is not None and mcap > 0 and math.isfinite(mcap):
+            out["market_cap"] = mcap
+            out["mcap_str"] = _round_mcap(mcap)
 
-        pe_ttm = i.get("trailingPE")
-        te, _ = _eps_from_yf_info(i)
-        px = close if close is not None else i.get("regularMarketPrice")
+        pe_ttm = merged.get("trailingPE")
+        te = merged.get("trailingEps")
+        if te is None:
+            te, _ = _eps_from_yf_info(merged)
         pe_final = None
         if pe_ttm is not None:
             try:
                 pe_final = float(pe_ttm)
             except (TypeError, ValueError):
-                pass
+                pe_final = None
         elif te is not None and te != 0 and px is not None:
             pe_final = float(px) / float(te)
         if pe_final is not None and math.isfinite(pe_final):
             out["pe"] = pe_final
             out["pe_str"] = f"{pe_final:.2f}"
 
-        out["earn_str"] = _days_to_earnings(t)
+        if ticker_obj is not None:
+            out["earn_str"] = _days_to_earnings(ticker_obj)
 
         if close is not None and prev_daily_close is not None and prev_daily_close != 0:
             chg = (close - prev_daily_close) / prev_daily_close * 100

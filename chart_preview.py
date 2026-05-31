@@ -674,6 +674,13 @@ def resolve_chart_payload(
     return chart_payload_from_ohlc(ohlc_cache or {}, tv_symbol)
 
 
+def _yahoo_ticker_from_symbol(symbol: str) -> str:
+    sym = str(symbol or "").strip()
+    if ":" in sym:
+        return sym.split(":", 1)[1].replace(".", "-").upper()
+    return sym.replace(".", "-").upper()
+
+
 def figure_from_payload(
     payload: dict,
     *,
@@ -699,6 +706,8 @@ def figure_from_payload(
 
     title = f"{symbol} - {tf}" if symbol else f"Sequence Vova - {tf}"
     yahoo = str(payload.get("yahoo_ticker", "") or "")
+    if not yahoo and symbol:
+        yahoo = _yahoo_ticker_from_symbol(symbol)
     df_daily = payload.get("df_daily")
     if isinstance(df_daily, dict):
         df_daily = pd.DataFrame(df_daily)
