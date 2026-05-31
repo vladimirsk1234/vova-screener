@@ -651,11 +651,7 @@ def run_scan(
         if on_status:
             on_status("Loading company names (parallel with download)... DO NOT REFRESH.")
 
-        def _on_name_done():
-            step[0] += 1
-            if on_progress:
-                on_progress(step[0], total_steps)
-
+        # UI callbacks must run on the main Streamlit thread only (NoSessionContext in workers).
         with ThreadPoolExecutor(max_workers=2) as prep_pool:
             name_future = prep_pool.submit(
                 build_name_cache,
@@ -663,24 +659,23 @@ def run_scan(
                 rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
                 max_workers=YF_INFO_MAX_WORKERS,
                 is_cancelled=is_cancelled,
-                on_one_done=_on_name_done,
+                on_one_done=None,
             )
-            def _dl_batch_done():
-                step[0] += 1
-                if on_progress:
-                    on_progress(step[0], total_steps)
-
             dl_future = prep_pool.submit(
                 _parallel_download_batches,
                 batches,
                 fetch_period,
                 inter,
                 is_cancelled,
-                on_status,
-                _dl_batch_done,
+                None,
+                None,
             )
             name_cache = name_future.result()
             batches_data, reference_end_date = dl_future.result()
+
+        step[0] = len(tickers) + len(batches)
+        if on_progress:
+            on_progress(step[0], total_steps)
     else:
 
         def _dl_batch_done_manual():
