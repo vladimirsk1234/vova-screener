@@ -696,6 +696,210 @@ def run_sequence_vova_pine(
     return _pine_result_dict(tup)
 
 
+def _run_sequence_vova_close_python(
+    c_a: np.ndarray,
+    h_a: np.ndarray,
+    l_a: np.ndarray,
+    atr_a: np.ndarray,
+    use_last_hl_sl: bool,
+    risk_dollars: float,
+) -> dict:
+    """
+    Simulate long open (BUY new, no min_rr) and close on break SEQ down (bullish_break from up seq).
+    Returns close result only when exit occurs on the last bar.
+    """
+    n = len(c_a)
+    seq_state = 0
+    critical_level = np.nan
+    seq_high, seq_low = h_a[0], l_a[0]
+    last_confirmed_peak = np.nan
+    last_confirmed_trough = np.nan
+    last_peak_was_hh = False
+    last_trough_was_hl = False
+
+    position_open = False
+    entry_price = np.nan
+    entry_sl = np.nan
+    position_size = np.nan
+
+    last_valid = False
+    last_new = False
+    last_entry_price = np.nan
+    last_exit_price = np.nan
+    last_entry_sl = np.nan
+    last_position_size = np.nan
+    last_pnl_dollars = np.nan
+    last_pnl_pct = np.nan
+
+    for i in range(1, n):
+        c, h, l = c_a[i], h_a[i], l_a[i]
+        cur_atr = atr_a[i]
+        prev_state = seq_state
+        prev_crit = critical_level
+        prev_seq_high = seq_high
+        prev_seq_low = seq_low
+
+        is_bullish_break = False
+        is_bearish_break = False
+        if prev_state == 1 and not np.isnan(prev_crit):
+            is_bullish_break = c < prev_crit
+        elif prev_state == -1 and not np.isnan(prev_crit):
+            is_bearish_break = c > prev_crit
+
+        if is_bullish_break or is_bearish_break:
+            if prev_state == 1:
+                if h >= seq_high:
+                    seq_high = h
+                is_current_peak_hh = np.isnan(last_confirmed_peak) or seq_high > last_confirmed_peak
+                last_peak_was_hh = is_current_peak_hh
+                last_confirmed_peak = seq_high
+                seq_state = -1
+                seq_high, seq_low = h, l
+                critical_level = h
+            else:
+                if l <= seq_low:
+                    seq_low = l
+                is_current_trough_hl = (
+                    np.isnan(last_confirmed_trough)
+                    or (seq_low > last_confirmed_trough)
+                    or (seq_low == last_confirmed_trough)
+                )
+                last_trough_was_hl = is_current_trough_hl
+                last_confirmed_trough = seq_low
+                seq_state = 1
+                seq_high, seq_low = h, l
+                critical_level = l
+        else:
+            seq_state = prev_state
+            if seq_state == 1:
+                if h >= seq_high:
+                    seq_high = h
+                if h >= prev_seq_high:
+                    critical_level = l
+                else:
+                    critical_level = prev_crit
+            elif seq_state == -1:
+                if l <= seq_low:
+                    seq_low = l
+                if l <= prev_seq_low:
+                    critical_level = h
+                else:
+                    critical_level = prev_crit
+            else:
+                if c > prev_seq_high:
+                    seq_state = 1
+                    critical_level = l
+                elif c < prev_seq_low:
+                    seq_state = -1
+                    critical_level = h
+                else:
+                    seq_high = max(prev_seq_high, h)
+                    seq_low = min(prev_seq_low, l)
+
+        struct_invalid_seq_down = (
+            seq_state == -1
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and seq_low < last_confirmed_trough
+        )
+        struct_ok = (
+            last_trough_was_hl
+            or (
+                not np.isnan(last_confirmed_peak)
+                and c > last_confirmed_peak
+                and last_trough_was_hl
+            )
+        ) and (not struct_invalid_seq_down)
+
+        sl = c - cur_atr
+        if not np.isnan(critical_level) and critical_level < c:
+            sl = min(sl, critical_level)
+        if (
+            use_last_hl_sl
+            and last_trough_was_hl
+            and not np.isnan(last_confirmed_trough)
+            and last_confirmed_trough < c
+        ):
+            sl = min(sl, last_confirmed_trough)
+        risk = c - sl
+        reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
+
+        valid_signal = (seq_state == 1) and struct_ok and (risk > 0) and (reward > 0)
+        new_signal = valid_signal and is_bearish_break
+
+        if new_signal:
+            position_open = True
+            entry_price = c
+            entry_sl = sl
+            position_size = (
+                (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
+            )
+
+        if position_open and is_bullish_break:
+            exit_price = c
+            psz = position_size
+            if not np.isnan(psz) and not np.isnan(entry_price):
+                pnl = (exit_price - entry_price) * psz
+                pnl_pct = (
+                    (exit_price - entry_price) / entry_price * 100.0
+                    if entry_price > 0
+                    else np.nan
+                )
+            else:
+                pnl = np.nan
+                pnl_pct = np.nan
+
+            if i == n - 1:
+                last_valid = True
+                last_new = True
+                last_entry_price = entry_price
+                last_exit_price = exit_price
+                last_entry_sl = entry_sl
+                last_position_size = position_size
+                last_pnl_dollars = pnl
+                last_pnl_pct = pnl_pct
+
+            position_open = False
+            entry_price = np.nan
+            entry_sl = np.nan
+            position_size = np.nan
+
+    return {
+        "Valid": last_valid,
+        "New": last_new,
+        "entry_price": last_entry_price,
+        "exit_price": last_exit_price,
+        "entry_sl": last_entry_sl,
+        "position_size": last_position_size,
+        "pnl_dollars": last_pnl_dollars,
+        "pnl_pct": last_pnl_pct,
+        "Close": c_a[-1],
+        "ATR": atr_a[-1],
+    }
+
+
+def run_sequence_vova_close_scan(
+    df,
+    atr_len: int = 14,
+    use_last_hl_sl: bool = True,
+    risk_dollars: float = 100,
+) -> dict | None:
+    """
+    Close-scan for SELL mode: find long positions opened on BUY new (no min_rr),
+    close on break SEQ down; return P&L when exit is on the last bar.
+    """
+    n = len(df)
+    if n < 2:
+        return None
+    c_a = np.ascontiguousarray(df["Close"].values, dtype=np.float64)
+    h_a = np.ascontiguousarray(df["High"].values, dtype=np.float64)
+    l_a = np.ascontiguousarray(df["Low"].values, dtype=np.float64)
+    atr_a = _calc_atr_numpy(h_a, l_a, c_a, atr_len)
+    return _run_sequence_vova_close_python(
+        c_a, h_a, l_a, atr_a, bool(use_last_hl_sl), float(risk_dollars)
+    )
+
+
 def run_sequence_vova_full(
     df: pd.DataFrame,
     params: IndicatorParams | None = None,

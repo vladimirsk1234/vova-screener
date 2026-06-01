@@ -67,7 +67,7 @@ from ticker_data import (
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
-from sequence_vova import run_sequence_vova_pine
+from sequence_vova import run_sequence_vova_pine, run_sequence_vova_close_scan
 from data_utils import (
     extract_ohlcv as _extract_ohlcv,
     fill_last_bar_ohlc as _fill_last_bar_ohlc,
@@ -113,7 +113,6 @@ if src == "MANUAL SCAN":
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
 risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
-min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
 SCAN_DIRECTION_OPTIONS = ["BUY", "SELL"]
@@ -127,8 +126,13 @@ scan_dir = st.sidebar.radio(
     horizontal=True,
 )
 is_sell_scan = scan_dir == "SELL"
-sl_safety_label = "Use last LH in SL (safety)" if is_sell_scan else "Use last HL in SL (safety)"
-use_last_hl_sl = st.sidebar.checkbox(sl_safety_label, True, disabled=disabled)
+st.sidebar.caption("BUY = open long position · SELL = close on break SEQ down")
+if not is_sell_scan:
+    min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
+    use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
+else:
+    min_rr_in = float(st.session_state.get("run_params", {}).get("rr", 1.5))
+    use_last_hl_sl = bool(st.session_state.get("run_params", {}).get("use_last_hl_sl", True))
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
 
@@ -294,7 +298,10 @@ def render_scan_results(
 
         if has_charts:
             dir_label = scan_direction.upper() if scan_direction else "BUY"
-            st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
+            if scan_direction == "sell":
+                st.caption(f"Close signals on break SEQ down. Click a row for chart preview ({dir_label} · {tf}).")
+            else:
+                st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
         else:
             st.caption("Run a scan to enable chart previews.")
 
@@ -476,17 +483,23 @@ def _process_ticker_for_scan(
                 return {"kind": "reject", "row": {"Symbol": t, "Reason": "INSUFFICIENT_DATA"}}
             return {"kind": "skip"}
 
-        out = run_sequence_vova_pine(
+        out = run_sequence_vova_close_scan(
+            df,
+            atr_len=ATR_LEN,
+            use_last_hl_sl=use_last_hl_sl,
+            risk_dollars=risk_per_trade,
+        ) if scan_direction == "sell" else run_sequence_vova_pine(
             df,
             atr_len=ATR_LEN,
             min_rr=min_rr,
             use_last_hl_sl=use_last_hl_sl,
             risk_dollars=risk_per_trade,
-            direction=scan_direction,
+            direction="buy",
         )
         if out is None or not out["Valid"]:
             if is_manual_src:
-                return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_VALID_SIGNAL"}}
+                reason = "NO_CLOSE_SIGNAL" if scan_direction == "sell" else "NO_VALID_SIGNAL"
+                return {"kind": "reject", "row": {"Symbol": t, "Reason": reason}}
             return {"kind": "skip"}
         if new_only and not out["New"]:
             return {"kind": "skip"}
@@ -496,7 +509,6 @@ def _process_ticker_for_scan(
             pos_size = 0
         else:
             pos_size = int(round(pos_size))
-        pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
 
         tv_sym = (tv_symbol_by_ticker or {}).get(t) or infer_tv_symbol(t)
         interval = tf_to_tv_interval(tf)
@@ -506,19 +518,32 @@ def _process_ticker_for_scan(
         else:
             company_name = info_dict.get("company_name", t)
 
-        table_row = {
-            "Symbol": tv_url,
-            "tv_symbol": tv_sym,
-            "Company Name": company_name,
-            "TP": round(float(out["TP"]), 2),
-            "SL": round(float(out["SL"]), 2),
-            "RR": round(float(out["RR"]), 2),
-            "Position Size (shares)": pos_size,
-            "Position Value ($)": round(float(pos_value), 2),
-            "New": 1 if out["New"] else 0,
-            "Valid": 1 if out["Valid"] else 0,
-            "Strong": 1 if out["Strong"] else 0,
-        }
+        if scan_direction == "sell":
+            table_row = {
+                "Symbol": tv_url,
+                "tv_symbol": tv_sym,
+                "Company Name": company_name,
+                "Entry": round(float(out["entry_price"]), 2),
+                "Exit": round(float(out["exit_price"]), 2),
+                "Position Size (shares)": pos_size,
+                "P&L ($)": round(float(out["pnl_dollars"]), 2),
+                "P&L (%)": round(float(out["pnl_pct"]), 2),
+            }
+        else:
+            pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
+            table_row = {
+                "Symbol": tv_url,
+                "tv_symbol": tv_sym,
+                "Company Name": company_name,
+                "TP": round(float(out["TP"]), 2),
+                "SL": round(float(out["SL"]), 2),
+                "RR": round(float(out["RR"]), 2),
+                "Position Size (shares)": pos_size,
+                "Position Value ($)": round(float(pos_value), 2),
+                "New": 1 if out["New"] else 0,
+                "Valid": 1 if out["Valid"] else 0,
+                "Strong": 1 if out["Strong"] else 0,
+            }
         ohlc_entry = {
             "df": df.copy(),
             "df_daily": df_daily_chart.copy(),
