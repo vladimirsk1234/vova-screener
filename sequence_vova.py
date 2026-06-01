@@ -701,12 +701,11 @@ def _run_sequence_vova_close_python(
     h_a: np.ndarray,
     l_a: np.ndarray,
     atr_a: np.ndarray,
-    min_rr: float,
     use_last_hl_sl: bool,
     risk_dollars: float,
 ) -> dict:
     """
-    Simulate long open (BUY new with min_rr) and close on break SEQ down (bullish_break from up seq).
+    Simulate long open (BUY new, no min_rr) and close on break SEQ down (bullish_break from up seq).
     Returns close result only when exit occurs on the last bar.
     """
     n = len(c_a)
@@ -824,11 +823,8 @@ def _run_sequence_vova_close_python(
             sl = min(sl, last_confirmed_trough)
         risk = c - sl
         reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
-        rr = (reward / risk) if risk > 0 else 0.0
 
-        valid_signal = (
-            (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
-        )
+        valid_signal = (seq_state == 1) and struct_ok and (risk > 0) and (reward > 0)
         new_signal = valid_signal and is_bearish_break
 
         if new_signal:
@@ -885,12 +881,11 @@ def _run_sequence_vova_close_python(
 def run_sequence_vova_close_scan(
     df,
     atr_len: int = 14,
-    min_rr: float = 1.5,
     use_last_hl_sl: bool = True,
     risk_dollars: float = 100,
 ) -> dict | None:
     """
-    Close-scan for SELL mode: find long positions opened on BUY new (with min_rr),
+    Close-scan for SELL mode: find long positions opened on BUY new (no min_rr),
     close on break SEQ down; return P&L when exit is on the last bar.
     """
     n = len(df)
@@ -901,7 +896,7 @@ def run_sequence_vova_close_scan(
     l_a = np.ascontiguousarray(df["Low"].values, dtype=np.float64)
     atr_a = _calc_atr_numpy(h_a, l_a, c_a, atr_len)
     return _run_sequence_vova_close_python(
-        c_a, h_a, l_a, atr_a, float(min_rr), bool(use_last_hl_sl), float(risk_dollars)
+        c_a, h_a, l_a, atr_a, bool(use_last_hl_sl), float(risk_dollars)
     )
 
 
