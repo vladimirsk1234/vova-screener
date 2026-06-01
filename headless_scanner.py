@@ -318,13 +318,11 @@ def render_scan_results(
     has_charts = bool(chart_cache) or bool(ohlc_cache)
 
     if table_rows:
-        display_rows = list(table_rows)
+        summary_row = None
         if scan_direction == "sell":
-            summary = _build_sell_summary_row(table_rows)
-            if summary:
-                display_rows.append(summary)
+            summary_row = _build_sell_summary_row(table_rows)
 
-        res_df = pd.DataFrame(display_rows)
+        res_df = pd.DataFrame(table_rows)
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
 
@@ -338,6 +336,15 @@ def render_scan_results(
             selection_mode="single-row",
             key="scan_results_table",
         )
+
+        if summary_row:
+            summary_display = {k: v for k, v in summary_row.items() if k != "_is_summary"}
+            st.caption("Scan totals")
+            st.dataframe(
+                pd.DataFrame([summary_display]),
+                hide_index=True,
+                width="stretch",
+            )
 
         if has_charts:
             dir_label = scan_direction.upper() if scan_direction else "BUY"
@@ -354,12 +361,9 @@ def render_scan_results(
             sel_rows = list(selected.rows) if selected and getattr(selected, "rows", None) else []
             if sel_rows:
                 row_idx = sel_rows[0]
-                if not res_df.iloc[row_idx].get("_is_summary"):
-                    tv_sym = str(res_df.iloc[row_idx].get("tv_symbol", "") or "")
-                    if tv_sym:
-                        st.session_state.selected_tv_symbol = tv_sym
-                else:
-                    tv_sym = None
+                tv_sym = str(res_df.iloc[row_idx].get("tv_symbol", "") or "")
+                if tv_sym:
+                    st.session_state.selected_tv_symbol = tv_sym
             elif st.session_state.get("selected_tv_symbol"):
                 tv_sym = st.session_state.selected_tv_symbol
 
