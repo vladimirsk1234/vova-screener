@@ -278,6 +278,11 @@ def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
     winrate = (wins / len(data_rows)) * 100.0
     total_pnl_pct = (total_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
+    entry_rr_vals = [float(r["RR at Entry"]) for r in data_rows if r.get("RR at Entry") is not None]
+    close_rr_vals = [float(r["RR at Close"]) for r in data_rows if r.get("RR at Close") is not None]
+    avg_entry_rr = sum(entry_rr_vals) / len(entry_rr_vals) if entry_rr_vals else 0.0
+    avg_close_rr = sum(close_rr_vals) / len(close_rr_vals) if close_rr_vals else 0.0
+
     return {
         "_is_summary": True,
         "Symbol": "TOTAL",
@@ -285,6 +290,8 @@ def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
         "Entry": "—",
         "Exit": "—",
         "Position Size (shares)": "—",
+        "RR at Entry": round(avg_entry_rr, 2),
+        "RR at Close": round(avg_close_rr, 2),
         "Invested ($)": round(total_invested, 2),
         "P&L ($)": round(total_pnl, 2),
         "P&L (%)": round(total_pnl_pct, 2),
@@ -561,6 +568,8 @@ def _process_ticker_for_scan(
         if scan_direction == "sell":
             entry_px = round(float(out["entry_price"]), 2)
             invested = round(entry_px * pos_size, 2) if pos_size > 0 else 0.0
+            entry_rr = out.get("entry_rr", np.nan)
+            close_rr = out.get("close_rr", np.nan)
             table_row = {
                 "Symbol": tv_url,
                 "tv_symbol": tv_sym,
@@ -568,6 +577,8 @@ def _process_ticker_for_scan(
                 "Entry": entry_px,
                 "Exit": round(float(out["exit_price"]), 2),
                 "Position Size (shares)": pos_size,
+                "RR at Entry": round(float(entry_rr), 2) if not np.isnan(entry_rr) else 0.0,
+                "RR at Close": round(float(close_rr), 2) if not np.isnan(close_rr) else 0.0,
                 "Invested ($)": invested,
                 "P&L ($)": round(float(out["pnl_dollars"]), 2),
                 "P&L (%)": round(float(out["pnl_pct"]), 2),

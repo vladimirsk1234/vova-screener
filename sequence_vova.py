@@ -720,6 +720,7 @@ def _run_sequence_vova_close_python(
     position_open = False
     entry_price = np.nan
     entry_sl = np.nan
+    entry_rr_at_open = np.nan
     position_size = np.nan
 
     last_valid = False
@@ -730,6 +731,8 @@ def _run_sequence_vova_close_python(
     last_position_size = np.nan
     last_pnl_dollars = np.nan
     last_pnl_pct = np.nan
+    last_entry_rr = np.nan
+    last_close_rr = np.nan
 
     for i in range(1, n):
         c, h, l = c_a[i], h_a[i], l_a[i]
@@ -831,6 +834,7 @@ def _run_sequence_vova_close_python(
             position_open = True
             entry_price = c
             entry_sl = sl
+            entry_rr_at_open = (reward / risk) if risk > 0 else np.nan
             position_size = (
                 (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
             )
@@ -838,6 +842,12 @@ def _run_sequence_vova_close_python(
         if position_open and is_bullish_break:
             exit_price = c
             psz = position_size
+            entry_risk = entry_price - entry_sl
+            close_rr = (
+                (exit_price - entry_price) / entry_risk
+                if entry_risk > 0 and not np.isnan(entry_price)
+                else np.nan
+            )
             if not np.isnan(psz) and not np.isnan(entry_price):
                 pnl = (exit_price - entry_price) * psz
                 pnl_pct = (
@@ -858,10 +868,13 @@ def _run_sequence_vova_close_python(
                 last_position_size = position_size
                 last_pnl_dollars = pnl
                 last_pnl_pct = pnl_pct
+                last_entry_rr = entry_rr_at_open
+                last_close_rr = close_rr
 
             position_open = False
             entry_price = np.nan
             entry_sl = np.nan
+            entry_rr_at_open = np.nan
             position_size = np.nan
 
     return {
@@ -873,6 +886,8 @@ def _run_sequence_vova_close_python(
         "position_size": last_position_size,
         "pnl_dollars": last_pnl_dollars,
         "pnl_pct": last_pnl_pct,
+        "entry_rr": last_entry_rr,
+        "close_rr": last_close_rr,
         "Close": c_a[-1],
         "ATR": atr_a[-1],
     }

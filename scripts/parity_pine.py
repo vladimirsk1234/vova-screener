@@ -99,7 +99,8 @@ def _smoke_close_scan() -> list[str]:
         return ["close_scan: returned None"]
     required = (
         "Valid", "New", "entry_price", "exit_price", "entry_sl",
-        "position_size", "pnl_dollars", "pnl_pct", "Close", "ATR",
+        "position_size", "pnl_dollars", "pnl_pct", "entry_rr", "close_rr",
+        "Close", "ATR",
     )
     for key in required:
         if key not in out:
