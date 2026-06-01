@@ -574,16 +574,20 @@ _resolve_info_cache: dict[str, tuple[float, dict]] = {}
 def _resolve_fundamentals_info(ticker: str) -> tuple[dict, yf.Ticker | None]:
     """Merge disk cache, yfinance .info, and fast_info for watermark PE/MC."""
     now = time.time()
+    merged: dict = {}
     cached = _resolve_info_cache.get(ticker)
     if cached and now - cached[0] <= _RESOLVE_INFO_TTL_SEC:
-        try:
-            return dict(cached[1]), yf.Ticker(ticker)
-        except Exception:
-            return dict(cached[1]), None
+        merged = dict(cached[1])
+        # Only short-circuit when we already have a business summary for chart "About".
+        if merged.get("longBusinessSummary"):
+            try:
+                return merged, yf.Ticker(ticker)
+            except Exception:
+                return merged, None
 
-    merged: dict = {}
-    disk = _cached_info_dict(ticker)
-    merged.update({k: v for k, v in disk.items() if v is not None})
+    if not merged:
+        disk = _cached_info_dict(ticker)
+        merged.update({k: v for k, v in disk.items() if v is not None})
 
     ticker_obj: yf.Ticker | None = None
     info: dict = {}

@@ -722,9 +722,15 @@ def _fundamentals_for_payload(payload: dict, *, symbol: str = "") -> dict | None
     )
 
 
-def company_description_from_payload(payload: dict, *, symbol: str = "") -> str | None:
+def company_description_from_payload(
+    payload: dict,
+    *,
+    symbol: str = "",
+    fundamentals: dict | None = None,
+) -> str | None:
     """Return company business summary for Streamlit display below the chart."""
-    fundamentals = _fundamentals_for_payload(payload, symbol=symbol)
+    if fundamentals is None:
+        fundamentals = _fundamentals_for_payload(payload, symbol=symbol)
     if not fundamentals:
         return None
     yahoo = str(payload.get("yahoo_ticker", "") or "")
@@ -733,12 +739,16 @@ def company_description_from_payload(payload: dict, *, symbol: str = "") -> str 
     return extract_company_description(fundamentals, ticker=yahoo or symbol)
 
 
+fundamentals_for_payload = _fundamentals_for_payload
+
+
 def figure_from_payload(
     payload: dict,
     *,
     symbol: str = "",
     params: IndicatorParams | None = None,
     height: int = DEFAULT_CHART_HEIGHT,
+    fundamentals: dict | None = None,
 ) -> go.Figure | None:
     """Build figure from cached OHLC payload + live indicator params."""
     if not payload:
@@ -764,7 +774,8 @@ def figure_from_payload(
     if isinstance(df_daily, dict):
         df_daily = pd.DataFrame(df_daily)
 
-    fundamentals = _fundamentals_for_payload(payload, symbol=symbol)
+    if fundamentals is None:
+        fundamentals = _fundamentals_for_payload(payload, symbol=symbol)
 
     return build_sequence_vova_figure(
         plot_df,

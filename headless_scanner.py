@@ -47,6 +47,7 @@ from chart_preview import (
     company_description_from_payload,
     figure_from_payload,
     resolve_chart_payload,
+    fundamentals_for_payload,
 )
 from chart_settings_ui import render_chart_settings
 inject_styles()
@@ -376,11 +377,13 @@ def render_scan_results(
                 else None
             )
             if payload:
+                fundamentals = fundamentals_for_payload(payload, symbol=tv_sym or "")
                 fig = figure_from_payload(
                     payload,
                     symbol=tv_sym or "",
                     params=chart_params,
                     height=DEFAULT_CHART_HEIGHT,
+                    fundamentals=fundamentals,
                 )
                 if fig is not None:
                     with st.container(border=True):
@@ -390,7 +393,9 @@ def render_scan_results(
                             config=PLOTLY_CHART_CONFIG,
                         )
                         desc = company_description_from_payload(
-                            payload, symbol=tv_sym or ""
+                            payload,
+                            symbol=tv_sym or "",
+                            fundamentals=fundamentals,
                         )
                         if desc:
                             st.markdown("**About**")
