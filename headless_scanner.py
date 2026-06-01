@@ -116,9 +116,9 @@ risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_valu
 min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
-SCAN_DIRECTION_OPTIONS = ["BUY", "SELL"]
-last_dir = st.session_state.get("run_params", {}).get("scan_direction", "buy").upper()
-dir_default_idx = SCAN_DIRECTION_OPTIONS.index(last_dir) if last_dir in SCAN_DIRECTION_OPTIONS else 0
+SCAN_DIRECTION_OPTIONS = ["BUY TO OPEN", "SELL TO CLOSE"]
+_last_dir = str(st.session_state.get("run_params", {}).get("scan_direction", "buy")).lower()
+dir_default_idx = 1 if _last_dir == "sell" else 0
 scan_dir = st.sidebar.radio(
     "SCAN DIRECTION",
     SCAN_DIRECTION_OPTIONS,
@@ -126,11 +126,7 @@ scan_dir = st.sidebar.radio(
     index=dir_default_idx,
     horizontal=True,
 )
-is_sell_scan = scan_dir == "SELL"
-st.sidebar.caption(
-    "BUY = open long · SELL = close on break SEQ down "
-    "(MIN RR applies at entry only, not at close)"
-)
+is_sell_scan = scan_dir == "SELL TO CLOSE"
 if not is_sell_scan:
     use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
 else:
@@ -155,7 +151,7 @@ if start_btn:
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
         'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
-        'scan_direction': scan_dir.lower(),
+        'scan_direction': "sell" if is_sell_scan else "buy",
     }
     st.rerun()
 
@@ -256,6 +252,10 @@ def _patch_symbol_only_company_names(table_rows: list[dict]) -> None:
 res_area = st.empty()
 
 
+def _scan_direction_label(scan_direction: str) -> str:
+    return "SELL TO CLOSE" if str(scan_direction).lower() == "sell" else "BUY TO OPEN"
+
+
 def _display_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Hide internal tv_symbol from the results grid."""
     hide = {"tv_symbol", "_is_summary"}
@@ -297,6 +297,7 @@ def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
         "Invested ($)": round(total_invested, 2),
         "P&L ($)": round(total_pnl, 2),
         "P&L (%)": round(total_pnl_pct, 2),
+        "Reason": "—",
     }
 
 
@@ -349,9 +350,9 @@ def render_scan_results(
             )
 
         if has_charts:
-            dir_label = scan_direction.upper() if scan_direction else "BUY"
+            dir_label = _scan_direction_label(scan_direction)
             if scan_direction == "sell":
-                st.caption(f"Close signals on break SEQ down. Click a row for chart preview ({dir_label} · {tf}).")
+                st.caption(f"Close signals. Click a row for chart preview ({dir_label} · {tf}).")
             else:
                 st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
         else:
@@ -407,12 +408,12 @@ def render_scan_results(
                 dow = d.dayofweek
                 if dow >= 5:
                     st.caption(
-                        f"**Results as of {as_of_str}** ({scan_direction.upper()} · {tf}) "
+                        f"**Results as of {as_of_str}** ({_scan_direction_label(scan_direction)} · {tf}) "
                         f"(last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency."
                     )
                 else:
                     st.caption(
-                        f"**Results as of {as_of_str}** ({scan_direction.upper()} · {tf}). "
+                        f"**Results as of {as_of_str}** ({_scan_direction_label(scan_direction)} · {tf}). "
                         f"Same bar used for all symbols for consistency."
                     )
             except Exception:
@@ -597,6 +598,7 @@ def _process_ticker_for_scan(
                 "Invested ($)": invested,
                 "P&L ($)": round(float(out["pnl_dollars"]), 2),
                 "P&L (%)": round(float(out["pnl_pct"]), 2),
+                "Reason": str(out.get("close_reason", "") or ""),
             }
         else:
             pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0

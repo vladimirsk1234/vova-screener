@@ -5,7 +5,7 @@ indicator("Sequence Vova Screener", overlay=false)
 // INPUTS
 // ==================================================================================
 grp_risk = "Screener Settings"
-scanDirection = input.string("BUY", "Scan Direction", options=["BUY", "SELL"], group=grp_risk)
+scanDirection = input.string("BUY TO OPEN", "Scan Direction", options=["BUY TO OPEN", "SELL TO CLOSE"], group=grp_risk)
 minRR = input.float(1.5, "Minimum R/R Ratio", minval=0.5, step=0.1, group=grp_risk)
 atrLen = input.int(14, "ATR Length", minval=1, group=grp_risk)
 useLastHLInSL = input.bool(true, "Use last HL/LH in SL (safety)", group=grp_risk)
@@ -198,7 +198,7 @@ float risk_sell = sl_sell - close
 float reward_sell = close - lastConfirmedTrough
 float rr_sell = (risk_sell > 0) ? (reward_sell / risk_sell) : 0.0
 
-bool isSellScan = scanDirection == "SELL"
+bool isSellScan = scanDirection == "SELL TO CLOSE"
 float sl = isSellScan ? sl_sell : sl_buy
 float risk = isSellScan ? risk_sell : risk_buy
 float reward = isSellScan ? reward_sell : reward_buy
