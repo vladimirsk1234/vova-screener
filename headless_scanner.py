@@ -113,6 +113,7 @@ if src == "MANUAL SCAN":
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
 risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
+min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
 SCAN_DIRECTION_OPTIONS = ["BUY", "SELL"]
@@ -126,12 +127,10 @@ scan_dir = st.sidebar.radio(
     horizontal=True,
 )
 is_sell_scan = scan_dir == "SELL"
-st.sidebar.caption("BUY = open long position · SELL = close on break SEQ down")
+st.sidebar.caption("BUY = open long · SELL = close on break SEQ down (entry must meet MIN RR)")
 if not is_sell_scan:
-    min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
     use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
 else:
-    min_rr_in = float(st.session_state.get("run_params", {}).get("rr", 1.5))
     use_last_hl_sl = bool(st.session_state.get("run_params", {}).get("use_last_hl_sl", True))
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
@@ -256,9 +255,39 @@ res_area = st.empty()
 
 def _display_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Hide internal tv_symbol from the results grid."""
-    hide = {"tv_symbol"}
+    hide = {"tv_symbol", "_is_summary"}
     cols = [c for c in df.columns if c not in hide]
     return df[cols] if cols else df
+
+
+def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
+    """Aggregate SELL close-scan rows into a TOTAL summary line."""
+    data_rows = [r for r in table_rows if not r.get("_is_summary")]
+    if not data_rows:
+        return None
+
+    pnls = [float(r["P&L ($)"]) for r in data_rows]
+    invested_vals = [
+        float(r.get("Invested ($)", 0) or 0)
+        for r in data_rows
+    ]
+    total_pnl = sum(pnls)
+    total_invested = sum(invested_vals)
+    wins = sum(1 for p in pnls if p > 0)
+    winrate = (wins / len(data_rows)) * 100.0
+    total_pnl_pct = (total_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
+
+    return {
+        "_is_summary": True,
+        "Symbol": "TOTAL",
+        "Company Name": f"Win rate: {winrate:.1f}%",
+        "Entry": "—",
+        "Exit": "—",
+        "Position Size (shares)": "—",
+        "Invested ($)": round(total_invested, 2),
+        "P&L ($)": round(total_pnl, 2),
+        "P&L (%)": round(total_pnl_pct, 2),
+    }
 
 
 def render_scan_results(
@@ -281,7 +310,13 @@ def render_scan_results(
     has_charts = bool(chart_cache) or bool(ohlc_cache)
 
     if table_rows:
-        res_df = pd.DataFrame(table_rows)
+        display_rows = list(table_rows)
+        if scan_direction == "sell":
+            summary = _build_sell_summary_row(table_rows)
+            if summary:
+                display_rows.append(summary)
+
+        res_df = pd.DataFrame(display_rows)
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
 
@@ -310,9 +345,13 @@ def render_scan_results(
             selected = getattr(event, "selection", None)
             sel_rows = list(selected.rows) if selected and getattr(selected, "rows", None) else []
             if sel_rows:
-                tv_sym = str(res_df.iloc[sel_rows[0]].get("tv_symbol", "") or "")
-                if tv_sym:
-                    st.session_state.selected_tv_symbol = tv_sym
+                row_idx = sel_rows[0]
+                if not res_df.iloc[row_idx].get("_is_summary"):
+                    tv_sym = str(res_df.iloc[row_idx].get("tv_symbol", "") or "")
+                    if tv_sym:
+                        st.session_state.selected_tv_symbol = tv_sym
+                else:
+                    tv_sym = None
             elif st.session_state.get("selected_tv_symbol"):
                 tv_sym = st.session_state.selected_tv_symbol
 
@@ -486,6 +525,7 @@ def _process_ticker_for_scan(
         out = run_sequence_vova_close_scan(
             df,
             atr_len=ATR_LEN,
+            min_rr=min_rr,
             use_last_hl_sl=use_last_hl_sl,
             risk_dollars=risk_per_trade,
         ) if scan_direction == "sell" else run_sequence_vova_pine(
@@ -519,13 +559,16 @@ def _process_ticker_for_scan(
             company_name = info_dict.get("company_name", t)
 
         if scan_direction == "sell":
+            entry_px = round(float(out["entry_price"]), 2)
+            invested = round(entry_px * pos_size, 2) if pos_size > 0 else 0.0
             table_row = {
                 "Symbol": tv_url,
                 "tv_symbol": tv_sym,
                 "Company Name": company_name,
-                "Entry": round(float(out["entry_price"]), 2),
+                "Entry": entry_px,
                 "Exit": round(float(out["exit_price"]), 2),
                 "Position Size (shares)": pos_size,
+                "Invested ($)": invested,
                 "P&L ($)": round(float(out["pnl_dollars"]), 2),
                 "P&L (%)": round(float(out["pnl_pct"]), 2),
             }
