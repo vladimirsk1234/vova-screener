@@ -67,7 +67,7 @@ from ticker_data import (
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
-from sequence_vova import run_sequence_vova_pine, run_sequence_vova_close_scan
+from sequence_vova import run_sequence_vova_pine, run_sequence_vova_close_scan, run_sequence_vova_full
 from data_utils import (
     extract_ohlcv as _extract_ohlcv,
     fill_last_bar_ohlc as _fill_last_bar_ohlc,
@@ -557,6 +557,14 @@ def _process_ticker_for_scan(
             return {"kind": "skip"}
         if new_only and not out["New"]:
             return {"kind": "skip"}
+        if scan_direction != "sell":
+            # Hard guard: BUY rows must have the latest confirmed peak as HH, not LH/DT.
+            full = run_sequence_vova_full(df)
+            last_peak_hh = bool(full.get("last_peak_was_hh", False)) if full else False
+            if not last_peak_hh:
+                if is_manual_src:
+                    return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_HH_LAST_PEAK"}}
+                return {"kind": "skip"}
 
         pos_size = out["position_size"]
         if np.isnan(pos_size) or pos_size < 1:
