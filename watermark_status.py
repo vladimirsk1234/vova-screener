@@ -148,13 +148,14 @@ def build_trade_line(full: dict, params: IndicatorParams, bar_index_last: int) -
     """Row 8: chart TF trade status."""
     seq_state = full.get("seq_state_final", 0)
     last_trough_hl = full.get("last_trough_was_hl", False)
+    last_peak_hh = full.get("last_peak_was_hh", False)
     last_peak = full.get("last_peak")
     struct_invalid = full.get("struct_invalid_seq_down", False)
     close = full.get("Close", 0)
     struct_ok = (
         last_trough_hl
         or (last_peak is not None and close > last_peak and last_trough_hl)
-    ) and not struct_invalid
+    ) and last_peak_hh and not struct_invalid
     seq_ok = seq_state == 1
 
     crit = full.get("critical_level")

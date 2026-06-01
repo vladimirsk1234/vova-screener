@@ -340,7 +340,7 @@ def _run_sequence_vova_pine_python(
                     and c > last_confirmed_peak
                     and last_trough_was_hl
                 )
-            ) and (not struct_invalid_seq_down)
+            ) and last_peak_was_hh and (not struct_invalid_seq_down)
 
             sl = c - cur_atr
             if not np.isnan(critical_level) and critical_level < c:
@@ -578,7 +578,7 @@ if _NUMBA_AVAILABLE:
                         and c > last_confirmed_peak
                         and last_trough_was_hl
                     )
-                ) and (not struct_invalid_seq_down)
+                ) and last_peak_was_hh and (not struct_invalid_seq_down)
 
                 sl = c - cur_atr
                 if not np.isnan(critical_level) and critical_level < c:
@@ -813,7 +813,7 @@ def _run_sequence_vova_close_python(
                 and c > last_confirmed_peak
                 and last_trough_was_hl
             )
-        ) and (not struct_invalid_seq_down)
+        ) and last_peak_was_hh and (not struct_invalid_seq_down)
 
         sl = c - cur_atr
         if not np.isnan(critical_level) and critical_level < c:
@@ -1144,7 +1144,7 @@ def run_sequence_vova_full(
                 and c > last_confirmed_peak
                 and last_trough_was_hl
             )
-        ) and (not struct_invalid_seq_down)
+        ) and last_peak_was_hh and (not struct_invalid_seq_down)
 
         cur_cond_seq_ok = seq_state == 1
         if is_bearish_break and cur_cond_seq_ok and struct_ok:

@@ -169,7 +169,7 @@ bool structInvalidSeqUp = (seqState == 1) and lastPeakWasHH and (not na(lastConf
 // ==================================================================================
 // STRUCTURE VALIDATION (Row 8 style) - Single timeframe
 // ==================================================================================
-bool struct_ok = (lastTroughWasHL or (not na(lastConfirmedPeak) and close > lastConfirmedPeak and lastTroughWasHL)) and (not structInvalidSeqDown)
+bool struct_ok = (lastTroughWasHL or (not na(lastConfirmedPeak) and close > lastConfirmedPeak and lastTroughWasHL)) and lastPeakWasHH and (not structInvalidSeqDown)
 bool lastPeakWasLH = not lastPeakWasHH
 bool struct_ok_sell = (lastPeakWasLH or (not na(lastConfirmedTrough) and close < lastConfirmedTrough and lastPeakWasLH)) and (not structInvalidSeqUp)
 
