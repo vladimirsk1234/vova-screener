@@ -113,6 +113,7 @@ if src == "MANUAL SCAN":
 # Parameters
 st.sidebar.subheader("RISK MANAGEMENT")
 risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
+min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
 
 st.sidebar.subheader("FILTERS")
 SCAN_DIRECTION_OPTIONS = ["BUY", "SELL"]
@@ -126,12 +127,13 @@ scan_dir = st.sidebar.radio(
     horizontal=True,
 )
 is_sell_scan = scan_dir == "SELL"
-st.sidebar.caption("BUY = open long · SELL = close on break SEQ down")
+st.sidebar.caption(
+    "BUY = open long · SELL = close on break SEQ down "
+    "(MIN RR applies at entry only, not at close)"
+)
 if not is_sell_scan:
-    min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
     use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
 else:
-    min_rr_in = float(st.session_state.get("run_params", {}).get("rr", 1.5))
     use_last_hl_sl = bool(st.session_state.get("run_params", {}).get("use_last_hl_sl", True))
 tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
@@ -537,6 +539,7 @@ def _process_ticker_for_scan(
         out = run_sequence_vova_close_scan(
             df,
             atr_len=ATR_LEN,
+            min_rr=min_rr,
             use_last_hl_sl=use_last_hl_sl,
             risk_dollars=risk_per_trade,
         ) if scan_direction == "sell" else run_sequence_vova_pine(

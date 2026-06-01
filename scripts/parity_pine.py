@@ -94,7 +94,7 @@ def _smoke_close_scan() -> list[str]:
     open_ = close + rng.uniform(-0.3, 0.3, n)
     df = pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close, "Volume": 1e6})
 
-    out = run_sequence_vova_close_scan(df, risk_dollars=100.0)
+    out = run_sequence_vova_close_scan(df, risk_dollars=100.0, min_rr=1.5)
     if out is None:
         return ["close_scan: returned None"]
     required = (
