@@ -12,11 +12,6 @@ import numpy as np
 
 ScanDirection = Literal["buy", "sell"]
 
-CLOSE_REASON_SEQ = "SEQ BROKE DOWN"
-CLOSE_REASON_MA5 = "CLOSE BELOW MA5"
-CLOSE_REASON_TARGET = "HIT THE TARGET HH"
-CLOSE_REASON_BB = "FULL BODY ABOVE BB UPPER BAND"
-
 from indicator_params import IndicatorParams
 
 try:
@@ -705,16 +700,13 @@ def _run_sequence_vova_close_python(
     c_a: np.ndarray,
     h_a: np.ndarray,
     l_a: np.ndarray,
-    o_a: np.ndarray,
     atr_a: np.ndarray,
-    ma5_a: np.ndarray,
-    bb_upper_a: np.ndarray,
     min_rr: float,
     use_last_hl_sl: bool,
     risk_dollars: float,
 ) -> dict:
     """
-    Simulate long open (BUY new with min_rr at entry) and close on exit rules.
+    Simulate long open (BUY new with min_rr at entry) and close on break SEQ down.
     Opens only when flat (not position_open). Returns close on the last bar only.
     """
     n = len(c_a)
@@ -742,11 +734,9 @@ def _run_sequence_vova_close_python(
     last_pnl_pct = np.nan
     last_entry_rr = np.nan
     last_close_rr = np.nan
-    last_close_reason = ""
 
     for i in range(1, n):
         c, h, l = c_a[i], h_a[i], l_a[i]
-        o = o_a[i]
         cur_atr = atr_a[i]
         prev_state = seq_state
         prev_crit = critical_level
@@ -853,18 +843,7 @@ def _run_sequence_vova_close_python(
                 (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
             )
 
-        close_reason = ""
-        if position_open:
-            if is_bullish_break:
-                close_reason = CLOSE_REASON_SEQ
-            elif c < ma5_a[i]:
-                close_reason = CLOSE_REASON_MA5
-            elif not np.isnan(last_confirmed_peak) and h >= last_confirmed_peak:
-                close_reason = CLOSE_REASON_TARGET
-            elif min(o, c) > bb_upper_a[i]:
-                close_reason = CLOSE_REASON_BB
-
-        if position_open and close_reason:
+        if position_open and is_bullish_break:
             exit_price = c
             psz = position_size
             entry_risk = entry_price - entry_sl
@@ -895,7 +874,6 @@ def _run_sequence_vova_close_python(
                 last_pnl_pct = pnl_pct
                 last_entry_rr = entry_rr_at_open
                 last_close_rr = close_rr
-                last_close_reason = close_reason
 
             position_open = False
             entry_price = np.nan
@@ -914,7 +892,6 @@ def _run_sequence_vova_close_python(
         "pnl_pct": last_pnl_pct,
         "entry_rr": last_entry_rr,
         "close_rr": last_close_rr,
-        "close_reason": last_close_reason,
         "Close": c_a[-1],
         "ATR": atr_a[-1],
     }
@@ -929,7 +906,7 @@ def run_sequence_vova_close_scan(
 ) -> dict | None:
     """
     Close-scan for SELL TO CLOSE mode: find long positions opened on BUY new (min_rr at entry only),
-    close on exit rules; return P&L when exit is on the last bar.
+    close on break SEQ down; return P&L when exit is on the last bar.
     """
     n = len(df)
     if n < 2:
@@ -937,23 +914,9 @@ def run_sequence_vova_close_scan(
     c_a = np.ascontiguousarray(df["Close"].values, dtype=np.float64)
     h_a = np.ascontiguousarray(df["High"].values, dtype=np.float64)
     l_a = np.ascontiguousarray(df["Low"].values, dtype=np.float64)
-    o_a = np.ascontiguousarray(df["Open"].values, dtype=np.float64)
     atr_a = _calc_atr_numpy(h_a, l_a, c_a, atr_len)
-    close_s = pd.Series(c_a)
-    ma5_a = np.ascontiguousarray(_sma(close_s, 5).values, dtype=np.float64)
-    _, bb_upper, _ = compute_bollinger(close_s, 20, 2.0)
-    bb_upper_a = np.ascontiguousarray(bb_upper.values, dtype=np.float64)
     return _run_sequence_vova_close_python(
-        c_a,
-        h_a,
-        l_a,
-        o_a,
-        atr_a,
-        ma5_a,
-        bb_upper_a,
-        float(min_rr),
-        bool(use_last_hl_sl),
-        float(risk_dollars),
+        c_a, h_a, l_a, atr_a, float(min_rr), bool(use_last_hl_sl), float(risk_dollars)
     )
 
 

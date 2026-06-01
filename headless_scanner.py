@@ -297,7 +297,6 @@ def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
         "Invested ($)": round(total_invested, 2),
         "P&L ($)": round(total_pnl, 2),
         "P&L (%)": round(total_pnl_pct, 2),
-        "Reason": "—",
     }
 
 
@@ -598,7 +597,6 @@ def _process_ticker_for_scan(
                 "Invested ($)": invested,
                 "P&L ($)": round(float(out["pnl_dollars"]), 2),
                 "P&L (%)": round(float(out["pnl_pct"]), 2),
-                "Reason": str(out.get("close_reason", "") or ""),
             }
         else:
             pos_value = out["position_value"] if not np.isnan(out["position_value"]) else 0.0
