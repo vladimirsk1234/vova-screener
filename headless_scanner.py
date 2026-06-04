@@ -38,6 +38,10 @@ if 'ohlc_cache' not in st.session_state:
     st.session_state.ohlc_cache = {}
 if 'selected_tv_symbol' not in st.session_state:
     st.session_state.selected_tv_symbol = None
+if 'fundamentals_cache' not in st.session_state:
+    st.session_state.fundamentals_cache = {}
+if 'fair_pe_ratio' not in st.session_state:
+    st.session_state.fair_pe_ratio = 15.0
 
 # --- CSS STYLING (from ui_styles.py) ---
 from ui_styles import inject_styles
@@ -48,6 +52,8 @@ from chart_preview import (
     figure_from_payload,
     resolve_chart_payload,
 )
+from fundamentals_fast import get_fast_graph_panel_data
+from fundamentals_panel_ui import render_fast_graph_panel
 from chart_settings_ui import render_chart_settings
 inject_styles()
 
@@ -115,6 +121,18 @@ st.sidebar.subheader("RISK MANAGEMENT")
 risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
 min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
 
+st.sidebar.subheader("FUNDAMENTALS")
+fair_pe_ratio = st.sidebar.number_input(
+    "Fair P/E (Fair Value Ratio)",
+    min_value=1.0,
+    max_value=200.0,
+    value=float(st.session_state.fair_pe_ratio),
+    step=0.5,
+    disabled=disabled,
+    help="Используется в панели FAST Graph под графиком (Yahoo EPS × Fair P/E).",
+)
+st.session_state.fair_pe_ratio = float(fair_pe_ratio)
+
 st.sidebar.subheader("FILTERS")
 SCAN_DIRECTION_OPTIONS = ["BUY TO OPEN", "SELL TO CLOSE"]
 _last_dir = str(st.session_state.get("run_params", {}).get("scan_direction", "buy")).lower()
@@ -146,6 +164,7 @@ if start_btn:
     st.session_state.rejected = [] # RESET Rejected
     st.session_state.chart_cache = {}
     st.session_state.ohlc_cache = {}
+    st.session_state.fundamentals_cache = {}
     st.session_state.selected_tv_symbol = None
     # FREEZE PARAMS
     st.session_state.run_params = {
@@ -214,6 +233,48 @@ def _rate_limited_resolve_company_name(ticker: str) -> str:
         name = resolve_company_name(ticker)
         _name_resolve_last[0] = time.monotonic()
     return name
+
+
+def _load_fundamentals_panel(
+    tv_sym: str,
+    *,
+    ohlc_cache: dict,
+    fair_pe: float,
+) -> dict | None:
+    """Lazy-load FAST-style fundamentals for selected chart row (session cache)."""
+    if not tv_sym:
+        return None
+    cache_key = f"{tv_sym}|{fair_pe:.2f}"
+    hit = st.session_state.fundamentals_cache.get(cache_key)
+    if hit is not None:
+        return hit
+
+    entry = ohlc_cache.get(tv_sym) if ohlc_cache else None
+    yahoo = str((entry or {}).get("yahoo_ticker", "") or "").strip()
+    if not yahoo:
+        return None
+
+    df_daily = (entry or {}).get("df_daily")
+    close_px = None
+    if isinstance(df_daily, pd.DataFrame) and not df_daily.empty and "Close" in df_daily.columns:
+        try:
+            close_px = float(pd.to_numeric(df_daily["Close"], errors="coerce").dropna().iloc[-1])
+        except (IndexError, TypeError, ValueError):
+            close_px = None
+
+    try:
+        data = get_fast_graph_panel_data(
+            yahoo,
+            close=close_px,
+            df_daily=df_daily if isinstance(df_daily, pd.DataFrame) else None,
+            fair_pe=float(fair_pe),
+        )
+    except Exception as exc:
+        _log.warning("Fundamentals panel failed for %s: %s", yahoo, exc)
+        return None
+
+    st.session_state.fundamentals_cache[cache_key] = data
+    return data
 
 
 def _yahoo_ticker_from_row(row: dict) -> str:
@@ -310,6 +371,7 @@ def render_scan_results(
     ohlc_cache=None,
     empty_message="Ready to scan. Click START.",
     scan_direction="buy",
+    fair_pe: float = 15.0,
 ):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -399,6 +461,22 @@ def render_scan_results(
                     st.caption("Failed to build chart.")
             elif tv_sym and has_charts:
                 st.caption("No chart cache for the selected row.")
+
+            if tv_sym:
+                cache_key = f"{tv_sym}|{float(fair_pe):.2f}"
+                if cache_key in st.session_state.fundamentals_cache:
+                    fund_data = st.session_state.fundamentals_cache[cache_key]
+                else:
+                    with st.spinner("Загрузка фундаментала…"):
+                        fund_data = _load_fundamentals_panel(
+                            tv_sym,
+                            ohlc_cache=ohlc_cache,
+                            fair_pe=fair_pe,
+                        )
+                if fund_data:
+                    render_fast_graph_panel(fund_data)
+                else:
+                    st.caption("Fundamentals unavailable for this symbol.")
 
         if reference_end_date is not None:
             try:
@@ -1170,6 +1248,7 @@ if st.session_state.scanning:
             ohlc_cache=ohlc_cache,
             empty_message="No symbols passed the screener.",
             scan_direction=cfg.scan_direction,
+            fair_pe=st.session_state.fair_pe_ratio,
         )
 
     st.session_state.scanning = False
@@ -1190,5 +1269,6 @@ else:
             chart_cache=st.session_state.get("chart_cache", {}),
             ohlc_cache=st.session_state.get("ohlc_cache", {}),
             scan_direction=as_of_dir,
+            fair_pe=st.session_state.fair_pe_ratio,
         )
 
