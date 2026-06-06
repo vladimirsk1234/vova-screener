@@ -209,6 +209,29 @@ def resolve_fair_pe(
     return float(sidebar_fair_pe)
 
 
+def resolve_chart_growth_rate(
+    historical_growth: float | None,
+    forecast_growth: float | None,
+    *,
+    mode: str,
+    growth_threshold: float = 10.0,
+) -> float | None:
+    """
+    Growth rate shown on FAST Graph chart boxes.
+    Historical view: prefer historical when >= threshold; else use strong forecast
+    (volatile EPS histories like AGI otherwise fall back to sidebar fair P/E).
+    """
+    if mode == "forecast":
+        return forecast_growth if forecast_growth is not None else historical_growth
+    if historical_growth is not None and historical_growth >= growth_threshold:
+        return historical_growth
+    if forecast_growth is not None and forecast_growth >= growth_threshold:
+        return forecast_growth
+    if historical_growth is not None:
+        return historical_growth
+    return forecast_growth
+
+
 def _blended_pe(trailing_pe: float | None, forward_pe: float | None) -> float | None:
     vals = [v for v in (trailing_pe, forward_pe) if v is not None and math.isfinite(v) and v > 0]
     if not vals:
@@ -553,14 +576,27 @@ def build_fast_graph_metrics(
         historical_growth,
     )
 
-    historical_fair_pe = resolve_fair_pe(
+    chart_historical_growth = resolve_chart_growth_rate(
         historical_growth,
+        forecast_growth,
+        mode="historical",
+        growth_threshold=cfg.growth_threshold,
+    )
+    chart_forecast_growth = resolve_chart_growth_rate(
+        historical_growth,
+        forecast_growth,
+        mode="forecast",
+        growth_threshold=cfg.growth_threshold,
+    )
+
+    historical_fair_pe = resolve_fair_pe(
+        chart_historical_growth,
         sidebar_fair_pe=cfg.sidebar_fair_pe,
         growth_threshold=cfg.growth_threshold,
         growth_cap_pct=cfg.growth_cap_pct,
     )
     forecast_fair_pe = resolve_fair_pe(
-        forecast_growth,
+        chart_forecast_growth,
         sidebar_fair_pe=cfg.sidebar_fair_pe,
         growth_threshold=cfg.growth_threshold,
         growth_cap_pct=cfg.growth_cap_pct,
@@ -651,10 +687,15 @@ def build_fast_graph_metrics(
         "fair_pe": fair_pe,
         "normal_pe": norm_pe,
         "historical_growth_rate": historical_growth,
+        "chart_historical_growth_rate": chart_historical_growth,
         "historical_fair_pe": historical_fair_pe,
         "historical_normal_pe": historical_normal_pe,
         "forecast_growth_rate": forecast_growth,
+        "chart_forecast_growth_rate": chart_forecast_growth,
         "forecast_fair_pe": forecast_fair_pe,
+        "sidebar_fair_pe": cfg.sidebar_fair_pe,
+        "growth_threshold": cfg.growth_threshold,
+        "growth_cap_pct": cfg.growth_cap_pct,
         "forecast_normal_pe": forecast_normal_pe,
         "blended_pe": blended,
         "eps_yield": eps_yield_pct(trailing_eps, close),

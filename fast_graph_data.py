@@ -128,6 +128,26 @@ def _lt_debt_to_capital_pct(ticker_obj: yf.Ticker | None) -> float | None:
     return round(lt_debt / denom * 100.0, 2)
 
 
+def _annual_dividend_history_10y(ticker: str, ticker_obj: yf.Ticker | None = None) -> dict[int, float]:
+    """Per-calendar-year DPS from yfinance dividend payment history."""
+    try:
+        t = ticker_obj or yf.Ticker(ticker)
+        try:
+            div_series = t.dividends
+        except Exception:
+            div_series = None
+        if isinstance(div_series, pd.Series) and not div_series.empty:
+            div_series = div_series.copy()
+            div_series.index = pd.to_datetime(div_series.index)
+            by_year = div_series.groupby(div_series.index.year).sum()
+            out = {int(y): float(v) for y, v in by_year.items() if float(v) > 0}
+            years_desc = sorted(out.keys(), reverse=True)[:10]
+            return {y: out[y] for y in sorted(years_desc)}
+    except Exception:
+        pass
+    return {}
+
+
 def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]:
     if not isinstance(financials, pd.DataFrame) or financials.empty:
         return {}
@@ -346,6 +366,7 @@ def fetch_fast_graph_bundle(ticker: str, *, use_cache: bool = True) -> dict[str,
                 merged[key] = val
 
     annual_eps = _annual_eps_history_10y(ticker, ticker_obj) if ticker_obj else {}
+    annual_dividends = _annual_dividend_history_10y(ticker, ticker_obj) if ticker_obj else {}
     earnings_estimates = _parse_earnings_estimates(ticker_obj) if ticker_obj else {}
     earnings_history = _parse_earnings_history(ticker_obj) if ticker_obj else []
     lt_debt_capital = _lt_debt_to_capital_pct(ticker_obj) if ticker_obj else None
@@ -354,6 +375,7 @@ def fetch_fast_graph_bundle(ticker: str, *, use_cache: bool = True) -> dict[str,
         "ticker": ticker,
         "info": _info_bundle(info, merged),
         "annual_eps": {str(k): v for k, v in annual_eps.items()},
+        "annual_dividends": {str(k): v for k, v in annual_dividends.items()},
         "earnings_estimates": earnings_estimates,
         "earnings_history": earnings_history,
         "lt_debt_capital": lt_debt_capital,
@@ -364,6 +386,17 @@ def fetch_fast_graph_bundle(ticker: str, *, use_cache: bool = True) -> dict[str,
 
 def annual_eps_from_bundle(bundle: dict) -> dict[int, float]:
     raw = bundle.get("annual_eps") or {}
+    out: dict[int, float] = {}
+    for k, v in raw.items():
+        try:
+            out[int(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def annual_dividends_from_bundle(bundle: dict) -> dict[int, float]:
+    raw = bundle.get("annual_dividends") or {}
     out: dict[int, float] = {}
     for k, v in raw.items():
         try:

@@ -18,6 +18,7 @@ from fast_graph_metrics import (
     compute_historical_growth_rate_pct,
     est_annual_ror_pct,
     eps_cagr_over_years,
+    resolve_chart_growth_rate,
     resolve_fair_pe,
     resolve_target_year_eps,
 )
@@ -67,6 +68,12 @@ def _test_pure_metrics() -> bool:
     fc_growth = compute_forecast_growth_pct(estimates, agi_eps, hist_growth)
     if fc_growth is None or fc_growth <= 0:
         print(f"  FAIL: forecast growth expected positive, got {fc_growth}")
+        ok = False
+
+    chart_hist = resolve_chart_growth_rate(hist_growth, fc_growth, mode="historical")
+    chart_fair = resolve_fair_pe(chart_hist, growth_cap_pct=100.0)
+    if chart_hist is None or chart_fair < 10.0:
+        print(f"  FAIL: AGI chart growth/fair P/E expected >=10, got growth={chart_hist} fair={chart_fair}")
         ok = False
 
     future_eps = resolve_target_year_eps(
@@ -133,8 +140,12 @@ def main() -> int:
 
         if t == "AGI":
             hist_fair = metrics.get("historical_fair_pe")
+            chart_growth = metrics.get("chart_historical_growth_rate")
             if hist_fair is None or hist_fair > 100.0:
                 print(f"  FAIL: AGI historical fair P/E should be <=100x, got {hist_fair}")
+                failures += 1
+            if chart_growth is None or chart_growth < 10.0:
+                print(f"  FAIL: AGI chart historical growth should be >=10%, got {chart_growth}")
                 failures += 1
             ror = metrics.get("est_annual_ror")
             if ror is not None and ror > 150.0:

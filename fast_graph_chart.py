@@ -26,9 +26,9 @@ FG_COLORS = {
     "normal_line": "#4DA3FF",
     "normal_marker_fill": "#4DA3FF",
     "normal_marker_line": "#FFFFFF",
-    "earnings_fill": "rgba(76, 160, 55, 0.50)",
+    "earnings_fill": "rgba(30, 95, 30, 0.65)",
     "earnings_line": "#52A844",
-    "dividend_fill": "rgba(30, 95, 30, 0.75)",
+    "dividend_fill": "rgba(30, 95, 30, 0.35)",
     "dividend_line": "#2E7D32",
     "div_por": "#E8EAED",
     "price_line": "#FFFFFF",
@@ -68,9 +68,8 @@ def _chart_eps_points(
     but caller applies historical P/E multiples.
     Forecast: full estimate chain with projected years.
     """
-    years_ahead = 4 if mode == "forecast" else 4
-    # Forward EPS from analysts; projection growth only fills beyond +1y.
-    eps_growth = forecast_growth if mode == "forecast" else forecast_growth
+    years_ahead = 4
+    eps_growth = forecast_growth if mode == "forecast" else hist_growth
     return _estimate_eps_chain(
         annual_eps,
         estimates,
@@ -168,31 +167,133 @@ def _annual_marker_series(
     return xs, ys, est_flags
 
 
+def _split_by_estimate(
+    xs: list,
+    ys: list,
+    est_flags: list[bool],
+) -> tuple[list, list, list, list]:
+    """Split marker coordinates into reported vs estimate years."""
+    act_x, act_y, est_x, est_y = [], [], [], []
+    for x, y, is_est in zip(xs, ys, est_flags):
+        if is_est:
+            est_x.append(x)
+            est_y.append(y)
+        else:
+            act_x.append(x)
+            act_y.append(y)
+    return act_x, act_y, est_x, est_y
+
+
+def _add_marker_traces(
+    fig: go.Figure,
+    *,
+    act_x: list,
+    act_y: list,
+    est_x: list,
+    est_y: list,
+    fill_color: str,
+    line_color: str,
+    symbol: str,
+    size: int,
+    hover_label: str,
+) -> None:
+    """Reported = filled markers; estimates = hollow markers."""
+    if act_x:
+        fig.add_trace(
+            go.Scatter(
+                x=act_x, y=act_y,
+                mode="markers",
+                marker=dict(
+                    size=size, symbol=symbol,
+                    color=fill_color,
+                    line=dict(width=1.5, color=line_color),
+                ),
+                showlegend=False,
+                hovertemplate=f"FY %{{x|%b %Y}}<br>{hover_label}: %{{y:.2f}}<extra></extra>",
+            ),
+            row=1, col=1,
+        )
+    if est_x:
+        fig.add_trace(
+            go.Scatter(
+                x=est_x, y=est_y,
+                mode="markers",
+                marker=dict(
+                    size=size, symbol=symbol,
+                    color="rgba(0,0,0,0)",
+                    line=dict(width=2, color=fill_color),
+                ),
+                showlegend=False,
+                hovertemplate=f"FY %{{x|%b %Y}}E<br>{hover_label}: %{{y:.2f}}<extra></extra>",
+            ),
+            row=1, col=1,
+        )
+
+
+def _extend_dividend_to_price_end(
+    eps_points: list[tuple[int, float, bool]],
+    price_index: pd.DatetimeIndex,
+    annual_dividends: dict[int, float],
+    *,
+    fair_pe: float,
+    fallback_rate: float | None = None,
+) -> tuple[list, list]:
+    """Per-year DPS × fair P/E stepped on the price timeline."""
+    if not eps_points or pe_index_empty(price_index) or fair_pe <= 0:
+        return [], []
+
+    boundaries: list[tuple[pd.Timestamp, float]] = []
+    for year, _eps, _ in eps_points:
+        dps = annual_dividends.get(year)
+        if dps is None or dps <= 0:
+            dps = fallback_rate or 0.0
+        boundaries.append((_fiscal_timestamp(year), float(dps) * fair_pe))
+    boundaries.sort(key=lambda x: x[0])
+
+    x_out: list = []
+    y_out: list = []
+    idx = 0
+    current_val = boundaries[0][1]
+
+    for ts in price_index:
+        while idx + 1 < len(boundaries) and ts >= boundaries[idx + 1][0]:
+            idx += 1
+            current_val = boundaries[idx][1]
+        x_out.append(ts)
+        y_out.append(current_val)
+    return x_out, y_out
+
+
 def _compute_fast_graph_y_range(
     closes: pd.Series,
     fair_y: list[float],
     norm_y: list[float],
+    div_y: list[float] | None = None,
     *,
-    price_max_multiplier: float = 2.5,
+    price_max_multiplier: float = 5.0,
 ) -> tuple[float, float]:
-    """Price-first y-axis; extend slightly to show valuation lines near price."""
+    """Price-first y-axis; extend to show full valuation lines."""
     price_lo = float(closes.min())
     price_hi = float(closes.max())
     span = max(price_hi - price_lo, price_hi * 0.05)
-    pad = max(span * 0.15, price_hi * 0.05)
+    pad = max(span * 0.12, price_hi * 0.04)
     y_lo = max(0.0, price_lo - pad * 0.5)
 
     y_hi = price_hi + pad
-    if fair_y or norm_y:
-        in_window = []
-        for y in fair_y + norm_y:
-            if y <= price_hi * price_max_multiplier:
-                in_window.append(y)
-        if in_window:
-            val_max = max(in_window)
-            cap = price_hi * price_max_multiplier
-            y_hi = max(y_hi, min(val_max + pad * 0.3, cap))
+    all_vals = [y for y in (fair_y or []) + (norm_y or []) + (div_y or []) if y > 0]
+    if all_vals:
+        val_max = max(all_vals)
+        soft_cap = price_hi * price_max_multiplier
+        y_hi = max(y_hi, min(val_max + pad * 0.25, soft_cap))
     return y_lo, y_hi
+
+
+def _fair_pe_config(metrics: dict[str, Any]) -> tuple[float, float, float]:
+    return (
+        float(metrics.get("sidebar_fair_pe") or 15.0),
+        float(metrics.get("growth_threshold") or 10.0),
+        float(metrics.get("growth_cap_pct") or 100.0),
+    )
 
 
 def _mode_pe(
@@ -202,15 +303,35 @@ def _mode_pe(
     annual_eps,
 ) -> tuple[float, float, float | None]:
     """Return (fair_pe, norm_pe, growth_rate) for chart mode."""
+    sidebar_pe, growth_thr, growth_cap = _fair_pe_config(metrics)
+
     if mode == "forecast":
-        growth = metrics.get("forecast_growth_rate") or metrics.get("est_eps_growth")
-        fair_pe = metrics.get("forecast_fair_pe") or resolve_fair_pe(growth)
+        growth = (
+            metrics.get("chart_forecast_growth_rate")
+            or metrics.get("forecast_growth_rate")
+            or metrics.get("est_eps_growth")
+        )
+        fair_pe = metrics.get("forecast_fair_pe") or resolve_fair_pe(
+            growth,
+            sidebar_fair_pe=sidebar_pe,
+            growth_threshold=growth_thr,
+            growth_cap_pct=growth_cap,
+        )
         norm_pe = metrics.get("forecast_normal_pe") or metrics.get("normal_pe")
     else:
-        growth = metrics.get("historical_growth_rate") or metrics.get("growth_rate")
+        growth = (
+            metrics.get("chart_historical_growth_rate")
+            or metrics.get("historical_growth_rate")
+            or metrics.get("growth_rate")
+        )
         if growth is None:
             growth = compute_historical_growth_rate_pct(annual_eps)
-        fair_pe = metrics.get("historical_fair_pe") or metrics.get("fair_pe") or resolve_fair_pe(growth)
+        fair_pe = metrics.get("historical_fair_pe") or metrics.get("fair_pe") or resolve_fair_pe(
+            growth,
+            sidebar_fair_pe=sidebar_pe,
+            growth_threshold=growth_thr,
+            growth_cap_pct=growth_cap,
+        )
         norm_pe = metrics.get("historical_normal_pe") or metrics.get("normal_pe")
 
     if norm_pe is None:
@@ -218,6 +339,26 @@ def _mode_pe(
     if norm_pe is None:
         norm_pe = fair_pe
     return float(fair_pe), float(norm_pe), growth
+
+
+def _metric_box_annotation(
+    *,
+    y: float,
+    label: str,
+    value: str,
+    color: str,
+) -> dict:
+    return dict(
+        x=0.98, y=y, xref="paper", yref="paper",
+        text=f"<b>{label}</b><br>{value}",
+        showarrow=False,
+        font=dict(size=11, color=color),
+        bgcolor="rgba(0,0,0,0.65)",
+        bordercolor=color,
+        borderwidth=1,
+        borderpad=4,
+        xanchor="right",
+    )
 
 
 def build_fast_graph_figure(
@@ -279,16 +420,27 @@ def build_fast_graph_figure(
         specs=[[{"type": "xy"}], [{"type": "table"}]],
     )
 
+    annual_dividends_raw = bundle.get("annual_dividends") or metrics.get("annual_dividends") or {}
+    annual_dividends: dict[int, float] = {}
+    for k, v in annual_dividends_raw.items():
+        try:
+            annual_dividends[int(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+
     dividend_rate = info.get("dividend_rate") or metrics.get("dividend_rate")
-    div_step_x, div_step_y = _extend_to_price_end(
+    fallback_div = float(dividend_rate) if dividend_rate and dividend_rate > 0 else None
+    div_step_x, div_step_y = _extend_dividend_to_price_end(
         eps_points,
         closes.index,
-        pe_multiple=(float(dividend_rate) * fair_pe if dividend_rate and dividend_rate > 0 else 0.0),
+        annual_dividends,
+        fair_pe=fair_pe,
+        fallback_rate=fallback_div,
     )
     fair_step_x, fair_step_y = _extend_to_price_end(eps_points, closes.index, pe_multiple=fair_pe)
     norm_step_x, norm_step_y = _extend_to_price_end(eps_points, closes.index, pe_multiple=norm_pe)
 
-    # Layer 1: dark green dividend band (0 → div×fair_pe).
+    # Layer 1: subtle dividend fill + white dashed Dividends POR line.
     if div_step_x and any(y > 0 for y in div_step_y):
         fig.add_trace(
             go.Scatter(x=div_step_x, y=[0.0] * len(div_step_x), line=dict(width=0), showlegend=False, hoverinfo="skip"),
@@ -298,15 +450,16 @@ def build_fast_graph_figure(
             go.Scatter(
                 x=div_step_x, y=div_step_y, fill="tonexty",
                 fillcolor=FG_COLORS["dividend_fill"],
-                line=dict(width=0), name="Dividends", hoverinfo="skip",
+                line=dict(width=0), showlegend=False, hoverinfo="skip",
             ),
             row=1, col=1,
         )
         fig.add_trace(
             go.Scatter(
                 x=div_step_x, y=div_step_y,
-                line=dict(color=FG_COLORS["dividend_line"], width=1),
-                mode="lines", showlegend=False, hoverinfo="skip",
+                name="Dividends POR",
+                line=dict(color=FG_COLORS["div_por"], width=1.5, dash="dash"),
+                mode="lines",
             ),
             row=1, col=1,
         )
@@ -329,61 +482,55 @@ def build_fast_graph_figure(
             row=1, col=1,
         )
 
-    fair_mk_x, fair_mk_y, _fair_est = _annual_marker_series(eps_points, pe_multiple=fair_pe)
-    norm_mk_x, norm_mk_y, _norm_est = _annual_marker_series(eps_points, pe_multiple=norm_pe)
+    fair_mk_x, fair_mk_y, fair_est = _annual_marker_series(eps_points, pe_multiple=fair_pe)
+    norm_mk_x, norm_mk_y, norm_est = _annual_marker_series(eps_points, pe_multiple=norm_pe)
+    fair_act_x, fair_act_y, fair_est_x, fair_est_y = _split_by_estimate(fair_mk_x, fair_mk_y, fair_est)
+    norm_act_x, norm_act_y, norm_est_x, norm_est_y = _split_by_estimate(norm_mk_x, norm_mk_y, norm_est)
 
     is_forecast = mode == "forecast"
     fair_dash = "dash" if is_forecast else "solid"
-    norm_dash = "dot"
+    norm_dash = "dash"
 
     if fair_step_x:
         fig.add_trace(
             go.Scatter(
                 x=fair_step_x, y=fair_step_y,
-                name=f"Fair Value ({fair_pe:.2f}x)",
+                name=f"Fair Value Ratio ({fair_pe:.2f}x)",
                 line=dict(color=FG_COLORS["fair_line"], width=2.5, dash=fair_dash),
                 mode="lines",
             ),
             row=1, col=1,
         )
-        fig.add_trace(
-            go.Scatter(
-                x=fair_mk_x, y=fair_mk_y,
-                mode="markers",
-                marker=dict(
-                    size=8, symbol="triangle-up",
-                    color=FG_COLORS["fair_marker_fill"],
-                    line=dict(width=1.5, color=FG_COLORS["fair_marker_line"]),
-                ),
-                showlegend=False,
-                hovertemplate="FY %{x|%b %Y}<br>Fair: %{y:.2f}<extra></extra>",
-            ),
-            row=1, col=1,
+        _add_marker_traces(
+            fig,
+            act_x=fair_act_x, act_y=fair_act_y,
+            est_x=fair_est_x, est_y=fair_est_y,
+            fill_color=FG_COLORS["fair_marker_fill"],
+            line_color=FG_COLORS["fair_marker_line"],
+            symbol="triangle-up",
+            size=8,
+            hover_label="Fair",
         )
 
     if norm_step_x:
         fig.add_trace(
             go.Scatter(
                 x=norm_step_x, y=norm_step_y,
-                name=f"Normal P/E ({norm_pe:.2f}x)",
+                name=f"Normal P/E Ratio ({norm_pe:.2f}x)",
                 line=dict(color=FG_COLORS["normal_line"], width=2, dash=norm_dash),
                 mode="lines",
             ),
             row=1, col=1,
         )
-        fig.add_trace(
-            go.Scatter(
-                x=norm_mk_x, y=norm_mk_y,
-                mode="markers",
-                marker=dict(
-                    size=7, symbol="circle",
-                    color=FG_COLORS["normal_marker_fill"],
-                    line=dict(width=1.5, color=FG_COLORS["normal_marker_line"]),
-                ),
-                showlegend=False,
-                hovertemplate="FY %{x|%b %Y}<br>Normal: %{y:.2f}<extra></extra>",
-            ),
-            row=1, col=1,
+        _add_marker_traces(
+            fig,
+            act_x=norm_act_x, act_y=norm_act_y,
+            est_x=norm_est_x, est_y=norm_est_y,
+            fill_color=FG_COLORS["normal_marker_fill"],
+            line_color=FG_COLORS["normal_marker_line"],
+            symbol="circle",
+            size=7,
+            hover_label="Normal",
         )
 
     fig.add_trace(
@@ -396,7 +543,7 @@ def build_fast_graph_figure(
         row=1, col=1,
     )
 
-    y_lo, y_hi = _compute_fast_graph_y_range(closes, fair_step_y, norm_step_y)
+    y_lo, y_hi = _compute_fast_graph_y_range(closes, fair_step_y, norm_step_y, div_step_y)
 
     # Horizontal table: columns = fiscal years (FAST Graphs layout).
     eps_table = _annual_eps_table_rows(
@@ -406,20 +553,42 @@ def build_fast_graph_figure(
     )
     if not eps_table.empty:
         fy_labels = list(eps_table["fy"])
-        table_cols: list[list[str]] = [["EPS", "Chg/Yr %"]]
-        for _, row in eps_table.iterrows():
+        table_rows: list[list[str]] = [["EPS"], ["Chg/Yr %"], ["Div"]]
+        chg_colors_row = ["#c0c0c0"]
+
+        for i, (_, row) in enumerate(eps_table.iterrows()):
+            year = eps_points[i][0]
             chg = row["chg_yr"]
-            chg_s = f"{chg:.1f}" if chg is not None and chg == chg else "—"
+            chg_s = f"{chg:.0f}%" if chg is not None and chg == chg else "—"
             eps_s = f"{row['eps']:.2f}"
             if row["is_est"] and not eps_s.endswith("E"):
                 eps_s += "E"
-            table_cols.append([eps_s, chg_s])
+            dps = annual_dividends.get(year)
+            if dps is None and fallback_div:
+                dps = fallback_div
+            div_s = f"{dps:.2f}" if dps is not None and dps > 0 else "—"
+            table_rows[0].append(eps_s)
+            table_rows[1].append(chg_s)
+            table_rows[2].append(div_s)
+            chg_colors_row.append("#ff6b6b" if chg is not None and chg < 0 else "#c0c0c0")
 
+        analyst_colors: list[str] | None = None
         if is_forecast and eps_table["analysts"].notna().any():
-            table_cols[0].append("# Analysts")
-            for i, (_, row) in enumerate(eps_table.iterrows(), start=1):
+            table_rows.append(["# Analysts"])
+            analyst_colors = ["#c0c0c0"]
+            for _, row in eps_table.iterrows():
                 a = row["analysts"]
-                table_cols[i].append(str(int(a)) if a is not None and a == a else "—")
+                table_rows[-1].append(str(int(a)) if a is not None and a == a else "—")
+                analyst_colors.append("#c0c0c0")
+
+        font_colors = []
+        for row_idx, row_vals in enumerate(table_rows):
+            if row_idx == 1:
+                font_colors.append(chg_colors_row)
+            elif analyst_colors is not None and row_idx == len(table_rows) - 1:
+                font_colors.append(analyst_colors)
+            else:
+                font_colors.append(["#c0c0c0"] * len(row_vals))
 
         fig.add_trace(
             go.Table(
@@ -430,9 +599,9 @@ def build_fast_graph_figure(
                     align="center",
                 ),
                 cells=dict(
-                    values=table_cols,
+                    values=table_rows,
                     fill_color="#0a0a0a",
-                    font=dict(color="#c0c0c0", size=10),
+                    font=dict(color=font_colors, size=10),
                     align="center",
                 ),
             ),
@@ -463,26 +632,49 @@ def build_fast_graph_figure(
         ),
     )
 
+    display_growth = (
+        metrics.get("chart_forecast_growth_rate") or forecast_growth
+        if is_forecast
+        else metrics.get("chart_historical_growth_rate") or hist_growth
+    )
+
     annotations: list[dict] = []
+    if display_growth is not None:
+        annotations.append(_metric_box_annotation(
+            y=0.98,
+            label="Growth Rate",
+            value=f"{display_growth:.2f}%",
+            color=FG_COLORS["growth_accent"],
+        ))
+    annotations.append(_metric_box_annotation(
+        y=0.91,
+        label="Fair Value Ratio",
+        value=f"{fair_pe:.2f}x",
+        color=FG_COLORS["fair_line"],
+    ))
+    annotations.append(_metric_box_annotation(
+        y=0.84,
+        label="Normal P/E Ratio",
+        value=f"{norm_pe:.2f}x",
+        color=FG_COLORS["normal_line"],
+    ))
+
     if is_forecast:
         ror = metrics.get("est_annual_ror")
         if ror is not None:
-            annotations.append(dict(
-                x=0.98, y=0.95, xref="paper", yref="paper",
-                text=f"Est. Annual ROR: {ror:.2f}%",
-                showarrow=False,
-                font=dict(size=13, color=FG_COLORS["ror_accent"]),
-                bgcolor="rgba(0,0,0,0.6)",
-                bordercolor=FG_COLORS["ror_accent"],
+            annotations.append(_metric_box_annotation(
+                y=0.77,
+                label="Est. Annual ROR",
+                value=f"{ror:.2f}%",
+                color=FG_COLORS["ror_accent"],
             ))
         fp = metrics.get("future_price")
         if fp is not None:
-            annotations.append(dict(
-                x=0.98, y=0.88, xref="paper", yref="paper",
-                text=f"Future Price: {cur_sym}{fp:.2f}",
-                showarrow=False,
-                font=dict(size=11, color=FG_COLORS["fair_line"]),
-                bgcolor="rgba(0,0,0,0.5)",
+            annotations.append(_metric_box_annotation(
+                y=0.70,
+                label="Future Price",
+                value=f"{cur_sym}{fp:.2f}",
+                color=FG_COLORS["fair_line"],
             ))
 
         if closes.index.size:

@@ -33,11 +33,18 @@ def _highlights_from_scanner_metrics(
     if not scanner_metrics:
         return None
     if chart_mode == "forecast":
-        growth = scanner_metrics.get("forecast_growth_rate")
+        growth = (
+            scanner_metrics.get("chart_forecast_growth_rate")
+            or scanner_metrics.get("forecast_growth_rate")
+        )
         fair = scanner_metrics.get("forecast_fair_pe")
         normal = scanner_metrics.get("forecast_normal_pe")
     else:
-        growth = scanner_metrics.get("historical_growth_rate") or scanner_metrics.get("growth_rate")
+        growth = (
+            scanner_metrics.get("chart_historical_growth_rate")
+            or scanner_metrics.get("historical_growth_rate")
+            or scanner_metrics.get("growth_rate")
+        )
         fair = scanner_metrics.get("historical_fair_pe") or scanner_metrics.get("fair_pe")
         normal = scanner_metrics.get("historical_normal_pe") or scanner_metrics.get("normal_pe")
     if growth is None and fair is None and normal is None:
