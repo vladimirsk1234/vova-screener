@@ -7,8 +7,11 @@ from __future__ import annotations
 import pandas as pd
 
 
-def interval_and_period(tf: str) -> tuple[str, str]:
+def interval_and_period(tf: str, *, scanner_id: str | None = None) -> tuple[str, str]:
     """Always fetch daily; Weekly/Monthly resampled from daily so current period is included."""
+    if scanner_id == "fast_graphs":
+        # FAST Graph charts need full EPS/price history (not the 2y Daily window).
+        return "1d", "max"
     return "1d", ("10y" if tf != "Daily" else "2y")
 
 

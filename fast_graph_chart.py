@@ -208,18 +208,28 @@ def _build_chart_timeline(
     price_index: pd.DatetimeIndex,
     eps_points: list[tuple[int, float, bool]],
 ) -> pd.DatetimeIndex:
-    """Price history plus weekly extension through last projected fiscal year-end."""
-    if pe_index_empty(price_index) or not eps_points:
-        return price_index
+    """Full EPS span: extend before first price bar and through last projected FY."""
+    if not eps_points:
+        return price_index.sort_values() if not pe_index_empty(price_index) else price_index
+
+    first_fy = _fiscal_timestamp(eps_points[0][0])
     last_fy = _fiscal_timestamp(eps_points[-1][0])
-    if price_index.max() >= last_fy:
-        return price_index.sort_values()
-    extra = pd.date_range(
-        price_index.max() + pd.Timedelta(weeks=1),
-        last_fy,
-        freq="W-FRI",
-    )
-    return price_index.union(extra).sort_values()
+
+    if pe_index_empty(price_index):
+        return pd.date_range(first_fy, last_fy, freq="W-FRI")
+
+    timeline = price_index.sort_values()
+    if timeline.min() > first_fy:
+        early = pd.date_range(first_fy, timeline.min() - pd.Timedelta(days=1), freq="W-FRI")
+        timeline = early.union(timeline).sort_values()
+    if timeline.max() < last_fy:
+        extra = pd.date_range(
+            timeline.max() + pd.Timedelta(weeks=1),
+            last_fy,
+            freq="W-FRI",
+        )
+        timeline = timeline.union(extra).sort_values()
+    return timeline
 
 
 def _extend_sloped_to_timeline(
@@ -271,7 +281,7 @@ def _extend_to_price_end(
         return [], []
 
     boundaries = [
-        (_fiscal_timestamp(year), eps * pe_multiple)
+        (_fiscal_timestamp(year), max(0.0, eps * pe_multiple))
         for year, eps, _ in eps_points
     ]
     timeline = _build_chart_timeline(price_index, eps_points)
@@ -291,7 +301,7 @@ def _annual_marker_series(
     xs, ys, est_flags = [], [], []
     for year, eps, is_est in eps_points:
         xs.append(_fiscal_timestamp(year))
-        ys.append(eps * pe_multiple)
+        ys.append(max(0.0, eps * pe_multiple))
         est_flags.append(is_est)
     return xs, ys, est_flags
 
@@ -382,24 +392,90 @@ def _extend_dividend_to_price_end(
     return _extend_sloped_to_timeline(boundaries, timeline)
 
 
+def _valuation_vals_in_window(
+    step_x: list,
+    step_y: list[float],
+    *,
+    x_min: pd.Timestamp,
+    x_max: pd.Timestamp,
+) -> list[float]:
+    """Positive valuation line samples that fall inside the chart x-window."""
+    out: list[float] = []
+    for x, y in zip(step_x or [], step_y or []):
+        if y <= 0:
+            continue
+        ts = pd.Timestamp(x)
+        if x_min <= ts <= x_max:
+            out.append(float(y))
+    return out
+
+
+def _compute_chart_x_range(
+    closes: pd.Series,
+    eps_points: list[tuple[int, float, bool]],
+    fair_step_x: list,
+) -> list[pd.Timestamp] | None:
+    """X-axis spans earliest EPS FY through latest price or projected FY."""
+    candidates: list[pd.Timestamp] = []
+    if not closes.empty:
+        candidates.extend([pd.Timestamp(closes.index.min()), pd.Timestamp(closes.index.max())])
+    if eps_points:
+        candidates.append(_fiscal_timestamp(eps_points[0][0]))
+        candidates.append(_fiscal_timestamp(eps_points[-1][0]))
+    if fair_step_x:
+        candidates.extend([pd.Timestamp(fair_step_x[0]), pd.Timestamp(fair_step_x[-1])])
+    if not candidates:
+        return None
+    x_min = min(candidates)
+    x_max = max(candidates)
+    pad = pd.Timedelta(days=45)
+    return [x_min - pad, x_max + pad]
+
+
 def _compute_fast_graph_y_range(
     closes: pd.Series,
+    fair_step_x: list,
     fair_y: list[float],
+    norm_step_x: list,
     norm_y: list[float],
     div_y: list[float] | None = None,
+    *,
+    x_range: list[pd.Timestamp] | None = None,
+    last_actual_ts: pd.Timestamp | None = None,
+    is_forecast: bool = False,
 ) -> tuple[float, float]:
-    """Y-axis spans price and full sloped valuation lines (FAST Graphs shows full mountain)."""
-    price_lo = float(closes.min())
+    """Y-axis fits price and valuation markers so multi-decade history stays readable."""
     price_hi = float(closes.max())
-    span = max(price_hi - price_lo, price_hi * 0.05)
+    price_lo = float(closes.min())
+    span = max(price_hi - price_lo, price_hi * 0.05, 1.0)
     pad = max(span * 0.08, price_hi * 0.03)
-    y_lo = max(0.0, price_lo - pad * 0.35)
+    y_lo = 0.0
+
+    x_min = pd.Timestamp(x_range[0]) if x_range else pd.Timestamp(closes.index.min())
+    x_max = pd.Timestamp(x_range[1]) if x_range else pd.Timestamp(closes.index.max())
+
+    val_cutoff = x_max if is_forecast else (last_actual_ts or x_max)
 
     y_hi = price_hi + pad
-    all_vals = [y for y in (fair_y or []) + (norm_y or []) + (div_y or []) if y > 0]
-    if all_vals:
-        val_max = max(all_vals)
-        y_hi = max(y_hi, val_max + pad * 0.12)
+    window_vals = (
+        _valuation_vals_in_window(fair_step_x, fair_y, x_min=x_min, x_max=val_cutoff)
+        + _valuation_vals_in_window(norm_step_x, norm_y, x_min=x_min, x_max=val_cutoff)
+    )
+    if window_vals:
+        y_hi = max(y_hi, max(window_vals) + pad * 0.12)
+
+    if not is_forecast and last_actual_ts is not None:
+        est_vals = (
+            _valuation_vals_in_window(fair_step_x, fair_y, x_min=last_actual_ts, x_max=x_max)
+            + _valuation_vals_in_window(norm_step_x, norm_y, x_min=last_actual_ts, x_max=x_max)
+        )
+        if est_vals:
+            est_max = max(est_vals)
+            y_hi = max(y_hi, min(est_max + pad * 0.08, y_hi * 1.35))
+
+    div_vals = [y for y in (div_y or []) if y > 0]
+    if div_vals:
+        y_hi = max(y_hi, max(div_vals) + pad * 0.05)
     return y_lo, y_hi
 
 
@@ -698,7 +774,18 @@ def build_fast_graph_figure(
         row=1, col=1,
     )
 
-    y_lo, y_hi = _compute_fast_graph_y_range(closes, fair_step_y, norm_step_y, div_step_y)
+    x_range = _compute_chart_x_range(closes, eps_points, fair_step_x)
+    y_lo, y_hi = _compute_fast_graph_y_range(
+        closes,
+        fair_mk_x,
+        fair_mk_y,
+        norm_mk_x,
+        norm_mk_y,
+        div_step_y,
+        x_range=x_range,
+        last_actual_ts=last_actual_ts,
+        is_forecast=is_forecast,
+    )
 
     eps_table = _annual_eps_table_rows(
         eps_points,
@@ -707,7 +794,6 @@ def build_fast_graph_figure(
     )
     fy_tickvals = [_fiscal_timestamp(y) for y, _, _ in eps_points]
     fy_ticktext = [_fy_label(y, is_estimate=est) for y, _, est in eps_points]
-    x_range = [fair_step_x[0], fair_step_x[-1]] if fair_step_x else None
 
     table_annotations = _add_aligned_fy_table(
         eps_table,
@@ -735,6 +821,7 @@ def build_fast_graph_figure(
         tickvals=fy_tickvals,
         ticktext=fy_ticktext,
         tickangle=0,
+        fixedrange=True,
         row=1,
         col=1,
     )
@@ -743,6 +830,7 @@ def build_fast_graph_figure(
         showticklabels=False,
         showgrid=False,
         range=x_range,
+        fixedrange=True,
         row=2,
         col=1,
     )
@@ -753,6 +841,7 @@ def build_fast_graph_figure(
         gridcolor=FG_COLORS["grid"],
         range=[y_lo, y_hi],
         autorange=False,
+        fixedrange=True,
         zeroline=True,
         zerolinecolor="rgba(255,255,255,0.15)",
         row=1,

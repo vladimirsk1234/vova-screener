@@ -47,6 +47,7 @@ if 'fair_pe_ratio' not in st.session_state:
 from ui_styles import inject_styles
 from chart_preview import (
     DEFAULT_CHART_HEIGHT,
+    FAST_GRAPH_PLOTLY_CONFIG,
     PLOTLY_CHART_CONFIG,
     company_description_from_payload,
     figure_from_payload,
@@ -623,7 +624,7 @@ def render_scan_results(
                 )
                 if fig is not None:
                     with st.container(border=True):
-                        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CHART_CONFIG)
+                        st.plotly_chart(fig, use_container_width=True, config=FAST_GRAPH_PLOTLY_CONFIG)
                 desc = (fast_metrics.get("bundle") or {}).get("info", {}).get("description", "")
                 if desc:
                     st.markdown("**About**")
@@ -1151,7 +1152,7 @@ def run_scan(
     Logs phase timings to the logger and stdout. No Streamlit calls.
     Returns (table_rows, rejected_reasons, reference_end_date, ohlc_cache).
     """
-    inter, fetch_period = _interval_and_period(tf)
+    inter, fetch_period = _interval_and_period(tf, scanner_id=scanner_id)
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if len(tickers) > CHUNK_SIZE:
         batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]

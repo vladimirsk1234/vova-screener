@@ -32,6 +32,12 @@ PLOTLY_CHART_CONFIG = {
     "doubleClick": "reset",
 }
 
+FAST_GRAPH_PLOTLY_CONFIG = {
+    "displayModeBar": False,
+    "scrollZoom": False,
+    "doubleClick": False,
+}
+
 DAY_MS = 86_400_000
 
 
