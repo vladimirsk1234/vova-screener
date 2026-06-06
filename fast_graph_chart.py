@@ -26,9 +26,9 @@ FG_COLORS = {
     "normal_line": "#4DA3FF",
     "normal_marker_fill": "#4DA3FF",
     "normal_marker_line": "#FFFFFF",
-    "earnings_fill": "rgba(30, 95, 30, 0.65)",
-    "earnings_line": "#52A844",
-    "dividend_fill": "rgba(30, 95, 30, 0.35)",
+    "earnings_fill": "rgba(22, 72, 22, 0.78)",
+    "earnings_line": "#3d8b37",
+    "dividend_fill": "rgba(76, 160, 55, 0.42)",
     "dividend_line": "#2E7D32",
     "div_por": "#E8EAED",
     "price_line": "#FFFFFF",
@@ -116,16 +116,69 @@ def _annual_eps_table_rows(
     return pd.DataFrame(rows)
 
 
+def _build_chart_timeline(
+    price_index: pd.DatetimeIndex,
+    eps_points: list[tuple[int, float, bool]],
+) -> pd.DatetimeIndex:
+    """Price history plus weekly extension through last projected fiscal year-end."""
+    if pe_index_empty(price_index) or not eps_points:
+        return price_index
+    last_fy = _fiscal_timestamp(eps_points[-1][0])
+    if price_index.max() >= last_fy:
+        return price_index.sort_values()
+    extra = pd.date_range(
+        price_index.max() + pd.Timedelta(weeks=1),
+        last_fy,
+        freq="W-FRI",
+    )
+    return price_index.union(extra).sort_values()
+
+
+def _extend_sloped_to_timeline(
+    boundaries: list[tuple[pd.Timestamp, float]],
+    timeline: pd.DatetimeIndex,
+) -> tuple[list, list]:
+    """
+    FAST Graphs ramps: linear interpolation between fiscal year-end valuation points.
+    Before first FY: hold first value; after last FY: hold last value.
+    """
+    if not boundaries or pe_index_empty(timeline):
+        return [], []
+
+    bounds = sorted(boundaries, key=lambda x: x[0])
+    x_out: list = []
+    y_out: list = []
+
+    for ts in timeline:
+        if ts <= bounds[0][0]:
+            y = bounds[0][1]
+        elif ts >= bounds[-1][0]:
+            y = bounds[-1][1]
+        else:
+            y = bounds[-1][1]
+            for i in range(len(bounds) - 1):
+                t0, v0 = bounds[i]
+                t1, v1 = bounds[i + 1]
+                if t0 <= ts <= t1:
+                    span = (t1 - t0).total_seconds()
+                    if span <= 0:
+                        y = v1
+                    else:
+                        frac = (ts - t0).total_seconds() / span
+                        y = v0 + (v1 - v0) * frac
+                    break
+        x_out.append(ts)
+        y_out.append(y)
+    return x_out, y_out
+
+
 def _extend_to_price_end(
     eps_points: list[tuple[int, float, bool]],
     price_index: pd.DatetimeIndex,
     *,
     pe_multiple: float,
 ) -> tuple[list, list]:
-    """
-    FAST Graphs gaps_off: EPS × P/E held from each fiscal year-end until the next,
-    then extend the last value through the end of the price series.
-    """
+    """EPS × P/E sloped between fiscal year-ends on the chart timeline."""
     if not eps_points or pe_index_empty(price_index) or pe_multiple <= 0:
         return [], []
 
@@ -133,20 +186,8 @@ def _extend_to_price_end(
         (_fiscal_timestamp(year), eps * pe_multiple)
         for year, eps, _ in eps_points
     ]
-    boundaries.sort(key=lambda x: x[0])
-
-    x_out: list = []
-    y_out: list = []
-    idx = 0
-    current_val = boundaries[0][1]
-
-    for ts in price_index:
-        while idx + 1 < len(boundaries) and ts >= boundaries[idx + 1][0]:
-            idx += 1
-            current_val = boundaries[idx][1]
-        x_out.append(ts)
-        y_out.append(current_val)
-    return x_out, y_out
+    timeline = _build_chart_timeline(price_index, eps_points)
+    return _extend_sloped_to_timeline(boundaries, timeline)
 
 
 def pe_index_empty(price_index: pd.DatetimeIndex) -> bool:
@@ -238,7 +279,7 @@ def _extend_dividend_to_price_end(
     fair_pe: float,
     fallback_rate: float | None = None,
 ) -> tuple[list, list]:
-    """Per-year DPS × fair P/E stepped on the price timeline."""
+    """Per-year DPS × fair P/E sloped between fiscal year-ends."""
     if not eps_points or pe_index_empty(price_index) or fair_pe <= 0:
         return [], []
 
@@ -248,20 +289,9 @@ def _extend_dividend_to_price_end(
         if dps is None or dps <= 0:
             dps = fallback_rate or 0.0
         boundaries.append((_fiscal_timestamp(year), float(dps) * fair_pe))
-    boundaries.sort(key=lambda x: x[0])
 
-    x_out: list = []
-    y_out: list = []
-    idx = 0
-    current_val = boundaries[0][1]
-
-    for ts in price_index:
-        while idx + 1 < len(boundaries) and ts >= boundaries[idx + 1][0]:
-            idx += 1
-            current_val = boundaries[idx][1]
-        x_out.append(ts)
-        y_out.append(current_val)
-    return x_out, y_out
+    timeline = _build_chart_timeline(price_index, eps_points)
+    return _extend_sloped_to_timeline(boundaries, timeline)
 
 
 def _compute_fast_graph_y_range(
@@ -286,6 +316,38 @@ def _compute_fast_graph_y_range(
         soft_cap = price_hi * price_max_multiplier
         y_hi = max(y_hi, min(val_max + pad * 0.25, soft_cap))
     return y_lo, y_hi
+
+
+def _last_reported_fy_timestamp(
+    eps_points: list[tuple[int, float, bool]],
+) -> pd.Timestamp | None:
+    for year, _, is_est in reversed(eps_points):
+        if not is_est:
+            return _fiscal_timestamp(year)
+    return None
+
+
+def _split_line_at_timestamp(
+    x: list,
+    y: list,
+    split_ts: pd.Timestamp | None,
+) -> tuple[tuple[list, list], tuple[list, list]]:
+    """Split a sloped line into (before, after) at split_ts inclusive on after segment."""
+    if not x or split_ts is None:
+        return (x, y), ([], [])
+    before_x, before_y, after_x, after_y = [], [], [], []
+    for xi, yi in zip(x, y):
+        ts = pd.Timestamp(xi)
+        if ts <= split_ts:
+            before_x.append(xi)
+            before_y.append(yi)
+        else:
+            after_x.append(xi)
+            after_y.append(yi)
+    if before_x and after_x:
+        after_x.insert(0, before_x[-1])
+        after_y.insert(0, before_y[-1])
+    return (before_x, before_y), (after_x, after_y)
 
 
 def _fair_pe_config(metrics: dict[str, Any]) -> tuple[float, float, float]:
@@ -440,17 +502,45 @@ def build_fast_graph_figure(
     fair_step_x, fair_step_y = _extend_to_price_end(eps_points, closes.index, pe_multiple=fair_pe)
     norm_step_x, norm_step_y = _extend_to_price_end(eps_points, closes.index, pe_multiple=norm_pe)
 
-    # Layer 1: subtle dividend fill + white dashed Dividends POR line.
-    if div_step_x and any(y > 0 for y in div_step_y):
+    # Layer 1: earnings evaluation — dark green fill from 0 to sloped fair value (FAST mountain).
+    if fair_step_x and fair_step_y:
         fig.add_trace(
-            go.Scatter(x=div_step_x, y=[0.0] * len(div_step_x), line=dict(width=0), showlegend=False, hoverinfo="skip"),
+            go.Scatter(
+                x=fair_step_x, y=[0.0] * len(fair_step_x),
+                line=dict(width=0), showlegend=False, hoverinfo="skip",
+            ),
             row=1, col=1,
         )
         fig.add_trace(
             go.Scatter(
-                x=div_step_x, y=div_step_y, fill="tonexty",
-                fillcolor=FG_COLORS["dividend_fill"],
+                x=fair_step_x, y=fair_step_y,
+                fill="tonexty",
+                fillcolor=FG_COLORS["earnings_fill"],
+                line=dict(width=0),
+                name="Earnings",
+                showlegend=False,
+                hoverinfo="skip",
+            ),
+            row=1, col=1,
+        )
+
+    # Layer 2: dividend zone — lighter green from 0 to sloped dividend line.
+    if div_step_x and any(y > 0 for y in div_step_y):
+        fig.add_trace(
+            go.Scatter(
+                x=div_step_x, y=[0.0] * len(div_step_x),
                 line=dict(width=0), showlegend=False, hoverinfo="skip",
+            ),
+            row=1, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=div_step_x, y=div_step_y,
+                fill="tonexty",
+                fillcolor=FG_COLORS["dividend_fill"],
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
             ),
             row=1, col=1,
         )
@@ -464,43 +554,38 @@ def build_fast_graph_figure(
             row=1, col=1,
         )
 
-    # Layer 2: earnings green slope (div top → fair value, or 0 → fair if no div).
-    has_div = div_step_x and any(y > 0 for y in div_step_y)
-    base_y = div_step_y if has_div else [0.0] * len(fair_step_x)
-    if fair_step_x and fair_step_y:
-        fig.add_trace(
-            go.Scatter(x=fair_step_x, y=base_y, line=dict(width=0), showlegend=False, hoverinfo="skip"),
-            row=1, col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=fair_step_x, y=fair_step_y, fill="tonexty",
-                fillcolor=FG_COLORS["earnings_fill"],
-                line=dict(color=FG_COLORS["earnings_line"], width=1),
-                name="Earnings", showlegend=False, hoverinfo="skip",
-            ),
-            row=1, col=1,
-        )
-
     fair_mk_x, fair_mk_y, fair_est = _annual_marker_series(eps_points, pe_multiple=fair_pe)
     norm_mk_x, norm_mk_y, norm_est = _annual_marker_series(eps_points, pe_multiple=norm_pe)
     fair_act_x, fair_act_y, fair_est_x, fair_est_y = _split_by_estimate(fair_mk_x, fair_mk_y, fair_est)
     norm_act_x, norm_act_y, norm_est_x, norm_est_y = _split_by_estimate(norm_mk_x, norm_mk_y, norm_est)
 
     is_forecast = mode == "forecast"
-    fair_dash = "dash" if is_forecast else "solid"
-    norm_dash = "dash"
+    last_actual_ts = _last_reported_fy_timestamp(eps_points)
+    fair_hist, fair_est_seg = _split_line_at_timestamp(fair_step_x, fair_step_y, last_actual_ts)
 
     if fair_step_x:
-        fig.add_trace(
-            go.Scatter(
-                x=fair_step_x, y=fair_step_y,
-                name=f"Fair Value Ratio ({fair_pe:.2f}x)",
-                line=dict(color=FG_COLORS["fair_line"], width=2.5, dash=fair_dash),
-                mode="lines",
-            ),
-            row=1, col=1,
-        )
+        fair_label = f"Fair Value Ratio ({fair_pe:.2f}x)"
+        if fair_hist[0]:
+            fig.add_trace(
+                go.Scatter(
+                    x=fair_hist[0], y=fair_hist[1],
+                    name=fair_label,
+                    line=dict(color=FG_COLORS["fair_line"], width=2.5, dash="solid"),
+                    mode="lines",
+                ),
+                row=1, col=1,
+            )
+        if fair_est_seg[0]:
+            fig.add_trace(
+                go.Scatter(
+                    x=fair_est_seg[0], y=fair_est_seg[1],
+                    name=fair_label if not fair_hist[0] else None,
+                    line=dict(color=FG_COLORS["fair_line"], width=2.5, dash="dash"),
+                    mode="lines",
+                    showlegend=not fair_hist[0],
+                ),
+                row=1, col=1,
+            )
         _add_marker_traces(
             fig,
             act_x=fair_act_x, act_y=fair_act_y,
@@ -517,7 +602,7 @@ def build_fast_graph_figure(
             go.Scatter(
                 x=norm_step_x, y=norm_step_y,
                 name=f"Normal P/E Ratio ({norm_pe:.2f}x)",
-                line=dict(color=FG_COLORS["normal_line"], width=2, dash=norm_dash),
+                line=dict(color=FG_COLORS["normal_line"], width=2, dash="dash"),
                 mode="lines",
             ),
             row=1, col=1,
@@ -619,7 +704,11 @@ def build_fast_graph_figure(
         height=height,
         margin=dict(l=50, r=30, t=50, b=30),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color="#c0c0c0")),
-        xaxis=dict(showgrid=True, gridcolor=FG_COLORS["grid"]),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor=FG_COLORS["grid"],
+            range=[fair_step_x[0], fair_step_x[-1]] if fair_step_x else None,
+        ),
         yaxis=dict(
             title=dict(text=f"Price ({currency})", font=dict(color="#9aa0a6")),
             tickfont=dict(color="#9aa0a6"),
