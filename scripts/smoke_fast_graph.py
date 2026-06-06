@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 import yfinance as yf
 
 from data_utils import resample_to_timeframe
-from fast_graph_chart import build_fast_graph_figure, build_fg_radar_figure
+from fast_graph_chart import build_fast_graph_figure
 from fast_graph_metrics import (
     FastGraphFilterConfig,
     compute_forecast_growth_pct,
@@ -112,7 +112,6 @@ def _print_metrics(ticker: str, metrics: dict) -> None:
     print(f"  Fcst Fair P/E: {metrics.get('forecast_fair_pe')}")
     print(f"  Est ROR: {metrics.get('est_annual_ror')}%")
     print(f"  Future Price: {metrics.get('future_price')}")
-    print(f"  FG Score: {metrics.get('fg_score')}")
 
 
 def main() -> int:
@@ -164,8 +163,6 @@ def main() -> int:
             metrics=metrics,
             mode="forecast",
         )
-        radar = build_fg_radar_figure(metrics.get("fg_axes") or {})
-
         if hist is None or fcst is None:
             print("  FAIL: chart build")
             failures += 1
@@ -174,10 +171,6 @@ def main() -> int:
             if y_range and y_range[1] > float(metrics.get("close", 0)) * 10:
                 print(f"  WARN: historical y-axis may still be wide: {y_range}")
             print("  Charts: OK (historical + forecast)")
-        if radar is None:
-            print("  WARN: no radar chart")
-        else:
-            print("  Radar: OK")
 
     if failures:
         print(f"\n{failures} check(s) failed")

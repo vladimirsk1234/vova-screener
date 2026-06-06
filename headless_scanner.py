@@ -70,7 +70,7 @@ from ticker_data import (
 
 # FAST Graphs modules (after ticker_data to avoid circular imports)
 from fundamentals_fast import get_fast_graph_panel_data
-from fast_graph_chart import build_fast_graph_figure, build_fg_radar_figure
+from fast_graph_chart import build_fast_graph_figure
 from fast_graph_metrics import FastGraphFilterConfig
 from fast_graph_panel_ui import render_fast_graph_extended_panel
 from fast_graph_scanner import fast_graph_table_row, run_fast_graph_scan
@@ -171,7 +171,6 @@ def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
         max_lt_debt_capital=float(p.get("fg_max_debt_cap", 55.0)),
         min_est_annual_ror=float(p.get("fg_min_ror", 0.0)),
         price_below_fair=bool(p.get("fg_below_fair", False)),
-        min_fg_score=float(p.get("fg_min_score", 0.0)),
         horizon_years=int(p.get("fg_horizon", 3)),
         sidebar_fair_pe=float(p.get("fair_pe", 15.0)),
         valuation_pe_mode=str(p.get("fg_val_pe_mode", "fair")),
@@ -236,7 +235,6 @@ if is_fast_scanner:
     fg_max_debt_cap = st.sidebar.number_input("Max LT Debt/Capital %", 0.0, 100.0, 55.0, 1.0, disabled=disabled)
     fg_min_ror = st.sidebar.number_input("Min Est Annual ROR %", 0.0, 100.0, 0.0, 1.0, disabled=disabled)
     fg_below_fair = st.sidebar.checkbox("Price below Fair Value", False, disabled=disabled)
-    fg_min_score = st.sidebar.number_input("Min FG Score", 0.0, 100.0, 0.0, 5.0, disabled=disabled)
     fg_horizon = st.sidebar.selectbox("ROR horizon (years)", [1, 2, 3, 4, 5], index=2, disabled=disabled)
     fg_val_pe_mode = st.sidebar.radio(
         "ROR valuation P/E",
@@ -262,7 +260,6 @@ else:
     fg_max_debt_cap = 55.0
     fg_min_ror = 0.0
     fg_below_fair = False
-    fg_min_score = 0.0
     fg_horizon = 3
     fg_val_pe_mode = "Fair P/E"
     st.sidebar.subheader("RISK MANAGEMENT")
@@ -319,7 +316,6 @@ if start_btn:
         'fg_max_debt_cap': fg_max_debt_cap,
         'fg_min_ror': fg_min_ror,
         'fg_below_fair': fg_below_fair,
-        'fg_min_score': fg_min_score,
         'fg_horizon': fg_horizon,
         'fg_val_pe_mode': "fair" if fg_val_pe_mode == "Fair P/E" else "normal",
     }
@@ -628,10 +624,6 @@ def render_scan_results(
                 if fig is not None:
                     with st.container(border=True):
                         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CHART_CONFIG)
-                fg_axes = fast_metrics.get("fg_axes") or {}
-                radar = build_fg_radar_figure(fg_axes, height=280) if fg_axes else None
-                if radar is not None:
-                    st.plotly_chart(radar, use_container_width=True, config=PLOTLY_CHART_CONFIG)
                 desc = (fast_metrics.get("bundle") or {}).get("info", {}).get("description", "")
                 if desc:
                     st.markdown("**About**")

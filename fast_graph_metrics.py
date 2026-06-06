@@ -388,90 +388,6 @@ def compute_est_ror(
     return round(future_price, 2), ror
 
 
-def _clamp_score(val: float, lo: float = 0.0, hi: float = 100.0) -> float:
-    return max(lo, min(hi, val))
-
-
-def _score_margin(margin: float | None) -> float:
-    if margin is None:
-        return 50.0
-    pct = margin * 100.0 if abs(margin) <= 1.0 else margin
-    return _clamp_score(pct * 3.0)
-
-
-def _score_roe(roe: float | None) -> float:
-    if roe is None:
-        return 50.0
-    pct = roe * 100.0 if abs(roe) <= 1.0 else roe
-    return _clamp_score(pct * 2.5)
-
-
-def _score_growth(cagr: float | None, est_growth: float | None) -> float:
-    vals = [v for v in (cagr, est_growth) if v is not None and math.isfinite(v)]
-    if not vals:
-        return 50.0
-    avg = sum(vals) / len(vals)
-    return _clamp_score(avg * 4.0)
-
-
-def _score_financial_strength(lt_debt_cap: float | None, debt_to_equity: float | None) -> float:
-    score = 70.0
-    if lt_debt_cap is not None:
-        if lt_debt_cap <= 30:
-            score += 20
-        elif lt_debt_cap <= 55:
-            score += 10
-        elif lt_debt_cap > 70:
-            score -= 25
-        elif lt_debt_cap > 55:
-            score -= 10
-    if debt_to_equity is not None:
-        if debt_to_equity > 200:
-            score -= 15
-        elif debt_to_equity < 50:
-            score += 5
-    return _clamp_score(score)
-
-
-def _score_cash_flow(ocf_to_mcap: float | None) -> float:
-    if ocf_to_mcap is None:
-        return 50.0
-    pct = ocf_to_mcap * 100.0 if abs(ocf_to_mcap) <= 1.0 else ocf_to_mcap
-    return _clamp_score(pct * 5.0)
-
-
-def _score_predictability(beat_pct: float | None) -> float:
-    if beat_pct is None:
-        return 50.0
-    return _clamp_score(beat_pct)
-
-
-def compute_fg_scores(raw: dict[str, Any]) -> dict[str, float]:
-    """Approximate FAST Graphs pentagon scores from Yahoo proxies."""
-    profitability = _clamp_score(
-        (_score_margin(raw.get("profit_margin"))
-         + _score_roe(raw.get("roe"))
-         + _score_roe(raw.get("roa"))) / 3.0
-    )
-    growth = _score_growth(raw.get("eps_cagr"), raw.get("est_eps_growth"))
-    financial = _score_financial_strength(
-        raw.get("lt_debt_capital"),
-        raw.get("debt_to_equity"),
-    )
-    cash_flow = _score_cash_flow(raw.get("ocf_to_mcap"))
-    predictability = _score_predictability(raw.get("analyst_beat_pct"))
-
-    axes = {
-        "Profitability": round(profitability, 1),
-        "Growth": round(growth, 1),
-        "Financial Strength": round(financial, 1),
-        "Cash Flow Generation": round(cash_flow, 1),
-        "Predictability": round(predictability, 1),
-    }
-    axes["FG Score"] = round(sum(axes.values()) / len(axes), 1)
-    return axes
-
-
 @dataclass(frozen=True)
 class FastGraphFilterConfig:
     countries: tuple[str, ...] = ("United States", "Canada")
@@ -489,7 +405,6 @@ class FastGraphFilterConfig:
     max_lt_debt_capital: float = 55.0
     min_est_annual_ror: float = 0.0
     price_below_fair: bool = False
-    min_fg_score: float = 0.0
     horizon_years: int = 3
     sidebar_fair_pe: float = 15.0
     growth_threshold: float = 10.0
@@ -548,11 +463,6 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
         vs_fair = metrics.get("vs_fair_pct")
         if vs_fair is None or vs_fair >= 0:
             return False, "NOT_BELOW_FAIR"
-
-    fg = metrics.get("fg_score")
-    if cfg.min_fg_score > 0:
-        if fg is None or fg < cfg.min_fg_score:
-            return False, "FG_SCORE"
 
     return True, ""
 
@@ -662,25 +572,6 @@ def build_fast_graph_metrics(
         if total > 0:
             beat_pct = round(beats / total * 100.0, 1)
 
-    mcap = info.get("market_cap")
-    ocf = info.get("operating_cashflow")
-    ocf_to_mcap = None
-    if mcap and ocf and mcap > 0:
-        ocf_to_mcap = ocf / mcap
-
-    fg_raw = {
-        "profit_margin": info.get("profit_margin"),
-        "roe": info.get("roe"),
-        "roa": info.get("roa"),
-        "eps_cagr": growth_rate,
-        "est_eps_growth": est_eps_growth,
-        "lt_debt_capital": lt_debt_capital,
-        "debt_to_equity": info.get("debt_to_equity"),
-        "ocf_to_mcap": ocf_to_mcap,
-        "analyst_beat_pct": beat_pct,
-    }
-    fg_scores = compute_fg_scores(fg_raw)
-
     metrics: dict[str, Any] = {
         "close": round(close, 2),
         "growth_rate": growth_rate,
@@ -707,8 +598,6 @@ def build_fast_graph_metrics(
         "future_price": future_price,
         "future_eps": round(future_eps, 4) if future_eps else None,
         "lt_debt_capital": lt_debt_capital,
-        "fg_score": fg_scores.get("FG Score"),
-        "fg_axes": fg_scores,
         "cagr_1y": eps_cagr_over_years(annual_eps, 1),
         "cagr_3y": eps_cagr_over_years(annual_eps, 3),
         "cagr_5y": eps_cagr_over_years(annual_eps, 5),

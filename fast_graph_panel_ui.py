@@ -1,5 +1,5 @@
 """
-Extended FAST Graphs panel: ROR highlights, FG score bars, analyst beat summary.
+Extended FAST Graphs panel: ROR highlights, analyst beat summary.
 """
 from __future__ import annotations
 
@@ -15,30 +15,13 @@ def _esc(text: str) -> str:
     return html.escape(str(text or ""), quote=True)
 
 
-def _score_bar(label: str, score: float) -> str:
-    pct = max(0, min(100, float(score)))
-    if pct >= 70:
-        color = "#6BAF4A"
-    elif pct >= 50:
-        color = "#FF9500"
-    else:
-        color = "#e57373"
-    return (
-        f'<div class="fg-score-row">'
-        f'<span class="fg-score-label">{_esc(label)}</span>'
-        f'<div class="fg-score-track"><div class="fg-score-fill" style="width:{pct}%;background:{color};"></div></div>'
-        f'<span class="fg-score-val">{pct:.0f}</span>'
-        f"</div>"
-    )
-
-
 def render_fast_graph_extended_panel(
     panel_data: dict[str, Any] | None,
     metrics: dict[str, Any] | None = None,
     *,
     chart_mode: str = "historical",
 ) -> None:
-    """Render base FAST panel plus ROR/FG/analyst extensions."""
+    """Render base FAST panel plus ROR/analyst extensions."""
     if panel_data:
         render_fast_graph_panel(panel_data)
 
@@ -68,22 +51,6 @@ def render_fast_graph_extended_panel(
             f'<div class="fg-highlights">{"".join(extras)}</div>',
             unsafe_allow_html=True,
         )
-
-    fg_axes = metrics.get("fg_axes") or {}
-    if fg_axes:
-        bars = []
-        for label in (
-            "Profitability",
-            "Growth",
-            "Financial Strength",
-            "Cash Flow Generation",
-            "Predictability",
-        ):
-            if label in fg_axes:
-                bars.append(_score_bar(label, fg_axes[label]))
-        if bars:
-            st.markdown("**FG Score (Yahoo approximation)**")
-            st.markdown(f'<div class="fg-score-bars">{"".join(bars)}</div>', unsafe_allow_html=True)
 
     beat_pct = metrics.get("analyst_beat_pct")
     history = (metrics.get("bundle") or {}).get("earnings_history") or []
