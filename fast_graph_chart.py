@@ -78,6 +78,94 @@ def _chart_eps_points(
     )
 
 
+_TABLE_ROW_Y = {
+    "fy": 3.0,
+    "eps": 2.0,
+    "chg": 1.0,
+    "div": 0.0,
+    "analysts": -1.0,
+}
+
+_TABLE_LEFT_LABELS: list[tuple[str, str]] = [
+    ("FY Date", "fy"),
+    ("EPS", "eps"),
+    ("Chg/Yr", "chg"),
+    ("Div", "div"),
+]
+
+
+def _add_aligned_fy_table(
+    eps_table: pd.DataFrame,
+    eps_points: list[tuple[int, float, bool]],
+    annual_dividends: dict[int, float],
+    *,
+    fallback_div: float | None,
+    is_forecast: bool,
+) -> list[dict]:
+    """
+    Build FAST-style table annotations: one column per fiscal year, x-aligned to chart.
+    """
+    annotations: list[dict] = []
+    row_labels = list(_TABLE_LEFT_LABELS)
+    if is_forecast and not eps_table.empty and eps_table["analysts"].notna().any():
+        row_labels.append(("# Analysts", "analysts"))
+
+    for label, key in row_labels:
+        annotations.append(dict(
+            x=0.045,
+            xref="paper",
+            yref="y2",
+            y=_TABLE_ROW_Y[key],
+            text=f"<b>{label}</b>",
+            showarrow=False,
+            xanchor="left",
+            font=dict(size=10, color="#9aa0a6"),
+        ))
+
+    if eps_table.empty:
+        return annotations
+
+    for i, (_, row) in enumerate(eps_table.iterrows()):
+        year = eps_points[i][0]
+        x = _fiscal_timestamp(year)
+        fy = str(row["fy"])
+        eps_s = f"{row['eps']:.2f}"
+        if row["is_est"] and not eps_s.endswith("E"):
+            eps_s += "E"
+        chg = row["chg_yr"]
+        chg_s = f"{chg:.0f}%" if chg is not None and chg == chg else "—"
+        chg_color = "#ff6b6b" if chg is not None and chg < 0 else "#e8eaed"
+        dps = annual_dividends.get(year)
+        if dps is None and fallback_div:
+            dps = fallback_div
+        div_s = f"{dps:.2f}" if dps is not None and dps > 0 else "—"
+
+        cells: list[tuple[str, str, str]] = [
+            (fy, "fy", "#e8eaed"),
+            (eps_s, "eps", "#e8eaed"),
+            (chg_s, "chg", chg_color),
+            (div_s, "div", "#e8eaed"),
+        ]
+        if is_forecast and eps_table["analysts"].notna().any():
+            a = row["analysts"]
+            a_s = str(int(a)) if a is not None and a == a else "—"
+            cells.append((a_s, "analysts", "#e8eaed"))
+
+        for text, key, color in cells:
+            annotations.append(dict(
+                x=x,
+                xref="x",
+                yref="y2",
+                y=_TABLE_ROW_Y[key],
+                text=text,
+                showarrow=False,
+                xanchor="center",
+                font=dict(size=10, color=color),
+            ))
+
+    return annotations
+
+
 def _annual_eps_table_rows(
     eps_points: list[tuple[int, float, bool]],
     estimates: dict[str, Any],
@@ -474,9 +562,9 @@ def build_fast_graph_figure(
         rows=2,
         cols=1,
         shared_xaxes=True,
-        row_heights=[0.72, 0.28],
-        vertical_spacing=0.04,
-        specs=[[{"type": "xy"}], [{"type": "table"}]],
+        row_heights=[0.76, 0.24],
+        vertical_spacing=0.02,
+        specs=[[{"type": "xy"}], [{"type": "xy"}]],
     )
 
     annual_dividends_raw = bundle.get("annual_dividends") or metrics.get("annual_dividends") or {}
@@ -613,69 +701,22 @@ def build_fast_graph_figure(
 
     y_lo, y_hi = _compute_fast_graph_y_range(closes, fair_step_y, norm_step_y, div_step_y)
 
-    # Horizontal table: columns = fiscal years (FAST Graphs layout).
     eps_table = _annual_eps_table_rows(
         eps_points,
         estimates,
         include_estimates=True,
     )
-    if not eps_table.empty:
-        fy_labels = list(eps_table["fy"])
-        table_rows: list[list[str]] = [["EPS"], ["Chg/Yr %"], ["Div"]]
-        chg_colors_row = ["#c0c0c0"]
+    fy_tickvals = [_fiscal_timestamp(y) for y, _, _ in eps_points]
+    fy_ticktext = [_fy_label(y, is_estimate=est) for y, _, est in eps_points]
+    x_range = [fair_step_x[0], fair_step_x[-1]] if fair_step_x else None
 
-        for i, (_, row) in enumerate(eps_table.iterrows()):
-            year = eps_points[i][0]
-            chg = row["chg_yr"]
-            chg_s = f"{chg:.0f}%" if chg is not None and chg == chg else "—"
-            eps_s = f"{row['eps']:.2f}"
-            if row["is_est"] and not eps_s.endswith("E"):
-                eps_s += "E"
-            dps = annual_dividends.get(year)
-            if dps is None and fallback_div:
-                dps = fallback_div
-            div_s = f"{dps:.2f}" if dps is not None and dps > 0 else "—"
-            table_rows[0].append(eps_s)
-            table_rows[1].append(chg_s)
-            table_rows[2].append(div_s)
-            chg_colors_row.append("#ff6b6b" if chg is not None and chg < 0 else "#c0c0c0")
-
-        analyst_colors: list[str] | None = None
-        if is_forecast and eps_table["analysts"].notna().any():
-            table_rows.append(["# Analysts"])
-            analyst_colors = ["#c0c0c0"]
-            for _, row in eps_table.iterrows():
-                a = row["analysts"]
-                table_rows[-1].append(str(int(a)) if a is not None and a == a else "—")
-                analyst_colors.append("#c0c0c0")
-
-        font_colors = []
-        for row_idx, row_vals in enumerate(table_rows):
-            if row_idx == 1:
-                font_colors.append(chg_colors_row)
-            elif analyst_colors is not None and row_idx == len(table_rows) - 1:
-                font_colors.append(analyst_colors)
-            else:
-                font_colors.append(["#c0c0c0"] * len(row_vals))
-
-        fig.add_trace(
-            go.Table(
-                header=dict(
-                    values=["FY"] + fy_labels,
-                    fill_color="#1a1a1a",
-                    font=dict(color="#e8eaed", size=11),
-                    align="center",
-                ),
-                cells=dict(
-                    values=table_rows,
-                    fill_color="#0a0a0a",
-                    font=dict(color=font_colors, size=10),
-                    align="center",
-                ),
-            ),
-            row=2,
-            col=1,
-        )
+    table_annotations = _add_aligned_fy_table(
+        eps_table,
+        eps_points,
+        annual_dividends,
+        fallback_div=fallback_div,
+        is_forecast=is_forecast,
+    )
 
     title_suffix = "Forecasting" if is_forecast else "Historical"
     company = info.get("company_name") or metrics.get("company_name") or ""
@@ -685,24 +726,62 @@ def build_fast_graph_figure(
         paper_bgcolor=FG_COLORS["paper_bg"],
         plot_bgcolor=FG_COLORS["plot_bg"],
         height=height,
-        margin=dict(l=50, r=30, t=50, b=30),
+        margin=dict(l=58, r=30, t=50, b=36),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color="#c0c0c0")),
-        xaxis=dict(
-            showgrid=True,
-            gridcolor=FG_COLORS["grid"],
-            range=[fair_step_x[0], fair_step_x[-1]] if fair_step_x else None,
-        ),
-        yaxis=dict(
-            title=dict(text=f"Price ({currency})", font=dict(color="#9aa0a6")),
-            tickfont=dict(color="#9aa0a6"),
-            showgrid=True,
-            gridcolor=FG_COLORS["grid"],
-            range=[y_lo, y_hi],
-            autorange=False,
-            zeroline=True,
-            zerolinecolor="rgba(255,255,255,0.15)",
-        ),
     )
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor=FG_COLORS["grid"],
+        range=x_range,
+        tickvals=fy_tickvals,
+        ticktext=fy_ticktext,
+        tickangle=0,
+        row=1,
+        col=1,
+    )
+    fig.update_xaxes(
+        matches="x",
+        showticklabels=False,
+        showgrid=False,
+        range=x_range,
+        row=2,
+        col=1,
+    )
+    fig.update_yaxes(
+        title=dict(text=f"Price ({currency})", font=dict(color="#9aa0a6")),
+        tickfont=dict(color="#9aa0a6"),
+        showgrid=True,
+        gridcolor=FG_COLORS["grid"],
+        range=[y_lo, y_hi],
+        autorange=False,
+        zeroline=True,
+        zerolinecolor="rgba(255,255,255,0.15)",
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        range=[-1.4, 3.6],
+        showticklabels=False,
+        showgrid=False,
+        zeroline=False,
+        fixedrange=True,
+        row=2,
+        col=1,
+    )
+    # Invisible anchor trace so the FY table subplot shares the chart x-axis.
+    if fy_tickvals:
+        fig.add_trace(
+            go.Scatter(
+                x=fy_tickvals,
+                y=[0.0] * len(fy_tickvals),
+                mode="markers",
+                marker=dict(size=0.1, opacity=0),
+                showlegend=False,
+                hoverinfo="skip",
+            ),
+            row=2,
+            col=1,
+        )
 
     display_growth = (
         metrics.get("chart_forecast_growth_rate") or forecast_growth
@@ -765,6 +844,7 @@ def build_fast_graph_figure(
                     col=1,
                 )
 
+    annotations.extend(table_annotations)
     if annotations:
         fig.update_layout(annotations=annotations)
 
