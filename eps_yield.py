@@ -162,4 +162,6 @@ def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict
 
     if not pe_values:
         return None
+    if len(pe_values) >= 5:
+        pe_values = sorted(pe_values)[1:-1]
     return round(sum(pe_values) / len(pe_values), 2)

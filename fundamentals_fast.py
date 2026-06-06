@@ -41,8 +41,7 @@ def _highlights_from_scanner_metrics(
         normal = scanner_metrics.get("forecast_normal_pe")
     else:
         growth = (
-            scanner_metrics.get("chart_historical_growth_rate")
-            or scanner_metrics.get("historical_growth_rate")
+            scanner_metrics.get("historical_growth_rate")
             or scanner_metrics.get("growth_rate")
         )
         fair = scanner_metrics.get("historical_fair_pe") or scanner_metrics.get("fair_pe")
@@ -323,9 +322,11 @@ def get_fast_graph_panel_data(
     Build panel payload: highlights (3 boxes), details table, extended Yahoo fields.
     When scanner_metrics is provided, highlight boxes use scanner values (mode-aware).
     """
+    eps_source = (scanner_metrics or {}).get("eps_source") or "yahoo"
     warnings = [
-        "Данные Yahoo Finance, не FAST Graphs Premium.",
-        "Growth Rate — геом. среднее YoY EPS (Yahoo Basic EPS, без выбросов).",
+        "Данные Yahoo Finance + SEC EDGAR, не FAST Graphs Premium.",
+        f"Growth Rate — Historical CAGR ({eps_source} diluted/basic EPS, без выбросов).",
+        "Est EPS Growth — отдельно, из Yahoo analyst estimates.",
         "GICS Sub-industry — поле industry Yahoo.",
         "S&P Credit Rating недоступен в Yahoo.",
     ]

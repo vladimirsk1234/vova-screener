@@ -467,8 +467,7 @@ def _mode_pe(
         norm_pe = metrics.get("forecast_normal_pe") or metrics.get("normal_pe")
     else:
         growth = (
-            metrics.get("chart_historical_growth_rate")
-            or metrics.get("historical_growth_rate")
+            metrics.get("historical_growth_rate")
             or metrics.get("growth_rate")
         )
         if growth is None:
@@ -786,7 +785,7 @@ def build_fast_graph_figure(
     display_growth = (
         metrics.get("chart_forecast_growth_rate") or forecast_growth
         if is_forecast
-        else metrics.get("chart_historical_growth_rate") or hist_growth
+        else metrics.get("historical_growth_rate") or hist_growth
     )
 
     annotations: list[dict] = []

@@ -111,53 +111,37 @@ def _geometric_mean_yoy(changes: list[float], *, yoy_cap: float = YOY_CAP_PCT) -
     return round(gm * 100.0, 2)
 
 
-def compute_historical_growth_rate_pct(
+def compute_historical_cagr_pct(
     annual_eps: dict[int, float] | None,
     *,
-    yoy_cap: float = YOY_CAP_PCT,
-    max_years: int = 5,
+    years: int = 10,
 ) -> float | None:
     """
-    FAST Graphs–style historical growth: geometric mean of YoY changes
-    on outlier-filtered positive EPS, with 5y CAGR fallback.
+    FAST Graphs–style historical growth: CAGR over `years` on outlier-filtered EPS.
     """
     if not annual_eps or len(annual_eps) < 2:
         return None
     filtered = filter_eps_outliers(annual_eps, min_frac_of_median=0.25)
     if len(filtered) < 2:
         filtered = {y: float(e) for y, e in annual_eps.items() if float(e) > 0}
-    years = sorted(filtered.keys())
-    if len(years) > max_years:
-        years = years[-max_years:]
-        filtered = {y: filtered[y] for y in years}
     if len(filtered) < 2:
         return None
+    return eps_cagr_over_years(filtered, years)
 
-    changes = _yoy_changes_pct(filtered)
-    valid = [c for c in changes if math.isfinite(c) and abs(c) <= yoy_cap]
 
-    gm = _geometric_mean_yoy(valid, yoy_cap=yoy_cap) if len(valid) >= 2 else None
-    if gm is not None:
-        return gm
-    if len(valid) == 1:
-        return round(valid[0], 2)
-
-    # Fallback: 1-year CAGR between last two filtered years (avoids tiny base years).
-    last_two = years[-2:]
-    start_eps = float(filtered[last_two[0]])
-    end_eps = float(filtered[last_two[1]])
-    if start_eps > 0 and end_eps > 0 and last_two[1] > last_two[0]:
-        try:
-            cagr = (end_eps / start_eps) - 1.0
-            if math.isfinite(cagr):
-                return round(cagr * 100.0, 2)
-        except (ValueError, ZeroDivisionError, OverflowError):
-            pass
-
-    span = min(max_years, years[-1] - years[0])
-    if span >= 1:
-        return eps_cagr_over_years(filtered, span)
-    return None
+def compute_historical_growth_rate_pct(
+    annual_eps: dict[int, float] | None,
+    *,
+    years: int = 10,
+    yoy_cap: float = YOY_CAP_PCT,
+    max_years: int | None = None,
+) -> float | None:
+    """
+    Historical growth for FAST Graph panels: CAGR over chart window (default 10Y).
+    Legacy YoY helpers remain for tests; production path uses compute_historical_cagr_pct.
+    """
+    span = max_years if max_years is not None else years
+    return compute_historical_cagr_pct(annual_eps, years=span)
 
 
 def compute_forecast_growth_pct(
@@ -218,18 +202,12 @@ def resolve_chart_growth_rate(
 ) -> float | None:
     """
     Growth rate shown on FAST Graph chart boxes.
-    Historical view: prefer historical when >= threshold; else use strong forecast
-    (volatile EPS histories like AGI otherwise fall back to sidebar fair P/E).
+    Historical view always uses historical CAGR (never analyst forecast).
     """
+    del growth_threshold  # kept for call-site compatibility
     if mode == "forecast":
         return forecast_growth if forecast_growth is not None else historical_growth
-    if historical_growth is not None and historical_growth >= growth_threshold:
-        return historical_growth
-    if forecast_growth is not None and forecast_growth >= growth_threshold:
-        return forecast_growth
-    if historical_growth is not None:
-        return historical_growth
-    return forecast_growth
+    return historical_growth if historical_growth is not None else forecast_growth
 
 
 def _blended_pe(trailing_pe: float | None, forward_pe: float | None) -> float | None:
@@ -410,6 +388,7 @@ class FastGraphFilterConfig:
     growth_threshold: float = 10.0
     growth_cap_pct: float = DEFAULT_GROWTH_CAP_PCT
     valuation_pe_mode: str = "fair"  # fair | normal
+    growth_years: int = 10
 
 
 def _is_otc_exchange(exchange: str | None) -> bool:
@@ -479,7 +458,10 @@ def build_fast_graph_metrics(
     cfg: FastGraphFilterConfig,
 ) -> dict[str, Any]:
     """Assemble all FAST Graph metrics for one symbol."""
-    historical_growth = compute_historical_growth_rate_pct(annual_eps)
+    historical_growth = compute_historical_growth_rate_pct(
+        annual_eps,
+        years=cfg.growth_years,
+    )
     forecast_growth = compute_forecast_growth_pct(
         earnings_estimates,
         annual_eps,
@@ -500,7 +482,7 @@ def build_fast_graph_metrics(
     )
 
     historical_fair_pe = resolve_fair_pe(
-        chart_historical_growth,
+        historical_growth,
         sidebar_fair_pe=cfg.sidebar_fair_pe,
         growth_threshold=cfg.growth_threshold,
         growth_cap_pct=cfg.growth_cap_pct,
@@ -606,6 +588,7 @@ def build_fast_graph_metrics(
         "exchange": info.get("exchange"),
         "analyst_beat_pct": beat_pct,
         "annual_eps": annual_eps or {},
+        "eps_source": info.get("eps_source"),
         "earnings_estimates": earnings_estimates or {},
         "trailing_eps": trailing_eps,
         "forward_eps": forward_eps,

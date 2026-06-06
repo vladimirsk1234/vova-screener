@@ -171,18 +171,18 @@ def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]
     return out
 
 
-def _annual_eps_history_10y(ticker: str, ticker_obj: yf.Ticker | None = None) -> dict[int, float]:
+def _annual_eps_history(ticker: str, ticker_obj: yf.Ticker | None = None) -> tuple[dict[int, float], str]:
+    """Resolve up to 15 years of annual EPS and label the data source."""
     try:
-        t = ticker_obj or yf.Ticker(ticker)
-        eps_map = _extract_annual_eps_map(getattr(t, "financials", None))
+        from ticker_data import resolve_annual_eps_map
+
+        eps_map, source = resolve_annual_eps_map(ticker, ticker_obj)
         if not eps_map:
-            eps_map = _extract_annual_eps_map(getattr(t, "income_stmt", None))
-        if not eps_map:
-            return {}
-        years_desc = sorted(eps_map.keys(), reverse=True)[:10]
-        return {y: eps_map[y] for y in sorted(years_desc)}
+            return {}, source
+        years_desc = sorted(eps_map.keys(), reverse=True)[:15]
+        return {y: eps_map[y] for y in sorted(years_desc)}, source
     except Exception:
-        return {}
+        return {}, "yahoo_annual"
 
 
 def _earnings_estimates_yf(ticker_obj: yf.Ticker) -> dict[str, dict]:
@@ -349,7 +349,7 @@ def fetch_fast_graph_bundle(ticker: str, *, use_cache: bool = True) -> dict[str,
     """
     if use_cache:
         hit = _load_cache(ticker)
-        if hit is not None:
+        if hit is not None and hit.get("eps_source"):
             return hit
 
     merged, ticker_obj = _resolve_fundamentals_info(ticker)
@@ -365,20 +365,26 @@ def fetch_fast_graph_bundle(ticker: str, *, use_cache: bool = True) -> dict[str,
             if isinstance(val, (int, float, str, bool)) or val is None:
                 merged[key] = val
 
-    annual_eps = _annual_eps_history_10y(ticker, ticker_obj) if ticker_obj else {}
+    annual_eps, eps_source = (
+        _annual_eps_history(ticker, ticker_obj) if ticker_obj else ({}, "yahoo_annual")
+    )
     annual_dividends = _annual_dividend_history_10y(ticker, ticker_obj) if ticker_obj else {}
     earnings_estimates = _parse_earnings_estimates(ticker_obj) if ticker_obj else {}
     earnings_history = _parse_earnings_history(ticker_obj) if ticker_obj else []
     lt_debt_capital = _lt_debt_to_capital_pct(ticker_obj) if ticker_obj else None
 
+    info_out = _info_bundle(info, merged)
+    info_out["eps_source"] = eps_source
+
     bundle = {
         "ticker": ticker,
-        "info": _info_bundle(info, merged),
+        "info": info_out,
         "annual_eps": {str(k): v for k, v in annual_eps.items()},
         "annual_dividends": {str(k): v for k, v in annual_dividends.items()},
         "earnings_estimates": earnings_estimates,
         "earnings_history": earnings_history,
         "lt_debt_capital": lt_debt_capital,
+        "eps_source": eps_source,
     }
     _save_cache(ticker, bundle)
     return bundle

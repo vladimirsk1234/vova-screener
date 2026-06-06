@@ -48,6 +48,9 @@ def run_fast_graph_scan(
 
     annual_eps = annual_eps_from_bundle(bundle)
     info = bundle.get("info") or {}
+    if info.get("eps_source") is None:
+        info = {**info, "eps_source": bundle.get("eps_source")}
+
     metrics = build_fast_graph_metrics(
         close=close,
         annual_eps=annual_eps or None,
@@ -58,6 +61,7 @@ def run_fast_graph_scan(
         lt_debt_capital=bundle.get("lt_debt_capital"),
         cfg=cfg,
     )
+    metrics["eps_source"] = bundle.get("eps_source") or info.get("eps_source")
     metrics["company_name"] = info.get("company_name") or ticker
     metrics["country"] = info.get("country")
     metrics["exchange"] = info.get("exchange")

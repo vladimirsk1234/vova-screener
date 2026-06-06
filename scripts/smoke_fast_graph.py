@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Smoke test FAST Graphs scanner metrics and charts on AAPL, ADBE, TD, AGI."""
+"""Smoke test FAST Graphs scanner metrics and charts on AAPL, ADBE, TD, AGI, FITB."""
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -53,8 +54,8 @@ def _test_pure_metrics() -> bool:
         print(f"  FAIL: filter_eps_outliers(25%) should drop 2022 turnaround year, got {filtered}")
         ok = False
     hist_growth = compute_historical_growth_rate_pct(agi_eps)
-    if hist_growth is None or hist_growth >= 100.0:
-        print(f"  FAIL: AGI-like historical growth expected <100%, got {hist_growth}")
+    if hist_growth is None:
+        print("  FAIL: AGI-like historical growth expected a value")
         ok = False
     fair_agi = resolve_fair_pe(hist_growth, growth_cap_pct=100.0)
     if fair_agi >= 100.0:
@@ -71,9 +72,20 @@ def _test_pure_metrics() -> bool:
         ok = False
 
     chart_hist = resolve_chart_growth_rate(hist_growth, fc_growth, mode="historical")
-    chart_fair = resolve_fair_pe(chart_hist, growth_cap_pct=100.0)
-    if chart_hist is None or chart_fair < 10.0:
-        print(f"  FAIL: AGI chart growth/fair P/E expected >=10, got growth={chart_hist} fair={chart_fair}")
+    if chart_hist != hist_growth:
+        print(f"  FAIL: historical chart growth must not use forecast, got {chart_hist} vs {hist_growth}")
+        ok = False
+
+    # FITB-like: low historical CAGR must not be replaced by analyst +1y spike.
+    fitb_hist = 1.74
+    fitb_fc = 59.88
+    fitb_chart = resolve_chart_growth_rate(fitb_hist, fitb_fc, mode="historical")
+    fitb_fair = resolve_fair_pe(fitb_chart, sidebar_fair_pe=15.0)
+    if fitb_chart != fitb_hist:
+        print(f"  FAIL: FITB-like chart growth should be historical {fitb_hist}, got {fitb_chart}")
+        ok = False
+    if fitb_fair != 15.0:
+        print(f"  FAIL: FITB-like fair P/E should be sidebar 15x, got {fitb_fair}")
         ok = False
 
     future_eps = resolve_target_year_eps(
@@ -104,6 +116,7 @@ def _fetch_weekly(ticker: str):
 
 def _print_metrics(ticker: str, metrics: dict) -> None:
     print(f"  Valid: {metrics.get('Valid')}")
+    print(f"  EPS source: {metrics.get('eps_source')}")
     print(f"  Close: {metrics.get('close')}")
     print(f"  Hist Growth: {metrics.get('historical_growth_rate')}%")
     print(f"  Hist Fair P/E: {metrics.get('historical_fair_pe')}")
@@ -114,11 +127,43 @@ def _print_metrics(ticker: str, metrics: dict) -> None:
     print(f"  Future Price: {metrics.get('future_price')}")
 
 
+def _test_fitb_live(metrics: dict) -> bool:
+    """Regression: FITB historical box must not show analyst +1y growth."""
+    hist = metrics.get("historical_growth_rate")
+    fcst = metrics.get("forecast_growth_rate")
+    chart_hist = metrics.get("chart_historical_growth_rate")
+    hist_fair = metrics.get("historical_fair_pe")
+    ok = True
+    if hist is not None and fcst is not None and hist < 10.0 and fcst > 30.0:
+        if chart_hist == fcst:
+            print(f"  FAIL: chart historical growth leaked forecast {fcst}%")
+            ok = False
+        if hist_fair is not None and hist_fair == fcst:
+            print(f"  FAIL: historical fair P/E leaked forecast growth {fcst}x")
+            ok = False
+        if hist_fair is not None and hist_fair > 25.0:
+            print(f"  FAIL: FITB historical fair P/E should be ~15x, got {hist_fair}")
+            ok = False
+    if ok:
+        print("  FITB regression: OK")
+    return ok
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ticker", action="append", dest="extra_tickers", default=[])
+    args = parser.parse_args()
+
     print("=== Pure metrics ===")
     failures = 0 if _test_pure_metrics() else 1
 
     tickers = ["AAPL", "ADBE", "TD", "AGI"]
+    for extra in args.extra_tickers:
+        if extra.upper() not in {t.upper() for t in tickers}:
+            tickers.append(extra.upper())
+    if "FITB" not in tickers:
+        tickers.append("FITB")
+
     cfg = FastGraphFilterConfig(min_est_eps_growth=0.0, min_est_annual_ror=0.0)
 
     for t in tickers:
@@ -140,15 +185,20 @@ def main() -> int:
         if t == "AGI":
             hist_fair = metrics.get("historical_fair_pe")
             chart_growth = metrics.get("chart_historical_growth_rate")
+            hist_growth = metrics.get("historical_growth_rate")
             if hist_fair is None or hist_fair > 100.0:
                 print(f"  FAIL: AGI historical fair P/E should be <=100x, got {hist_fair}")
                 failures += 1
-            if chart_growth is None or chart_growth < 10.0:
-                print(f"  FAIL: AGI chart historical growth should be >=10%, got {chart_growth}")
+            if chart_growth != hist_growth:
+                print(f"  FAIL: AGI chart growth should equal historical {hist_growth}, got {chart_growth}")
                 failures += 1
             ror = metrics.get("est_annual_ror")
             if ror is not None and ror > 150.0:
                 print(f"  FAIL: AGI est ROR should be <150%, got {ror}")
+                failures += 1
+
+        if t == "FITB":
+            if not _test_fitb_live(metrics):
                 failures += 1
 
         hist = build_fast_graph_figure(

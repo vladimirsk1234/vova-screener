@@ -507,6 +507,40 @@ def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]
     return out
 
 
+def _extract_quarterly_eps_annual(stmt: pd.DataFrame | None) -> dict[int, float]:
+    """Sum quarterly Basic/Diluted EPS by calendar fiscal year."""
+    if not isinstance(stmt, pd.DataFrame) or stmt.empty:
+        return {}
+    eps_row = None
+    for candidate in ("Basic EPS", "BasicEPS", "Diluted EPS", "DilutedEPS"):
+        if candidate in stmt.index:
+            eps_row = stmt.loc[candidate]
+            break
+    if eps_row is None:
+        return {}
+
+    by_year: dict[int, list[float]] = {}
+    for col, raw_val in eps_row.items():
+        try:
+            year = pd.Timestamp(col).year
+            eps_val = float(raw_val)
+        except Exception:
+            continue
+        if not math.isfinite(eps_val):
+            continue
+        by_year.setdefault(year, []).append(eps_val)
+
+    if not by_year:
+        return {}
+    latest_year = max(by_year.keys())
+    out: dict[int, float] = {}
+    for year, vals in by_year.items():
+        if len(vals) < 3 and year != latest_year:
+            continue
+        out[year] = sum(vals)
+    return out
+
+
 def filter_eps_outliers(
     annual_eps: dict[int, float] | None,
     *,
@@ -771,13 +805,61 @@ def get_chart_fundamentals(
     return out
 
 
-def _annual_eps_map_for_ticker(ticker: str) -> dict[int, float] | None:
-    """Return full annual EPS map from yfinance financials/income_stmt."""
+def _yahoo_annual_eps_map(ticker_obj: yf.Ticker) -> dict[int, float]:
+    """Annual Basic/Diluted EPS from yfinance financials or income_stmt."""
+    eps_map = _extract_annual_eps_map(getattr(ticker_obj, "financials", None))
+    if not eps_map:
+        eps_map = _extract_annual_eps_map(getattr(ticker_obj, "income_stmt", None))
+    return eps_map
+
+
+def _yahoo_quarterly_eps_annual(ticker_obj: yf.Ticker) -> dict[int, float]:
+    """Annual EPS aggregated from quarterly income statement."""
+    stmt = getattr(ticker_obj, "quarterly_income_stmt", None)
+    return _extract_quarterly_eps_annual(stmt)
+
+
+def resolve_annual_eps_map(
+    ticker: str,
+    ticker_obj: yf.Ticker | None = None,
+    *,
+    min_years: int = 6,
+) -> tuple[dict[int, float], str]:
+    """
+    Resolve annual EPS with source label.
+    Priority: SEC (when available) -> Yahoo annual -> Yahoo quarterly aggregate.
+    """
     try:
-        t = yf.Ticker(ticker)
-        eps_map = _extract_annual_eps_map(getattr(t, "financials", None))
-        if not eps_map:
-            eps_map = _extract_annual_eps_map(getattr(t, "income_stmt", None))
+        from sec_eps import get_sec_annual_eps
+
+        sec_eps = get_sec_annual_eps(ticker)
+        if len(sec_eps) >= min_years:
+            years_desc = sorted(sec_eps.keys(), reverse=True)[:15]
+            return {y: sec_eps[y] for y in sorted(years_desc)}, "sec"
+    except Exception:
+        pass
+
+    t = ticker_obj or yf.Ticker(ticker)
+    annual = _yahoo_annual_eps_map(t)
+    quarterly = _yahoo_quarterly_eps_annual(t) if len(annual) < min_years else {}
+
+    merged = dict(quarterly)
+    merged.update(annual)
+
+    if len(annual) >= min_years:
+        years_desc = sorted(annual.keys(), reverse=True)[:15]
+        return {y: annual[y] for y in sorted(years_desc)}, "yahoo_annual"
+    if merged:
+        years_desc = sorted(merged.keys(), reverse=True)[:15]
+        source = "yahoo_quarterly" if quarterly and len(annual) < min_years else "yahoo_annual"
+        return {y: merged[y] for y in sorted(years_desc)}, source
+    return {}, "yahoo_annual"
+
+
+def _annual_eps_map_for_ticker(ticker: str) -> dict[int, float] | None:
+    """Return full annual EPS map (best available source)."""
+    try:
+        eps_map, _source = resolve_annual_eps_map(ticker)
         return eps_map or None
     except Exception:
         return None
