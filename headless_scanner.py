@@ -95,12 +95,43 @@ from tradingview_embed import (
 # ==========================================
 # 4. UI & SIDEBAR
 # ==========================================
-from ticker_sources import CombinedListSource, FileListSource, ManualSource
+from ticker_sources import FileListSource, ManualSource
 
 # Ticker sources: list files + optional MANUAL symbols
 SOURCE_OPTIONS = ["BIG CAP", "SMALL CAP", "BIG + SMALL CAP", "ETF", "MANUAL SCAN"]
 SCANNER_OPTIONS = ["Sequence Vova (TA)", "FAST Graphs"]
 TF_OPTIONS = ["Daily", "Weekly", "Monthly"]
+
+
+class _CombinedListSource:
+    """Merge ticker sources in-process (no ticker_sources.CombinedListSource dependency)."""
+
+    def __init__(self, sources, label: str = "combined list"):
+        self._sources = sources
+        self._label = label
+
+    def get_tickers(self):
+        tickers: list[str] = []
+        tv_map: dict[str, str] = {}
+        name_map: dict[str, str] = {}
+        seen: set[str] = set()
+        for src in self._sources:
+            t_list, tv, names, err = src.get_tickers()
+            if err:
+                return [], {}, {}, err
+            for t in t_list:
+                if t in seen:
+                    continue
+                seen.add(t)
+                tickers.append(t)
+                if t in tv:
+                    tv_map[t] = tv[t]
+                if t in names:
+                    name_map[t] = names[t]
+        return tickers, tv_map, name_map, None
+
+    def description(self) -> str:
+        return f"Combined {self._label}. Edit list files — next START uses new tickers."
 
 
 def _build_source_registry():
@@ -109,7 +140,7 @@ def _build_source_registry():
     registry = {
         "BIG CAP": big,
         "SMALL CAP": small,
-        "BIG + SMALL CAP": CombinedListSource([big, small], label="BIG + SMALL CAP"),
+        "BIG + SMALL CAP": _CombinedListSource([big, small], label="BIG + SMALL CAP"),
         "ETF": FileListSource(TV_LIST_ETF, read_list_file),
     }
     # Phase 2: when TV-LIST-US-CANADA-FULL.txt exists, add:
