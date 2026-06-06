@@ -52,11 +52,6 @@ from chart_preview import (
     figure_from_payload,
     resolve_chart_payload,
 )
-from fundamentals_fast import get_fast_graph_panel_data
-from fast_graph_chart import build_fast_graph_figure, build_fg_radar_figure
-from fast_graph_metrics import FastGraphFilterConfig
-from fast_graph_panel_ui import render_fast_graph_extended_panel
-from fast_graph_scanner import fast_graph_table_row, run_fast_graph_scan
 from chart_settings_ui import render_chart_settings
 inject_styles()
 
@@ -72,6 +67,13 @@ from ticker_data import (
     read_list_file,
     resolve_company_name,
 )
+
+# FAST Graphs modules (after ticker_data to avoid circular imports)
+from fundamentals_fast import get_fast_graph_panel_data
+from fast_graph_chart import build_fast_graph_figure, build_fg_radar_figure
+from fast_graph_metrics import FastGraphFilterConfig
+from fast_graph_panel_ui import render_fast_graph_extended_panel
+from fast_graph_scanner import fast_graph_table_row, run_fast_graph_scan
 
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
