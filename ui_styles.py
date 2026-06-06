@@ -244,15 +244,15 @@ _STYLES = """
     }
 
     .fg-highlight-growth {
-        background: #7cb342;
+        background: #6BAF4A;
     }
 
     .fg-highlight-fair {
-        background: #ffb74d;
+        background: #FF9500;
     }
 
     .fg-highlight-normal {
-        background: #64b5f6;
+        background: #4DA3FF;
     }
 
     .fg-details-table {
@@ -280,7 +280,7 @@ _STYLES = """
     }
 
     .fg-highlight-ror {
-        background: #7cb342;
+        background: #6BAF4A;
     }
 
     .fg-score-bars {

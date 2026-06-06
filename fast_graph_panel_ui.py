@@ -18,9 +18,9 @@ def _esc(text: str) -> str:
 def _score_bar(label: str, score: float) -> str:
     pct = max(0, min(100, float(score)))
     if pct >= 70:
-        color = "#7cb342"
+        color = "#6BAF4A"
     elif pct >= 50:
-        color = "#ffb74d"
+        color = "#FF9500"
     else:
         color = "#e57373"
     return (
