@@ -659,6 +659,8 @@ def render_scan_results(
                 fast_metrics = (payload or {}).get("fast_metrics") if is_fast else None
                 if is_fast and fast_metrics:
                     panel_data = None
+                    fg_mode_label = st.session_state.get("fg_chart_mode", "Historical")
+                    fg_chart_mode = "forecast" if fg_mode_label == "Forecasting" else "historical"
                     try:
                         yahoo = str(payload.get("yahoo_ticker", "") or "")
                         panel_data = get_fast_graph_panel_data(
@@ -666,10 +668,16 @@ def render_scan_results(
                             close=fast_metrics.get("close"),
                             df_daily=payload.get("df_daily"),
                             fair_pe=float(fast_metrics.get("fair_pe") or fair_pe),
+                            scanner_metrics=fast_metrics,
+                            chart_mode=fg_chart_mode,
                         )
                     except Exception:
                         panel_data = None
-                    render_fast_graph_extended_panel(panel_data, fast_metrics)
+                    render_fast_graph_extended_panel(
+                        panel_data,
+                        fast_metrics,
+                        chart_mode=fg_chart_mode,
+                    )
                 else:
                     if cache_key in st.session_state.fundamentals_cache:
                         fund_data = st.session_state.fundamentals_cache[cache_key]

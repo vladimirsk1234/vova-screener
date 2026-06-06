@@ -487,7 +487,7 @@ def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]
         return {}
 
     eps_row = None
-    for candidate in ("Diluted EPS", "Basic EPS", "DilutedEPS", "BasicEPS"):
+    for candidate in ("Basic EPS", "BasicEPS", "Diluted EPS", "DilutedEPS"):
         if candidate in financials.index:
             eps_row = financials.loc[candidate]
             break
@@ -505,6 +505,31 @@ def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]
             continue
         out[year] = eps_val
     return out
+
+
+def filter_eps_outliers(
+    annual_eps: dict[int, float] | None,
+    *,
+    min_frac_of_median: float = 0.10,
+) -> dict[int, float]:
+    """
+    Drop fiscal years with EPS below min_frac_of_median * median(positive EPS).
+    Removes turnaround noise (e.g. 0.09 base year) before growth calculations.
+    """
+    if not annual_eps:
+        return {}
+    positive = [float(v) for v in annual_eps.values() if v is not None and float(v) > 0]
+    if not positive:
+        return dict(annual_eps)
+    positive.sort()
+    mid = len(positive) // 2
+    median_eps = positive[mid] if len(positive) % 2 else (positive[mid - 1] + positive[mid]) / 2.0
+    floor = median_eps * min_frac_of_median
+    return {
+        int(y): float(e)
+        for y, e in annual_eps.items()
+        if e is not None and math.isfinite(float(e)) and float(e) >= floor
+    }
 
 
 def _round_mcap(val: float) -> str:

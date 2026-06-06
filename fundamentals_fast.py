@@ -24,23 +24,41 @@ from ticker_data import (
 )
 
 
-def eps_cagr_pct(annual_eps: dict[int, float] | None) -> float | None:
-    """CAGR % over first→last year in annual_eps (approx FAST Growth Rate)."""
-    if not annual_eps or len(annual_eps) < 2:
+def _highlights_from_scanner_metrics(
+    scanner_metrics: dict[str, Any],
+    *,
+    chart_mode: str = "historical",
+) -> list[dict[str, str]] | None:
+    """Build highlight boxes from scanner metrics (mode-aware)."""
+    if not scanner_metrics:
         return None
-    years = sorted(annual_eps.keys())
-    start_eps = float(annual_eps[years[0]])
-    end_eps = float(annual_eps[years[-1]])
-    span = years[-1] - years[0]
-    if span <= 0 or start_eps <= 0 or end_eps <= 0:
+    if chart_mode == "forecast":
+        growth = scanner_metrics.get("forecast_growth_rate")
+        fair = scanner_metrics.get("forecast_fair_pe")
+        normal = scanner_metrics.get("forecast_normal_pe")
+    else:
+        growth = scanner_metrics.get("historical_growth_rate") or scanner_metrics.get("growth_rate")
+        fair = scanner_metrics.get("historical_fair_pe") or scanner_metrics.get("fair_pe")
+        normal = scanner_metrics.get("historical_normal_pe") or scanner_metrics.get("normal_pe")
+    if growth is None and fair is None and normal is None:
         return None
-    try:
-        cagr = (end_eps / start_eps) ** (1.0 / span) - 1.0
-    except (ValueError, ZeroDivisionError, OverflowError):
-        return None
-    if not math.isfinite(cagr):
-        return None
-    return round(cagr * 100.0, 2)
+    return [
+        {
+            "label": "Growth Rate",
+            "value": _fmt_pct(growth) if growth is not None else "N/A",
+            "css": "growth",
+        },
+        {
+            "label": "Fair Value Ratio",
+            "value": _fmt_ratio(float(fair)) if fair is not None else "N/A",
+            "css": "fair",
+        },
+        {
+            "label": "Normal P/E Ratio",
+            "value": _fmt_ratio(normal) if normal is not None else "N/A",
+            "css": "normal",
+        },
+    ]
 
 
 def format_mcap_tev(value: float | None, currency: str | None = None) -> str:
@@ -291,13 +309,16 @@ def get_fast_graph_panel_data(
     close: float | None = None,
     df_daily: pd.DataFrame | None = None,
     fair_pe: float = 15.0,
+    scanner_metrics: dict[str, Any] | None = None,
+    chart_mode: str = "historical",
 ) -> dict[str, Any]:
     """
     Build panel payload: highlights (3 boxes), details table, extended Yahoo fields.
+    When scanner_metrics is provided, highlight boxes use scanner values (mode-aware).
     """
     warnings = [
         "Данные Yahoo Finance, не FAST Graphs Premium.",
-        "Growth Rate — приближение (CAGR годового EPS).",
+        "Growth Rate — геом. среднее YoY EPS (Yahoo Basic EPS, без выбросов).",
         "GICS Sub-industry — поле industry Yahoo.",
         "S&P Credit Rating недоступен в Yahoo.",
     ]
@@ -332,9 +353,24 @@ def get_fast_graph_panel_data(
         trailing_eps, forward_eps = _eps_from_yf_info(info)
 
     annual_eps = get_annual_eps_history_5y(ticker)
-    growth_pct = eps_cagr_pct(annual_eps)
-
     norm_pe = avg_historical_pe_5y(df_daily, annual_eps)
+
+    if scanner_metrics:
+        display_fair_pe = float(
+            scanner_metrics.get("forecast_fair_pe" if chart_mode == "forecast" else "historical_fair_pe")
+            or scanner_metrics.get("fair_pe")
+            or fair_pe
+        )
+        display_norm_pe = (
+            scanner_metrics.get("forecast_normal_pe" if chart_mode == "forecast" else "historical_normal_pe")
+            or scanner_metrics.get("normal_pe")
+            or norm_pe
+        )
+        if scanner_metrics.get("lt_debt_capital") is not None:
+            lt_debt_cap = scanner_metrics.get("lt_debt_capital")
+    else:
+        display_fair_pe = float(fair_pe)
+        display_norm_pe = norm_pe
 
     trailing_pe = _float_field(info, "trailingPE") or _float_field(merged, "trailingPE")
     forward_pe = _float_field(info, "forwardPE") or _float_field(merged, "forwardPE")
@@ -351,7 +387,8 @@ def get_fast_graph_panel_data(
 
     mcap = _float_field(info, "marketCap") or _float_field(merged, "marketCap")
     tev = _float_field(info, "enterpriseValue")
-    lt_debt_cap = _lt_debt_to_capital_pct(ticker_obj)
+    if scanner_metrics is None or scanner_metrics.get("lt_debt_capital") is None:
+        lt_debt_cap = _lt_debt_to_capital_pct(ticker_obj)
 
     country = _info_field_str(info, "country") or "—"
     industry = (
@@ -364,23 +401,30 @@ def get_fast_graph_panel_data(
 
     earn_days = _days_to_earnings(ticker_obj) if ticker_obj is not None else "N/A"
 
-    highlights = [
-        {
-            "label": "Growth Rate",
-            "value": _fmt_pct(growth_pct) if growth_pct is not None else "N/A",
-            "css": "growth",
-        },
-        {
-            "label": "Fair Value Ratio",
-            "value": _fmt_ratio(float(fair_pe)),
-            "css": "fair",
-        },
-        {
-            "label": "Normal P/E Ratio",
-            "value": _fmt_ratio(norm_pe) if norm_pe is not None else "N/A",
-            "css": "normal",
-        },
-    ]
+    scanner_highlights = _highlights_from_scanner_metrics(scanner_metrics, chart_mode=chart_mode)
+    if scanner_highlights:
+        highlights = scanner_highlights
+    else:
+        from fast_graph_metrics import compute_historical_growth_rate_pct
+
+        growth_pct = compute_historical_growth_rate_pct(annual_eps)
+        highlights = [
+            {
+                "label": "Growth Rate",
+                "value": _fmt_pct(growth_pct) if growth_pct is not None else "N/A",
+                "css": "growth",
+            },
+            {
+                "label": "Fair Value Ratio",
+                "value": _fmt_ratio(display_fair_pe),
+                "css": "fair",
+            },
+            {
+                "label": "Normal P/E Ratio",
+                "value": _fmt_ratio(display_norm_pe) if display_norm_pe is not None else "N/A",
+                "css": "normal",
+            },
+        ]
 
     details: list[tuple[str, str]] = [
         ("Blended P/E", _fmt_ratio(blended)),
@@ -405,8 +449,8 @@ def get_fast_graph_panel_data(
         close=px,
         trailing_eps=trailing_eps,
         earn_days=earn_days,
-        fair_pe=float(fair_pe),
-        norm_pe=norm_pe,
+        fair_pe=display_fair_pe,
+        norm_pe=display_norm_pe if display_norm_pe is not None else norm_pe,
     )
 
     return {
@@ -417,5 +461,6 @@ def get_fast_graph_panel_data(
         "details": details,
         "extended": extended,
         "warnings": warnings,
-        "fair_pe": float(fair_pe),
+        "fair_pe": display_fair_pe,
+        "chart_mode": chart_mode,
     }

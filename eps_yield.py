@@ -124,7 +124,7 @@ def passes_eps_filters(
 
 def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict[int, float] | None) -> float | None:
     """
-    Average of yearly P/E values for available annual EPS points.
+    Average of yearly P/E values over the last 5 fiscal years with positive EPS.
     Uses last available close in each matching calendar year.
     """
     if price_df is None or not isinstance(price_df, pd.DataFrame) or price_df.empty:
@@ -137,10 +137,18 @@ def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict
         return None
     year_end_close = closes.groupby(closes.index.year).last()
 
+    positive_years = sorted(
+        y for y, e in annual_eps_by_year.items()
+        if e is not None and float(e) > 0
+    )
+    if not positive_years:
+        return None
+    window_years = positive_years[-5:]
+
     pe_values: list[float] = []
-    for year, eps in annual_eps_by_year.items():
+    for year in window_years:
         try:
-            e = float(eps)
+            e = float(annual_eps_by_year[year])
         except (TypeError, ValueError):
             continue
         if e <= 0:

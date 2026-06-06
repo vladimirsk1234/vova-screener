@@ -35,6 +35,8 @@ def _score_bar(label: str, score: float) -> str:
 def render_fast_graph_extended_panel(
     panel_data: dict[str, Any] | None,
     metrics: dict[str, Any] | None = None,
+    *,
+    chart_mode: str = "historical",
 ) -> None:
     """Render base FAST panel plus ROR/FG/analyst extensions."""
     if panel_data:
@@ -43,20 +45,23 @@ def render_fast_graph_extended_panel(
     if not metrics:
         return
 
+    currency = (panel_data or {}).get("currency") or "USD"
+    cur_prefix = f"{currency} " if currency else "$"
+
     extras = []
     ror = metrics.get("est_annual_ror")
-    if ror is not None:
+    if ror is not None and chart_mode == "forecast":
         extras.append(
             f'<div class="fg-highlight fg-highlight-growth">'
             f'<div class="fg-highlight-label">Est. Annual ROR</div>'
             f'<div class="fg-highlight-value">{ror:.2f}%</div></div>'
         )
     fp = metrics.get("future_price")
-    if fp is not None:
+    if fp is not None and chart_mode == "forecast":
         extras.append(
             f'<div class="fg-highlight fg-highlight-fair">'
             f'<div class="fg-highlight-label">Future Price</div>'
-            f'<div class="fg-highlight-value">${fp:.2f}</div></div>'
+            f'<div class="fg-highlight-value">{cur_prefix}{fp:.2f}</div></div>'
         )
     if extras:
         st.markdown(

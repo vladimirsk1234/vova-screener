@@ -132,7 +132,7 @@ def _extract_annual_eps_map(financials: pd.DataFrame | None) -> dict[int, float]
     if not isinstance(financials, pd.DataFrame) or financials.empty:
         return {}
     eps_row = None
-    for candidate in ("Diluted EPS", "Basic EPS", "DilutedEPS", "BasicEPS"):
+    for candidate in ("Basic EPS", "BasicEPS", "Diluted EPS", "DilutedEPS"):
         if candidate in financials.index:
             eps_row = financials.loc[candidate]
             break
@@ -310,6 +310,7 @@ def _info_bundle(info: dict, merged: dict) -> dict[str, Any]:
         "debt_to_equity": _float_field(info, "debtToEquity"),
         "operating_cashflow": _float_field(info, "operatingCashflow"),
         "dividend_yield_pct": div_yld,
+        "dividend_rate": _float_field(info, "dividendRate"),
         "description": str(info.get("longBusinessSummary") or ""),
     }
 

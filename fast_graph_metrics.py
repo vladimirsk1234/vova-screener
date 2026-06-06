@@ -17,6 +17,11 @@ from eps_yield import (
     pe_ttm,
     vs_fair_pct,
 )
+from ticker_data import filter_eps_outliers
+
+
+DEFAULT_GROWTH_CAP_PCT = 100.0
+YOY_CAP_PCT = 150.0
 
 
 def eps_cagr_over_years(annual_eps: dict[int, float] | None, years: int) -> float | None:
@@ -53,11 +58,141 @@ def eps_cagr_over_years(annual_eps: dict[int, float] | None, years: int) -> floa
 
 
 def eps_cagr_pct(annual_eps: dict[int, float] | None) -> float | None:
-    """CAGR % over full available annual EPS history."""
+    """CAGR % over full available annual EPS history (legacy; prefer compute_historical_growth_rate_pct)."""
     if not annual_eps or len(annual_eps) < 2:
         return None
     years = sorted(annual_eps.keys())
     return eps_cagr_over_years(annual_eps, years[-1] - years[0])
+
+
+def _yoy_changes_pct(
+    annual_eps: dict[int, float],
+    *,
+    min_base_frac: float = 0.25,
+) -> list[float]:
+    """Year-over-year EPS % changes for consecutive positive years."""
+    positive = [float(v) for v in annual_eps.values() if v is not None and float(v) > 0]
+    if not positive:
+        return []
+    positive.sort()
+    mid = len(positive) // 2
+    median_eps = positive[mid] if len(positive) % 2 else (positive[mid - 1] + positive[mid]) / 2.0
+    min_base = median_eps * min_base_frac
+
+    changes: list[float] = []
+    years = sorted(annual_eps.keys())
+    prev_eps: float | None = None
+    for y in years:
+        eps = float(annual_eps[y])
+        if eps <= 0:
+            prev_eps = None
+            continue
+        if prev_eps is not None and prev_eps >= min_base and prev_eps > 0:
+            chg = (eps - prev_eps) / abs(prev_eps) * 100.0
+            if math.isfinite(chg):
+                changes.append(chg)
+        prev_eps = eps
+    return changes
+
+
+def _geometric_mean_yoy(changes: list[float], *, yoy_cap: float = YOY_CAP_PCT) -> float | None:
+    """Geometric mean of YoY % changes, excluding spikes above yoy_cap."""
+    valid = [c for c in changes if math.isfinite(c) and abs(c) <= yoy_cap]
+    if len(valid) < 2:
+        return None
+    product = 1.0
+    for c in valid:
+        product *= 1.0 + c / 100.0
+    if product <= 0:
+        return None
+    gm = product ** (1.0 / len(valid)) - 1.0
+    if not math.isfinite(gm):
+        return None
+    return round(gm * 100.0, 2)
+
+
+def compute_historical_growth_rate_pct(
+    annual_eps: dict[int, float] | None,
+    *,
+    yoy_cap: float = YOY_CAP_PCT,
+    max_years: int = 5,
+) -> float | None:
+    """
+    FAST Graphs–style historical growth: geometric mean of YoY changes
+    on outlier-filtered positive EPS, with 5y CAGR fallback.
+    """
+    if not annual_eps or len(annual_eps) < 2:
+        return None
+    filtered = filter_eps_outliers(annual_eps, min_frac_of_median=0.25)
+    if len(filtered) < 2:
+        filtered = {y: float(e) for y, e in annual_eps.items() if float(e) > 0}
+    years = sorted(filtered.keys())
+    if len(years) > max_years:
+        years = years[-max_years:]
+        filtered = {y: filtered[y] for y in years}
+    if len(filtered) < 2:
+        return None
+
+    changes = _yoy_changes_pct(filtered)
+    valid = [c for c in changes if math.isfinite(c) and abs(c) <= yoy_cap]
+
+    gm = _geometric_mean_yoy(valid, yoy_cap=yoy_cap) if len(valid) >= 2 else None
+    if gm is not None:
+        return gm
+    if len(valid) == 1:
+        return round(valid[0], 2)
+
+    # Fallback: 1-year CAGR between last two filtered years (avoids tiny base years).
+    last_two = years[-2:]
+    start_eps = float(filtered[last_two[0]])
+    end_eps = float(filtered[last_two[1]])
+    if start_eps > 0 and end_eps > 0 and last_two[1] > last_two[0]:
+        try:
+            cagr = (end_eps / start_eps) - 1.0
+            if math.isfinite(cagr):
+                return round(cagr * 100.0, 2)
+        except (ValueError, ZeroDivisionError, OverflowError):
+            pass
+
+    span = min(max_years, years[-1] - years[0])
+    if span >= 1:
+        return eps_cagr_over_years(filtered, span)
+    return None
+
+
+def compute_forecast_growth_pct(
+    estimates: dict[str, Any] | None,
+    annual_eps: dict[int, float] | None,
+    historical_growth: float | None,
+) -> float | None:
+    """
+    Forecast growth: analyst +1y growth, else implied 0y→+1y, else historical.
+    """
+    est = estimates or {}
+    est_0y = est.get("0y", {})
+    est_1y = est.get("+1y", {})
+
+    raw_growth = est_1y.get("growth") or est_0y.get("growth")
+    if raw_growth is not None:
+        try:
+            g = float(raw_growth)
+            return round(g * 100.0 if abs(g) <= 1.5 else g, 2)
+        except (TypeError, ValueError):
+            pass
+
+    avg_0y = est_0y.get("avg")
+    avg_1y = est_1y.get("avg")
+    if avg_0y is not None and avg_1y is not None:
+        try:
+            e0, e1 = float(avg_0y), float(avg_1y)
+            if e0 > 0 and e1 > 0:
+                implied = (e1 / e0 - 1.0) * 100.0
+                if math.isfinite(implied):
+                    return round(implied, 2)
+        except (TypeError, ValueError):
+            pass
+
+    return historical_growth
 
 
 def resolve_fair_pe(
@@ -65,10 +200,12 @@ def resolve_fair_pe(
     *,
     sidebar_fair_pe: float = 15.0,
     growth_threshold: float = 10.0,
+    growth_cap_pct: float = DEFAULT_GROWTH_CAP_PCT,
 ) -> float:
     """Auto rule: P/E = growth when growth >= threshold, else fixed fair P/E."""
     if growth_rate_pct is not None and growth_rate_pct >= growth_threshold:
-        return round(float(growth_rate_pct), 2)
+        capped = min(float(growth_rate_pct), growth_cap_pct)
+        return round(capped, 2)
     return float(sidebar_fair_pe)
 
 
@@ -109,6 +246,79 @@ def project_future_eps(
         return base_eps * ((1.0 + g) ** years)
     except (OverflowError, ValueError):
         return None
+
+
+def _estimate_eps_chain(
+    annual_eps: dict[int, float] | None,
+    estimates: dict[str, Any] | None,
+    *,
+    years_ahead: int = 4,
+    growth_rate: float | None = None,
+) -> list[tuple[int, float, bool]]:
+    """
+    Build (year, eps, is_estimate) chain: historical + analyst 0y/+1y + projected.
+    """
+    points: list[tuple[int, float, bool]] = []
+    for y, e in sorted((annual_eps or {}).items()):
+        points.append((int(y), float(e), False))
+
+    est = estimates or {}
+    est_0y = est.get("0y", {})
+    est_1y = est.get("+1y", {})
+    last_year = max(annual_eps.keys()) if annual_eps else pd.Timestamp.now().year
+
+    if est_0y.get("avg"):
+        points.append((last_year + 1, float(est_0y["avg"]), True))
+    if est_1y.get("avg"):
+        points.append((last_year + 2, float(est_1y["avg"]), True))
+
+    base = est_1y.get("avg") or est_0y.get("avg")
+    if base and years_ahead > 2 and growth_rate is not None:
+        for i in range(3, years_ahead + 1):
+            proj = project_future_eps(float(base), years=i - 2, growth_rate=growth_rate)
+            if proj:
+                points.append((last_year + i, proj, True))
+    return points
+
+
+def resolve_target_year_eps(
+    annual_eps: dict[int, float] | None,
+    estimates: dict[str, Any] | None,
+    *,
+    horizon_years: int,
+    growth_rate: float | None,
+) -> float | None:
+    """
+    EPS at target fiscal year = last reported year + horizon_years.
+    Uses analyst chain when available; compounds only beyond last estimate.
+    """
+    if not annual_eps:
+        return None
+    last_year = max(annual_eps.keys())
+    target_year = last_year + horizon_years
+    chain = _estimate_eps_chain(
+        annual_eps,
+        estimates,
+        years_ahead=horizon_years + 2,
+        growth_rate=growth_rate,
+    )
+    by_year = {y: e for y, e, _ in chain}
+    if target_year in by_year:
+        return by_year[target_year]
+
+    est_years = sorted(y for y, _, is_est in chain if is_est)
+    if not est_years:
+        base = float(annual_eps[last_year])
+        if base <= 0:
+            return None
+        return project_future_eps(base, years=horizon_years, growth_rate=growth_rate)
+
+    last_est_year = est_years[-1]
+    last_est_eps = by_year[last_est_year]
+    years_remaining = target_year - last_est_year
+    if years_remaining <= 0:
+        return last_est_eps
+    return project_future_eps(float(last_est_eps), years=years_remaining, growth_rate=growth_rate)
 
 
 def est_annual_ror_pct(
@@ -260,6 +470,7 @@ class FastGraphFilterConfig:
     horizon_years: int = 3
     sidebar_fair_pe: float = 15.0
     growth_threshold: float = 10.0
+    growth_cap_pct: float = DEFAULT_GROWTH_CAP_PCT
     valuation_pe_mode: str = "fair"  # fair | normal
 
 
@@ -335,13 +546,33 @@ def build_fast_graph_metrics(
     cfg: FastGraphFilterConfig,
 ) -> dict[str, Any]:
     """Assemble all FAST Graph metrics for one symbol."""
-    growth_rate = eps_cagr_pct(annual_eps)
-    fair_pe = resolve_fair_pe(
-        growth_rate,
+    historical_growth = compute_historical_growth_rate_pct(annual_eps)
+    forecast_growth = compute_forecast_growth_pct(
+        earnings_estimates,
+        annual_eps,
+        historical_growth,
+    )
+
+    historical_fair_pe = resolve_fair_pe(
+        historical_growth,
         sidebar_fair_pe=cfg.sidebar_fair_pe,
         growth_threshold=cfg.growth_threshold,
+        growth_cap_pct=cfg.growth_cap_pct,
     )
-    norm_pe = avg_historical_pe_5y(df_daily, annual_eps)
+    forecast_fair_pe = resolve_fair_pe(
+        forecast_growth,
+        sidebar_fair_pe=cfg.sidebar_fair_pe,
+        growth_threshold=cfg.growth_threshold,
+        growth_cap_pct=cfg.growth_cap_pct,
+    )
+
+    historical_normal_pe = avg_historical_pe_5y(df_daily, annual_eps)
+    forecast_normal_pe = historical_normal_pe
+
+    # Backward-compatible primary fields (historical mode)
+    growth_rate = historical_growth
+    fair_pe = historical_fair_pe
+    norm_pe = historical_normal_pe
 
     trailing_eps = info.get("trailing_eps")
     forward_eps = info.get("forward_eps")
@@ -360,23 +591,26 @@ def build_fast_graph_metrics(
     est_0y = (earnings_estimates or {}).get("0y", {})
     est_1y = (earnings_estimates or {}).get("+1y", {})
     est_growth_raw = est_1y.get("growth") or est_0y.get("growth")
-    est_eps_growth = None
-    if est_growth_raw is not None:
+    est_eps_growth = forecast_growth
+    if est_eps_growth is None and est_growth_raw is not None:
         try:
             g = float(est_growth_raw)
             est_eps_growth = round(g * 100.0 if abs(g) <= 1.5 else g, 2)
         except (TypeError, ValueError):
             pass
 
-    base_future_eps = est_1y.get("avg") or forward_eps or trailing_eps
-    proj_growth = est_eps_growth or growth_rate
-    future_eps = project_future_eps(
-        float(base_future_eps) if base_future_eps else 0.0,
-        years=cfg.horizon_years,
+    proj_growth = forecast_growth or historical_growth
+    future_eps = resolve_target_year_eps(
+        annual_eps,
+        earnings_estimates,
+        horizon_years=cfg.horizon_years,
         growth_rate=proj_growth,
-    ) if base_future_eps else None
+    )
 
-    val_pe = fair_pe if cfg.valuation_pe_mode == "fair" else (norm_pe or fair_pe)
+    val_pe = (
+        forecast_fair_pe if cfg.valuation_pe_mode == "fair"
+        else (forecast_normal_pe or forecast_fair_pe)
+    )
     future_price, est_ror = compute_est_ror(
         close,
         future_eps,
@@ -416,6 +650,12 @@ def build_fast_graph_metrics(
         "growth_rate": growth_rate,
         "fair_pe": fair_pe,
         "normal_pe": norm_pe,
+        "historical_growth_rate": historical_growth,
+        "historical_fair_pe": historical_fair_pe,
+        "historical_normal_pe": historical_normal_pe,
+        "forecast_growth_rate": forecast_growth,
+        "forecast_fair_pe": forecast_fair_pe,
+        "forecast_normal_pe": forecast_normal_pe,
         "blended_pe": blended,
         "eps_yield": eps_yield_pct(trailing_eps, close),
         "fair_price": fair_price,
