@@ -53,7 +53,10 @@ from chart_preview import (
     resolve_chart_payload,
 )
 from fundamentals_fast import get_fast_graph_panel_data
-from fundamentals_panel_ui import render_fast_graph_panel
+from fast_graph_chart import build_fast_graph_figure, build_fg_radar_figure
+from fast_graph_metrics import FastGraphFilterConfig
+from fast_graph_panel_ui import render_fast_graph_extended_panel
+from fast_graph_scanner import fast_graph_table_row, run_fast_graph_scan
 from chart_settings_ui import render_chart_settings
 inject_styles()
 
@@ -90,23 +93,73 @@ from tradingview_embed import (
 # ==========================================
 # 4. UI & SIDEBAR
 # ==========================================
-from ticker_sources import FileListSource, ManualSource
+from ticker_sources import CombinedListSource, FileListSource, ManualSource
 
 # Ticker sources: list files + optional MANUAL symbols
-SOURCE_OPTIONS = ["BIG CAP", "SMALL CAP", "ETF", "MANUAL SCAN"]
+SOURCE_OPTIONS = ["BIG CAP", "SMALL CAP", "BIG + SMALL CAP", "ETF", "MANUAL SCAN"]
+SCANNER_OPTIONS = ["Sequence Vova (TA)", "FAST Graphs"]
+TF_OPTIONS = ["Daily", "Weekly", "Monthly"]
+
+
 def _build_source_registry():
-    return {
-        "BIG CAP": FileListSource(TV_LIST_BIG_CAP, read_list_file),
-        "SMALL CAP": FileListSource(TV_LIST_SMALL_CAP, read_list_file),
+    big = FileListSource(TV_LIST_BIG_CAP, read_list_file)
+    small = FileListSource(TV_LIST_SMALL_CAP, read_list_file)
+    registry = {
+        "BIG CAP": big,
+        "SMALL CAP": small,
+        "BIG + SMALL CAP": CombinedListSource([big, small], label="BIG + SMALL CAP"),
         "ETF": FileListSource(TV_LIST_ETF, read_list_file),
     }
+    # Phase 2: when TV-LIST-US-CANADA-FULL.txt exists, add:
+    # registry["US + CANADA FULL"] = FileListSource(TV_LIST_US_CANADA_FULL, read_list_file)
+    return registry
+
 
 SOURCE_REGISTRY = _build_source_registry()
+
+
+def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
+    countries_raw = p.get("fg_countries", "US+CA")
+    if countries_raw == "US":
+        countries = ("United States",)
+    elif countries_raw == "CA":
+        countries = ("Canada",)
+    else:
+        countries = ("United States", "Canada")
+    return FastGraphFilterConfig(
+        countries=countries,
+        exclude_otc=bool(p.get("fg_exclude_otc", True)),
+        min_est_eps_growth=float(p.get("fg_min_est_growth", 10.0)),
+        require_cagr_1y=bool(p.get("fg_cagr_1y", True)),
+        require_cagr_3y=bool(p.get("fg_cagr_3y", True)),
+        require_cagr_5y=bool(p.get("fg_cagr_5y", True)),
+        require_cagr_10y=bool(p.get("fg_cagr_10y", True)),
+        ror_gte_growth=bool(p.get("fg_ror_gte_growth", True)),
+        max_lt_debt_capital=float(p.get("fg_max_debt_cap", 55.0)),
+        min_est_annual_ror=float(p.get("fg_min_ror", 0.0)),
+        price_below_fair=bool(p.get("fg_below_fair", False)),
+        min_fg_score=float(p.get("fg_min_score", 0.0)),
+        horizon_years=int(p.get("fg_horizon", 3)),
+        sidebar_fair_pe=float(p.get("fair_pe", 15.0)),
+        valuation_pe_mode=str(p.get("fg_val_pe_mode", "fair")),
+    )
+
 
 st.sidebar.header("⚙️ CONFIGURATION")
 
 # Disable inputs if scanning
 disabled = st.session_state.scanning
+
+_last_scanner = st.session_state.get("run_params", {}).get("scanner_id", "sequence_vova")
+_scanner_idx = 1 if _last_scanner == "fast_graphs" else 0
+scanner_label = st.sidebar.radio(
+    "SCANNER",
+    SCANNER_OPTIONS,
+    disabled=disabled,
+    index=_scanner_idx,
+)
+is_fast_scanner = scanner_label == "FAST Graphs"
+scanner_id = "fast_graphs" if is_fast_scanner else "sequence_vova"
 
 last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
 default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
@@ -116,41 +169,90 @@ if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
     st.sidebar.caption("Comma-separated symbols. Next START scans these tickers.")
 
-# Parameters
-st.sidebar.subheader("RISK MANAGEMENT")
-risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
-min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
-
 st.sidebar.subheader("FUNDAMENTALS")
 fair_pe_ratio = st.sidebar.number_input(
-    "Fair P/E (Fair Value Ratio)",
+    "Fair P/E (fallback when growth < 10%)",
     min_value=1.0,
     max_value=200.0,
     value=float(st.session_state.fair_pe_ratio),
     step=0.5,
     disabled=disabled,
-    help="Используется в панели FAST Graph под графиком (Yahoo EPS × Fair P/E).",
+    help="FAST Graphs: auto P/E = Growth Rate when growth ≥ 10%, else this value.",
 )
 st.session_state.fair_pe_ratio = float(fair_pe_ratio)
 
-st.sidebar.subheader("FILTERS")
-SCAN_DIRECTION_OPTIONS = ["BUY TO OPEN", "SELL TO CLOSE"]
-_last_dir = str(st.session_state.get("run_params", {}).get("scan_direction", "buy")).lower()
-dir_default_idx = 1 if _last_dir == "sell" else 0
-scan_dir = st.sidebar.radio(
-    "SCAN DIRECTION",
-    SCAN_DIRECTION_OPTIONS,
-    disabled=disabled,
-    index=dir_default_idx,
-    horizontal=True,
-)
-is_sell_scan = scan_dir == "SELL TO CLOSE"
-if not is_sell_scan:
-    use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
-else:
+if is_fast_scanner:
+    st.sidebar.caption("Auto Fair P/E = EPS Growth Rate when growth ≥ 10%, else Fair P/E above.")
+    st.sidebar.subheader("FAST GRAPH FILTERS")
+    fg_countries = st.sidebar.selectbox(
+        "Country",
+        ["US + Canada", "US only", "Canada only"],
+        disabled=disabled,
+        index={"US+CA": 0, "US": 1, "CA": 2}.get(
+            st.session_state.get("run_params", {}).get("fg_countries", "US+CA"), 0
+        ),
+    )
+    fg_country_key = {"US + Canada": "US+CA", "US only": "US", "Canada only": "CA"}[fg_countries]
+    fg_exclude_otc = st.sidebar.checkbox("Exclude OTC", True, disabled=disabled)
+    fg_min_est_growth = st.sidebar.number_input("Min Est EPS Growth %", 0.0, 100.0, 10.0, 1.0, disabled=disabled)
+    fg_cagr_1y = st.sidebar.checkbox("Historic EPS CAGR 1Y ≥ 0", True, disabled=disabled)
+    fg_cagr_3y = st.sidebar.checkbox("Historic EPS CAGR 3Y ≥ 0", True, disabled=disabled)
+    fg_cagr_5y = st.sidebar.checkbox("Historic EPS CAGR 5Y ≥ 0", True, disabled=disabled)
+    fg_cagr_10y = st.sidebar.checkbox("Historic EPS CAGR 10Y ≥ 0", True, disabled=disabled)
+    fg_ror_gte_growth = st.sidebar.checkbox("Est ROR ≥ Est EPS Growth", True, disabled=disabled)
+    fg_max_debt_cap = st.sidebar.number_input("Max LT Debt/Capital %", 0.0, 100.0, 55.0, 1.0, disabled=disabled)
+    fg_min_ror = st.sidebar.number_input("Min Est Annual ROR %", 0.0, 100.0, 0.0, 1.0, disabled=disabled)
+    fg_below_fair = st.sidebar.checkbox("Price below Fair Value", False, disabled=disabled)
+    fg_min_score = st.sidebar.number_input("Min FG Score", 0.0, 100.0, 0.0, 5.0, disabled=disabled)
+    fg_horizon = st.sidebar.selectbox("ROR horizon (years)", [1, 2, 3, 4, 5], index=2, disabled=disabled)
+    fg_val_pe_mode = st.sidebar.radio(
+        "ROR valuation P/E",
+        ["Fair P/E", "Normal P/E"],
+        disabled=disabled,
+        horizontal=True,
+    )
+    risk_per_trade = int(st.session_state.get("run_params", {}).get("risk_per_trade", 100))
+    min_rr_in = float(st.session_state.get("run_params", {}).get("rr", 1.5))
     use_last_hl_sl = bool(st.session_state.get("run_params", {}).get("use_last_hl_sl", True))
-tf_p = st.sidebar.selectbox("TIMEFRAME", ["Daily", "Weekly", "Monthly"], disabled=disabled)
-new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
+    _last_tf = st.session_state.get("run_params", {}).get("tf", "Weekly")
+    tf_default_idx = TF_OPTIONS.index(_last_tf) if _last_tf in TF_OPTIONS else 1
+    tf_p = st.sidebar.selectbox("TIMEFRAME", TF_OPTIONS, disabled=disabled, index=tf_default_idx)
+    new_p = False
+    scan_dir = "BUY TO OPEN"
+    is_sell_scan = False
+else:
+    fg_country_key = "US+CA"
+    fg_exclude_otc = True
+    fg_min_est_growth = 10.0
+    fg_cagr_1y = fg_cagr_3y = fg_cagr_5y = fg_cagr_10y = True
+    fg_ror_gte_growth = True
+    fg_max_debt_cap = 55.0
+    fg_min_ror = 0.0
+    fg_below_fair = False
+    fg_min_score = 0.0
+    fg_horizon = 3
+    fg_val_pe_mode = "Fair P/E"
+    st.sidebar.subheader("RISK MANAGEMENT")
+    risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
+    min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
+    st.sidebar.subheader("FILTERS")
+    SCAN_DIRECTION_OPTIONS = ["BUY TO OPEN", "SELL TO CLOSE"]
+    _last_dir = str(st.session_state.get("run_params", {}).get("scan_direction", "buy")).lower()
+    dir_default_idx = 1 if _last_dir == "sell" else 0
+    scan_dir = st.sidebar.radio(
+        "SCAN DIRECTION",
+        SCAN_DIRECTION_OPTIONS,
+        disabled=disabled,
+        index=dir_default_idx,
+        horizontal=True,
+    )
+    is_sell_scan = scan_dir == "SELL TO CLOSE"
+    if not is_sell_scan:
+        use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
+    else:
+        use_last_hl_sl = bool(st.session_state.get("run_params", {}).get("use_last_hl_sl", True))
+    tf_p = st.sidebar.selectbox("TIMEFRAME", TF_OPTIONS, disabled=disabled)
+    new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
 
 # Buttons
 c1, c2 = st.sidebar.columns(2)
@@ -171,6 +273,22 @@ if start_btn:
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
         'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
         'scan_direction': "sell" if is_sell_scan else "buy",
+        'scanner_id': scanner_id,
+        'fair_pe': float(fair_pe_ratio),
+        'fg_countries': fg_country_key,
+        'fg_exclude_otc': fg_exclude_otc,
+        'fg_min_est_growth': fg_min_est_growth,
+        'fg_cagr_1y': fg_cagr_1y,
+        'fg_cagr_3y': fg_cagr_3y,
+        'fg_cagr_5y': fg_cagr_5y,
+        'fg_cagr_10y': fg_cagr_10y,
+        'fg_ror_gte_growth': fg_ror_gte_growth,
+        'fg_max_debt_cap': fg_max_debt_cap,
+        'fg_min_ror': fg_min_ror,
+        'fg_below_fair': fg_below_fair,
+        'fg_min_score': fg_min_score,
+        'fg_horizon': fg_horizon,
+        'fg_val_pe_mode': "fair" if fg_val_pe_mode == "Fair P/E" else "normal",
     }
     st.rerun()
 
@@ -193,19 +311,27 @@ class ScanConfig:
     new_only: bool
     is_manual_src: bool
     scan_direction: str
+    scanner_id: str
+    fair_pe: float
+    fast_filter_cfg: FastGraphFilterConfig
 
     @classmethod
     def from_run_params(cls, p: dict) -> "ScanConfig":
         raw_dir = str(p.get("scan_direction", "buy")).lower()
         scan_direction = raw_dir if raw_dir in ("buy", "sell") else "buy"
+        scanner_id = str(p.get("scanner_id", "sequence_vova"))
+        default_tf = "Weekly" if scanner_id == "fast_graphs" else "Daily"
         return cls(
             risk_per_trade=int(p.get("risk_per_trade", 100)),
             min_rr=float(p.get("rr", 1.5)),
             use_last_hl_sl=bool(p.get("use_last_hl_sl", True)),
-            tf=str(p.get("tf", "Daily")),
+            tf=str(p.get("tf", default_tf)),
             new_only=bool(p.get("new", True)),
             is_manual_src=(p.get("src") == "MANUAL SCAN"),
             scan_direction=scan_direction,
+            scanner_id=scanner_id,
+            fair_pe=float(p.get("fair_pe", 15.0)),
+            fast_filter_cfg=_fast_filter_cfg_from_params(p),
         )
 
 
@@ -372,6 +498,7 @@ def render_scan_results(
     empty_message="Ready to scan. Click START.",
     scan_direction="buy",
     fair_pe: float = 15.0,
+    scanner_id: str = "sequence_vova",
 ):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -410,12 +537,16 @@ def render_scan_results(
                 width="stretch",
             )
 
+        is_fast = scanner_id == "fast_graphs"
         if has_charts:
-            dir_label = _scan_direction_label(scan_direction)
-            if scan_direction == "sell":
-                st.caption(f"Close signals. Click a row for chart preview ({dir_label} · {tf}).")
+            if is_fast:
+                st.caption(f"FAST Graphs results. Click a row for valuation charts ({tf} price).")
             else:
-                st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
+                dir_label = _scan_direction_label(scan_direction)
+                if scan_direction == "sell":
+                    st.caption(f"Close signals. Click a row for chart preview ({dir_label} · {tf}).")
+                else:
+                    st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
         else:
             st.caption("Run a scan to enable chart previews.")
 
@@ -431,13 +562,41 @@ def render_scan_results(
             elif st.session_state.get("selected_tv_symbol"):
                 tv_sym = st.session_state.selected_tv_symbol
 
-            chart_params = render_chart_settings()
             payload = (
                 resolve_chart_payload(tv_sym, chart_cache=chart_cache, ohlc_cache=ohlc_cache)
                 if tv_sym
                 else None
             )
-            if payload:
+            if is_fast and payload:
+                fast_metrics = payload.get("fast_metrics") or {}
+                chart_mode = st.radio(
+                    "Chart view",
+                    ["Historical", "Forecasting"],
+                    horizontal=True,
+                    key="fg_chart_mode",
+                )
+                mode_key = "forecast" if chart_mode == "Forecasting" else "historical"
+                fig = build_fast_graph_figure(
+                    df_weekly=payload.get("df"),
+                    df_daily=payload.get("df_daily"),
+                    metrics=fast_metrics,
+                    bundle=fast_metrics.get("bundle"),
+                    mode=mode_key,
+                    height=DEFAULT_CHART_HEIGHT,
+                )
+                if fig is not None:
+                    with st.container(border=True):
+                        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CHART_CONFIG)
+                fg_axes = fast_metrics.get("fg_axes") or {}
+                radar = build_fg_radar_figure(fg_axes, height=280) if fg_axes else None
+                if radar is not None:
+                    st.plotly_chart(radar, use_container_width=True, config=PLOTLY_CHART_CONFIG)
+                desc = (fast_metrics.get("bundle") or {}).get("info", {}).get("description", "")
+                if desc:
+                    st.markdown("**About**")
+                    st.markdown(desc)
+            elif not is_fast and payload:
+                chart_params = render_chart_settings()
                 fig = figure_from_payload(
                     payload,
                     symbol=tv_sym or "",
@@ -464,33 +623,50 @@ def render_scan_results(
 
             if tv_sym:
                 cache_key = f"{tv_sym}|{float(fair_pe):.2f}"
-                if cache_key in st.session_state.fundamentals_cache:
-                    fund_data = st.session_state.fundamentals_cache[cache_key]
-                else:
-                    with st.spinner("Загрузка фундаментала…"):
-                        fund_data = _load_fundamentals_panel(
-                            tv_sym,
-                            ohlc_cache=ohlc_cache,
-                            fair_pe=fair_pe,
+                fast_metrics = (payload or {}).get("fast_metrics") if is_fast else None
+                if is_fast and fast_metrics:
+                    panel_data = None
+                    try:
+                        yahoo = str(payload.get("yahoo_ticker", "") or "")
+                        panel_data = get_fast_graph_panel_data(
+                            yahoo,
+                            close=fast_metrics.get("close"),
+                            df_daily=payload.get("df_daily"),
+                            fair_pe=float(fast_metrics.get("fair_pe") or fair_pe),
                         )
-                if fund_data:
-                    render_fast_graph_panel(fund_data)
+                    except Exception:
+                        panel_data = None
+                    render_fast_graph_extended_panel(panel_data, fast_metrics)
                 else:
-                    st.caption("Fundamentals unavailable for this symbol.")
+                    if cache_key in st.session_state.fundamentals_cache:
+                        fund_data = st.session_state.fundamentals_cache[cache_key]
+                    else:
+                        with st.spinner("Загрузка фундаментала…"):
+                            fund_data = _load_fundamentals_panel(
+                                tv_sym,
+                                ohlc_cache=ohlc_cache,
+                                fair_pe=fair_pe,
+                            )
+                    if fund_data:
+                        from fundamentals_panel_ui import render_fast_graph_panel
+                        render_fast_graph_panel(fund_data)
+                    else:
+                        st.caption("Fundamentals unavailable for this symbol.")
 
         if reference_end_date is not None:
             try:
                 d = pd.Timestamp(reference_end_date)
                 as_of_str = d.strftime("%Y-%m-%d")
                 dow = d.dayofweek
+                mode_label = "FAST Graphs" if is_fast else _scan_direction_label(scan_direction)
                 if dow >= 5:
                     st.caption(
-                        f"**Results as of {as_of_str}** ({_scan_direction_label(scan_direction)} · {tf}) "
+                        f"**Results as of {as_of_str}** ({mode_label} · {tf}) "
                         f"(last trading day — market closed weekend/holiday). Same bar used for all symbols for consistency."
                     )
                 else:
                     st.caption(
-                        f"**Results as of {as_of_str}** ({_scan_direction_label(scan_direction)} · {tf}). "
+                        f"**Results as of {as_of_str}** ({mode_label} · {tf}). "
                         f"Same bar used for all symbols for consistency."
                     )
             except Exception:
@@ -550,6 +726,8 @@ def _process_ticker_for_scan(
     tv_symbol_by_ticker: dict[str, str] | None = None,
     name_cache: dict[str, str] | None = None,
     scan_direction: str = "buy",
+    scanner_id: str = "sequence_vova",
+    fast_filter_cfg: FastGraphFilterConfig | None = None,
 ) -> dict:
     """
     Pure per-ticker work for one symbol. Returns:
@@ -614,6 +792,53 @@ def _process_ticker_for_scan(
                 return {"kind": "reject", "row": {"Symbol": t, "Reason": "INSUFFICIENT_DATA"}}
             return {"kind": "skip"}
 
+        tv_sym = (tv_symbol_by_ticker or {}).get(t) or infer_tv_symbol(t)
+        interval = tf_to_tv_interval(tf)
+        tv_url = build_chart_url(tv_sym, interval)
+        if lazy_metadata and name_cache is not None:
+            company_name = name_cache.get(t, t)
+        else:
+            company_name = info_dict.get("company_name", t)
+
+        if scanner_id == "fast_graphs":
+            fg_cfg = fast_filter_cfg or FastGraphFilterConfig()
+            metrics = run_fast_graph_scan(
+                df,
+                ticker=t,
+                df_daily=df_daily_chart,
+                filter_cfg=fg_cfg,
+            )
+            if metrics is None:
+                if is_manual_src:
+                    return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_DATA"}}
+                return {"kind": "skip"}
+            if not metrics.get("Valid"):
+                reason = metrics.get("reject_reason") or "FILTER_FAIL"
+                if is_manual_src:
+                    return {"kind": "reject", "row": {"Symbol": t, "Reason": reason}}
+                return {"kind": "skip"}
+            table_row = fast_graph_table_row(
+                metrics,
+                tv_url=tv_url,
+                tv_sym=tv_sym,
+                company_name=company_name,
+            )
+            ohlc_entry = {
+                "df": df.copy(),
+                "df_daily": df_daily_chart.copy(),
+                "tf": tf,
+                "symbol": tv_sym,
+                "yahoo_ticker": t,
+                "fast_metrics": metrics,
+                "scanner_id": "fast_graphs",
+            }
+            return {
+                "kind": "row",
+                "row": table_row,
+                "chart_key": tv_sym,
+                "ohlc_entry": ohlc_entry,
+            }
+
         out = run_sequence_vova_close_scan(
             df,
             atr_len=ATR_LEN,
@@ -649,14 +874,6 @@ def _process_ticker_for_scan(
             pos_size = 0
         else:
             pos_size = int(round(pos_size))
-
-        tv_sym = (tv_symbol_by_ticker or {}).get(t) or infer_tv_symbol(t)
-        interval = tf_to_tv_interval(tf)
-        tv_url = build_chart_url(tv_sym, interval)
-        if lazy_metadata and name_cache is not None:
-            company_name = name_cache.get(t, t)
-        else:
-            company_name = info_dict.get("company_name", t)
 
         if scan_direction == "sell":
             entry_px = round(float(out["entry_price"]), 2)
@@ -877,6 +1094,8 @@ def run_scan(
     new_only,
     is_manual_src,
     scan_direction="buy",
+    scanner_id: str = "sequence_vova",
+    fast_filter_cfg: FastGraphFilterConfig | None = None,
     tv_symbol_by_ticker: dict[str, str] | None = None,
     company_name_by_ticker: dict[str, str] | None = None,
     on_phase_progress=None,
@@ -1107,6 +1326,8 @@ def run_scan(
                         tv_symbol_by_ticker,
                         nc,
                         scan_direction,
+                        scanner_id,
+                        fast_filter_cfg,
                     )
                     pairs.append((t, fut))
                 for t, fut in pairs:
@@ -1147,6 +1368,8 @@ def run_scan(
                     tv_symbol_by_ticker,
                     nc,
                     scan_direction,
+                    scanner_id,
+                    fast_filter_cfg,
                 )
                 _merge_ticker_result(res)
                 proc_done[0] += 1
@@ -1163,6 +1386,16 @@ def run_scan(
 
     if table_rows and not use_embedded_names:
         _patch_symbol_only_company_names(table_rows)
+
+    if scanner_id == "fast_graphs" and table_rows:
+        def _ror_sort_key(row: dict) -> float:
+            val = row.get("Est ROR")
+            try:
+                return float(val) if val is not None else -1e9
+            except (TypeError, ValueError):
+                return -1e9
+
+        table_rows.sort(key=_ror_sort_key, reverse=True)
 
     total_sec = time.perf_counter() - t_scan0
     timing_msg = (
@@ -1223,6 +1456,8 @@ if st.session_state.scanning:
         new_only=cfg.new_only,
         is_manual_src=cfg.is_manual_src,
         scan_direction=cfg.scan_direction,
+        scanner_id=cfg.scanner_id,
+        fast_filter_cfg=cfg.fast_filter_cfg,
         tv_symbol_by_ticker=tv_symbol_by_ticker,
         company_name_by_ticker=company_names,
         on_phase_progress=on_phase_progress,
@@ -1237,6 +1472,7 @@ if st.session_state.scanning:
     st.session_state.results_as_of = reference_end_date
     st.session_state.results_tf = cfg.tf
     st.session_state.results_direction = cfg.scan_direction
+    st.session_state.results_scanner = cfg.scanner_id
     st.session_state.ohlc_cache = ohlc_cache
     st.session_state.chart_cache = {}
     st.session_state.selected_tv_symbol = None
@@ -1248,7 +1484,8 @@ if st.session_state.scanning:
             ohlc_cache=ohlc_cache,
             empty_message="No symbols passed the screener.",
             scan_direction=cfg.scan_direction,
-            fair_pe=st.session_state.fair_pe_ratio,
+            fair_pe=cfg.fair_pe,
+            scanner_id=cfg.scanner_id,
         )
 
     st.session_state.scanning = False
@@ -1261,6 +1498,7 @@ else:
     as_of = st.session_state.get("results_as_of")
     as_of_tf = st.session_state.get("results_tf", "Daily")
     as_of_dir = st.session_state.get("results_direction", "buy")
+    as_of_scanner = st.session_state.get("results_scanner", "sequence_vova")
 
     with res_area.container():
         render_scan_results(
@@ -1270,5 +1508,6 @@ else:
             ohlc_cache=st.session_state.get("ohlc_cache", {}),
             scan_direction=as_of_dir,
             fair_pe=st.session_state.fair_pe_ratio,
+            scanner_id=as_of_scanner,
         )
 

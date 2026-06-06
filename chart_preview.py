@@ -663,13 +663,20 @@ def chart_payload_from_ohlc(ohlc_cache: dict, tv_symbol: str) -> dict | None:
     df_daily = entry.get("df_daily")
     if isinstance(df_daily, dict):
         df_daily = pd.DataFrame(df_daily)
-    return build_chart_payload(
+    payload = build_chart_payload(
         df,
         str(entry.get("tf", "Daily")),
         symbol=str(entry.get("symbol", "") or tv_symbol),
         yahoo_ticker=str(entry.get("yahoo_ticker", "") or ""),
         df_daily=df_daily,
     )
+    if payload is None:
+        return None
+    if entry.get("fast_metrics") is not None:
+        payload["fast_metrics"] = entry["fast_metrics"]
+    if entry.get("scanner_id"):
+        payload["scanner_id"] = entry["scanner_id"]
+    return payload
 
 
 def resolve_chart_payload(

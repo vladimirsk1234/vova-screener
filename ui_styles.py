@@ -279,6 +279,51 @@ _STYLES = """
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
+    .fg-highlight-ror {
+        background: #7cb342;
+    }
+
+    .fg-score-bars {
+        margin: 0.5rem 0 0.75rem;
+        padding: 0.5rem 0.65rem;
+        background: #0a0a0a;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+    }
+
+    .fg-score-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+        font-size: 0.78rem;
+    }
+
+    .fg-score-label {
+        flex: 0 0 140px;
+        color: #9aa0a6;
+    }
+
+    .fg-score-track {
+        flex: 1;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .fg-score-fill {
+        height: 100%;
+        border-radius: 4px;
+    }
+
+    .fg-score-val {
+        flex: 0 0 28px;
+        text-align: right;
+        color: #e8eaed;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
     @media (max-width: 480px) {
         .fg-highlights {
             flex-direction: column;
@@ -286,6 +331,10 @@ _STYLES = """
 
         .fg-highlight {
             flex: 1 1 auto;
+        }
+
+        .fg-score-label {
+            flex: 0 0 100px;
         }
     }
 </style>

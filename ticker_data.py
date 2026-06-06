@@ -22,6 +22,8 @@ _info_cache_lock = threading.Lock()
 TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
 TV_LIST_SMALL_CAP = "TV-LIST-SMALL_CAP_2B-10B.txt"
 TV_LIST_ETF = "TV-LIST-ETF.txt"
+# Phase 2: plug FileListSource(TV_LIST_US_CANADA_FULL) when list file is generated
+TV_LIST_US_CANADA_FULL = "TV-LIST-US-CANADA-FULL.txt"
 
 
 def _list_file_path(filename: str) -> str:
@@ -744,20 +746,84 @@ def get_chart_fundamentals(
     return out
 
 
-def get_annual_eps_history_5y(ticker: str) -> dict[int, float] | None:
-    """
-    Return latest up-to-5 annual EPS points as {year: eps} for one ticker.
-    Returns None when no usable annual EPS rows are available.
-    """
+def _annual_eps_map_for_ticker(ticker: str) -> dict[int, float] | None:
+    """Return full annual EPS map from yfinance financials/income_stmt."""
     try:
         t = yf.Ticker(ticker)
         eps_map = _extract_annual_eps_map(getattr(t, "financials", None))
         if not eps_map:
             eps_map = _extract_annual_eps_map(getattr(t, "income_stmt", None))
-        if not eps_map:
-            return None
-
-        years_desc = sorted(eps_map.keys(), reverse=True)[:5]
-        return {y: eps_map[y] for y in sorted(years_desc)}
+        return eps_map or None
     except Exception:
         return None
+
+
+def get_annual_eps_history_5y(ticker: str) -> dict[int, float] | None:
+    """
+    Return latest up-to-5 annual EPS points as {year: eps} for one ticker.
+    Returns None when no usable annual EPS rows are available.
+    """
+    eps_map = _annual_eps_map_for_ticker(ticker)
+    if not eps_map:
+        return None
+    years_desc = sorted(eps_map.keys(), reverse=True)[:5]
+    return {y: eps_map[y] for y in sorted(years_desc)}
+
+
+def get_annual_eps_history_10y(ticker: str) -> dict[int, float] | None:
+    """Return latest up-to-10 annual EPS points as {year: eps}."""
+    eps_map = _annual_eps_map_for_ticker(ticker)
+    if not eps_map:
+        return None
+    years_desc = sorted(eps_map.keys(), reverse=True)[:10]
+    return {y: eps_map[y] for y in sorted(years_desc)}
+
+
+def get_earnings_estimates_yf(ticker_obj) -> dict[str, dict]:
+    """
+    Parse yfinance earnings_estimate into {period: {avg, growth, ...}}.
+    Periods: 0q, +1q, 0y, +1y.
+    """
+    out: dict[str, dict] = {}
+    try:
+        df = ticker_obj.get_earnings_estimate()
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return out
+        for period in df.index:
+            row = df.loc[period]
+            entry: dict = {}
+            for col in df.columns:
+                val = row.get(col) if hasattr(row, "get") else row[col]
+                if val is not None and (isinstance(val, (int, float)) or not pd.isna(val)):
+                    try:
+                        entry[str(col)] = float(val) if col != "numberOfAnalysts" else int(val)
+                    except (TypeError, ValueError):
+                        entry[str(col)] = val
+            if entry:
+                out[str(period)] = entry
+    except Exception:
+        pass
+    return out
+
+
+def get_earnings_history_yf(ticker_obj) -> list[dict]:
+    """Parse yfinance earnings_history into list of dicts."""
+    out: list[dict] = []
+    try:
+        df = ticker_obj.get_earnings_history()
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return out
+        for idx, row in df.iterrows():
+            entry: dict = {"date": str(idx)}
+            for col in ("epsEstimate", "epsActual", "epsDifference", "surprisePercent"):
+                if col in df.columns:
+                    val = row[col]
+                    if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                        try:
+                            entry[col] = float(val)
+                        except (TypeError, ValueError):
+                            entry[col] = val
+            out.append(entry)
+    except Exception:
+        pass
+    return out
