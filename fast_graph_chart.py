@@ -299,22 +299,19 @@ def _compute_fast_graph_y_range(
     fair_y: list[float],
     norm_y: list[float],
     div_y: list[float] | None = None,
-    *,
-    price_max_multiplier: float = 5.0,
 ) -> tuple[float, float]:
-    """Price-first y-axis; extend to show full valuation lines."""
+    """Y-axis spans price and full sloped valuation lines (FAST Graphs shows full mountain)."""
     price_lo = float(closes.min())
     price_hi = float(closes.max())
     span = max(price_hi - price_lo, price_hi * 0.05)
-    pad = max(span * 0.12, price_hi * 0.04)
-    y_lo = max(0.0, price_lo - pad * 0.5)
+    pad = max(span * 0.08, price_hi * 0.03)
+    y_lo = max(0.0, price_lo - pad * 0.35)
 
     y_hi = price_hi + pad
     all_vals = [y for y in (fair_y or []) + (norm_y or []) + (div_y or []) if y > 0]
     if all_vals:
         val_max = max(all_vals)
-        soft_cap = price_hi * price_max_multiplier
-        y_hi = max(y_hi, min(val_max + pad * 0.25, soft_cap))
+        y_hi = max(y_hi, val_max + pad * 0.12)
     return y_lo, y_hi
 
 
@@ -502,19 +499,12 @@ def build_fast_graph_figure(
     fair_step_x, fair_step_y = _extend_to_price_end(eps_points, closes.index, pe_multiple=fair_pe)
     norm_step_x, norm_step_y = _extend_to_price_end(eps_points, closes.index, pe_multiple=norm_pe)
 
-    # Layer 1: earnings evaluation — dark green fill from 0 to sloped fair value (FAST mountain).
+    # Layer 1: earnings evaluation — dark green mountain (0 → sloped fair value).
     if fair_step_x and fair_step_y:
         fig.add_trace(
             go.Scatter(
-                x=fair_step_x, y=[0.0] * len(fair_step_x),
-                line=dict(width=0), showlegend=False, hoverinfo="skip",
-            ),
-            row=1, col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
                 x=fair_step_x, y=fair_step_y,
-                fill="tonexty",
+                fill="tozeroy",
                 fillcolor=FG_COLORS["earnings_fill"],
                 line=dict(width=0),
                 name="Earnings",
@@ -524,19 +514,12 @@ def build_fast_graph_figure(
             row=1, col=1,
         )
 
-    # Layer 2: dividend zone — lighter green from 0 to sloped dividend line.
+    # Layer 2: dividend zone — lighter green band at bottom (0 → sloped dividend line).
     if div_step_x and any(y > 0 for y in div_step_y):
         fig.add_trace(
             go.Scatter(
-                x=div_step_x, y=[0.0] * len(div_step_x),
-                line=dict(width=0), showlegend=False, hoverinfo="skip",
-            ),
-            row=1, col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
                 x=div_step_x, y=div_step_y,
-                fill="tonexty",
+                fill="tozeroy",
                 fillcolor=FG_COLORS["dividend_fill"],
                 line=dict(width=0),
                 showlegend=False,

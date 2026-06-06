@@ -663,6 +663,20 @@ def chart_payload_from_ohlc(ohlc_cache: dict, tv_symbol: str) -> dict | None:
     df_daily = entry.get("df_daily")
     if isinstance(df_daily, dict):
         df_daily = pd.DataFrame(df_daily)
+
+    # FAST Graphs needs full price history + forward FY extension, not TA trim window.
+    if entry.get("scanner_id") == "fast_graphs":
+        payload = {
+            "df": df.copy(),
+            "df_daily": df_daily.copy() if isinstance(df_daily, pd.DataFrame) else df_daily,
+            "tf": str(entry.get("tf", "Daily")),
+            "symbol": str(entry.get("symbol", "") or tv_symbol),
+            "yahoo_ticker": str(entry.get("yahoo_ticker", "") or ""),
+            "fast_metrics": entry.get("fast_metrics"),
+            "scanner_id": "fast_graphs",
+        }
+        return payload
+
     payload = build_chart_payload(
         df,
         str(entry.get("tf", "Daily")),
