@@ -611,8 +611,12 @@ def render_scan_results(
                 mode_key = "forecast" if chart_mode == "Forecasting" else "historical"
                 # Prefer full OHLC from cache (FAST Graph must not use TA trim window).
                 ohlc_entry = (ohlc_cache or {}).get(tv_sym) or {}
-                chart_df = ohlc_entry.get("df") or payload.get("df")
-                chart_daily = ohlc_entry.get("df_daily") or payload.get("df_daily")
+                chart_df = ohlc_entry.get("df")
+                if chart_df is None:
+                    chart_df = payload.get("df")
+                chart_daily = ohlc_entry.get("df_daily")
+                if chart_daily is None:
+                    chart_daily = payload.get("df_daily")
                 fig = build_fast_graph_figure(
                     df_weekly=chart_df,
                     df_daily=chart_daily,
