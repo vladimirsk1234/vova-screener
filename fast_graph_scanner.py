@@ -23,6 +23,7 @@ def run_fast_graph_scan(
     bundle: dict[str, Any] | None = None,
     filter_cfg: FastGraphFilterConfig | None = None,
     fetch_bundle: bool = True,
+    retain_bundle: bool = False,
 ) -> dict[str, Any] | None:
     """
     Run FAST Graphs scan on one symbol.
@@ -69,7 +70,15 @@ def run_fast_graph_scan(
     passed, reason = passes_fast_graph_filters(metrics, cfg)
     metrics["Valid"] = passed
     metrics["reject_reason"] = reason if not passed else ""
-    metrics["bundle"] = bundle
+    if retain_bundle:
+        metrics["bundle"] = bundle
+    else:
+        metrics["annual_dividends"] = bundle.get("annual_dividends") or {}
+        info = bundle.get("info") or {}
+        metrics["chart_info"] = {
+            "currency": info.get("currency"),
+            "dividend_rate": info.get("dividend_rate"),
+        }
     return metrics
 
 

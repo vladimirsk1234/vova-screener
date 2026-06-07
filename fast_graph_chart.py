@@ -600,7 +600,7 @@ def build_fast_graph_figure(
         return None
 
     bundle = bundle or metrics.get("bundle") or {}
-    info = bundle.get("info") or {}
+    info = bundle.get("info") or metrics.get("chart_info") or {}
     currency = info.get("currency") or "USD"
     cur_sym = f"{currency} " if currency else ""
 

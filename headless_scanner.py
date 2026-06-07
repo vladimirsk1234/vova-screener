@@ -1,4 +1,5 @@
 import html
+import gc
 import logging
 import os
 import re
@@ -86,6 +87,13 @@ from data_utils import (
     interval_and_period as _interval_and_period,
     resample_to_timeframe as _resample_to_timeframe,
     split_batch_ohlcv as _split_batch_ohlcv,
+)
+from scan_memory import (
+    download_max_workers,
+    is_low_memory_runtime,
+    scan_chunk_size,
+    slim_ohlc_entry,
+    ta_max_workers,
 )
 from tradingview_embed import (
     build_chart_url,
@@ -223,6 +231,10 @@ if is_fast_scanner:
         "Data: SEC Operating EPS (free proxy) — not FAST Graphs Premium Adjusted EPS. "
         "Numbers will differ from FG."
     )
+    if is_low_memory_runtime():
+        st.sidebar.caption(
+            "Low-memory mode: smaller batches, streaming download (Streamlit Cloud)."
+        )
     st.sidebar.subheader("FAST GRAPH FILTERS")
     st.sidebar.caption("CPFS-G: Cheap, Growing (1Y/3Y/10Y), Safe, Forward (analyst)")
     fg_countries = st.sidebar.selectbox(
@@ -671,17 +683,13 @@ def render_scan_results(
                     df_weekly=chart_df,
                     df_daily=chart_daily,
                     metrics=fast_metrics,
-                    bundle=fast_metrics.get("bundle"),
+                    bundle=None,
                     mode=mode_key,
                     height=DEFAULT_CHART_HEIGHT,
                 )
                 if fig is not None:
                     with st.container(border=True):
                         st.plotly_chart(fig, use_container_width=True, config=FAST_GRAPH_PLOTLY_CONFIG)
-                desc = (fast_metrics.get("bundle") or {}).get("info", {}).get("description", "")
-                if desc:
-                    st.markdown("**About**")
-                    st.markdown(desc)
             elif not is_fast and payload:
                 chart_params = render_chart_settings()
                 fig = figure_from_payload(
@@ -781,6 +789,8 @@ def _download_batch(
     batch: list[str],
     fetch_period: str,
     inter: str,
+    *,
+    auto_adjust: bool = False,
 ) -> tuple[int, list[str], pd.DataFrame | None]:
     all_data = None
     for attempt in range(YF_DOWNLOAD_MAX_RETRIES):
@@ -790,7 +800,7 @@ def _download_batch(
                 period=fetch_period,
                 interval=inter,
                 progress=False,
-                auto_adjust=False,
+                auto_adjust=auto_adjust,
                 group_by="ticker",
                 threads=True,
             )
@@ -874,22 +884,6 @@ def _process_ticker_for_scan(
 
         df = df.copy()
         df_daily_chart = df.copy()
-        if scanner_id == "fast_graphs":
-            try:
-                df_adj = yf.download(
-                    t,
-                    period=fetch_period,
-                    interval=inter,
-                    progress=False,
-                    auto_adjust=True,
-                    multi_level_index=False,
-                )
-                if df_adj is not None and not df_adj.empty and all(col in df_adj.columns for col in required_cols):
-                    df_daily_chart = df_adj[required_cols].copy()
-                    if ref_end is not None and len(df_daily_chart.index) > 0:
-                        df_daily_chart = df_daily_chart.loc[df_daily_chart.index <= ref_end]
-            except Exception:
-                pass
         df = _resample_to_timeframe(df, tf)
         if df is None or df.empty or len(df) < MIN_BARS:
             if is_manual_src:
@@ -1158,18 +1152,21 @@ def _parallel_download_batches(
     inter: str,
     is_cancelled=None,
     on_batch_done=None,
+    *,
+    auto_adjust: bool = False,
+    max_workers: int | None = None,
 ) -> tuple[list[tuple[list[str], pd.DataFrame | None]], object | None]:
     """Download all chunks in parallel; return batches sorted by index."""
     reference_end_date = None
     if not batches:
         return [], None
 
-    workers = min(DOWNLOAD_MAX_WORKERS, len(batches))
+    workers = max_workers if max_workers is not None else min(DOWNLOAD_MAX_WORKERS, len(batches))
     raw: list[tuple[int, list[str], pd.DataFrame | None]] = []
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [
-            pool.submit(_download_batch, batch_idx, batch, fetch_period, inter)
+            pool.submit(_download_batch, batch_idx, batch, fetch_period, inter, auto_adjust=auto_adjust)
             for batch_idx, batch in enumerate(batches)
         ]
         for fut in as_completed(futures):
@@ -1223,10 +1220,16 @@ def run_scan(
     """
     inter, fetch_period = _interval_and_period(tf, scanner_id=scanner_id)
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if len(tickers) > CHUNK_SIZE:
-        batches = [tickers[i:i + CHUNK_SIZE] for i in range(0, len(tickers), CHUNK_SIZE)]
+    chunk = scan_chunk_size(scanner_id)
+    if len(tickers) > chunk:
+        batches = [tickers[i:i + chunk] for i in range(0, len(tickers), chunk)]
     else:
         batches = [tickers]
+
+    auto_adjust_prices = scanner_id == "fast_graphs"
+    stream_batches = scanner_id == "fast_graphs" or is_low_memory_runtime()
+    workers_ta = ta_max_workers(scanner_id, default=TA_MAX_WORKERS)
+    workers_dl = download_max_workers(scanner_id, default=DOWNLOAD_MAX_WORKERS)
 
     table_rows = []
     rejected_reasons = []
@@ -1301,100 +1304,17 @@ def run_scan(
             on_phase_complete("info")
         info_sec = time.perf_counter() - t_info0
 
-    t_names_dl0 = time.perf_counter()
-    if lazy_metadata:
-        if use_embedded_names:
-            name_cache = dict(company_name_by_ticker or {})
-            for t in tickers:
-                name_cache.setdefault(t, t)
-
-            def _dl_batch_done_embedded():
-                dl_done[0] += 1
-                if on_phase_progress:
-                    on_phase_progress("download", dl_done[0], n_batches)
-
-            if on_phase_start:
-                on_phase_start("download")
-            batches_data, reference_end_date = _parallel_download_batches(
-                batches,
-                fetch_period,
-                inter,
-                is_cancelled,
-                _dl_batch_done_embedded,
-            )
-            if on_phase_complete and not (is_cancelled and is_cancelled()):
-                on_phase_complete("download")
-        else:
-            # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
-            if on_phase_start:
-                on_phase_start("download")
-            with ThreadPoolExecutor(max_workers=2) as prep_pool:
-                name_future = prep_pool.submit(
-                    build_name_cache,
-                    tickers,
-                    rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
-                    max_workers=YF_INFO_MAX_WORKERS,
-                    is_cancelled=None,
-                    on_one_done=None,
-                )
-                dl_future = prep_pool.submit(
-                    _parallel_download_batches,
-                    batches,
-                    fetch_period,
-                    inter,
-                    None,
-                    None,
-                )
-                name_cache = name_future.result()
-                batches_data, reference_end_date = dl_future.result()
-
-            if on_phase_progress:
-                on_phase_progress("download", n_batches, n_batches)
-            if on_phase_complete:
-                on_phase_complete("download")
-    else:
-
-        def _dl_batch_done_manual():
-            dl_done[0] += 1
-            if on_phase_progress:
-                on_phase_progress("download", dl_done[0], n_batches)
-
-        if on_phase_start:
-            on_phase_start("download")
-        batches_data, reference_end_date = _parallel_download_batches(
-            batches,
-            fetch_period,
-            inter,
-            is_cancelled,
-            _dl_batch_done_manual,
-        )
-        if on_phase_complete and not (is_cancelled and is_cancelled()):
-            on_phase_complete("download")
-
-    prefetch_sec = time.perf_counter() - t_names_dl0
-
-    if reference_end_date is None and batches_data:
-        for _, all_data in batches_data:
-            if all_data is not None and not all_data.empty and len(all_data.index) > 0:
-                reference_end_date = all_data.index[-1]
-                break
-
     def _merge_ticker_result(res: dict) -> None:
         if res["kind"] == "row":
             table_rows.append(res["row"])
             key = res.get("chart_key")
             entry = res.get("ohlc_entry")
             if key and entry:
-                ohlc_cache[key] = entry
+                ohlc_cache[key] = slim_ohlc_entry(entry, scanner_id)
         elif res["kind"] == "reject":
             rejected_reasons.append(res["row"])
 
-    t_proc0 = time.perf_counter()
-    if on_phase_start:
-        on_phase_start("process")
-    for _batch_idx, (batch, all_data) in enumerate(batches_data):
-        if is_cancelled and is_cancelled():
-            break
+    def _process_batch_slice(batch: list[str], all_data: pd.DataFrame | None) -> None:
         slice_data = all_data
         if (
             slice_data is not None
@@ -1408,9 +1328,9 @@ def run_scan(
         ticker_dfs = _split_batch_ohlcv(slice_data, batch, required_cols)
         nc = name_cache if lazy_metadata else None
 
-        use_parallel = TA_MAX_WORKERS > 1 and len(batch) > 1
+        use_parallel = workers_ta > 1 and len(batch) > 1
         if use_parallel:
-            with ThreadPoolExecutor(max_workers=TA_MAX_WORKERS) as pool:
+            with ThreadPoolExecutor(max_workers=workers_ta) as pool:
                 pairs = []
                 for t in batch:
                     if is_cancelled and is_cancelled():
@@ -1486,14 +1406,143 @@ def run_scan(
                 proc_done[0] += 1
                 if on_phase_progress:
                     on_phase_progress("process", proc_done[0], n_tickers)
+        del ticker_dfs
+
+    t_names_dl0 = time.perf_counter()
+    if stream_batches:
+        if lazy_metadata:
+            if use_embedded_names:
+                name_cache = dict(company_name_by_ticker or {})
+                for t in tickers:
+                    name_cache.setdefault(t, t)
+            else:
+                if on_phase_start:
+                    on_phase_start("download")
+                name_cache = build_name_cache(
+                    tickers,
+                    rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
+                    max_workers=min(4, YF_INFO_MAX_WORKERS),
+                    is_cancelled=is_cancelled,
+                    on_one_done=None,
+                )
+        if on_phase_start:
+            on_phase_start("download")
+        if on_phase_start:
+            on_phase_start("process")
+        for batch_idx, batch in enumerate(batches):
+            if is_cancelled and is_cancelled():
+                break
+            _, batch, all_data = _download_batch(
+                batch_idx, batch, fetch_period, inter, auto_adjust=auto_adjust_prices,
+            )
+            if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                batch_end = all_data.index[-1]
+                reference_end_date = (
+                    batch_end if reference_end_date is None else min(reference_end_date, batch_end)
+                )
+            dl_done[0] += 1
+            if on_phase_progress:
+                on_phase_progress("download", dl_done[0], n_batches)
+            _process_batch_slice(batch, all_data)
+            del all_data
+            gc.collect()
+        if on_phase_complete and not (is_cancelled and is_cancelled()):
+            on_phase_complete("download")
+        if on_phase_complete and not (is_cancelled and is_cancelled()):
+            on_phase_complete("process")
+    elif lazy_metadata:
+        if use_embedded_names:
+            name_cache = dict(company_name_by_ticker or {})
+            for t in tickers:
+                name_cache.setdefault(t, t)
+
+            def _dl_batch_done_embedded():
+                dl_done[0] += 1
+                if on_phase_progress:
+                    on_phase_progress("download", dl_done[0], n_batches)
+
+            if on_phase_start:
+                on_phase_start("download")
+            batches_data, reference_end_date = _parallel_download_batches(
+                batches,
+                fetch_period,
+                inter,
+                is_cancelled,
+                _dl_batch_done_embedded,
+            )
+            if on_phase_complete and not (is_cancelled and is_cancelled()):
+                on_phase_complete("download")
+        else:
+            # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
+            if on_phase_start:
+                on_phase_start("download")
+            with ThreadPoolExecutor(max_workers=2) as prep_pool:
+                name_future = prep_pool.submit(
+                    build_name_cache,
+                    tickers,
+                    rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
+                    max_workers=YF_INFO_MAX_WORKERS,
+                    is_cancelled=None,
+                    on_one_done=None,
+                )
+                dl_future = prep_pool.submit(
+                    _parallel_download_batches,
+                    batches,
+                    fetch_period,
+                    inter,
+                    None,
+                    None,
+                )
+                name_cache = name_future.result()
+                batches_data, reference_end_date = dl_future.result()
+
+            if on_phase_progress:
+                on_phase_progress("download", n_batches, n_batches)
+            if on_phase_complete:
+                on_phase_complete("download")
+    else:
+
+        def _dl_batch_done_manual():
+            dl_done[0] += 1
+            if on_phase_progress:
+                on_phase_progress("download", dl_done[0], n_batches)
+
+        if on_phase_start:
+            on_phase_start("download")
+        batches_data, reference_end_date = _parallel_download_batches(
+            batches,
+            fetch_period,
+            inter,
+            is_cancelled,
+            _dl_batch_done_manual,
+        )
+        if on_phase_complete and not (is_cancelled and is_cancelled()):
+            on_phase_complete("download")
+
+    prefetch_sec = time.perf_counter() - t_names_dl0
+    t_proc0 = time.perf_counter()
+
+    if not stream_batches:
+        if reference_end_date is None and batches_data:
+            for _, all_data in batches_data:
+                if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                    reference_end_date = all_data.index[-1]
+                    break
+
+        if on_phase_start:
+            on_phase_start("process")
+        for _batch_idx, (batch, all_data) in enumerate(batches_data):
+            if is_cancelled and is_cancelled():
+                break
+            _process_batch_slice(batch, all_data)
+        if on_phase_complete and not (is_cancelled and is_cancelled()):
+            on_phase_complete("process")
 
     proc_sec = time.perf_counter() - t_proc0
 
     if is_cancelled and is_cancelled():
         if on_scan_cancelled:
             on_scan_cancelled()
-    elif on_phase_complete:
-        on_phase_complete("process")
 
     if table_rows and not use_embedded_names:
         _patch_symbol_only_company_names(table_rows)

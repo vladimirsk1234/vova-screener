@@ -10,8 +10,8 @@ import pandas as pd
 def interval_and_period(tf: str, *, scanner_id: str | None = None) -> tuple[str, str]:
     """Always fetch daily; Weekly/Monthly resampled from daily so current period is included."""
     if scanner_id == "fast_graphs":
-        # FAST Graph charts need full EPS/price history (not the 2y Daily window).
-        return "1d", "max"
+        # 15y is enough for 10Y CAGR + charts; "max" OOMs Streamlit Cloud on large lists.
+        return "1d", "15y"
     return "1d", ("10y" if tf != "Daily" else "2y")
 
 
