@@ -15,6 +15,7 @@ from eps_yield import (
     eps_yield_pct,
     fair_and_normal_price,
     pe_ttm,
+    sanitize_display_price,
     vs_fair_pct,
 )
 from ticker_data import filter_eps_outliers
@@ -541,15 +542,16 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
 
     val_eps = metrics.get("valuation_eps")
     if val_eps is None:
-        if cfg.price_below_fair:
-            return False, "NO_EPS"
-    else:
-        try:
-            if float(val_eps) <= 0:
-                return False, "NEGATIVE_EPS"
-        except (TypeError, ValueError):
-            if cfg.price_below_fair:
-                return False, "NO_EPS"
+        return False, "NO_EPS"
+    try:
+        if float(val_eps) <= 0:
+            return False, "NEGATIVE_EPS"
+    except (TypeError, ValueError):
+        return False, "NO_EPS"
+
+    fair_price = metrics.get("fair_price")
+    if sanitize_display_price(fair_price) is None:
+        return False, "NO_EPS"
 
     if cfg.price_below_fair:
         vs_fair = metrics.get("vs_fair_pct")
@@ -634,8 +636,14 @@ def build_fast_graph_metrics(
 
     norm_pe_val = norm_pe if norm_pe is not None else 0.0
     row_m = eps_row_metrics(close, valuation_eps, fair_pe=fair_pe, norm_pe=norm_pe_val)
-    fair_price = row_m.get("Fair $")
-    vs_fair = row_m.get("vs Fair %")
+    fair_price = sanitize_display_price(row_m.get("Fair $"))
+    normal_price = sanitize_display_price(row_m.get("Normal $"))
+    vs_fair = row_m.get("vs Fair %") if fair_price is not None else None
+    if vs_fair is not None:
+        try:
+            vs_fair = round(float(vs_fair), 2)
+        except (TypeError, ValueError):
+            vs_fair = None
 
     est_0y = (earnings_estimates or {}).get("0y", {})
     est_1y = (earnings_estimates or {}).get("+1y", {})
@@ -696,7 +704,7 @@ def build_fast_graph_metrics(
         "valuation_eps_basis": valuation_eps_basis,
         "eps_yield": eps_yield_pct(valuation_eps, close),
         "fair_price": fair_price,
-        "normal_price": row_m.get("Normal $"),
+        "normal_price": normal_price,
         "vs_fair_pct": vs_fair,
         "est_eps_growth": est_eps_growth,
         "forward_eps_growth": forward_eps_growth,

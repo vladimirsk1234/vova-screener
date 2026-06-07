@@ -54,9 +54,22 @@ def vs_fair_pct(close: float | None, fair_value: float | None) -> float | None:
         c, f = float(close), float(fair_value)
     except (TypeError, ValueError):
         return None
-    if f == 0:
+    if f <= 0:
         return None
     return ((c - f) / f) * 100.0
+
+
+def sanitize_display_price(val: float | None) -> float | None:
+    """Table/chart dollar targets must be positive finite values."""
+    if val is None:
+        return None
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or v <= 0:
+        return None
+    return round(v, 2)
 
 
 def eps_row_metrics(

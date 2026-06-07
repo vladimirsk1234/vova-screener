@@ -81,10 +81,14 @@ def fast_graph_table_row(
     company_name: str,
 ) -> dict:
     """Map metrics to results table row."""
-    def _fmt(val, suffix=""):
+    def _cell(val):
         if val is None:
             return "N/A"
-        return f"{val}{suffix}"
+        if isinstance(val, float) and (val != val or val <= 0):
+            # Guard stale/buggy negative dollar targets from ever displaying.
+            if val <= 0:
+                return "N/A"
+        return val
 
     return {
         "Symbol": tv_url,
@@ -97,9 +101,10 @@ def fast_graph_table_row(
         "Fair P/E": metrics.get("fair_pe"),
         "Normal P/E": metrics.get("normal_pe"),
         "Blended P/E": metrics.get("blended_pe"),
-        "Fair $": metrics.get("fair_price"),
-        "Normal $": metrics.get("normal_price"),
-        "vs Fair %": metrics.get("vs_fair_pct"),
+        "Valuation EPS": metrics.get("valuation_eps"),
+        "Fair $": _cell(metrics.get("fair_price")),
+        "Normal $": _cell(metrics.get("normal_price")),
+        "vs Fair %": metrics.get("vs_fair_pct") if metrics.get("fair_price") is not None else "N/A",
         "Est EPS Growth": metrics.get("est_eps_growth"),
         "Fwd EPS Growth": metrics.get("forward_eps_growth"),
         "Est ROR": metrics.get("est_annual_ror"),

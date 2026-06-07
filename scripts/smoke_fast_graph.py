@@ -28,7 +28,7 @@ from fast_graph_metrics import (
     resolve_valuation_eps,
 )
 from eps_yield import avg_historical_pe_5y, fair_and_normal_price, MAX_YEARLY_PE
-from fast_graph_scanner import run_fast_graph_scan
+from fast_graph_scanner import run_fast_graph_scan, fast_graph_table_row
 from ticker_data import filter_eps_outliers, resolve_annual_eps_map
 from sec_eps import _parse_operating_eps_from_facts
 
@@ -125,6 +125,7 @@ def _test_cpfs_undervaluation() -> bool:
     cheap = {
         "valuation_eps": 10.0,
         "fair_pe": 15.0,
+        "fair_price": 150.0,
         "vs_fair_pct": -20.0,
         "country": "United States",
     }
@@ -136,6 +137,7 @@ def _test_cpfs_undervaluation() -> bool:
     expensive = {
         "valuation_eps": 10.0,
         "fair_pe": 15.0,
+        "fair_price": 150.0,
         "vs_fair_pct": 33.33,
         "country": "United States",
     }
@@ -147,6 +149,7 @@ def _test_cpfs_undervaluation() -> bool:
     slow_grower_cheap = {
         "valuation_eps": 10.0,
         "fair_pe": 15.0,
+        "fair_price": 150.0,
         "vs_fair_pct": -33.33,
         "country": "United States",
     }
@@ -182,6 +185,7 @@ def _test_cpfs_g_growth() -> bool:
 
     bldr_like = {
         "valuation_eps": 10.0,
+        "fair_price": 150.0,
         "vs_fair_pct": -10.0,
         "fair_pe": 15.0,
         "cagr_1y": -15.0,
@@ -198,6 +202,7 @@ def _test_cpfs_g_growth() -> bool:
 
     no_forward = {
         "valuation_eps": 10.0,
+        "fair_price": 150.0,
         "vs_fair_pct": -10.0,
         "fair_pe": 15.0,
         "cagr_1y": 5.0,
@@ -215,6 +220,7 @@ def _test_cpfs_g_growth() -> bool:
 
     growing_cheap = {
         "valuation_eps": 10.0,
+        "fair_price": 150.0,
         "vs_fair_pct": -10.0,
         "fair_pe": 15.0,
         "cagr_1y": 5.0,
@@ -251,6 +257,7 @@ def _test_discrepancy_fixes() -> bool:
     fslr_like = {
         "valuation_eps": 15.49,
         "fair_pe": 15.0,
+        "fair_price": 232.35,
         "vs_fair_pct": 20.08,
         "blended_pe": 14.96,
         "country": "United States",
@@ -304,6 +311,16 @@ def _test_discrepancy_fixes() -> bool:
     norm_pe = avg_historical_pe_5y(prices, annual_eps)
     if norm_pe is None or norm_pe > MAX_YEARLY_PE:
         print(f"  FAIL: FISV-like normal P/E should be capped <= {MAX_YEARLY_PE}, got {norm_pe}")
+        ok = False
+
+    stale_row = fast_graph_table_row(
+        {"fair_price": -107.22, "normal_price": -57.16, "vs_fair_pct": -211.0, "Valid": False},
+        tv_url="OC",
+        tv_sym="OC",
+        company_name="OC",
+    )
+    if stale_row.get("Fair $") != "N/A" or stale_row.get("Normal $") != "N/A":
+        print(f"  FAIL: table must not show negative Fair/Normal, got {stale_row.get('Fair $')}")
         ok = False
 
     if ok:
