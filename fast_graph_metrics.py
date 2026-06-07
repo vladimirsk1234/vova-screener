@@ -371,18 +371,18 @@ class FastGraphFilterConfig:
     countries: tuple[str, ...] = ("United States", "Canada")
     exclude_otc: bool = True
     min_est_eps_growth: float = 10.0
-    require_cagr_1y: bool = True
-    require_cagr_3y: bool = True
-    require_cagr_5y: bool = True
+    require_cagr_1y: bool = False
+    require_cagr_3y: bool = False
+    require_cagr_5y: bool = False
     require_cagr_10y: bool = True
     min_cagr_1y: float = 0.0
     min_cagr_3y: float = 0.0
     min_cagr_5y: float = 0.0
     min_cagr_10y: float = 0.0
-    ror_gte_growth: bool = True
+    ror_gte_growth: bool = False
     max_lt_debt_capital: float = 55.0
     min_est_annual_ror: float = 0.0
-    price_below_fair: bool = False
+    price_below_fair: bool = True
     horizon_years: int = 3
     sidebar_fair_pe: float = 15.0
     growth_threshold: float = 10.0
@@ -439,9 +439,15 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
             return False, "ROR_LT_GROWTH"
 
     if cfg.price_below_fair:
-        vs_fair = metrics.get("vs_fair_pct")
-        if vs_fair is None or vs_fair >= 0:
-            return False, "NOT_BELOW_FAIR"
+        pe = metrics.get("blended_pe")
+        fair = metrics.get("fair_pe")
+        if pe is not None and fair is not None:
+            if pe > fair:
+                return False, "NOT_BELOW_FAIR"
+        else:
+            vs_fair = metrics.get("vs_fair_pct")
+            if vs_fair is None or vs_fair >= 0:
+                return False, "NOT_BELOW_FAIR"
 
     return True, ""
 

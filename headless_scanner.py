@@ -164,14 +164,14 @@ def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
         countries=countries,
         exclude_otc=bool(p.get("fg_exclude_otc", True)),
         min_est_eps_growth=float(p.get("fg_min_est_growth", 10.0)),
-        require_cagr_1y=bool(p.get("fg_cagr_1y", True)),
-        require_cagr_3y=bool(p.get("fg_cagr_3y", True)),
-        require_cagr_5y=bool(p.get("fg_cagr_5y", True)),
+        require_cagr_1y=bool(p.get("fg_cagr_1y", False)),
+        require_cagr_3y=bool(p.get("fg_cagr_3y", False)),
+        require_cagr_5y=bool(p.get("fg_cagr_5y", False)),
         require_cagr_10y=bool(p.get("fg_cagr_10y", True)),
-        ror_gte_growth=bool(p.get("fg_ror_gte_growth", True)),
+        ror_gte_growth=bool(p.get("fg_ror_gte_growth", False)),
         max_lt_debt_capital=float(p.get("fg_max_debt_cap", 55.0)),
         min_est_annual_ror=float(p.get("fg_min_ror", 0.0)),
-        price_below_fair=bool(p.get("fg_below_fair", False)),
+        price_below_fair=bool(p.get("fg_below_fair", True)),
         horizon_years=int(p.get("fg_horizon", 3)),
         sidebar_fair_pe=float(p.get("fair_pe", 15.0)),
         valuation_pe_mode=str(p.get("fg_val_pe_mode", "fair")),
@@ -217,6 +217,7 @@ st.session_state.fair_pe_ratio = float(fair_pe_ratio)
 if is_fast_scanner:
     st.sidebar.caption("Auto Fair P/E = EPS Growth Rate when growth ≥ 10%, else Fair P/E above.")
     st.sidebar.subheader("FAST GRAPH FILTERS")
+    st.sidebar.caption("CPFS: Cheap (P/E ≤ Fair), Proven (10Y CAGR), Safe (debt), Future (est growth)")
     fg_countries = st.sidebar.selectbox(
         "Country",
         ["US + Canada", "US only", "Canada only"],
@@ -227,15 +228,41 @@ if is_fast_scanner:
     )
     fg_country_key = {"US + Canada": "US+CA", "US only": "US", "Canada only": "CA"}[fg_countries]
     fg_exclude_otc = st.sidebar.checkbox("Exclude OTC", True, disabled=disabled)
-    fg_min_est_growth = st.sidebar.number_input("Min Est EPS Growth %", 0.0, 100.0, 10.0, 1.0, disabled=disabled)
-    fg_cagr_1y = st.sidebar.checkbox("Historic EPS CAGR 1Y ≥ 0", True, disabled=disabled)
-    fg_cagr_3y = st.sidebar.checkbox("Historic EPS CAGR 3Y ≥ 0", True, disabled=disabled)
-    fg_cagr_5y = st.sidebar.checkbox("Historic EPS CAGR 5Y ≥ 0", True, disabled=disabled)
-    fg_cagr_10y = st.sidebar.checkbox("Historic EPS CAGR 10Y ≥ 0", True, disabled=disabled)
-    fg_ror_gte_growth = st.sidebar.checkbox("Est ROR ≥ Est EPS Growth", True, disabled=disabled)
-    fg_max_debt_cap = st.sidebar.number_input("Max LT Debt/Capital %", 0.0, 100.0, 55.0, 1.0, disabled=disabled)
-    fg_min_ror = st.sidebar.number_input("Min Est Annual ROR %", 0.0, 100.0, 0.0, 1.0, disabled=disabled)
-    fg_below_fair = st.sidebar.checkbox("Price below Fair Value", False, disabled=disabled)
+    fg_below_fair = st.sidebar.checkbox(
+        "Price below Fair Value (P/E ≤ Fair P/E)",
+        True,
+        disabled=disabled,
+        help="Gate 1 — Cheap: current P/E must be at or below Fair P/E (growth-based or 15 fallback).",
+    )
+    fg_cagr_10y = st.sidebar.checkbox(
+        "10Y EPS CAGR ≥ 0",
+        True,
+        disabled=disabled,
+        help="Gate 2 — Proven: positive decade-long EPS track record.",
+    )
+    fg_min_est_growth = st.sidebar.number_input(
+        "Min Est EPS Growth %",
+        0.0,
+        100.0,
+        10.0,
+        1.0,
+        disabled=disabled,
+        help="Gate 4 — Future: minimum analyst EPS growth.",
+    )
+    fg_max_debt_cap = st.sidebar.number_input(
+        "Max LT Debt/Capital %",
+        0.0,
+        100.0,
+        55.0,
+        1.0,
+        disabled=disabled,
+        help="Gate 3 — Safe: long-term debt ceiling.",
+    )
+    fg_ror_gte_growth = st.sidebar.checkbox(
+        "Est ROR ≥ Est EPS Growth (optional tighten)",
+        False,
+        disabled=disabled,
+    )
     fg_horizon = st.sidebar.selectbox("ROR horizon (years)", [1, 2, 3, 4, 5], index=2, disabled=disabled)
     fg_val_pe_mode = st.sidebar.radio(
         "ROR valuation P/E",
@@ -256,11 +283,10 @@ else:
     fg_country_key = "US+CA"
     fg_exclude_otc = True
     fg_min_est_growth = 10.0
-    fg_cagr_1y = fg_cagr_3y = fg_cagr_5y = fg_cagr_10y = True
-    fg_ror_gte_growth = True
+    fg_cagr_10y = True
+    fg_ror_gte_growth = False
     fg_max_debt_cap = 55.0
-    fg_min_ror = 0.0
-    fg_below_fair = False
+    fg_below_fair = True
     fg_horizon = 3
     fg_val_pe_mode = "Fair P/E"
     st.sidebar.subheader("RISK MANAGEMENT")
@@ -309,13 +335,9 @@ if start_btn:
         'fg_countries': fg_country_key,
         'fg_exclude_otc': fg_exclude_otc,
         'fg_min_est_growth': fg_min_est_growth,
-        'fg_cagr_1y': fg_cagr_1y,
-        'fg_cagr_3y': fg_cagr_3y,
-        'fg_cagr_5y': fg_cagr_5y,
         'fg_cagr_10y': fg_cagr_10y,
         'fg_ror_gte_growth': fg_ror_gte_growth,
         'fg_max_debt_cap': fg_max_debt_cap,
-        'fg_min_ror': fg_min_ror,
         'fg_below_fair': fg_below_fair,
         'fg_horizon': fg_horizon,
         'fg_val_pe_mode': "fair" if fg_val_pe_mode == "Fair P/E" else "normal",

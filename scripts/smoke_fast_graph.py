@@ -19,6 +19,7 @@ from fast_graph_metrics import (
     compute_historical_growth_rate_pct,
     est_annual_ror_pct,
     eps_cagr_over_years,
+    passes_fast_graph_filters,
     resolve_chart_growth_rate,
     resolve_fair_pe,
     resolve_target_year_eps,
@@ -103,6 +104,54 @@ def _test_pure_metrics() -> bool:
     return ok
 
 
+def _test_cpfs_undervaluation() -> bool:
+    """CPFS gate 1: P/E <= Fair P/E (15% grower at P/E 12 passes, P/E 20 fails)."""
+    ok = True
+    cfg = FastGraphFilterConfig(
+        price_below_fair=True,
+        require_cagr_10y=False,
+        min_est_eps_growth=0.0,
+        max_lt_debt_capital=0.0,
+    )
+
+    cheap = {
+        "blended_pe": 12.0,
+        "fair_pe": 15.0,
+        "vs_fair_pct": -20.0,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(cheap, cfg)
+    if not passed or reason:
+        print(f"  FAIL: 15% grower P/E 12 should pass cheap gate, got passed={passed} reason={reason!r}")
+        ok = False
+
+    expensive = {
+        "blended_pe": 20.0,
+        "fair_pe": 15.0,
+        "vs_fair_pct": 33.33,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(expensive, cfg)
+    if passed or reason != "NOT_BELOW_FAIR":
+        print(f"  FAIL: 15% grower P/E 20 should fail cheap gate, got passed={passed} reason={reason!r}")
+        ok = False
+
+    slow_grower_cheap = {
+        "blended_pe": 10.0,
+        "fair_pe": 15.0,
+        "vs_fair_pct": -33.33,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(slow_grower_cheap, cfg)
+    if not passed or reason:
+        print(f"  FAIL: 5% grower P/E 10 vs fair 15 should pass, got passed={passed} reason={reason!r}")
+        ok = False
+
+    if ok:
+        print("  CPFS undervaluation: OK")
+    return ok
+
+
 def _fetch_weekly(ticker: str):
     df = yf.download(ticker, period="10y", interval="1d", progress=False, auto_adjust=False)
     if df is None or df.empty:
@@ -156,6 +205,10 @@ def main() -> int:
 
     print("=== Pure metrics ===")
     failures = 0 if _test_pure_metrics() else 1
+
+    print("\n=== CPFS undervaluation ===")
+    if not _test_cpfs_undervaluation():
+        failures += 1
 
     tickers = ["AAPL", "ADBE", "TD", "AGI"]
     for extra in args.extra_tickers:
