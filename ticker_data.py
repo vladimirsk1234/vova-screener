@@ -827,10 +827,15 @@ def resolve_annual_eps_map(
 ) -> tuple[dict[int, float], str]:
     """
     Resolve annual EPS with source label.
-    Priority: SEC (when available) -> Yahoo annual -> Yahoo quarterly aggregate.
+    Priority: SEC operating EPS -> SEC GAAP diluted -> Yahoo annual -> Yahoo quarterly.
     """
     try:
-        from sec_eps import get_sec_annual_eps
+        from sec_eps import get_sec_annual_eps, get_sec_operating_eps
+
+        sec_operating = get_sec_operating_eps(ticker)
+        if len(sec_operating) >= min_years:
+            years_desc = sorted(sec_operating.keys(), reverse=True)[:15]
+            return {y: sec_operating[y] for y in sorted(years_desc)}, "sec_operating"
 
         sec_eps = get_sec_annual_eps(ticker)
         if len(sec_eps) >= min_years:

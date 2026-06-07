@@ -289,7 +289,7 @@ def _extended_metrics(
     if close is not None:
         rows.append(("Close (scan bar)", f"{close:.2f}"))
     if trailing_eps is not None:
-        rows.append(("Trailing EPS", f"{trailing_eps:.4f}"))
+        rows.append(("Valuation EPS", f"{trailing_eps:.4f}"))
     rows.append(("Next Earnings", earn_days))
 
     metrics = (
@@ -323,9 +323,16 @@ def get_fast_graph_panel_data(
     When scanner_metrics is provided, highlight boxes use scanner values (mode-aware).
     """
     eps_source = (scanner_metrics or {}).get("eps_source") or "yahoo"
+    eps_label = {
+        "sec_operating": "SEC operating income / shares",
+        "sec": "SEC GAAP diluted/basic EPS",
+        "yahoo_annual": "Yahoo annual EPS",
+        "yahoo_quarterly": "Yahoo quarterly EPS (aggregated)",
+    }.get(eps_source, eps_source)
     warnings = [
-        "Данные Yahoo Finance + SEC EDGAR, не FAST Graphs Premium.",
-        f"Growth Rate — Historical CAGR ({eps_source} diluted/basic EPS, без выбросов).",
+        "Данные SEC Operating EPS (free proxy) + Yahoo — не FAST Graphs Premium Adjusted EPS.",
+        f"Growth Rate — Historical CAGR ({eps_label}, без выбросов).",
+        "Normal P/E — split-adjusted year-end prices (auto_adjust).",
         "Est EPS Growth — отдельно, из Yahoo analyst estimates.",
         "GICS Sub-industry — поле industry Yahoo.",
         "S&P Credit Rating недоступен в Yahoo.",
@@ -360,6 +367,9 @@ def get_fast_graph_panel_data(
     if trailing_eps is None:
         trailing_eps, forward_eps = _eps_from_yf_info(info)
 
+    valuation_eps = scanner_metrics.get("valuation_eps") if scanner_metrics else None
+    display_eps = valuation_eps if valuation_eps is not None else trailing_eps
+
     annual_eps = get_annual_eps_history_5y(ticker)
     norm_pe = avg_historical_pe_5y(df_daily, annual_eps)
 
@@ -383,10 +393,10 @@ def get_fast_graph_panel_data(
     trailing_pe = _float_field(info, "trailingPE") or _float_field(merged, "trailingPE")
     forward_pe = _float_field(info, "forwardPE") or _float_field(merged, "forwardPE")
     blended = _blended_pe(trailing_pe, forward_pe)
-    if blended is None and px is not None and trailing_eps:
-        blended = pe_ttm(px, trailing_eps)
+    if blended is None and px is not None and display_eps:
+        blended = pe_ttm(px, display_eps)
 
-    eps_yld = eps_yield_pct(trailing_eps, px) if px is not None else None
+    eps_yld = eps_yield_pct(display_eps, px) if px is not None else None
     div_yld = _yield_pct_from_yahoo(
         _float_field(info, "dividendYield"),
         close=px,
@@ -455,7 +465,7 @@ def get_fast_graph_panel_data(
         merged,
         ticker_obj=ticker_obj,
         close=px,
-        trailing_eps=trailing_eps,
+        trailing_eps=display_eps,
         earn_days=earn_days,
         fair_pe=display_fair_pe,
         norm_pe=display_norm_pe if display_norm_pe is not None else norm_pe,

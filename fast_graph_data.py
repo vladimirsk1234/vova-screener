@@ -17,6 +17,7 @@ import yfinance as yf
 
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "fg_bundle"
 _CACHE_TTL_SEC = 86400.0
+_BUNDLE_CACHE_VERSION = 2
 
 
 def _float_field(i: dict, key: str) -> float | None:
@@ -244,7 +245,10 @@ def _load_cache(ticker: str) -> dict | None:
         if time.time() - mtime > _CACHE_TTL_SEC:
             return None
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if data.get("_cache_v") != _BUNDLE_CACHE_VERSION:
+            return None
+        return data
     except Exception:
         return None
 
@@ -252,8 +256,9 @@ def _load_cache(ticker: str) -> dict | None:
 def _save_cache(ticker: str, data: dict) -> None:
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {**data, "_cache_v": _BUNDLE_CACHE_VERSION}
         with open(_cache_path(ticker), "w", encoding="utf-8") as f:
-            json.dump(data, f, default=str)
+            json.dump(payload, f, default=str)
     except Exception:
         pass
 

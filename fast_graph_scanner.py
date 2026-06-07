@@ -104,5 +104,7 @@ def fast_graph_table_row(
         "Fwd EPS Growth": metrics.get("forward_eps_growth"),
         "Est ROR": metrics.get("est_annual_ror"),
         "LT Debt/Cap": metrics.get("lt_debt_capital"),
+        "EPS Source": metrics.get("eps_source"),
+        "Reject Reason": metrics.get("reject_reason") or "",
         "Pass": 1 if metrics.get("Valid") else 0,
     }

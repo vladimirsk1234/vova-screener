@@ -229,6 +229,42 @@ def recent_reported_yoy_pct(
     return changes[-n:]
 
 
+def _filtered_annual_eps(annual_eps: dict[int, float] | None) -> dict[int, float]:
+    """Outlier-filtered annual EPS (same basis as Growth Rate)."""
+    if not annual_eps:
+        return {}
+    filtered = filter_eps_outliers(annual_eps, min_frac_of_median=0.25)
+    if len(filtered) < 2:
+        filtered = {y: float(e) for y, e in annual_eps.items() if float(e) > 0}
+    return filtered
+
+
+def resolve_valuation_eps(
+    annual_eps: dict[int, float] | None,
+    trailing_eps: float | None,
+) -> tuple[float | None, str]:
+    """
+    EPS for Fair $, vs Fair %, cheap gate, and chart anchor.
+    Latest positive fiscal-year EPS; positive TTM fallback when no annual data.
+    """
+    if annual_eps:
+        for year in sorted(annual_eps.keys(), reverse=True):
+            try:
+                eps = float(annual_eps[year])
+            except (TypeError, ValueError):
+                continue
+            if eps > 0:
+                return eps, "annual"
+    if trailing_eps is not None:
+        try:
+            te = float(trailing_eps)
+        except (TypeError, ValueError):
+            te = None
+        if te is not None and te > 0:
+            return te, "ttm"
+    return None, "none"
+
+
 def resolve_fair_pe(
     growth_rate_pct: float | None,
     *,
@@ -503,16 +539,22 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
         if ror < growth_for_filter:
             return False, "ROR_LT_GROWTH"
 
+    val_eps = metrics.get("valuation_eps")
+    if val_eps is None:
+        if cfg.price_below_fair:
+            return False, "NO_EPS"
+    else:
+        try:
+            if float(val_eps) <= 0:
+                return False, "NEGATIVE_EPS"
+        except (TypeError, ValueError):
+            if cfg.price_below_fair:
+                return False, "NO_EPS"
+
     if cfg.price_below_fair:
-        pe = metrics.get("blended_pe")
-        fair = metrics.get("fair_pe")
-        if pe is not None and fair is not None:
-            if pe > fair:
-                return False, "NOT_BELOW_FAIR"
-        else:
-            vs_fair = metrics.get("vs_fair_pct")
-            if vs_fair is None or vs_fair >= 0:
-                return False, "NOT_BELOW_FAIR"
+        vs_fair = metrics.get("vs_fair_pct")
+        if vs_fair is None or vs_fair >= 0:
+            return False, "NOT_BELOW_FAIR"
 
     return True, ""
 
@@ -583,12 +625,15 @@ def build_fast_graph_metrics(
     trailing_pe = info.get("trailing_pe")
     forward_pe = info.get("forward_pe")
 
+    valuation_eps, valuation_eps_basis = resolve_valuation_eps(annual_eps, trailing_eps)
+    filtered_eps = _filtered_annual_eps(annual_eps)
+
     blended = _blended_pe(trailing_pe, forward_pe)
-    if blended is None and trailing_eps:
-        blended = pe_ttm(close, trailing_eps)
+    if blended is None and valuation_eps:
+        blended = pe_ttm(close, valuation_eps)
 
     norm_pe_val = norm_pe if norm_pe is not None else 0.0
-    row_m = eps_row_metrics(close, trailing_eps, fair_pe=fair_pe, norm_pe=norm_pe_val)
+    row_m = eps_row_metrics(close, valuation_eps, fair_pe=fair_pe, norm_pe=norm_pe_val)
     fair_price = row_m.get("Fair $")
     vs_fair = row_m.get("vs Fair %")
 
@@ -647,7 +692,9 @@ def build_fast_graph_metrics(
         "growth_cap_pct": cfg.growth_cap_pct,
         "forecast_normal_pe": forecast_normal_pe,
         "blended_pe": blended,
-        "eps_yield": eps_yield_pct(trailing_eps, close),
+        "valuation_eps": valuation_eps,
+        "valuation_eps_basis": valuation_eps_basis,
+        "eps_yield": eps_yield_pct(valuation_eps, close),
         "fair_price": fair_price,
         "normal_price": row_m.get("Normal $"),
         "vs_fair_pct": vs_fair,
@@ -658,10 +705,10 @@ def build_fast_graph_metrics(
         "future_price": future_price,
         "future_eps": round(future_eps, 4) if future_eps else None,
         "lt_debt_capital": lt_debt_capital,
-        "cagr_1y": eps_cagr_over_years(annual_eps, 1),
-        "cagr_3y": eps_cagr_over_years(annual_eps, 3),
-        "cagr_5y": eps_cagr_over_years(annual_eps, 5),
-        "cagr_10y": eps_cagr_over_years(annual_eps, 10),
+        "cagr_1y": eps_cagr_over_years(filtered_eps, 1),
+        "cagr_3y": eps_cagr_over_years(filtered_eps, 3),
+        "cagr_5y": eps_cagr_over_years(filtered_eps, 5),
+        "cagr_10y": eps_cagr_over_years(filtered_eps, 10),
         "country": info.get("country"),
         "exchange": info.get("exchange"),
         "analyst_beat_pct": beat_pct,

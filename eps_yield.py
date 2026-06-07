@@ -41,6 +41,8 @@ def fair_and_normal_price(eps: float | None, fair_pe: float, norm_pe: float) -> 
         e = float(eps)
     except (TypeError, ValueError):
         return None, None
+    if e <= 0:
+        return None, None
     return e * float(fair_pe), e * float(norm_pe)
 
 
@@ -59,17 +61,17 @@ def vs_fair_pct(close: float | None, fair_value: float | None) -> float | None:
 
 def eps_row_metrics(
     close: float,
-    trailing_eps: float | None,
+    eps: float | None,
     fair_pe: float,
     norm_pe: float,
 ) -> dict:
     """
     Build optional display columns for one symbol. Omits keys with no value where appropriate.
-    Uses trailing_eps as TTM proxy (yfinance), matching Pine intent.
+    `eps` should be valuation_eps (latest positive annual EPS, or positive TTM fallback).
     """
-    y = eps_yield_pct(trailing_eps, close)
-    pe = pe_ttm(close, trailing_eps)
-    fair, normal = fair_and_normal_price(trailing_eps, fair_pe, norm_pe)
+    y = eps_yield_pct(eps, close)
+    pe = pe_ttm(close, eps)
+    fair, normal = fair_and_normal_price(eps, fair_pe, norm_pe)
     vs_fair = vs_fair_pct(close, fair)
 
     out: dict = {}
@@ -122,10 +124,14 @@ def passes_eps_filters(
     return True
 
 
+MAX_YEARLY_PE = 80.0
+
+
 def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict[int, float] | None) -> float | None:
     """
     Average of yearly P/E values over the last 5 fiscal years with positive EPS.
     Uses last available close in each matching calendar year.
+    Caps extreme yearly P/E (split/EPS mismatch) before averaging.
     """
     if price_df is None or not isinstance(price_df, pd.DataFrame) or price_df.empty:
         return None
@@ -158,7 +164,7 @@ def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict
         price = float(year_end_close.loc[year])
         pe = price / e
         if math.isfinite(pe) and pe > 0:
-            pe_values.append(pe)
+            pe_values.append(min(pe, MAX_YEARLY_PE))
 
     if not pe_values:
         return None

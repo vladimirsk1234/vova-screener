@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import yfinance as yf
+import pandas as pd
 
 from data_utils import resample_to_timeframe
 from fast_graph_chart import build_fast_graph_figure
@@ -24,9 +25,12 @@ from fast_graph_metrics import (
     resolve_chart_growth_rate,
     resolve_fair_pe,
     resolve_target_year_eps,
+    resolve_valuation_eps,
 )
+from eps_yield import avg_historical_pe_5y, fair_and_normal_price, MAX_YEARLY_PE
 from fast_graph_scanner import run_fast_graph_scan
-from ticker_data import filter_eps_outliers
+from ticker_data import filter_eps_outliers, resolve_annual_eps_map
+from sec_eps import _parse_operating_eps_from_facts
 
 
 def _test_pure_metrics() -> bool:
@@ -106,7 +110,7 @@ def _test_pure_metrics() -> bool:
 
 
 def _test_cpfs_undervaluation() -> bool:
-    """CPFS gate 1: P/E <= Fair P/E (15% grower at P/E 12 passes, P/E 20 fails)."""
+    """Cheap gate uses vs Fair % on valuation_eps (not blended P/E)."""
     ok = True
     cfg = FastGraphFilterConfig(
         price_below_fair=True,
@@ -119,36 +123,36 @@ def _test_cpfs_undervaluation() -> bool:
     )
 
     cheap = {
-        "blended_pe": 12.0,
+        "valuation_eps": 10.0,
         "fair_pe": 15.0,
         "vs_fair_pct": -20.0,
         "country": "United States",
     }
     passed, reason = passes_fast_graph_filters(cheap, cfg)
     if not passed or reason:
-        print(f"  FAIL: 15% grower P/E 12 should pass cheap gate, got passed={passed} reason={reason!r}")
+        print(f"  FAIL: below-fair name should pass cheap gate, got passed={passed} reason={reason!r}")
         ok = False
 
     expensive = {
-        "blended_pe": 20.0,
+        "valuation_eps": 10.0,
         "fair_pe": 15.0,
         "vs_fair_pct": 33.33,
         "country": "United States",
     }
     passed, reason = passes_fast_graph_filters(expensive, cfg)
     if passed or reason != "NOT_BELOW_FAIR":
-        print(f"  FAIL: 15% grower P/E 20 should fail cheap gate, got passed={passed} reason={reason!r}")
+        print(f"  FAIL: above-fair name should fail cheap gate, got passed={passed} reason={reason!r}")
         ok = False
 
     slow_grower_cheap = {
-        "blended_pe": 10.0,
+        "valuation_eps": 10.0,
         "fair_pe": 15.0,
         "vs_fair_pct": -33.33,
         "country": "United States",
     }
     passed, reason = passes_fast_graph_filters(slow_grower_cheap, cfg)
     if not passed or reason:
-        print(f"  FAIL: 5% grower P/E 10 vs fair 15 should pass, got passed={passed} reason={reason!r}")
+        print(f"  FAIL: slow grower below fair should pass, got passed={passed} reason={reason!r}")
         ok = False
 
     if ok:
@@ -177,7 +181,8 @@ def _test_cpfs_g_growth() -> bool:
         ok = False
 
     bldr_like = {
-        "blended_pe": 12.0,
+        "valuation_eps": 10.0,
+        "vs_fair_pct": -10.0,
         "fair_pe": 15.0,
         "cagr_1y": -15.0,
         "cagr_3y": -10.0,
@@ -192,7 +197,8 @@ def _test_cpfs_g_growth() -> bool:
         ok = False
 
     no_forward = {
-        "blended_pe": 12.0,
+        "valuation_eps": 10.0,
+        "vs_fair_pct": -10.0,
         "fair_pe": 15.0,
         "cagr_1y": 5.0,
         "cagr_3y": 8.0,
@@ -208,7 +214,8 @@ def _test_cpfs_g_growth() -> bool:
         ok = False
 
     growing_cheap = {
-        "blended_pe": 12.0,
+        "valuation_eps": 10.0,
+        "vs_fair_pct": -10.0,
         "fair_pe": 15.0,
         "cagr_1y": 5.0,
         "cagr_3y": 8.0,
@@ -224,6 +231,131 @@ def _test_cpfs_g_growth() -> bool:
 
     if ok:
         print("  CPFS-G growth quality: OK")
+    return ok
+
+
+def _test_discrepancy_fixes() -> bool:
+    """Regression: FSLR gate/table, OC negative EPS, FISV normal P/E, filtered CAGR alignment."""
+    ok = True
+    cfg_cheap = FastGraphFilterConfig(
+        price_below_fair=True,
+        require_cagr_1y=False,
+        require_cagr_3y=False,
+        require_cagr_10y=False,
+        require_analyst_forward_growth=False,
+        min_est_eps_growth=0.0,
+        max_lt_debt_capital=0.0,
+    )
+
+    # FSLR-like: blended P/E would pass but vs Fair % is above fair → must fail.
+    fslr_like = {
+        "valuation_eps": 15.49,
+        "fair_pe": 15.0,
+        "vs_fair_pct": 20.08,
+        "blended_pe": 14.96,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(fslr_like, cfg_cheap)
+    if passed or reason != "NOT_BELOW_FAIR":
+        print(f"  FAIL: FSLR-like above fair should fail, got passed={passed} reason={reason!r}")
+        ok = False
+
+    # OC-like: negative valuation EPS must reject before cheap gate.
+    oc_like = {
+        "valuation_eps": -5.0,
+        "vs_fair_pct": -211.0,
+        "blended_pe": 10.0,
+        "fair_pe": 22.62,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(oc_like, cfg_cheap)
+    if passed or reason != "NEGATIVE_EPS":
+        print(f"  FAIL: OC-like negative EPS should fail NEGATIVE_EPS, got passed={passed} reason={reason!r}")
+        ok = False
+
+    fair, normal = fair_and_normal_price(-5.0, 15.0, 12.0)
+    if fair is not None or normal is not None:
+        print(f"  FAIL: negative EPS should yield None fair/normal, got {fair}, {normal}")
+        ok = False
+
+    val_eps, basis = resolve_valuation_eps({2023: -1.0, 2024: 3.5}, trailing_eps=-5.0)
+    if val_eps != 3.5 or basis != "annual":
+        print(f"  FAIL: resolve_valuation_eps expected latest positive annual 3.5, got {val_eps} ({basis})")
+        ok = False
+
+    # CAGR 1Y/3Y/10Y use same filtered series as Growth Rate.
+    raw_eps = {2018: 1.0, 2019: 1.1, 2020: 0.05, 2021: 1.2, 2022: 1.3, 2023: 1.4, 2024: 1.5}
+    filtered = filter_eps_outliers(raw_eps, min_frac_of_median=0.25)
+    hist = compute_historical_growth_rate_pct(raw_eps)
+    cagr_1y = eps_cagr_over_years(filtered, 1)
+    cagr_3y = eps_cagr_over_years(filtered, 3)
+    cagr_10y = eps_cagr_over_years(filtered, 10)
+    if cagr_1y is None or cagr_3y is None:
+        print(f"  FAIL: filtered CAGR expected values, got 1y={cagr_1y} 3y={cagr_3y}")
+        ok = False
+    if hist is not None and cagr_10y is not None and abs(hist - cagr_10y) > 0.01:
+        print(f"  FAIL: growth rate {hist} should match cagr_10y {cagr_10y} on filtered series")
+        ok = False
+
+    # FISV-like: cap extreme yearly P/E from split mismatch.
+    dates = pd.date_range("2020-01-01", periods=5, freq="YE")
+    prices = pd.DataFrame({"Close": [200.0, 180.0, 150.0, 60.0, 54.0]}, index=dates)
+    annual_eps = {2020: 4.0, 2021: 4.2, 2022: 4.5, 2023: 4.8, 2024: 5.0}
+    norm_pe = avg_historical_pe_5y(prices, annual_eps)
+    if norm_pe is None or norm_pe > MAX_YEARLY_PE:
+        print(f"  FAIL: FISV-like normal P/E should be capped <= {MAX_YEARLY_PE}, got {norm_pe}")
+        ok = False
+
+    if ok:
+        print("  Discrepancy fixes: OK")
+    return ok
+
+
+def _test_sec_operating_eps() -> bool:
+    """SEC operating EPS parser + resolve_annual_eps_map priority."""
+    ok = True
+    mock_facts = {
+        "facts": {
+            "us-gaap": {
+                "OperatingIncomeLoss": {
+                    "units": {
+                        "USD": [
+                            {"fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-01", "val": 100_000_000.0},
+                            {"fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01", "val": 120_000_000.0},
+                        ]
+                    }
+                },
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                    "units": {
+                        "shares": [
+                            {"fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-01", "val": 10_000_000.0},
+                            {"fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-01", "val": 10_000_000.0},
+                        ]
+                    }
+                },
+            }
+        }
+    }
+    parsed = _parse_operating_eps_from_facts(mock_facts)
+    if parsed.get(2022) != 10.0 or parsed.get(2023) != 12.0:
+        print(f"  FAIL: operating EPS parser expected 10/12, got {parsed}")
+        ok = False
+
+    try:
+        eps_map, source = resolve_annual_eps_map("AAPL", min_years=6)
+        if source not in ("sec_operating", "sec", "yahoo_annual", "yahoo_quarterly"):
+            print(f"  FAIL: unknown EPS source {source!r}")
+            ok = False
+        elif source == "sec_operating" and len(eps_map) < 6:
+            print(f"  FAIL: sec_operating expected >=6 years, got {len(eps_map)}")
+            ok = False
+        elif source != "sec_operating":
+            print(f"  WARN: AAPL EPS source is {source!r} (SEC operating unavailable or <6y)")
+    except Exception as exc:
+        print(f"  WARN: live AAPL EPS resolve skipped: {exc}")
+
+    if ok:
+        print("  SEC operating EPS: OK")
     return ok
 
 
@@ -289,6 +421,14 @@ def main() -> int:
     if not _test_cpfs_g_growth():
         failures += 1
 
+    print("\n=== Discrepancy fixes ===")
+    if not _test_discrepancy_fixes():
+        failures += 1
+
+    print("\n=== SEC operating EPS ===")
+    if not _test_sec_operating_eps():
+        failures += 1
+
     tickers = ["AAPL", "ADBE", "TD", "AGI"]
     for extra in args.extra_tickers:
         if extra.upper() not in {t.upper() for t in tickers}:
@@ -320,6 +460,13 @@ def main() -> int:
             continue
 
         _print_metrics(t, metrics)
+
+        if t == "AAPL":
+            src = metrics.get("eps_source")
+            if src == "sec_operating":
+                print("  AAPL sec_operating: OK")
+            elif src in ("sec", "yahoo_annual"):
+                print(f"  WARN: AAPL EPS source {src!r} (expected sec_operating when SEC data available)")
 
         if t == "AGI":
             hist_fair = metrics.get("historical_fair_pe")

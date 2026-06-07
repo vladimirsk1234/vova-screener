@@ -219,6 +219,10 @@ st.session_state.fair_pe_ratio = float(fair_pe_ratio)
 
 if is_fast_scanner:
     st.sidebar.caption("Auto Fair P/E = EPS Growth Rate when growth ≥ 10%, else Fair P/E above.")
+    st.sidebar.caption(
+        "Data: SEC Operating EPS (free proxy) — not FAST Graphs Premium Adjusted EPS. "
+        "Numbers will differ from FG."
+    )
     st.sidebar.subheader("FAST GRAPH FILTERS")
     st.sidebar.caption("CPFS-G: Cheap, Growing (1Y/3Y/10Y), Safe, Forward (analyst)")
     fg_countries = st.sidebar.selectbox(
@@ -232,10 +236,10 @@ if is_fast_scanner:
     fg_country_key = {"US + Canada": "US+CA", "US only": "US", "Canada only": "CA"}[fg_countries]
     fg_exclude_otc = st.sidebar.checkbox("Exclude OTC", True, disabled=disabled)
     fg_below_fair = st.sidebar.checkbox(
-        "Price below Fair Value (P/E ≤ Fair P/E)",
+        "Price below Fair Value (vs Fair % < 0)",
         True,
         disabled=disabled,
-        help="Gate 1 — Cheap: current P/E must be at or below Fair P/E (growth-based or 15 fallback).",
+        help="Gate 1 — Cheap: close must be below Fair $ (valuation EPS × Fair P/E).",
     )
     fg_eps_growing = st.sidebar.checkbox(
         "EPS growing: 1Y + 3Y + 10Y CAGR ≥ 0",
@@ -616,7 +620,10 @@ def render_scan_results(
         is_fast = scanner_id == "fast_graphs"
         if has_charts:
             if is_fast:
-                st.caption(f"FAST Graphs results. Click a row for valuation charts ({tf} price).")
+                st.caption(
+                    f"FAST Graphs results (SEC Operating EPS proxy — not FG Premium). "
+                    f"Click a row for valuation charts ({tf} price)."
+                )
             else:
                 dir_label = _scan_direction_label(scan_direction)
                 if scan_direction == "sell":
@@ -867,6 +874,22 @@ def _process_ticker_for_scan(
 
         df = df.copy()
         df_daily_chart = df.copy()
+        if scanner_id == "fast_graphs":
+            try:
+                df_adj = yf.download(
+                    t,
+                    period=fetch_period,
+                    interval=inter,
+                    progress=False,
+                    auto_adjust=True,
+                    multi_level_index=False,
+                )
+                if df_adj is not None and not df_adj.empty and all(col in df_adj.columns for col in required_cols):
+                    df_daily_chart = df_adj[required_cols].copy()
+                    if ref_end is not None and len(df_daily_chart.index) > 0:
+                        df_daily_chart = df_daily_chart.loc[df_daily_chart.index <= ref_end]
+            except Exception:
+                pass
         df = _resample_to_timeframe(df, tf)
         if df is None or df.empty or len(df) < MIN_BARS:
             if is_manual_src:
