@@ -164,10 +164,13 @@ def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
         countries=countries,
         exclude_otc=bool(p.get("fg_exclude_otc", True)),
         min_est_eps_growth=float(p.get("fg_min_est_growth", 10.0)),
-        require_cagr_1y=bool(p.get("fg_cagr_1y", False)),
-        require_cagr_3y=bool(p.get("fg_cagr_3y", False)),
+        require_cagr_1y=bool(p.get("fg_cagr_1y", True)),
+        require_cagr_3y=bool(p.get("fg_cagr_3y", True)),
         require_cagr_5y=bool(p.get("fg_cagr_5y", False)),
         require_cagr_10y=bool(p.get("fg_cagr_10y", True)),
+        require_analyst_forward_growth=bool(p.get("fg_analyst_forward", True)),
+        require_recent_yoy_positive=bool(p.get("fg_recent_yoy", False)),
+        min_recent_yoy_years=int(p.get("fg_recent_yoy_years", 2)),
         ror_gte_growth=bool(p.get("fg_ror_gte_growth", False)),
         max_lt_debt_capital=float(p.get("fg_max_debt_cap", 55.0)),
         min_est_annual_ror=float(p.get("fg_min_ror", 0.0)),
@@ -217,7 +220,7 @@ st.session_state.fair_pe_ratio = float(fair_pe_ratio)
 if is_fast_scanner:
     st.sidebar.caption("Auto Fair P/E = EPS Growth Rate when growth ≥ 10%, else Fair P/E above.")
     st.sidebar.subheader("FAST GRAPH FILTERS")
-    st.sidebar.caption("CPFS: Cheap (P/E ≤ Fair), Proven (10Y CAGR), Safe (debt), Future (est growth)")
+    st.sidebar.caption("CPFS-G: Cheap, Growing (1Y/3Y/10Y), Safe, Forward (analyst)")
     fg_countries = st.sidebar.selectbox(
         "Country",
         ["US + Canada", "US only", "Canada only"],
@@ -234,20 +237,27 @@ if is_fast_scanner:
         disabled=disabled,
         help="Gate 1 — Cheap: current P/E must be at or below Fair P/E (growth-based or 15 fallback).",
     )
-    fg_cagr_10y = st.sidebar.checkbox(
-        "10Y EPS CAGR ≥ 0",
+    fg_eps_growing = st.sidebar.checkbox(
+        "EPS growing: 1Y + 3Y + 10Y CAGR ≥ 0",
         True,
         disabled=disabled,
-        help="Gate 2 — Proven: positive decade-long EPS track record.",
+        help="Gate 2 — Growing: recent and long-term EPS must not be in decline.",
+    )
+    fg_cagr_1y = fg_cagr_3y = fg_cagr_10y = fg_eps_growing
+    fg_analyst_forward = st.sidebar.checkbox(
+        "Analyst forward growth ≥ min (no hist fallback)",
+        True,
+        disabled=disabled,
+        help="Gate 4 — Future: uses analyst EPS growth only; rejects if no forward estimate.",
     )
     fg_min_est_growth = st.sidebar.number_input(
-        "Min Est EPS Growth %",
+        "Min forward EPS Growth %",
         0.0,
         100.0,
         10.0,
         1.0,
         disabled=disabled,
-        help="Gate 4 — Future: minimum analyst EPS growth.",
+        help="Minimum analyst forward EPS growth when analyst-forward gate is on.",
     )
     fg_max_debt_cap = st.sidebar.number_input(
         "Max LT Debt/Capital %",
@@ -257,6 +267,12 @@ if is_fast_scanner:
         1.0,
         disabled=disabled,
         help="Gate 3 — Safe: long-term debt ceiling.",
+    )
+    fg_recent_yoy = st.sidebar.checkbox(
+        "Last 2 fiscal years YoY EPS ≥ 0 (strict)",
+        False,
+        disabled=disabled,
+        help="Optional: reject if either of the last two reported fiscal years had falling EPS.",
     )
     fg_ror_gte_growth = st.sidebar.checkbox(
         "Est ROR ≥ Est EPS Growth (optional tighten)",
@@ -283,7 +299,10 @@ else:
     fg_country_key = "US+CA"
     fg_exclude_otc = True
     fg_min_est_growth = 10.0
-    fg_cagr_10y = True
+    fg_eps_growing = True
+    fg_cagr_1y = fg_cagr_3y = fg_cagr_10y = True
+    fg_analyst_forward = True
+    fg_recent_yoy = False
     fg_ror_gte_growth = False
     fg_max_debt_cap = 55.0
     fg_below_fair = True
@@ -335,7 +354,12 @@ if start_btn:
         'fg_countries': fg_country_key,
         'fg_exclude_otc': fg_exclude_otc,
         'fg_min_est_growth': fg_min_est_growth,
+        'fg_cagr_1y': fg_cagr_1y,
+        'fg_cagr_3y': fg_cagr_3y,
         'fg_cagr_10y': fg_cagr_10y,
+        'fg_analyst_forward': fg_analyst_forward,
+        'fg_recent_yoy': fg_recent_yoy,
+        'fg_recent_yoy_years': 2,
         'fg_ror_gte_growth': fg_ror_gte_growth,
         'fg_max_debt_cap': fg_max_debt_cap,
         'fg_below_fair': fg_below_fair,

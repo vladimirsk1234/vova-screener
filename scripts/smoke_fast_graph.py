@@ -16,6 +16,7 @@ from fast_graph_chart import build_fast_graph_figure
 from fast_graph_metrics import (
     FastGraphFilterConfig,
     compute_forecast_growth_pct,
+    compute_forward_eps_growth_pct,
     compute_historical_growth_rate_pct,
     est_annual_ror_pct,
     eps_cagr_over_years,
@@ -109,7 +110,10 @@ def _test_cpfs_undervaluation() -> bool:
     ok = True
     cfg = FastGraphFilterConfig(
         price_below_fair=True,
+        require_cagr_1y=False,
+        require_cagr_3y=False,
         require_cagr_10y=False,
+        require_analyst_forward_growth=False,
         min_est_eps_growth=0.0,
         max_lt_debt_capital=0.0,
     )
@@ -149,6 +153,77 @@ def _test_cpfs_undervaluation() -> bool:
 
     if ok:
         print("  CPFS undervaluation: OK")
+    return ok
+
+
+def _test_cpfs_g_growth() -> bool:
+    """CPFS-G: reject falling EPS (BLDR-like); pass growing + cheap names."""
+    ok = True
+    cfg = FastGraphFilterConfig()
+
+    if compute_forward_eps_growth_pct(None, {2020: 1.0, 2021: 2.0}) is not None:
+        print("  FAIL: forward growth must not use historical fallback")
+        ok = False
+
+    estimates = {"0y": {"avg": 1.0}, "+1y": {"avg": 1.12, "growth": 0.12}}
+    fwd = compute_forward_eps_growth_pct(estimates)
+    if fwd is None or fwd < 11.0 or fwd > 13.0:
+        print(f"  FAIL: forward growth from analyst expected ~12, got {fwd}")
+        ok = False
+
+    fc_with_fallback = compute_forecast_growth_pct(estimates, {2020: 1.0}, 14.0)
+    if fc_with_fallback is None or fc_with_fallback < 11.0:
+        print(f"  FAIL: forecast growth with fallback expected ~12, got {fc_with_fallback}")
+        ok = False
+
+    bldr_like = {
+        "blended_pe": 12.0,
+        "fair_pe": 15.0,
+        "cagr_1y": -15.0,
+        "cagr_3y": -10.0,
+        "cagr_10y": 14.0,
+        "forward_eps_growth": 12.0,
+        "lt_debt_capital": 30.0,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(bldr_like, cfg)
+    if passed or reason != "CAGR_1Y":
+        print(f"  FAIL: BLDR-like should fail CAGR_1Y, got passed={passed} reason={reason!r}")
+        ok = False
+
+    no_forward = {
+        "blended_pe": 12.0,
+        "fair_pe": 15.0,
+        "cagr_1y": 5.0,
+        "cagr_3y": 8.0,
+        "cagr_10y": 12.0,
+        "forward_eps_growth": None,
+        "est_eps_growth": 14.0,
+        "lt_debt_capital": 30.0,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(no_forward, cfg)
+    if passed or reason != "NO_FORWARD_GROWTH":
+        print(f"  FAIL: missing forward growth should fail, got passed={passed} reason={reason!r}")
+        ok = False
+
+    growing_cheap = {
+        "blended_pe": 12.0,
+        "fair_pe": 15.0,
+        "cagr_1y": 5.0,
+        "cagr_3y": 8.0,
+        "cagr_10y": 12.0,
+        "forward_eps_growth": 12.0,
+        "lt_debt_capital": 30.0,
+        "country": "United States",
+    }
+    passed, reason = passes_fast_graph_filters(growing_cheap, cfg)
+    if not passed or reason:
+        print(f"  FAIL: growing cheap name should pass CPFS-G, got passed={passed} reason={reason!r}")
+        ok = False
+
+    if ok:
+        print("  CPFS-G growth quality: OK")
     return ok
 
 
@@ -210,6 +285,10 @@ def main() -> int:
     if not _test_cpfs_undervaluation():
         failures += 1
 
+    print("\n=== CPFS-G growth quality ===")
+    if not _test_cpfs_g_growth():
+        failures += 1
+
     tickers = ["AAPL", "ADBE", "TD", "AGI"]
     for extra in args.extra_tickers:
         if extra.upper() not in {t.upper() for t in tickers}:
@@ -217,7 +296,14 @@ def main() -> int:
     if "FITB" not in tickers:
         tickers.append("FITB")
 
-    cfg = FastGraphFilterConfig(min_est_eps_growth=0.0, min_est_annual_ror=0.0)
+    cfg = FastGraphFilterConfig(
+        min_est_eps_growth=0.0,
+        min_est_annual_ror=0.0,
+        require_analyst_forward_growth=False,
+        require_cagr_1y=False,
+        require_cagr_3y=False,
+        price_below_fair=False,
+    )
 
     for t in tickers:
         print(f"\n=== {t} ===")

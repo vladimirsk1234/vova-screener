@@ -179,6 +179,56 @@ def compute_forecast_growth_pct(
     return historical_growth
 
 
+def compute_forward_eps_growth_pct(
+    estimates: dict[str, Any] | None,
+    annual_eps: dict[int, float] | None = None,
+) -> float | None:
+    """
+    Analyst-only forward EPS growth (+1y growth or implied 0y→+1y).
+    Returns None when no analyst data — never falls back to historical CAGR.
+    """
+    del annual_eps  # API symmetry with compute_forecast_growth_pct
+    est = estimates or {}
+    est_0y = est.get("0y", {})
+    est_1y = est.get("+1y", {})
+
+    raw_growth = est_1y.get("growth") or est_0y.get("growth")
+    if raw_growth is not None:
+        try:
+            g = float(raw_growth)
+            return round(g * 100.0 if abs(g) <= 1.5 else g, 2)
+        except (TypeError, ValueError):
+            pass
+
+    avg_0y = est_0y.get("avg")
+    avg_1y = est_1y.get("avg")
+    if avg_0y is not None and avg_1y is not None:
+        try:
+            e0, e1 = float(avg_0y), float(avg_1y)
+            if e0 > 0 and e1 > 0:
+                implied = (e1 / e0 - 1.0) * 100.0
+                if math.isfinite(implied):
+                    return round(implied, 2)
+        except (TypeError, ValueError):
+            pass
+
+    return None
+
+
+def recent_reported_yoy_pct(
+    annual_eps: dict[int, float] | None,
+    *,
+    n: int = 2,
+) -> list[float]:
+    """Last `n` reported fiscal YoY EPS % changes (most recent last)."""
+    if not annual_eps or n <= 0:
+        return []
+    changes = _yoy_changes_pct(annual_eps)
+    if not changes:
+        return []
+    return changes[-n:]
+
+
 def resolve_fair_pe(
     growth_rate_pct: float | None,
     *,
@@ -371,14 +421,17 @@ class FastGraphFilterConfig:
     countries: tuple[str, ...] = ("United States", "Canada")
     exclude_otc: bool = True
     min_est_eps_growth: float = 10.0
-    require_cagr_1y: bool = False
-    require_cagr_3y: bool = False
+    require_cagr_1y: bool = True
+    require_cagr_3y: bool = True
     require_cagr_5y: bool = False
     require_cagr_10y: bool = True
     min_cagr_1y: float = 0.0
     min_cagr_3y: float = 0.0
     min_cagr_5y: float = 0.0
     min_cagr_10y: float = 0.0
+    require_analyst_forward_growth: bool = True
+    require_recent_yoy_positive: bool = False
+    min_recent_yoy_years: int = 2
     ror_gte_growth: bool = False
     max_lt_debt_capital: float = 55.0
     min_est_annual_ror: float = 0.0
@@ -408,8 +461,14 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
         return False, "OTC"
 
     est_growth = metrics.get("est_eps_growth")
+    fwd_growth = metrics.get("forward_eps_growth")
+    growth_for_filter = (
+        fwd_growth if cfg.require_analyst_forward_growth else est_growth
+    )
     if cfg.min_est_eps_growth > 0:
-        if est_growth is None or est_growth < cfg.min_est_eps_growth:
+        if cfg.require_analyst_forward_growth and fwd_growth is None:
+            return False, "NO_FORWARD_GROWTH"
+        if growth_for_filter is None or growth_for_filter < cfg.min_est_eps_growth:
             return False, "EST_GROWTH"
 
     cagr_checks = [
@@ -425,6 +484,12 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
         if val is None or val < minimum:
             return False, key.upper()
 
+    if cfg.require_recent_yoy_positive:
+        recent = metrics.get("recent_yoy_pct") or []
+        needed = cfg.min_recent_yoy_years
+        if len(recent) < needed or any(float(y) < 0 for y in recent[-needed:]):
+            return False, "RECENT_YOY_DECLINE"
+
     lt_debt = metrics.get("lt_debt_capital")
     if cfg.max_lt_debt_capital > 0 and lt_debt is not None and lt_debt > cfg.max_lt_debt_capital:
         return False, "DEBT_CAP"
@@ -434,8 +499,8 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
         if ror is None or ror < cfg.min_est_annual_ror:
             return False, "MIN_ROR"
 
-    if cfg.ror_gte_growth and est_growth is not None and ror is not None:
-        if ror < est_growth:
+    if cfg.ror_gte_growth and growth_for_filter is not None and ror is not None:
+        if ror < growth_for_filter:
             return False, "ROR_LT_GROWTH"
 
     if cfg.price_below_fair:
@@ -473,6 +538,11 @@ def build_fast_graph_metrics(
         annual_eps,
         historical_growth,
     )
+    forward_eps_growth = compute_forward_eps_growth_pct(
+        earnings_estimates,
+        annual_eps,
+    )
+    recent_yoy = recent_reported_yoy_pct(annual_eps, n=cfg.min_recent_yoy_years)
 
     chart_historical_growth = resolve_chart_growth_rate(
         historical_growth,
@@ -582,6 +652,8 @@ def build_fast_graph_metrics(
         "normal_price": row_m.get("Normal $"),
         "vs_fair_pct": vs_fair,
         "est_eps_growth": est_eps_growth,
+        "forward_eps_growth": forward_eps_growth,
+        "recent_yoy_pct": recent_yoy,
         "est_annual_ror": est_ror,
         "future_price": future_price,
         "future_eps": round(future_eps, 4) if future_eps else None,
