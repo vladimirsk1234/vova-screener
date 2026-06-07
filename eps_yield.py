@@ -137,7 +137,7 @@ def passes_eps_filters(
     return True
 
 
-MAX_YEARLY_PE = 80.0
+MAX_YEARLY_PE = 150.0
 
 
 def avg_historical_pe_5y(price_df: pd.DataFrame | None, annual_eps_by_year: dict[int, float] | None) -> float | None:

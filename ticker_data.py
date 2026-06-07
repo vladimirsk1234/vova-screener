@@ -25,6 +25,87 @@ TV_LIST_ETF = "TV-LIST-ETF.txt"
 # Phase 2: plug FileListSource(TV_LIST_US_CANADA_FULL) when list file is generated
 TV_LIST_US_CANADA_FULL = "TV-LIST-US-CANADA-FULL.txt"
 
+# TradingView exchange prefix -> Yahoo Finance suffix (Canadian listings)
+_TV_TO_YAHOO_SUFFIX: dict[str, str] = {
+    "TSX": ".TO",
+    "TSXV": ".V",
+    "NEO": ".NE",
+    "CSE": ".CN",
+}
+_YAHOO_CANADIAN_SUFFIXES = frozenset(_TV_TO_YAHOO_SUFFIX.values())
+
+# Major US + Canada exchanges (no OTC / pink sheets)
+MAJOR_US_EQUITY_EXCHANGES = {
+    "NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX",
+    "NASDAQ", "NYSE", "AMEX", "BATS", "ARCA",
+    "NASDAQGS", "NASDAQCM", "NASDAQGM",
+}
+CANADIAN_EQUITY_EXCHANGES = {
+    "TOR", "TSX", "VAN", "TSXV", "NEO", "CNQ", "CSE",
+}
+MAJOR_US_CA_EQUITY_EXCHANGES = MAJOR_US_EQUITY_EXCHANGES | CANADIAN_EQUITY_EXCHANGES
+
+OTC_YAHOO_EXCHANGES = frozenset(
+    {"OTC", "OTN", "PNK", "OQB", "OQX", "GREY", "CMS", "OOTC", "OTCBB"}
+)
+
+_NON_EQUITY_NAME_MARKERS = (
+    " ETF",
+    " ETN",
+    " FUND",
+    " TRUST UNITS",
+    " TRUST UNIT",
+    " PREFERRED",
+    " WARRANT",
+    " UNIT",
+    " DEBENTURE",
+    " NOTES DUE",
+    " SUBORDINATED",
+)
+
+
+def _tv_to_yahoo_symbol(ex: str, raw_sym: str) -> str:
+    """Map TV-style EXCHANGE:SYMBOL to Yahoo ticker (e.g. TSX:SHOP -> SHOP.TO)."""
+    ex = ex.strip().upper()
+    sym = raw_sym.strip()
+    upper = sym.upper()
+    if ex in _TV_TO_YAHOO_SUFFIX:
+        suffix = _TV_TO_YAHOO_SUFFIX[ex]
+        if upper.endswith(suffix.upper()):
+            return upper
+        if any(upper.endswith(s.upper()) for s in _YAHOO_CANADIAN_SUFFIXES if s != suffix):
+            return upper
+        base = upper.replace(".", "-") if "." in upper and not upper.endswith(suffix.upper()) else upper
+        if base.endswith(suffix.upper().replace(".", "")):
+            return base
+        return f"{base.split('.')[0]}{suffix}"
+    return sym.replace(".", "-").upper()
+
+
+def is_otc_yahoo_exchange(exchange: str | None) -> bool:
+    ex = str(exchange or "").strip().upper()
+    if not ex:
+        return False
+    if ex in OTC_YAHOO_EXCHANGES:
+        return True
+    return "OTC" in ex or ex in ("PNK", "GREY")
+
+
+def is_major_us_ca_exchange(exchange: str | None) -> bool:
+    ex = str(exchange or "").strip().upper()
+    return bool(ex) and ex in MAJOR_US_CA_EQUITY_EXCHANGES
+
+
+def name_suggests_non_common(name: str | None) -> bool:
+    n = f" {str(name or '').upper()} "
+    return any(marker in n for marker in _NON_EQUITY_NAME_MARKERS)
+
+
+def tv_part_to_yahoo(tv_part: str) -> str | None:
+    """Convert 'NASDAQ:AAPL' or 'TSX:SHOP' to Yahoo symbol."""
+    parsed = _parse_list_entry(f"{tv_part.strip()}|")
+    return parsed[0] if parsed else None
+
 
 def _list_file_path(filename: str) -> str:
     base = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +132,7 @@ def _parse_list_entry(part: str) -> tuple[str, str, str | None] | None:
         ex, raw_sym = tv_part.split(":", 1)
         ex = ex.strip().upper()
         raw_sym = raw_sym.strip()
-        yahoo_sym = raw_sym.replace(".", "-").upper()
+        yahoo_sym = _tv_to_yahoo_symbol(ex, raw_sym)
         tv_sym = f"{ex}:{raw_sym.upper()}"
     else:
         yahoo_sym = tv_part.replace(".", "-").upper()
@@ -819,6 +900,68 @@ def _yahoo_quarterly_eps_annual(ticker_obj: yf.Ticker) -> dict[int, float]:
     return _extract_quarterly_eps_annual(stmt)
 
 
+def _max_gap_years(eps_by_year: dict[int, float]) -> int:
+    """Longest missing-year run inside the min..max span of eps_by_year."""
+    if len(eps_by_year) < 2:
+        return 0
+    years = sorted(eps_by_year.keys())
+    start, end = years[0], years[-1]
+    present = set(eps_by_year.keys())
+    max_gap = 0
+    gap = 0
+    for y in range(start, end + 1):
+        if y in present:
+            gap = 0
+        else:
+            gap += 1
+            max_gap = max(max_gap, gap)
+    return max_gap
+
+
+def _fill_eps_gaps(
+    base: dict[int, float],
+    fill: dict[int, float],
+    *,
+    start_year: int,
+    end_year: int,
+) -> tuple[dict[int, float], bool]:
+    out = dict(base)
+    patched = False
+    for year in range(start_year, end_year + 1):
+        if year not in out and year in fill:
+            out[year] = float(fill[year])
+            patched = True
+    return out, patched
+
+
+def _apply_recent_yahoo_override(
+    merged: dict[int, float],
+    yahoo_annual: dict[int, float],
+    *,
+    end_year: int,
+    years: int = 5,
+) -> tuple[dict[int, float], bool]:
+    """Prefer Yahoo annual EPS for the most recent fiscal years when available."""
+    if not yahoo_annual:
+        return merged, False
+    out = dict(merged)
+    patched = False
+    start = end_year - years + 1
+    for year in range(start, end_year + 1):
+        if year not in yahoo_annual:
+            continue
+        yahoo_eps = float(yahoo_annual[year])
+        sec_eps = out.get(year)
+        if sec_eps is None or sec_eps != yahoo_eps:
+            if sec_eps is None or sec_eps <= 0 < yahoo_eps:
+                out[year] = yahoo_eps
+                patched = True
+            elif sec_eps is not None and abs(sec_eps - yahoo_eps) / max(abs(yahoo_eps), 0.01) > 0.35:
+                out[year] = yahoo_eps
+                patched = True
+    return out, patched
+
+
 def resolve_annual_eps_map(
     ticker: str,
     ticker_obj: yf.Ticker | None = None,
@@ -828,37 +971,80 @@ def resolve_annual_eps_map(
     """
     Resolve annual EPS with source label.
     Priority: SEC operating EPS -> SEC GAAP diluted -> Yahoo annual -> Yahoo quarterly.
+    SEC series are gap-filled from Yahoo when years are missing or stale.
     """
+    import datetime
+
+    current_year = datetime.date.today().year
+    t = ticker_obj or yf.Ticker(ticker)
+    yahoo_annual = _yahoo_annual_eps_map(t)
+    yahoo_quarterly = _yahoo_quarterly_eps_annual(t) if len(yahoo_annual) < min_years else {}
+    yahoo_fill: dict[int, float] = dict(yahoo_quarterly)
+    yahoo_fill.update(yahoo_annual)
+
+    sec_operating: dict[int, float] = {}
+    sec_gaap: dict[int, float] = {}
     try:
         from sec_eps import get_sec_annual_eps, get_sec_operating_eps
 
         sec_operating = get_sec_operating_eps(ticker)
-        if len(sec_operating) >= min_years:
-            years_desc = sorted(sec_operating.keys(), reverse=True)[:15]
-            return {y: sec_operating[y] for y in sorted(years_desc)}, "sec_operating"
-
-        sec_eps = get_sec_annual_eps(ticker)
-        if len(sec_eps) >= min_years:
-            years_desc = sorted(sec_eps.keys(), reverse=True)[:15]
-            return {y: sec_eps[y] for y in sorted(years_desc)}, "sec"
+        sec_gaap = get_sec_annual_eps(ticker)
     except Exception:
         pass
 
-    t = ticker_obj or yf.Ticker(ticker)
-    annual = _yahoo_annual_eps_map(t)
-    quarterly = _yahoo_quarterly_eps_annual(t) if len(annual) < min_years else {}
+    if len(sec_operating) >= min_years:
+        base = sec_operating
+        source = "sec_operating"
+    elif len(sec_gaap) >= min_years:
+        base = sec_gaap
+        source = "sec"
+    elif len(yahoo_annual) >= min_years:
+        years_desc = sorted(yahoo_annual.keys(), reverse=True)[:15]
+        return {y: yahoo_annual[y] for y in sorted(years_desc)}, "yahoo_annual"
+    elif yahoo_fill:
+        years_desc = sorted(yahoo_fill.keys(), reverse=True)[:15]
+        src = "yahoo_quarterly" if yahoo_quarterly and len(yahoo_annual) < min_years else "yahoo_annual"
+        return {y: yahoo_fill[y] for y in sorted(years_desc)}, src
+    else:
+        return {}, "yahoo_annual"
 
-    merged = dict(quarterly)
-    merged.update(annual)
+    end_year = max(
+        max(base.keys()),
+        max(yahoo_fill.keys()) if yahoo_fill else max(base.keys()),
+        current_year - 1,
+    )
+    start_year = end_year - 14
+    merged, patched = _fill_eps_gaps(base, yahoo_fill, start_year=start_year, end_year=end_year)
 
-    if len(annual) >= min_years:
-        years_desc = sorted(annual.keys(), reverse=True)[:15]
-        return {y: annual[y] for y in sorted(years_desc)}, "yahoo_annual"
-    if merged:
-        years_desc = sorted(merged.keys(), reverse=True)[:15]
-        source = "yahoo_quarterly" if quarterly and len(annual) < min_years else "yahoo_annual"
-        return {y: merged[y] for y in sorted(years_desc)}, source
-    return {}, "yahoo_annual"
+    latest_base = max(base.keys())
+    if latest_base < current_year - 1:
+        for year in range(latest_base + 1, end_year + 1):
+            if year in yahoo_fill:
+                merged[year] = yahoo_fill[year]
+                patched = True
+
+    merged, override_patched = _apply_recent_yahoo_override(
+        merged,
+        yahoo_annual,
+        end_year=end_year,
+        years=5,
+    )
+    patched = patched or override_patched
+
+    window_start = end_year - 9
+    window_eps = {y: merged[y] for y in range(window_start, end_year + 1) if y in merged}
+    yahoo_in_window = {
+        y: yahoo_fill[y] for y in range(window_start, end_year + 1) if y in yahoo_fill
+    }
+    if _max_gap_years(window_eps) > 2 and len(yahoo_in_window) >= min_years:
+        years_desc = sorted(yahoo_in_window.keys(), reverse=True)[:15]
+        return {y: yahoo_in_window[y] for y in sorted(years_desc)}, "yahoo_annual"
+
+    if patched:
+        source = f"{source}+yahoo"
+
+    years_desc = sorted(merged.keys(), reverse=True)[:15]
+    return {y: merged[y] for y in sorted(years_desc)}, source
 
 
 def _annual_eps_map_for_ticker(ticker: str) -> dict[int, float] | None:

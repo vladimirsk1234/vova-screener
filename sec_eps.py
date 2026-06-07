@@ -16,6 +16,7 @@ import requests
 
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "sec_eps"
 _TICKER_CACHE = _CACHE_DIR / "company_tickers.json"
+_EPS_CACHE_VERSION = 3
 _EPS_TTL_SEC = 86400.0
 _TICKER_TTL_SEC = 86400.0 * 7
 _MIN_REQUEST_INTERVAL_SEC = 0.12
@@ -121,7 +122,15 @@ def _load_eps_cache(ticker: str, *, kind: str = "gaap") -> dict[int, float] | No
             raw = json.load(f)
         if not isinstance(raw, dict):
             return None
-        return {int(k): float(v) for k, v in raw.items()}
+        if raw.get("_cache_v") != _EPS_CACHE_VERSION:
+            return None
+        data = {int(k): float(v) for k, v in raw.items() if str(k).lstrip("-").isdigit()}
+        if not data:
+            return None
+        latest_fy = max(data.keys())
+        if latest_fy < time.localtime().tm_year - 1:
+            return None
+        return data
     except Exception:
         return None
 
@@ -129,10 +138,19 @@ def _load_eps_cache(ticker: str, *, kind: str = "gaap") -> dict[int, float] | No
 def _save_eps_cache(ticker: str, eps_map: dict[int, float], *, kind: str = "gaap") -> None:
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {str(k): v for k, v in eps_map.items()}
+        payload["_cache_v"] = _EPS_CACHE_VERSION
         with open(_eps_cache_path(ticker, kind=kind), "w", encoding="utf-8") as f:
-            json.dump({str(k): v for k, v in eps_map.items()}, f)
+            json.dump(payload, f)
     except Exception:
         pass
+
+
+def _is_annual_fy_row(row: dict[str, Any]) -> bool:
+    if row.get("fp") != "FY":
+        return False
+    form = str(row.get("form", ""))
+    return form in ("10-K", "10-K/A")
 
 
 def _parse_annual_fy_values(
@@ -140,8 +158,9 @@ def _parse_annual_fy_values(
     tags: tuple[str, ...],
     *,
     require_positive: bool = False,
+    merge_all_tags: bool = False,
 ) -> dict[int, float]:
-    """Extract latest 10-K FY value per fiscal year for the first matching tag set."""
+    """Extract latest 10-K FY value per fiscal year for matching tags."""
     by_fy: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
     for tag in tags:
@@ -153,7 +172,7 @@ def _parse_annual_fy_values(
             if not isinstance(unit_rows, list):
                 continue
             for row in unit_rows:
-                if row.get("form") != "10-K" or row.get("fp") != "FY":
+                if not _is_annual_fy_row(row):
                     continue
                 try:
                     fy = int(row["fy"])
@@ -163,7 +182,7 @@ def _parse_annual_fy_values(
                 if val != val or (require_positive and val <= 0):
                     continue
                 by_fy[fy].append(row)
-        if by_fy:
+        if by_fy and not merge_all_tags:
             break
 
     out: dict[int, float] = {}
@@ -186,7 +205,7 @@ def _parse_annual_eps_from_facts(facts: dict[str, Any]) -> dict[int, float]:
             if not isinstance(unit_rows, list):
                 continue
             for row in unit_rows:
-                if row.get("form") != "10-K" or row.get("fp") != "FY":
+                if not _is_annual_fy_row(row):
                     continue
                 try:
                     fy = int(row["fy"])
@@ -213,7 +232,12 @@ def _parse_operating_eps_from_facts(facts: dict[str, Any]) -> dict[int, float]:
     """
     gaap = facts.get("facts", {}).get("us-gaap", {})
     op_income = _parse_annual_fy_values(gaap, _OPERATING_INCOME_TAGS, require_positive=False)
-    shares = _parse_annual_fy_values(gaap, _SHARES_TAGS, require_positive=True)
+    shares = _parse_annual_fy_values(
+        gaap,
+        _SHARES_TAGS,
+        require_positive=True,
+        merge_all_tags=True,
+    )
     if not op_income or not shares:
         return {}
 

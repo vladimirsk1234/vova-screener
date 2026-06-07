@@ -17,7 +17,7 @@ import yfinance as yf
 
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "fg_bundle"
 _CACHE_TTL_SEC = 86400.0
-_BUNDLE_CACHE_VERSION = 2
+_BUNDLE_CACHE_VERSION = 3
 
 
 def _float_field(i: dict, key: str) -> float | None:

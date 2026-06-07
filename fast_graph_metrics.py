@@ -138,10 +138,30 @@ def compute_historical_growth_rate_pct(
     max_years: int | None = None,
 ) -> float | None:
     """
-    Historical growth for FAST Graph panels: CAGR over chart window (default 10Y).
-    Legacy YoY helpers remain for tests; production path uses compute_historical_cagr_pct.
+    Historical growth for FAST Graph panels: geometric mean of YoY changes
+    on outlier-filtered EPS within the chart window; CAGR fallback.
     """
     span = max_years if max_years is not None else years
+    if not annual_eps or len(annual_eps) < 2:
+        return None
+    filtered = filter_eps_outliers(annual_eps, min_frac_of_median=0.25)
+    if len(filtered) < 2:
+        filtered = {y: float(e) for y, e in annual_eps.items() if float(e) > 0}
+    if len(filtered) < 2:
+        return None
+
+    end_year = max(filtered.keys())
+    start_window = end_year - span
+    windowed = {y: float(e) for y, e in filtered.items() if y >= start_window}
+    if len(windowed) < 2:
+        windowed = filtered
+
+    changes = _yoy_changes_pct(windowed)
+    if len(changes) >= 5:
+        gm = _geometric_mean_yoy(changes, yoy_cap=yoy_cap)
+        if gm is not None:
+            return gm
+
     return compute_historical_cagr_pct(annual_eps, years=span)
 
 
@@ -243,12 +263,31 @@ def _filtered_annual_eps(annual_eps: dict[int, float] | None) -> dict[int, float
 def resolve_valuation_eps(
     annual_eps: dict[int, float] | None,
     trailing_eps: float | None,
+    earnings_estimates: dict[str, Any] | None = None,
 ) -> tuple[float | None, str]:
     """
     EPS for Fair $, vs Fair %, cheap gate, and chart anchor.
-    Latest positive fiscal-year EPS; positive TTM fallback when no annual data.
+    Prefers current-year analyst estimate, then latest positive fiscal year, then TTM.
     """
+    if earnings_estimates:
+        est0 = earnings_estimates.get("0y") or {}
+        avg = est0.get("avg") if isinstance(est0, dict) else None
+        if avg is not None:
+            try:
+                est_eps = float(avg)
+            except (TypeError, ValueError):
+                est_eps = None
+            if est_eps is not None and est_eps > 0:
+                return est_eps, "estimate_0y"
+
     if annual_eps:
+        latest_year = max(annual_eps.keys())
+        try:
+            latest_eps = float(annual_eps[latest_year])
+        except (TypeError, ValueError):
+            latest_eps = None
+        if latest_eps is not None and latest_eps > 0:
+            return latest_eps, "annual"
         for year in sorted(annual_eps.keys(), reverse=True):
             try:
                 eps = float(annual_eps[year])
@@ -270,7 +309,7 @@ def resolve_fair_pe(
     growth_rate_pct: float | None,
     *,
     sidebar_fair_pe: float = 15.0,
-    growth_threshold: float = 10.0,
+    growth_threshold: float = 15.0,
     growth_cap_pct: float = DEFAULT_GROWTH_CAP_PCT,
 ) -> float:
     """Auto rule: P/E = growth when growth >= threshold, else fixed fair P/E."""
@@ -285,7 +324,7 @@ def resolve_chart_growth_rate(
     forecast_growth: float | None,
     *,
     mode: str,
-    growth_threshold: float = 10.0,
+    growth_threshold: float = 15.0,
 ) -> float | None:
     """
     Growth rate shown on FAST Graph chart boxes.
@@ -453,6 +492,23 @@ def compute_est_ror(
     return round(future_price, 2), ror
 
 
+def compute_eps_persistence_pct(
+    annual_eps: dict[int, float] | None,
+    *,
+    years: int = 10,
+) -> float | None:
+    """Share of last `years` fiscal years with positive EPS (FG persistence proxy)."""
+    if not annual_eps:
+        return None
+    end_year = max(annual_eps.keys())
+    start_year = end_year - years + 1
+    window = [y for y in range(start_year, end_year + 1) if y in annual_eps]
+    if not window:
+        return None
+    positive = sum(1 for y in window if float(annual_eps[y]) > 0)
+    return round(positive / len(window) * 100.0, 1)
+
+
 @dataclass(frozen=True)
 class FastGraphFilterConfig:
     countries: tuple[str, ...] = ("United States", "Canada")
@@ -466,6 +522,7 @@ class FastGraphFilterConfig:
     min_cagr_3y: float = 0.0
     min_cagr_5y: float = 0.0
     min_cagr_10y: float = 0.0
+    cagr_5y_uses_historical_growth: bool = False
     require_analyst_forward_growth: bool = True
     require_recent_yoy_positive: bool = False
     min_recent_yoy_years: int = 2
@@ -473,12 +530,89 @@ class FastGraphFilterConfig:
     max_lt_debt_capital: float = 55.0
     min_est_annual_ror: float = 0.0
     price_below_fair: bool = True
+    max_vs_fair_pct: float | None = None
+    require_pe_lte_normal: bool = False
+    min_eps_persistence_pct: float = 0.0
     horizon_years: int = 3
     sidebar_fair_pe: float = 15.0
-    growth_threshold: float = 10.0
+    growth_threshold: float = 15.0
     growth_cap_pct: float = DEFAULT_GROWTH_CAP_PCT
     valuation_pe_mode: str = "fair"  # fair | normal
     growth_years: int = 10
+
+    @classmethod
+    def fg_undervalued_quality(
+        cls,
+        *,
+        sidebar_fair_pe: float = 15.0,
+        horizon_years: int = 3,
+        valuation_pe_mode: str = "fair",
+        countries: tuple[str, ...] = ("United States",),
+    ) -> FastGraphFilterConfig:
+        """FAST Graphs 'Undervalued high quality stocks' preset (free-data approximation)."""
+        return cls(
+            countries=countries,
+            exclude_otc=True,
+            min_est_eps_growth=8.0,
+            require_analyst_forward_growth=False,
+            require_cagr_1y=False,
+            require_cagr_3y=False,
+            require_cagr_5y=True,
+            min_cagr_5y=5.0,
+            cagr_5y_uses_historical_growth=True,
+            require_cagr_10y=False,
+            max_lt_debt_capital=50.0,
+            min_est_annual_ror=5.0,
+            price_below_fair=True,
+            max_vs_fair_pct=6.0,
+            require_pe_lte_normal=True,
+            min_eps_persistence_pct=70.0,
+            horizon_years=horizon_years,
+            sidebar_fair_pe=sidebar_fair_pe,
+            valuation_pe_mode=valuation_pe_mode,
+        )
+
+    @classmethod
+    def cpfs_strict(
+        cls,
+        *,
+        countries: tuple[str, ...] = ("United States", "Canada"),
+        exclude_otc: bool = True,
+        min_est_eps_growth: float = 10.0,
+        require_cagr_1y: bool = True,
+        require_cagr_3y: bool = True,
+        require_cagr_10y: bool = True,
+        require_analyst_forward_growth: bool = True,
+        require_recent_yoy_positive: bool = False,
+        ror_gte_growth: bool = False,
+        max_lt_debt_capital: float = 55.0,
+        price_below_fair: bool = True,
+        horizon_years: int = 3,
+        sidebar_fair_pe: float = 15.0,
+        valuation_pe_mode: str = "fair",
+    ) -> FastGraphFilterConfig:
+        """Original CPFS-G strict screen (1Y+3Y+10Y CAGR, vs Fair < 0, forward ≥ min)."""
+        return cls(
+            countries=countries,
+            exclude_otc=exclude_otc,
+            min_est_eps_growth=min_est_eps_growth,
+            require_cagr_1y=require_cagr_1y,
+            require_cagr_3y=require_cagr_3y,
+            require_cagr_5y=False,
+            require_cagr_10y=require_cagr_10y,
+            require_analyst_forward_growth=require_analyst_forward_growth,
+            require_recent_yoy_positive=require_recent_yoy_positive,
+            ror_gte_growth=ror_gte_growth,
+            max_lt_debt_capital=max_lt_debt_capital,
+            min_est_annual_ror=0.0,
+            price_below_fair=price_below_fair,
+            max_vs_fair_pct=None,
+            require_pe_lte_normal=False,
+            min_eps_persistence_pct=0.0,
+            horizon_years=horizon_years,
+            sidebar_fair_pe=sidebar_fair_pe,
+            valuation_pe_mode=valuation_pe_mode,
+        )
 
 
 def _is_otc_exchange(exchange: str | None) -> bool:
@@ -497,11 +631,61 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
     if cfg.exclude_otc and _is_otc_exchange(metrics.get("exchange")):
         return False, "OTC"
 
+    val_eps = metrics.get("valuation_eps")
+    if val_eps is None:
+        return False, "NO_EPS"
+    try:
+        if float(val_eps) <= 0:
+            return False, "NEGATIVE_EPS"
+    except (TypeError, ValueError):
+        return False, "NO_EPS"
+
+    fair_price = metrics.get("fair_price")
+    if sanitize_display_price(fair_price) is None:
+        return False, "NO_EPS"
+
+    vs_fair = metrics.get("vs_fair_pct")
+    if cfg.price_below_fair:
+        if vs_fair is None:
+            return False, "VS_FAIR"
+        max_allowed = cfg.max_vs_fair_pct if cfg.max_vs_fair_pct is not None else 0.0
+        try:
+            if float(vs_fair) > max_allowed:
+                return False, "NOT_BELOW_FAIR" if max_allowed <= 0 else "VS_FAIR"
+        except (TypeError, ValueError):
+            return False, "VS_FAIR"
+
+    if cfg.require_pe_lte_normal:
+        blended = metrics.get("blended_pe")
+        normal = metrics.get("historical_normal_pe") or metrics.get("normal_pe")
+        if normal is not None:
+            try:
+                npe = float(normal)
+                if npe > 0:
+                    if blended is None:
+                        close = metrics.get("close")
+                        veps = metrics.get("valuation_eps")
+                        if close is not None and veps is not None:
+                            try:
+                                blended = float(close) / float(veps)
+                            except (TypeError, ValueError, ZeroDivisionError):
+                                blended = None
+                    if blended is not None and float(blended) > npe:
+                        return False, "PE_GT_NORMAL"
+            except (TypeError, ValueError):
+                pass
+
+    if cfg.min_eps_persistence_pct > 0:
+        persist = metrics.get("eps_persistence_pct")
+        if persist is None or float(persist) < cfg.min_eps_persistence_pct:
+            return False, "EPS_PERSISTENCE"
+
     est_growth = metrics.get("est_eps_growth")
     fwd_growth = metrics.get("forward_eps_growth")
-    growth_for_filter = (
-        fwd_growth if cfg.require_analyst_forward_growth else est_growth
-    )
+    if cfg.require_analyst_forward_growth:
+        growth_for_filter = fwd_growth
+    else:
+        growth_for_filter = est_growth if est_growth is not None else fwd_growth
     if cfg.min_est_eps_growth > 0:
         if cfg.require_analyst_forward_growth and fwd_growth is None:
             return False, "NO_FORWARD_GROWTH"
@@ -509,15 +693,18 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
             return False, "EST_GROWTH"
 
     cagr_checks = [
-        (cfg.require_cagr_1y, "cagr_1y", cfg.min_cagr_1y),
-        (cfg.require_cagr_3y, "cagr_3y", cfg.min_cagr_3y),
-        (cfg.require_cagr_5y, "cagr_5y", cfg.min_cagr_5y),
-        (cfg.require_cagr_10y, "cagr_10y", cfg.min_cagr_10y),
+        (cfg.require_cagr_1y, "cagr_1y", cfg.min_cagr_1y, False),
+        (cfg.require_cagr_3y, "cagr_3y", cfg.min_cagr_3y, False),
+        (cfg.require_cagr_5y, "cagr_5y", cfg.min_cagr_5y, cfg.cagr_5y_uses_historical_growth),
+        (cfg.require_cagr_10y, "cagr_10y", cfg.min_cagr_10y, False),
     ]
-    for required, key, minimum in cagr_checks:
+    for required, key, minimum, use_hist in cagr_checks:
         if not required:
             continue
-        val = metrics.get(key)
+        if use_hist:
+            val = metrics.get("historical_growth_rate") or metrics.get("growth_rate")
+        else:
+            val = metrics.get(key)
         if val is None or val < minimum:
             return False, key.upper()
 
@@ -539,24 +726,6 @@ def passes_fast_graph_filters(metrics: dict[str, Any], cfg: FastGraphFilterConfi
     if cfg.ror_gte_growth and growth_for_filter is not None and ror is not None:
         if ror < growth_for_filter:
             return False, "ROR_LT_GROWTH"
-
-    val_eps = metrics.get("valuation_eps")
-    if val_eps is None:
-        return False, "NO_EPS"
-    try:
-        if float(val_eps) <= 0:
-            return False, "NEGATIVE_EPS"
-    except (TypeError, ValueError):
-        return False, "NO_EPS"
-
-    fair_price = metrics.get("fair_price")
-    if sanitize_display_price(fair_price) is None:
-        return False, "NO_EPS"
-
-    if cfg.price_below_fair:
-        vs_fair = metrics.get("vs_fair_pct")
-        if vs_fair is None or vs_fair >= 0:
-            return False, "NOT_BELOW_FAIR"
 
     return True, ""
 
@@ -627,7 +796,11 @@ def build_fast_graph_metrics(
     trailing_pe = info.get("trailing_pe")
     forward_pe = info.get("forward_pe")
 
-    valuation_eps, valuation_eps_basis = resolve_valuation_eps(annual_eps, trailing_eps)
+    valuation_eps, valuation_eps_basis = resolve_valuation_eps(
+        annual_eps,
+        trailing_eps,
+        earnings_estimates,
+    )
     filtered_eps = _filtered_annual_eps(annual_eps)
 
     blended = _blended_pe(trailing_pe, forward_pe)
@@ -683,6 +856,16 @@ def build_fast_graph_metrics(
         if total > 0:
             beat_pct = round(beats / total * 100.0, 1)
 
+    eps_persistence = compute_eps_persistence_pct(annual_eps)
+    pe_vs_normal = None
+    if blended is not None and norm_pe is not None:
+        try:
+            npe = float(norm_pe)
+            if npe > 0:
+                pe_vs_normal = round(float(blended) / npe, 2)
+        except (TypeError, ValueError):
+            pe_vs_normal = None
+
     metrics: dict[str, Any] = {
         "close": round(close, 2),
         "growth_rate": growth_rate,
@@ -717,7 +900,11 @@ def build_fast_graph_metrics(
         "cagr_3y": eps_cagr_over_years(filtered_eps, 3),
         "cagr_5y": eps_cagr_over_years(filtered_eps, 5),
         "cagr_10y": eps_cagr_over_years(filtered_eps, 10),
+        "eps_persistence_pct": eps_persistence,
+        "pe_vs_normal": pe_vs_normal,
         "country": info.get("country"),
+        "industry": info.get("industry"),
+        "market_cap": info.get("market_cap"),
         "exchange": info.get("exchange"),
         "analyst_beat_pct": beat_pct,
         "annual_eps": annual_eps or {},

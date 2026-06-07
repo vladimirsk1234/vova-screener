@@ -1,0 +1,6 @@
+TSX:AAV|Advantage Energy Ltd.
+TSX:ACO-X|ATCO Ltd.
+TSX:ACQ|AutoCanada Inc.
+TSX:ADN|Acadian Timber Corp.
+TSX:ADW-A|Andrew Peller Limited
+TSX:ADW-B|Andrew Peller Limited

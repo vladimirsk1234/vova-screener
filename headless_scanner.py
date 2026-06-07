@@ -66,6 +66,7 @@ from ticker_data import (
     TV_LIST_BIG_CAP,
     TV_LIST_ETF,
     TV_LIST_SMALL_CAP,
+    TV_LIST_US_CANADA_FULL,
     build_name_cache,
     get_ticker_info_and_filter,
     read_list_file,
@@ -109,9 +110,40 @@ from tradingview_embed import (
 from ticker_sources import FileListSource, ManualSource
 
 # Ticker sources: list files + optional MANUAL symbols
-SOURCE_OPTIONS = ["BIG CAP", "SMALL CAP", "BIG + SMALL CAP", "ETF", "MANUAL SCAN"]
+def _us_canada_full_list_available() -> bool:
+    base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.isfile(os.path.join(base, TV_LIST_US_CANADA_FULL))
+
+
+def _source_options() -> list[str]:
+    opts = ["BIG CAP", "SMALL CAP", "BIG + SMALL CAP", "ETF"]
+    if _us_canada_full_list_available():
+        opts.append("US + CANADA FULL")
+    opts.append("MANUAL SCAN")
+    return opts
+
+
+SOURCE_OPTIONS = _source_options()
 SCANNER_OPTIONS = ["Sequence Vova (TA)", "FAST Graphs"]
 TF_OPTIONS = ["Daily", "Weekly", "Monthly"]
+
+
+def _results_table_height(n_rows: int) -> int:
+    """Pixel height for st.dataframe (compatible with Streamlit < 1.52)."""
+    return min(max(int(n_rows) * 36 + 44, 150), 520)
+
+
+def _st_dataframe(df, **kwargs):
+    """st.dataframe wrapper: avoids height='content' / width='stretch' on older Streamlit."""
+    kwargs.pop("width", None)
+    kwargs.pop("height", None)
+    n_rows = len(df) if hasattr(df, "__len__") else 1
+    return st.dataframe(
+        df,
+        use_container_width=True,
+        height=_results_table_height(n_rows),
+        **kwargs,
+    )
 
 
 class _CombinedListSource:
@@ -154,8 +186,8 @@ def _build_source_registry():
         "BIG + SMALL CAP": _CombinedListSource([big, small], label="BIG + SMALL CAP"),
         "ETF": FileListSource(TV_LIST_ETF, read_list_file),
     }
-    # Phase 2: when TV-LIST-US-CANADA-FULL.txt exists, add:
-    # registry["US + CANADA FULL"] = FileListSource(TV_LIST_US_CANADA_FULL, read_list_file)
+    if _us_canada_full_list_available():
+        registry["US + CANADA FULL"] = FileListSource(TV_LIST_US_CANADA_FULL, read_list_file)
     return registry
 
 
@@ -163,6 +195,26 @@ SOURCE_REGISTRY = _build_source_registry()
 
 
 def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
+    preset = str(p.get("fg_preset", "fg_undervalued"))
+    sidebar_fair_pe = float(p.get("fair_pe", 15.0))
+    horizon_years = int(p.get("fg_horizon", 3))
+    valuation_pe_mode = str(p.get("fg_val_pe_mode", "fair"))
+
+    if preset == "fg_undervalued":
+        countries_raw = p.get("fg_countries", "US")
+        if countries_raw == "US":
+            fg_countries = ("United States",)
+        elif countries_raw == "CA":
+            fg_countries = ("Canada",)
+        else:
+            fg_countries = ("United States", "Canada")
+        return FastGraphFilterConfig.fg_undervalued_quality(
+            sidebar_fair_pe=sidebar_fair_pe,
+            horizon_years=horizon_years,
+            valuation_pe_mode=valuation_pe_mode,
+            countries=fg_countries,
+        )
+
     countries_raw = p.get("fg_countries", "US+CA")
     if countries_raw == "US":
         countries = ("United States",)
@@ -170,6 +222,26 @@ def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
         countries = ("Canada",)
     else:
         countries = ("United States", "Canada")
+
+    if preset == "cpfs_strict":
+        return FastGraphFilterConfig.cpfs_strict(
+            countries=countries,
+            exclude_otc=bool(p.get("fg_exclude_otc", True)),
+            min_est_eps_growth=float(p.get("fg_min_est_growth", 10.0)),
+            require_cagr_1y=bool(p.get("fg_cagr_1y", True)),
+            require_cagr_3y=bool(p.get("fg_cagr_3y", True)),
+            require_cagr_10y=bool(p.get("fg_cagr_10y", True)),
+            require_analyst_forward_growth=bool(p.get("fg_analyst_forward", True)),
+            require_recent_yoy_positive=bool(p.get("fg_recent_yoy", False)),
+            ror_gte_growth=bool(p.get("fg_ror_gte_growth", False)),
+            max_lt_debt_capital=float(p.get("fg_max_debt_cap", 55.0)),
+            price_below_fair=bool(p.get("fg_below_fair", True)),
+            horizon_years=horizon_years,
+            sidebar_fair_pe=sidebar_fair_pe,
+            valuation_pe_mode=valuation_pe_mode,
+        )
+
+    max_vs_fair = p.get("fg_max_vs_fair_pct")
     return FastGraphFilterConfig(
         countries=countries,
         exclude_otc=bool(p.get("fg_exclude_otc", True)),
@@ -185,9 +257,12 @@ def _fast_filter_cfg_from_params(p: dict) -> FastGraphFilterConfig:
         max_lt_debt_capital=float(p.get("fg_max_debt_cap", 55.0)),
         min_est_annual_ror=float(p.get("fg_min_ror", 0.0)),
         price_below_fair=bool(p.get("fg_below_fair", True)),
-        horizon_years=int(p.get("fg_horizon", 3)),
-        sidebar_fair_pe=float(p.get("fair_pe", 15.0)),
-        valuation_pe_mode=str(p.get("fg_val_pe_mode", "fair")),
+        max_vs_fair_pct=float(max_vs_fair) if max_vs_fair is not None else None,
+        require_pe_lte_normal=bool(p.get("fg_pe_lte_normal", False)),
+        min_eps_persistence_pct=float(p.get("fg_min_persistence", 0.0)),
+        horizon_years=horizon_years,
+        sidebar_fair_pe=sidebar_fair_pe,
+        valuation_pe_mode=valuation_pe_mode,
     )
 
 
@@ -208,8 +283,18 @@ is_fast_scanner = scanner_label == "FAST Graphs"
 scanner_id = "fast_graphs" if is_fast_scanner else "sequence_vova"
 
 last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
-default_idx = SOURCE_OPTIONS.index(last_src) if last_src in SOURCE_OPTIONS else 0
-src = st.sidebar.radio("SOURCE", SOURCE_OPTIONS, disabled=disabled, index=default_idx)
+_source_opts = _source_options()
+default_idx = _source_opts.index(last_src) if last_src in _source_opts else 0
+src = st.sidebar.radio("SOURCE", _source_opts, disabled=disabled, index=default_idx)
+_is_full_us_ca_src = src == "US + CANADA FULL"
+if _is_full_us_ca_src:
+    _full_tickers, _, _, _full_err = read_list_file(TV_LIST_US_CANADA_FULL)
+    if _full_err:
+        st.sidebar.warning(_full_err)
+    elif _full_tickers:
+        st.sidebar.caption(
+            f"~{len(_full_tickers)} common stocks · positive P/E · US + Canada · no OTC/ETF"
+        )
 man_txt = ""
 if src == "MANUAL SCAN":
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
@@ -217,18 +302,18 @@ if src == "MANUAL SCAN":
 
 st.sidebar.subheader("FUNDAMENTALS")
 fair_pe_ratio = st.sidebar.number_input(
-    "Fair P/E (fallback when growth < 10%)",
+    "Fair P/E (fallback when growth < 15%)",
     min_value=1.0,
     max_value=200.0,
     value=float(st.session_state.fair_pe_ratio),
     step=0.5,
     disabled=disabled,
-    help="FAST Graphs: auto P/E = Growth Rate when growth ≥ 10%, else this value.",
+    help="FAST Graphs: auto P/E = Growth Rate when growth ≥ 15%, else this value.",
 )
 st.session_state.fair_pe_ratio = float(fair_pe_ratio)
 
 if is_fast_scanner:
-    st.sidebar.caption("Auto Fair P/E = EPS Growth Rate when growth ≥ 10%, else Fair P/E above.")
+    st.sidebar.caption("Auto Fair P/E = EPS Growth Rate when growth ≥ 15%, else Fair P/E above.")
     st.sidebar.caption(
         "Data: SEC Operating EPS (free proxy) — not FAST Graphs Premium Adjusted EPS. "
         "Numbers will differ from FG."
@@ -238,54 +323,90 @@ if is_fast_scanner:
             "Low-memory mode: smaller batches, streaming download (Streamlit Cloud)."
         )
     st.sidebar.subheader("FAST GRAPH FILTERS")
-    st.sidebar.caption("CPFS-G: Cheap, Growing (1Y/3Y/10Y), Safe, Forward (analyst)")
-    fg_countries = st.sidebar.selectbox(
-        "Country",
-        ["US + Canada", "US only", "Canada only"],
+    _preset_labels = ["FG Undervalued Quality", "CPFS-G Strict", "Custom"]
+    _preset_keys = {"FG Undervalued Quality": "fg_undervalued", "CPFS-G Strict": "cpfs_strict", "Custom": "custom"}
+    _last_preset = st.session_state.get("run_params", {}).get("fg_preset", "fg_undervalued")
+    _preset_idx = {"fg_undervalued": 0, "cpfs_strict": 1, "custom": 2}.get(_last_preset, 0)
+    fg_preset_label = st.sidebar.selectbox(
+        "Screen preset",
+        _preset_labels,
+        index=_preset_idx,
         disabled=disabled,
-        index={"US+CA": 0, "US": 1, "CA": 2}.get(
-            st.session_state.get("run_params", {}).get("fg_countries", "US+CA"), 0
-        ),
+        help="FG Undervalued Quality matches FAST Graphs 'Undervalued high quality' (~40+ US names).",
     )
-    fg_country_key = {"US + Canada": "US+CA", "US only": "US", "Canada only": "CA"}[fg_countries]
-    fg_exclude_otc = st.sidebar.checkbox("Exclude OTC", True, disabled=disabled)
+    fg_preset = _preset_keys[fg_preset_label]
+    _preset_locked = fg_preset != "custom"
+    if fg_preset == "fg_undervalued":
+        st.sidebar.caption(
+            "FG preset: US only · vs Fair ≤ +6% · 5Y CAGR ≥ 5% · Est growth ≥ 8% · "
+            "P/E ≤ Normal · EPS persistence ≥ 70% · Est ROR ≥ 5% · Debt ≤ 50%"
+        )
+    elif fg_preset == "cpfs_strict":
+        st.sidebar.caption("CPFS-G: Cheap, Growing (1Y/3Y/10Y), Safe, Forward (analyst)")
+    if fg_preset == "fg_undervalued":
+        if _is_full_us_ca_src:
+            fg_country_key = "US+CA"
+            st.sidebar.caption(
+                "Country: US + Canada (full list includes both markets)"
+            )
+        else:
+            fg_country_key = "US"
+            st.sidebar.caption("Country: United States (locked by FG preset)")
+    else:
+        fg_countries = st.sidebar.selectbox(
+            "Country",
+            ["US + Canada", "US only", "Canada only"],
+            disabled=disabled,
+            index={"US+CA": 0, "US": 1, "CA": 2}.get(
+                st.session_state.get("run_params", {}).get("fg_countries", "US+CA"), 0
+            ),
+        )
+        fg_country_key = {"US + Canada": "US+CA", "US only": "US", "Canada only": "CA"}[fg_countries]
+    fg_exclude_otc = st.sidebar.checkbox("Exclude OTC", True, disabled=disabled or _preset_locked)
     fg_below_fair = st.sidebar.checkbox(
         "Price below Fair Value (vs Fair % < 0)",
         True,
-        disabled=disabled,
-        help="Gate 1 — Cheap: close must be below Fair $ (valuation EPS × Fair P/E).",
+        disabled=disabled or _preset_locked,
+        help="Gate 1 — Cheap: close must be below Fair $ (valuation EPS × Fair P/E). CPFS/Custom only.",
     )
     fg_eps_growing = st.sidebar.checkbox(
         "EPS growing: 1Y + 3Y + 10Y CAGR ≥ 0",
-        True,
-        disabled=disabled,
-        help="Gate 2 — Growing: recent and long-term EPS must not be in decline.",
+        fg_preset != "fg_undervalued",
+        disabled=disabled or _preset_locked,
+        help="Gate 2 — CPFS strict. FG preset uses 5Y CAGR ≥ 5% instead.",
     )
     fg_cagr_1y = fg_cagr_3y = fg_cagr_10y = fg_eps_growing
+    fg_cagr_5y = fg_preset == "fg_undervalued"
     fg_analyst_forward = st.sidebar.checkbox(
         "Analyst forward growth ≥ min (no hist fallback)",
-        True,
-        disabled=disabled,
-        help="Gate 4 — Future: uses analyst EPS growth only; rejects if no forward estimate.",
+        fg_preset == "cpfs_strict",
+        disabled=disabled or _preset_locked,
+        help="CPFS strict only. FG preset allows analyst estimate with fallback.",
     )
+    _default_min_growth = 8.0 if fg_preset == "fg_undervalued" else 10.0
     fg_min_est_growth = st.sidebar.number_input(
         "Min forward EPS Growth %",
         0.0,
         100.0,
-        10.0,
+        _default_min_growth,
         1.0,
-        disabled=disabled,
-        help="Minimum analyst forward EPS growth when analyst-forward gate is on.",
+        disabled=disabled or _preset_locked,
+        help="Minimum analyst EPS growth when growth gate is on.",
     )
+    _default_max_debt = 50.0 if fg_preset == "fg_undervalued" else 55.0
     fg_max_debt_cap = st.sidebar.number_input(
         "Max LT Debt/Capital %",
         0.0,
         100.0,
-        55.0,
+        _default_max_debt,
         1.0,
-        disabled=disabled,
-        help="Gate 3 — Safe: long-term debt ceiling.",
+        disabled=disabled or _preset_locked,
+        help="Long-term debt ceiling.",
     )
+    fg_min_ror = 5.0 if fg_preset == "fg_undervalued" else 0.0
+    fg_pe_lte_normal = fg_preset == "fg_undervalued"
+    fg_min_persistence = 70.0 if fg_preset == "fg_undervalued" else 0.0
+    fg_max_vs_fair_pct = 6.0 if fg_preset == "fg_undervalued" else None
     fg_recent_yoy = st.sidebar.checkbox(
         "Last 2 fiscal years YoY EPS ≥ 0 (strict)",
         False,
@@ -314,16 +435,22 @@ if is_fast_scanner:
     scan_dir = "BUY TO OPEN"
     is_sell_scan = False
 else:
+    fg_preset = "fg_undervalued"
     fg_country_key = "US+CA"
     fg_exclude_otc = True
     fg_min_est_growth = 10.0
     fg_eps_growing = True
     fg_cagr_1y = fg_cagr_3y = fg_cagr_10y = True
+    fg_cagr_5y = False
     fg_analyst_forward = True
     fg_recent_yoy = False
     fg_ror_gte_growth = False
     fg_max_debt_cap = 55.0
     fg_below_fair = True
+    fg_min_ror = 0.0
+    fg_pe_lte_normal = False
+    fg_min_persistence = 0.0
+    fg_max_vs_fair_pct = None
     fg_horizon = 3
     fg_val_pe_mode = "Fair P/E"
     st.sidebar.subheader("RISK MANAGEMENT")
@@ -369,18 +496,24 @@ if start_btn:
         'scan_direction': "sell" if is_sell_scan else "buy",
         'scanner_id': scanner_id,
         'fair_pe': float(fair_pe_ratio),
+        'fg_preset': fg_preset if is_fast_scanner else "fg_undervalued",
         'fg_countries': fg_country_key,
-        'fg_exclude_otc': fg_exclude_otc,
-        'fg_min_est_growth': fg_min_est_growth,
-        'fg_cagr_1y': fg_cagr_1y,
-        'fg_cagr_3y': fg_cagr_3y,
-        'fg_cagr_10y': fg_cagr_10y,
-        'fg_analyst_forward': fg_analyst_forward,
-        'fg_recent_yoy': fg_recent_yoy,
+        'fg_exclude_otc': fg_exclude_otc if is_fast_scanner else True,
+        'fg_min_est_growth': fg_min_est_growth if is_fast_scanner else 8.0,
+        'fg_cagr_1y': fg_cagr_1y if is_fast_scanner else False,
+        'fg_cagr_3y': fg_cagr_3y if is_fast_scanner else False,
+        'fg_cagr_5y': fg_cagr_5y if is_fast_scanner else True,
+        'fg_cagr_10y': fg_cagr_10y if is_fast_scanner else False,
+        'fg_analyst_forward': fg_analyst_forward if is_fast_scanner else False,
+        'fg_recent_yoy': fg_recent_yoy if is_fast_scanner else False,
         'fg_recent_yoy_years': 2,
-        'fg_ror_gte_growth': fg_ror_gte_growth,
-        'fg_max_debt_cap': fg_max_debt_cap,
-        'fg_below_fair': fg_below_fair,
+        'fg_ror_gte_growth': fg_ror_gte_growth if is_fast_scanner else False,
+        'fg_max_debt_cap': fg_max_debt_cap if is_fast_scanner else 50.0,
+        'fg_below_fair': fg_below_fair if is_fast_scanner else True,
+        'fg_min_ror': fg_min_ror if is_fast_scanner else 5.0,
+        'fg_pe_lte_normal': fg_pe_lte_normal if is_fast_scanner else True,
+        'fg_min_persistence': fg_min_persistence if is_fast_scanner else 70.0,
+        'fg_max_vs_fair_pct': fg_max_vs_fair_pct if is_fast_scanner else 6.0,
         'fg_horizon': fg_horizon,
         'fg_val_pe_mode': "fair" if fg_val_pe_mode == "Fair P/E" else "normal",
     }
@@ -593,6 +726,7 @@ def render_scan_results(
     scan_direction="buy",
     fair_pe: float = 15.0,
     scanner_id: str = "sequence_vova",
+    filter_diagnostics: dict | None = None,
 ):
     """
     Render scan results: dataframe, as-of caption, and rejected/skipped expander.
@@ -611,12 +745,10 @@ def render_scan_results(
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
 
-        event = st.dataframe(
+        event = _st_dataframe(
             display_df,
             hide_index=True,
             column_config=col_config,
-            width="stretch",
-            height="content",
             on_select="rerun",
             selection_mode="single-row",
             key="scan_results_table",
@@ -625,10 +757,9 @@ def render_scan_results(
         if summary_row:
             summary_display = {k: v for k, v in summary_row.items() if k != "_is_summary"}
             st.caption("Scan totals")
-            st.dataframe(
+            _st_dataframe(
                 pd.DataFrame([summary_display]),
                 hide_index=True,
-                width="stretch",
             )
 
         is_fast = scanner_id == "fast_graphs"
@@ -778,12 +909,26 @@ def render_scan_results(
                 pass
     else:
         st.info(empty_message)
+
+    if filter_diagnostics and scanner_id == "fast_graphs":
+        stats = filter_diagnostics.get("stats") or {}
+        scanned = int(filter_diagnostics.get("scanned") or 0)
+        passed = int(filter_diagnostics.get("passed") or len(table_rows or []))
+        if stats:
+            with st.expander(f"Filter breakdown ({scanned} scanned → {passed} passed)", expanded=passed <= 3):
+                rows = [{"Reason": k, "Count": v} for k, v in sorted(stats.items(), key=lambda x: -x[1])]
+                _st_dataframe(pd.DataFrame(rows), hide_index=True)
+                near = filter_diagnostics.get("near_misses") or []
+                if near:
+                    st.caption("Near misses (vs Fair slightly above +6%)")
+                    _st_dataframe(pd.DataFrame(near), hide_index=True)
+
     if is_manual_src and rejected_reasons:
         with st.expander("Rejected (Manual)"):
-            st.dataframe(pd.DataFrame(rejected_reasons), width="stretch", hide_index=True)
+            _st_dataframe(pd.DataFrame(rejected_reasons), hide_index=True)
     elif rejected_reasons and any(str(r.get("Reason", "")).startswith("ERROR") for r in rejected_reasons):
         with st.expander("Skipped (errors)"):
-            st.dataframe(pd.DataFrame(rejected_reasons), width="stretch", hide_index=True)
+            _st_dataframe(pd.DataFrame(rejected_reasons), hide_index=True)
 
 
 def _download_batch(
@@ -921,9 +1066,28 @@ def _process_ticker_for_scan(
                 return {"kind": "skip"}
             if not metrics.get("Valid"):
                 reason = metrics.get("reject_reason") or "FILTER_FAIL"
+                reject_row = {
+                    "Symbol": t,
+                    "Reason": reason,
+                    "vs Fair %": metrics.get("vs_fair_pct"),
+                    "CAGR 5Y": metrics.get("cagr_5y"),
+                    "Est Growth": metrics.get("est_eps_growth"),
+                    "P/E vs Normal": metrics.get("pe_vs_normal"),
+                }
+                near_miss = False
+                try:
+                    vf = float(metrics.get("vs_fair_pct"))
+                    near_miss = 6.0 < vf <= 15.0
+                except (TypeError, ValueError):
+                    pass
                 if is_manual_src:
-                    return {"kind": "reject", "row": {"Symbol": t, "Reason": reason}}
-                return {"kind": "skip"}
+                    return {"kind": "reject", "row": reject_row}
+                return {
+                    "kind": "filter_reject",
+                    "reason": reason,
+                    "row": reject_row,
+                    "near_miss": near_miss,
+                }
             table_row = fast_graph_table_row(
                 metrics,
                 tv_url=tv_url,
@@ -1218,7 +1382,7 @@ def run_scan(
     Pure scanner: optional parallel Yahoo metadata (manual only), threaded batch download,
     then parallel per-ticker OHLCV + sequence for list sources (lazy metadata: .info only for passes).
     Logs phase timings to the logger and stdout. No Streamlit calls.
-    Returns (table_rows, rejected_reasons, reference_end_date, ohlc_cache).
+    Returns (table_rows, rejected_reasons, reference_end_date, ohlc_cache, filter_diagnostics).
     """
     inter, fetch_period = _interval_and_period(tf, scanner_id=scanner_id)
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
@@ -1235,6 +1399,9 @@ def run_scan(
 
     table_rows = []
     rejected_reasons = []
+    filter_reject_stats: dict[str, int] = {}
+    filter_near_misses: list[dict] = []
+    filter_scanned = 0
     ohlc_cache: dict[str, dict] = {}
     reference_end_date = None
     batches_data: list[tuple[list[str], pd.DataFrame | None]] = []
@@ -1307,6 +1474,7 @@ def run_scan(
         info_sec = time.perf_counter() - t_info0
 
     def _merge_ticker_result(res: dict) -> None:
+        nonlocal filter_scanned
         if res["kind"] == "row":
             table_rows.append(res["row"])
             key = res.get("chart_key")
@@ -1315,6 +1483,12 @@ def run_scan(
                 ohlc_cache[key] = slim_ohlc_entry(entry, scanner_id)
         elif res["kind"] == "reject":
             rejected_reasons.append(res["row"])
+        elif res["kind"] == "filter_reject":
+            filter_scanned += 1
+            reason = str(res.get("reason") or "FILTER_FAIL")
+            filter_reject_stats[reason] = filter_reject_stats.get(reason, 0) + 1
+            if res.get("near_miss") and res.get("row"):
+                filter_near_misses.append(res["row"])
 
     def _process_batch_slice(batch: list[str], all_data: pd.DataFrame | None) -> None:
         slice_data = all_data
@@ -1567,7 +1741,14 @@ def run_scan(
     _log.info(timing_msg)
     print(timing_msg, flush=True)
 
-    return (table_rows, rejected_reasons, reference_end_date, ohlc_cache)
+    filter_diagnostics = {
+        "stats": filter_reject_stats,
+        "near_misses": filter_near_misses[:25],
+        "scanned": filter_scanned + len(table_rows),
+        "passed": len(table_rows),
+    }
+
+    return (table_rows, rejected_reasons, reference_end_date, ohlc_cache, filter_diagnostics)
 
 
 if st.session_state.scanning:
@@ -1609,7 +1790,7 @@ if st.session_state.scanning:
     def on_scan_cancelled():
         progress_ui.cancel_active()
 
-    table_rows, rejected_reasons, reference_end_date, ohlc_cache = run_scan(
+    table_rows, rejected_reasons, reference_end_date, ohlc_cache, filter_diagnostics = run_scan(
         tickers,
         risk_per_trade=cfg.risk_per_trade,
         min_rr=cfg.min_rr,
@@ -1631,6 +1812,7 @@ if st.session_state.scanning:
 
     st.session_state.results = table_rows
     st.session_state.rejected = rejected_reasons
+    st.session_state.filter_diagnostics = filter_diagnostics
     st.session_state.results_as_of = reference_end_date
     st.session_state.results_tf = cfg.tf
     st.session_state.results_direction = cfg.scan_direction
@@ -1648,6 +1830,7 @@ if st.session_state.scanning:
             scan_direction=cfg.scan_direction,
             fair_pe=cfg.fair_pe,
             scanner_id=cfg.scanner_id,
+            filter_diagnostics=filter_diagnostics,
         )
 
     st.session_state.scanning = False
@@ -1671,5 +1854,6 @@ else:
             scan_direction=as_of_dir,
             fair_pe=st.session_state.fair_pe_ratio,
             scanner_id=as_of_scanner,
+            filter_diagnostics=st.session_state.get("filter_diagnostics"),
         )
 

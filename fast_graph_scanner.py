@@ -37,7 +37,7 @@ def run_fast_graph_scan(
         return None
     close = float(close_s.iloc[-1])
 
-    cfg = filter_cfg or FastGraphFilterConfig()
+    cfg = filter_cfg or FastGraphFilterConfig.fg_undervalued_quality()
     if bundle is None and fetch_bundle:
         try:
             bundle = fetch_fast_graph_bundle(ticker)
@@ -107,9 +107,12 @@ def fast_graph_table_row(
         "Growth Rate": metrics.get("growth_rate"),
         "CAGR 1Y": metrics.get("cagr_1y"),
         "CAGR 3Y": metrics.get("cagr_3y"),
+        "CAGR 5Y": metrics.get("cagr_5y"),
         "Fair P/E": metrics.get("fair_pe"),
         "Normal P/E": metrics.get("normal_pe"),
         "Blended P/E": metrics.get("blended_pe"),
+        "P/E vs Normal": metrics.get("pe_vs_normal"),
+        "EPS Persistence %": metrics.get("eps_persistence_pct"),
         "Valuation EPS": metrics.get("valuation_eps"),
         "Fair $": _cell(metrics.get("fair_price")),
         "Normal $": _cell(metrics.get("normal_price")),

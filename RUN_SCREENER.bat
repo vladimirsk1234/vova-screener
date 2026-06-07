@@ -33,7 +33,7 @@ REM Install deps once if streamlit missing
 %PY% -c "import streamlit" >nul 2>&1
 if errorlevel 1 (
     echo Installing dependencies from requirements.txt ...
-    %PY% -m pip install -r requirements.txt
+    %PY% -m pip install -U "streamlit>=1.52" -r requirements.txt
     if errorlevel 1 (
         echo ERROR: pip install failed.
         pause

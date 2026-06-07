@@ -1,0 +1,156 @@
+{
+  "checked": {
+    "AAN.V": {
+      "reason": "NOT_US_CA",
+      "tv_part": "TSXV:AAN",
+      "name": "Aton Resources Inc.",
+      "region": "CA"
+    },
+    "AAV.TO": {
+      "reason": "PASS",
+      "tv_part": "TSX:AAV",
+      "name": "Advantage Energy Ltd.",
+      "region": "CA"
+    },
+    "ABA.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:ABA",
+      "name": "Abasca Resources Inc.",
+      "region": "CA"
+    },
+    "ABRA.TO": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSX:ABRA",
+      "name": "AbraSilver Resource Corp.",
+      "region": "CA"
+    },
+    "ABZ.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:ABZ",
+      "name": "AsiaBaseMetals Inc.",
+      "region": "CA"
+    },
+    "ACD.TO": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSX:ACD",
+      "name": "Accord Financial Corp.",
+      "region": "CA"
+    },
+    "ACO-X.TO": {
+      "reason": "PASS",
+      "tv_part": "TSX:ACO-X",
+      "name": "ATCO Ltd.",
+      "region": "CA"
+    },
+    "ACO.TO": {
+      "reason": "NO_DATA",
+      "tv_part": "TSX:ACO",
+      "name": "Atco Ltd.",
+      "region": "CA"
+    },
+    "ACQ.TO": {
+      "reason": "PASS",
+      "tv_part": "TSX:ACQ",
+      "name": "AutoCanada Inc.",
+      "region": "CA"
+    },
+    "ADCO.TO": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSX:ADCO",
+      "name": "Adcore Inc.",
+      "region": "CA"
+    },
+    "ADD.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:ADD",
+      "name": "Arctic Star Exploration Corp.",
+      "region": "CA"
+    },
+    "ADK.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:ADK",
+      "name": "DIAGNOS Inc.",
+      "region": "CA"
+    },
+    "ADN.TO": {
+      "reason": "PASS",
+      "tv_part": "TSX:ADN",
+      "name": "Acadian Timber Corp.",
+      "region": "CA"
+    },
+    "ADW-A.TO": {
+      "reason": "PASS",
+      "tv_part": "TSX:ADW-A",
+      "name": "Andrew Peller Limited",
+      "region": "CA"
+    },
+    "ADW-B.TO": {
+      "reason": "PASS",
+      "tv_part": "TSX:ADW-B",
+      "name": "Andrew Peller Limited",
+      "region": "CA"
+    },
+    "ADY.V": {
+      "reason": "NOT_US_CA",
+      "tv_part": "TSXV:ADY",
+      "name": "Adyton Resources Corporation",
+      "region": "CA"
+    },
+    "ADYA.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:ADYA",
+      "name": "Adya Inc.",
+      "region": "CA"
+    },
+    "AE.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:AE",
+      "name": "American Eagle Gold Corp.",
+      "region": "CA"
+    },
+    "AEF.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:AEF",
+      "name": "AE Fuels Corporation",
+      "region": "CA"
+    },
+    "AEMC.V": {
+      "reason": "NEGATIVE_EPS",
+      "tv_part": "TSXV:AEMC",
+      "name": "Alaska Energy Metals Corporation",
+      "region": "CA"
+    }
+  },
+  "passed": [
+    [
+      "TSX:AAV",
+      "AAV.TO",
+      "Advantage Energy Ltd."
+    ],
+    [
+      "TSX:ACO-X",
+      "ACO-X.TO",
+      "ATCO Ltd."
+    ],
+    [
+      "TSX:ACQ",
+      "ACQ.TO",
+      "AutoCanada Inc."
+    ],
+    [
+      "TSX:ADN",
+      "ADN.TO",
+      "Acadian Timber Corp."
+    ],
+    [
+      "TSX:ADW-A",
+      "ADW-A.TO",
+      "Andrew Peller Limited"
+    ],
+    [
+      "TSX:ADW-B",
+      "ADW-B.TO",
+      "Andrew Peller Limited"
+    ]
+  ]
+}

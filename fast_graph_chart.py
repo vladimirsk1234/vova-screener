@@ -514,7 +514,7 @@ def _split_line_at_timestamp(
 def _fair_pe_config(metrics: dict[str, Any]) -> tuple[float, float, float]:
     return (
         float(metrics.get("sidebar_fair_pe") or 15.0),
-        float(metrics.get("growth_threshold") or 10.0),
+        float(metrics.get("growth_threshold") or 15.0),
         float(metrics.get("growth_cap_pct") or 100.0),
     )
 

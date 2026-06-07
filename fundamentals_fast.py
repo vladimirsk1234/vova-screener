@@ -24,6 +24,91 @@ from ticker_data import (
 )
 
 
+def _load_fg_bundle_info(ticker: str) -> dict[str, Any]:
+    """Cached FAST scan bundle metadata (market cap, country, industry)."""
+    try:
+        from fast_graph_data import fetch_fast_graph_bundle
+
+        bundle = fetch_fast_graph_bundle(ticker, use_cache=True)
+        info = bundle.get("info")
+        return dict(info) if isinstance(info, dict) else {}
+    except Exception:
+        return {}
+
+
+def _resolve_market_cap(
+    *,
+    info: dict,
+    merged: dict,
+    px: float | None,
+    scanner_metrics: dict[str, Any] | None,
+    bundle_info: dict[str, Any],
+) -> float | None:
+    for source in (
+        scanner_metrics or {},
+        bundle_info,
+        info,
+        merged,
+    ):
+        val = _float_field(source, "market_cap") if "market_cap" in source else None
+        if val is None:
+            val = _float_field(source, "marketCap")
+        if val is not None and val > 0 and math.isfinite(val):
+            return val
+
+    shares = (
+        _float_field(merged, "sharesOutstanding")
+        or _float_field(merged, "impliedSharesOutstanding")
+        or _float_field(info, "sharesOutstanding")
+        or _float_field(info, "impliedSharesOutstanding")
+    )
+    if shares and px is not None and px > 0:
+        mcap = float(shares) * float(px)
+        if math.isfinite(mcap) and mcap > 0:
+            return mcap
+    return None
+
+
+def _compute_tev(
+    *,
+    mcap: float | None,
+    info: dict,
+    merged: dict,
+    ticker_obj: yf.Ticker | None,
+) -> float | None:
+    tev = _float_field(info, "enterpriseValue") or _float_field(merged, "enterpriseValue")
+    if tev is not None and tev > 0 and math.isfinite(tev):
+        return tev
+
+    total_debt = _float_field(info, "totalDebt") or _float_field(merged, "totalDebt")
+    total_cash = _float_field(info, "totalCash") or _float_field(merged, "totalCash")
+    if total_debt is None and ticker_obj is not None:
+        total_debt = _find_balance_row(
+            _balance_sheet_or_empty(ticker_obj),
+            ("Total Debt", "Long Term Debt And Capital Lease Obligation", "Long Term Debt"),
+        )
+    if total_cash is None and ticker_obj is not None:
+        total_cash = _find_balance_row(
+            _balance_sheet_or_empty(ticker_obj),
+            ("Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"),
+        )
+
+    if mcap is not None and total_debt is not None:
+        cash = total_cash or 0.0
+        computed = float(mcap) + float(total_debt) - float(cash)
+        if math.isfinite(computed) and computed > 0:
+            return computed
+    return mcap if mcap is not None and mcap > 0 else None
+
+
+def _balance_sheet_or_empty(ticker_obj: yf.Ticker) -> pd.DataFrame:
+    try:
+        bs = ticker_obj.balance_sheet
+        return bs if isinstance(bs, pd.DataFrame) else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
 def _highlights_from_scanner_metrics(
     scanner_metrics: dict[str, Any],
     *,
@@ -325,19 +410,22 @@ def get_fast_graph_panel_data(
     eps_source = (scanner_metrics or {}).get("eps_source") or "yahoo"
     eps_label = {
         "sec_operating": "SEC operating income / shares",
+        "sec_operating+yahoo": "SEC operating + Yahoo gap-fill",
+        "sec+yahoo": "SEC GAAP + Yahoo gap-fill",
         "sec": "SEC GAAP diluted/basic EPS",
         "yahoo_annual": "Yahoo annual EPS",
         "yahoo_quarterly": "Yahoo quarterly EPS (aggregated)",
     }.get(eps_source, eps_source)
     warnings = [
         "Данные SEC Operating EPS (free proxy) + Yahoo — не FAST Graphs Premium Adjusted EPS.",
-        f"Growth Rate — Historical CAGR ({eps_label}, без выбросов).",
+        f"Growth Rate — geometric mean YoY ({eps_label}, без выбросов).",
         "Normal P/E — split-adjusted year-end prices (auto_adjust).",
         "Est EPS Growth — отдельно, из Yahoo analyst estimates.",
-        "GICS Sub-industry — поле industry Yahoo.",
-        "S&P Credit Rating недоступен в Yahoo.",
+        "Industry (Yahoo) — не официальный GICS.",
+        "S&P Credit Rating — N/A (нет бесплатного источника).",
     ]
 
+    bundle_info = _load_fg_bundle_info(ticker)
     merged, ticker_obj = _resolve_fundamentals_info(ticker)
     info: dict = {}
     if ticker_obj is not None:
@@ -384,8 +472,6 @@ def get_fast_graph_panel_data(
             or scanner_metrics.get("normal_pe")
             or norm_pe
         )
-        if scanner_metrics.get("lt_debt_capital") is not None:
-            lt_debt_cap = scanner_metrics.get("lt_debt_capital")
     else:
         display_fair_pe = float(fair_pe)
         display_norm_pe = norm_pe
@@ -403,14 +489,32 @@ def get_fast_graph_panel_data(
         dividend_rate=_float_field(info, "dividendRate"),
     )
 
-    mcap = _float_field(info, "marketCap") or _float_field(merged, "marketCap")
-    tev = _float_field(info, "enterpriseValue")
-    if scanner_metrics is None or scanner_metrics.get("lt_debt_capital") is None:
+    mcap = _resolve_market_cap(
+        info=info,
+        merged=merged,
+        px=px,
+        scanner_metrics=scanner_metrics,
+        bundle_info=bundle_info,
+    )
+    tev = _compute_tev(mcap=mcap, info=info, merged=merged, ticker_obj=ticker_obj)
+    lt_debt_cap = None
+    if scanner_metrics and scanner_metrics.get("lt_debt_capital") is not None:
+        lt_debt_cap = scanner_metrics.get("lt_debt_capital")
+    elif bundle_info.get("lt_debt_capital") is not None:
+        lt_debt_cap = bundle_info.get("lt_debt_capital")
+    if lt_debt_cap is None:
         lt_debt_cap = _lt_debt_to_capital_pct(ticker_obj)
 
-    country = _info_field_str(info, "country") or "—"
+    country = (
+        _info_field_str(info, "country")
+        or (scanner_metrics or {}).get("country")
+        or bundle_info.get("country")
+        or "—"
+    )
     industry = (
         _info_field_str(info, "industryDisp", "industry")
+        or (scanner_metrics or {}).get("industry")
+        or bundle_info.get("industry")
         or "—"
     )
     quote_type = _info_field_str(info, "quoteType") or "SHARE"
@@ -448,7 +552,7 @@ def get_fast_graph_panel_data(
         ("Blended P/E", _fmt_ratio(blended)),
         ("EPS Yld", _fmt_pct(eps_yld)),
         ("Div Yld", _fmt_pct(div_yld) if div_yld is not None else "0.00%"),
-        ("S&P Credit Rating", "N/A"),
+        ("S&P Credit Rating", "N/A (no free source)"),
         ("Market Cap", format_mcap_tev(mcap, currency)),
         ("TEV", format_mcap_tev(tev, currency)),
         (
@@ -456,7 +560,7 @@ def get_fast_graph_panel_data(
             _fmt_pct(lt_debt_cap) if lt_debt_cap is not None else "N/A",
         ),
         ("Country", country),
-        ("GICS Sub-industry", industry),
+        ("Industry (Yahoo)", industry),
         ("Type", quote_type.upper()),
     ]
 
