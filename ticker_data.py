@@ -613,13 +613,119 @@ def _extract_quarterly_eps_annual(stmt: pd.DataFrame | None) -> dict[int, float]
 
     if not by_year:
         return {}
-    latest_year = max(by_year.keys())
     out: dict[int, float] = {}
     for year, vals in by_year.items():
-        if len(vals) < 3 and year != latest_year:
+        if len(vals) < 4:
             continue
         out[year] = sum(vals)
     return out
+
+
+def _quarters_per_year_from_stmt(stmt: pd.DataFrame | None) -> dict[int, int]:
+    """Count quarterly EPS columns per calendar year."""
+    if not isinstance(stmt, pd.DataFrame) or stmt.empty:
+        return {}
+    eps_row = None
+    for candidate in ("Basic EPS", "BasicEPS", "Diluted EPS", "DilutedEPS"):
+        if candidate in stmt.index:
+            eps_row = stmt.loc[candidate]
+            break
+    if eps_row is None:
+        return {}
+
+    counts: dict[int, int] = {}
+    for col in eps_row.index:
+        try:
+            year = pd.Timestamp(col).year
+        except Exception:
+            continue
+        counts[year] = counts.get(year, 0) + 1
+    return counts
+
+
+def _quarters_in_year_from_history(earnings_history: list[dict] | None, year: int) -> int:
+    """Count reported quarters in calendar `year` from earnings_history."""
+    if not earnings_history:
+        return 0
+    count = 0
+    for item in earnings_history:
+        date = item.get("date")
+        if date is None:
+            continue
+        try:
+            ts = pd.Timestamp(date)
+        except Exception:
+            continue
+        if ts.year != year:
+            continue
+        actual = item.get("eps_actual")
+        if actual is not None:
+            try:
+                if math.isfinite(float(actual)):
+                    count += 1
+            except (TypeError, ValueError):
+                pass
+    return count
+
+
+def _is_incomplete_eps_year(
+    year: int,
+    eps: float,
+    prior_eps: float | None,
+    *,
+    quarters_reported: int | None,
+    current_year: int,
+) -> bool:
+    """True when `year` is an in-progress fiscal year with partial EPS data."""
+    if year < current_year:
+        return False
+    if quarters_reported is not None and 0 < quarters_reported < 4:
+        return True
+    if year == current_year and prior_eps is not None and prior_eps > 0:
+        if eps < prior_eps * 0.60:
+            return True
+    return False
+
+
+def strip_incomplete_eps_years(
+    annual_eps: dict[int, float] | None,
+    *,
+    earnings_history: list[dict] | None = None,
+    quarterly_stmt: pd.DataFrame | None = None,
+    current_year: int | None = None,
+) -> tuple[dict[int, float], int | None]:
+    """
+    Return (completed_eps_map, last_completed_year).
+    Drop the latest year when it is a partial-year fill (< 4 quarters reported).
+    """
+    import datetime
+
+    if not annual_eps:
+        return {}, None
+
+    cur = current_year or datetime.date.today().year
+    completed = {int(y): float(e) for y, e in annual_eps.items()}
+    years_sorted = sorted(completed.keys())
+    latest = years_sorted[-1]
+    prior_eps = completed[years_sorted[-2]] if len(years_sorted) >= 2 else None
+
+    quarters_by_year = _quarters_per_year_from_stmt(quarterly_stmt)
+    quarters = quarters_by_year.get(latest)
+    if quarters is None and earnings_history:
+        quarters = _quarters_in_year_from_history(earnings_history, latest)
+
+    if _is_incomplete_eps_year(
+        latest,
+        completed[latest],
+        prior_eps,
+        quarters_reported=quarters,
+        current_year=cur,
+    ):
+        del completed[latest]
+        last_completed = max(completed.keys()) if completed else None
+        return completed, last_completed
+
+    return completed, latest
 
 
 def filter_eps_outliers(
@@ -1020,6 +1126,9 @@ def resolve_annual_eps_map(
     if latest_base < current_year - 1:
         for year in range(latest_base + 1, end_year + 1):
             if year in yahoo_fill:
+                # Skip partial current-year quarterly fill; analyst 0y handles in-progress FY.
+                if year >= current_year and year not in yahoo_annual:
+                    continue
                 merged[year] = yahoo_fill[year]
                 patched = True
 

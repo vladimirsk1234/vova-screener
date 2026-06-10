@@ -18,7 +18,7 @@ from eps_yield import (
     sanitize_display_price,
     vs_fair_pct,
 )
-from ticker_data import filter_eps_outliers
+from ticker_data import filter_eps_outliers, strip_incomplete_eps_years
 
 
 DEFAULT_GROWTH_CAP_PCT = 100.0
@@ -375,36 +375,54 @@ def project_future_eps(
         return None
 
 
+def chart_annual_eps(
+    annual_eps: dict[int, float] | None,
+    earnings_history: list[dict] | None = None,
+) -> tuple[dict[int, float], int | None]:
+    """Completed reported EPS for chart/growth; strips partial in-progress fiscal years."""
+    return strip_incomplete_eps_years(annual_eps, earnings_history=earnings_history)
+
+
 def _estimate_eps_chain(
     annual_eps: dict[int, float] | None,
     estimates: dict[str, Any] | None,
     *,
     years_ahead: int = 4,
     growth_rate: float | None = None,
+    last_completed_year: int | None = None,
 ) -> list[tuple[int, float, bool]]:
     """
     Build (year, eps, is_estimate) chain: historical + analyst 0y/+1y + projected.
+    Analyst 0y is placed at last_completed_year + 1 (current in-progress FY).
     """
     points: list[tuple[int, float, bool]] = []
-    for y, e in sorted((annual_eps or {}).items()):
+    completed = annual_eps or {}
+    if last_completed_year is not None:
+        completed = {y: e for y, e in completed.items() if int(y) <= last_completed_year}
+
+    for y, e in sorted(completed.items()):
         points.append((int(y), float(e), False))
 
     est = estimates or {}
     est_0y = est.get("0y", {})
     est_1y = est.get("+1y", {})
-    last_year = max(annual_eps.keys()) if annual_eps else pd.Timestamp.now().year
+    anchor = (
+        last_completed_year
+        if last_completed_year is not None
+        else (max(completed.keys()) if completed else pd.Timestamp.now().year)
+    )
 
     if est_0y.get("avg"):
-        points.append((last_year + 1, float(est_0y["avg"]), True))
+        points.append((anchor + 1, float(est_0y["avg"]), True))
     if est_1y.get("avg"):
-        points.append((last_year + 2, float(est_1y["avg"]), True))
+        points.append((anchor + 2, float(est_1y["avg"]), True))
 
     base = est_1y.get("avg") or est_0y.get("avg")
     if base and years_ahead > 2 and growth_rate is not None:
         for i in range(3, years_ahead + 1):
             proj = project_future_eps(float(base), years=i - 2, growth_rate=growth_rate)
             if proj:
-                points.append((last_year + i, proj, True))
+                points.append((anchor + i, proj, True))
     return points
 
 
@@ -414,6 +432,7 @@ def resolve_target_year_eps(
     *,
     horizon_years: int,
     growth_rate: float | None,
+    last_completed_year: int | None = None,
 ) -> float | None:
     """
     EPS at target fiscal year = last reported year + horizon_years.
@@ -421,13 +440,18 @@ def resolve_target_year_eps(
     """
     if not annual_eps:
         return None
-    last_year = max(annual_eps.keys())
-    target_year = last_year + horizon_years
+    anchor = (
+        last_completed_year
+        if last_completed_year is not None
+        else max(annual_eps.keys())
+    )
+    target_year = anchor + horizon_years
     chain = _estimate_eps_chain(
         annual_eps,
         estimates,
         years_ahead=horizon_years + 2,
         growth_rate=growth_rate,
+        last_completed_year=last_completed_year,
     )
     by_year = {y: e for y, e, _ in chain}
     if target_year in by_year:
@@ -435,7 +459,7 @@ def resolve_target_year_eps(
 
     est_years = sorted(y for y, _, is_est in chain if is_est)
     if not est_years:
-        base = float(annual_eps[last_year])
+        base = float(annual_eps[anchor])
         if base <= 0:
             return None
         return project_future_eps(base, years=horizon_years, growth_rate=growth_rate)
@@ -742,20 +766,22 @@ def build_fast_graph_metrics(
     cfg: FastGraphFilterConfig,
 ) -> dict[str, Any]:
     """Assemble all FAST Graph metrics for one symbol."""
+    completed_eps, last_completed_year = chart_annual_eps(annual_eps, earnings_history)
+
     historical_growth = compute_historical_growth_rate_pct(
-        annual_eps,
+        completed_eps,
         years=cfg.growth_years,
     )
     forecast_growth = compute_forecast_growth_pct(
         earnings_estimates,
-        annual_eps,
+        completed_eps,
         historical_growth,
     )
     forward_eps_growth = compute_forward_eps_growth_pct(
         earnings_estimates,
-        annual_eps,
+        completed_eps,
     )
-    recent_yoy = recent_reported_yoy_pct(annual_eps, n=cfg.min_recent_yoy_years)
+    recent_yoy = recent_reported_yoy_pct(completed_eps, n=cfg.min_recent_yoy_years)
 
     chart_historical_growth = resolve_chart_growth_rate(
         historical_growth,
@@ -783,7 +809,7 @@ def build_fast_graph_metrics(
         growth_cap_pct=cfg.growth_cap_pct,
     )
 
-    historical_normal_pe = avg_historical_pe_5y(df_daily, annual_eps)
+    historical_normal_pe = avg_historical_pe_5y(df_daily, completed_eps)
     forecast_normal_pe = historical_normal_pe
 
     # Backward-compatible primary fields (historical mode)
@@ -801,7 +827,7 @@ def build_fast_graph_metrics(
         trailing_eps,
         earnings_estimates,
     )
-    filtered_eps = _filtered_annual_eps(annual_eps)
+    filtered_eps = _filtered_annual_eps(completed_eps)
 
     blended = _blended_pe(trailing_pe, forward_pe)
     if blended is None and valuation_eps:
@@ -831,10 +857,11 @@ def build_fast_graph_metrics(
 
     proj_growth = forecast_growth or historical_growth
     future_eps = resolve_target_year_eps(
-        annual_eps,
+        completed_eps,
         earnings_estimates,
         horizon_years=cfg.horizon_years,
         growth_rate=proj_growth,
+        last_completed_year=last_completed_year,
     )
 
     val_pe = (
@@ -856,7 +883,7 @@ def build_fast_graph_metrics(
         if total > 0:
             beat_pct = round(beats / total * 100.0, 1)
 
-    eps_persistence = compute_eps_persistence_pct(annual_eps)
+    eps_persistence = compute_eps_persistence_pct(completed_eps)
     pe_vs_normal = None
     if blended is not None and norm_pe is not None:
         try:
@@ -907,7 +934,9 @@ def build_fast_graph_metrics(
         "market_cap": info.get("market_cap"),
         "exchange": info.get("exchange"),
         "analyst_beat_pct": beat_pct,
-        "annual_eps": annual_eps or {},
+        "annual_eps": completed_eps,
+        "completed_annual_eps": completed_eps,
+        "last_completed_year": last_completed_year,
         "eps_source": info.get("eps_source"),
         "earnings_estimates": earnings_estimates or {},
         "trailing_eps": trailing_eps,

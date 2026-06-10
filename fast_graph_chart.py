@@ -61,6 +61,7 @@ def _chart_eps_points(
     mode: str,
     hist_growth: float | None,
     forecast_growth: float | None,
+    last_completed_year: int | None = None,
 ) -> list[tuple[int, float, bool]]:
     """
     EPS points for chart.
@@ -75,6 +76,7 @@ def _chart_eps_points(
         estimates,
         years_ahead=years_ahead,
         growth_rate=eps_growth,
+        last_completed_year=last_completed_year,
     )
 
 
@@ -604,9 +606,14 @@ def build_fast_graph_figure(
     currency = info.get("currency") or "USD"
     cur_sym = f"{currency} " if currency else ""
 
-    annual_eps = metrics.get("annual_eps") or {}
+    annual_eps = (
+        metrics.get("completed_annual_eps")
+        or metrics.get("annual_eps")
+        or {}
+    )
     if isinstance(annual_eps, dict) and annual_eps and isinstance(next(iter(annual_eps.keys())), str):
         annual_eps = {int(k): float(v) for k, v in annual_eps.items()}
+    last_completed_year = metrics.get("last_completed_year")
 
     estimates = bundle.get("earnings_estimates") or metrics.get("earnings_estimates") or {}
     fair_pe, norm_pe, hist_growth = _mode_pe(metrics, mode, df_daily, annual_eps)
@@ -623,11 +630,13 @@ def build_fast_graph_figure(
         eps_points = _chart_eps_points(
             annual_eps, estimates, mode=mode,
             hist_growth=hist_growth, forecast_growth=proj_growth,
+            last_completed_year=last_completed_year,
         )
     else:
         eps_points = _chart_eps_points(
             annual_eps, estimates, mode=mode,
             hist_growth=hist_growth, forecast_growth=forecast_growth,
+            last_completed_year=last_completed_year,
         )
 
     if not eps_points:
