@@ -50,6 +50,7 @@ TSXV_JSON_URL = "https://www.tsx.com/json/company-directory/search/tsxv/%5E/all/
 
 CACHE_PATH = ROOT / ".cache" / "us_ca_list_build.json"
 OUT_PATH = ROOT / TV_LIST_US_CANADA_FULL
+SAMPLE_OUT = ROOT / "TV-LIST-US-CANADA-FULL.sample.txt"
 
 YAHOO_DELAY_SEC = 0.12
 NON_COMMON_SYMBOL_RE = re.compile(
@@ -433,10 +434,21 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=OUT_PATH,
-        help=f"Output list path (default: {TV_LIST_US_CANADA_FULL})",
+        default=None,
+        help=f"Output list path (default: {TV_LIST_US_CANADA_FULL} or .sample.txt for smoke)",
     )
     args = parser.parse_args()
+
+    smoke_run = args.limit > 0 or args.us_only or args.ca_only
+    if args.output is None:
+        args.output = SAMPLE_OUT if smoke_run else OUT_PATH
+    elif smoke_run and args.output.resolve() == OUT_PATH.resolve():
+        print(
+            f"Smoke/partial run (--limit, --us-only, or --ca-only): "
+            f"writing to {SAMPLE_OUT.name} instead of production list.",
+            file=sys.stderr,
+        )
+        args.output = SAMPLE_OUT
 
     if args.us_only and args.ca_only:
         print("Choose at most one of --us-only / --ca-only", file=sys.stderr)

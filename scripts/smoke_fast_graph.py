@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -13,9 +14,11 @@ import yfinance as yf
 import pandas as pd
 
 from data_utils import resample_to_timeframe
-from fast_graph_chart import build_fast_graph_figure
+from fast_graph_chart import _annual_eps_table_rows, build_fast_graph_figure
 from fast_graph_metrics import (
     FastGraphFilterConfig,
+    _estimate_eps_chain,
+    chart_annual_eps,
     compute_forecast_growth_pct,
     compute_forward_eps_growth_pct,
     compute_historical_growth_rate_pct,
@@ -29,7 +32,7 @@ from fast_graph_metrics import (
 )
 from eps_yield import avg_historical_pe_5y, fair_and_normal_price, MAX_YEARLY_PE
 from fast_graph_scanner import run_fast_graph_scan, fast_graph_table_row
-from ticker_data import filter_eps_outliers, resolve_annual_eps_map
+from ticker_data import filter_eps_outliers, resolve_annual_eps_map, strip_incomplete_eps_years
 from sec_eps import _parse_operating_eps_from_facts
 
 
@@ -106,6 +109,90 @@ def _test_pure_metrics() -> bool:
 
     if ok:
         print("  Pure metrics: OK")
+    return ok
+
+
+def _test_partial_year_eps() -> bool:
+    """Partial in-progress FY must use analyst 0y on chart, not summed quarterly EPS."""
+    ok = True
+    annual_eps = {2024: 14.0, 2025: 16.0, 2026: 4.6}
+    earnings_history = [
+        {"date": "2026-02-28", "eps_actual": 6.06, "eps_estimate": 5.87},
+    ]
+    estimates = {"0y": {"avg": 23.5}, "+1y": {"avg": 26.0}}
+
+    completed, last_completed = strip_incomplete_eps_years(
+        annual_eps,
+        earnings_history=earnings_history,
+        current_year=2026,
+    )
+    if 2026 in completed:
+        print(f"  FAIL: partial 2026 should be stripped, got {completed}")
+        ok = False
+    if last_completed != 2025:
+        print(f"  FAIL: last_completed_year should be 2025, got {last_completed}")
+        ok = False
+
+    chain = _estimate_eps_chain(
+        annual_eps,
+        estimates,
+        last_completed_year=last_completed,
+        years_ahead=4,
+        growth_rate=10.0,
+    )
+    reported_years = [y for y, _, is_est in chain if not is_est]
+    if reported_years != [2024, 2025]:
+        print(f"  FAIL: reported years expected [2024, 2025], got {reported_years}")
+        ok = False
+
+    est_2026 = next((e for y, e, _ in chain if y == 2026), None)
+    if est_2026 != 23.5:
+        print(f"  FAIL: 2026 estimate expected 23.5, got {est_2026}")
+        ok = False
+
+    table = _annual_eps_table_rows(chain, estimates, include_estimates=True)
+    row_2026 = table[table["fy"].str.contains("26", na=False)]
+    if row_2026.empty:
+        print("  FAIL: no 2026 row in EPS table")
+        ok = False
+    else:
+        chg = row_2026.iloc[-1]["chg_yr"]
+        if chg is None or chg <= 0:
+            print(f"  FAIL: 2026 Chg/Yr should be positive, got {chg}")
+            ok = False
+
+    cache_path = ROOT / ".cache" / "fg_bundle" / "ADBE.json"
+    if cache_path.is_file():
+        with open(cache_path, encoding="utf-8") as f:
+            bundle = json.load(f)
+        adbe_eps = {int(k): float(v) for k, v in bundle["annual_eps"].items()}
+        adbe_hist = bundle.get("earnings_history") or []
+        adbe_est = bundle.get("earnings_estimates") or {}
+        completed_adbe, last_adbe = chart_annual_eps(adbe_eps, adbe_hist)
+        if 2026 in completed_adbe and completed_adbe.get(2026, 0) < 10:
+            print(f"  FAIL: ADBE completed_eps should strip partial 2026, got {completed_adbe}")
+            ok = False
+        chain_adbe = _estimate_eps_chain(
+            adbe_eps,
+            adbe_est,
+            last_completed_year=last_adbe,
+            years_ahead=4,
+            growth_rate=13.0,
+        )
+        est_0y = adbe_est.get("0y", {}).get("avg")
+        fy2026 = next((e for y, e, _ in chain_adbe if y == 2026), None)
+        if est_0y and fy2026 != est_0y:
+            print(f"  FAIL: ADBE 2026 chart EPS should be analyst 0y {est_0y}, got {fy2026}")
+            ok = False
+        fy2025 = next((e for y, e, is_est in chain_adbe if y == 2025 and not is_est), None)
+        if fy2025 and fy2026 and fy2026 <= fy2025:
+            print(f"  FAIL: ADBE 2026 EPS {fy2026} should exceed 2025 {fy2025}")
+            ok = False
+    else:
+        print("  WARN: ADBE cache bundle missing — skipping cache regression")
+
+    if ok:
+        print("  Partial-year EPS: OK")
     return ok
 
 
@@ -248,6 +335,42 @@ def _test_fg_preset_more_permissive_than_cpfs() -> bool:
 
     if ok:
         print("  FG vs CPFS permissiveness: OK")
+    return ok
+
+
+def _test_finviz_undervalued_filters() -> bool:
+    """Finviz S: UNDERVALUED filter gates (synthetic + known passers)."""
+    from finviz_metrics import FinvizUndervaluedConfig, passes_finviz_filters
+
+    ok = True
+    cfg = FinvizUndervaluedConfig.s_undervalued()
+
+    good = {
+        "trailing_pe": 15.0,
+        "eps_growth_yoy_eff": 5.0,
+        "eps_growth_5y_eff": 8.0,
+        "eps_growth_next_y_eff": 10.0,
+        "eps_growth_next_5y": 9.0,
+        "lt_debt_equity": 0.3,
+        "eps_growth_ttm_eff": 4.0,
+        "sales_growth_ttm_eff": 6.0,
+        "eps_growth_3y_eff": 7.0,
+        "sales_cagr_3y": 5.0,
+        "gross_margin_pct": 35.0,
+    }
+    passed, reason = passes_finviz_filters(good, cfg)
+    if not passed:
+        print(f"  FAIL: Finviz synthetic profile should pass, reason={reason!r}")
+        ok = False
+
+    high_pe = {**good, "trailing_pe": 25.0}
+    passed, reason = passes_finviz_filters(high_pe, cfg)
+    if passed or reason != "PE":
+        print(f"  FAIL: P/E 25 should fail PE, got passed={passed} reason={reason!r}")
+        ok = False
+
+    if ok:
+        print("  Finviz S: UNDERVALUED filters: OK")
     return ok
 
 
@@ -654,12 +777,20 @@ def main() -> int:
     if not _test_tv_to_yahoo_suffix():
         failures += 1
 
+    print("\n=== Finviz S: UNDERVALUED filters ===")
+    if not _test_finviz_undervalued_filters():
+        failures += 1
+
     print("\n=== Discrepancy fixes ===")
     if not _test_discrepancy_fixes():
         failures += 1
 
     print("\n=== SEC operating EPS ===")
     if not _test_sec_operating_eps():
+        failures += 1
+
+    print("\n=== Partial-year EPS ===")
+    if not _test_partial_year_eps():
         failures += 1
 
     print("\n=== Parity tickers (BIIB/CDE/OC) ===")
@@ -723,6 +854,29 @@ def main() -> int:
         if t == "FITB":
             if not _test_fitb_live(metrics):
                 failures += 1
+
+        if t == "ADBE":
+            annual = metrics.get("annual_eps") or {}
+            if 2026 in annual and float(annual[2026]) < 10:
+                print(f"  FAIL: ADBE metrics should not include partial 2026 EPS, got {annual.get(2026)}")
+                failures += 1
+            last_completed = metrics.get("last_completed_year")
+            est_0y = (metrics.get("earnings_estimates") or {}).get("0y", {}).get("avg")
+            if last_completed is None:
+                print("  FAIL: ADBE last_completed_year missing")
+                failures += 1
+            elif est_0y is not None:
+                chain = _estimate_eps_chain(
+                    metrics.get("annual_eps"),
+                    metrics.get("earnings_estimates"),
+                    last_completed_year=last_completed,
+                )
+                eps_current = next((e for y, e, _ in chain if y == last_completed + 1), None)
+                if eps_current != est_0y:
+                    print(f"  FAIL: ADBE chart 0y EPS {eps_current} != estimate {est_0y}")
+                    failures += 1
+                else:
+                    print(f"  ADBE partial-year EPS uses 0y estimate ({est_0y}): OK")
 
         hist = build_fast_graph_figure(
             df_weekly=weekly,
