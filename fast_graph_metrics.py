@@ -133,7 +133,7 @@ def compute_historical_cagr_pct(
 def compute_historical_growth_rate_pct(
     annual_eps: dict[int, float] | None,
     *,
-    years: int = 10,
+    years: int = 5,
     yoy_cap: float = YOY_CAP_PCT,
     max_years: int | None = None,
 ) -> float | None:
@@ -157,12 +157,65 @@ def compute_historical_growth_rate_pct(
         windowed = filtered
 
     changes = _yoy_changes_pct(windowed)
-    if len(changes) >= 5:
+    min_samples = min(5, max(span - 1, 2))
+    if len(changes) >= min_samples:
         gm = _geometric_mean_yoy(changes, yoy_cap=yoy_cap)
         if gm is not None:
             return gm
 
     return compute_historical_cagr_pct(annual_eps, years=span)
+
+
+def analyst_backfill_eps_years(
+    estimates: dict[str, Any] | None,
+    last_completed_year: int | None,
+    *,
+    years: int = 5,
+) -> dict[int, float] | None:
+    """
+    Build a 5Y EPS series from analyst yearAgoEps + consensus growth (FAST Graphs–style).
+    Used for growth rate when SEC operating EPS diverges from analyst-adjusted EPS.
+    """
+    if last_completed_year is None or not estimates:
+        return None
+    est_0y = estimates.get("0y") or {}
+    year_ago = est_0y.get("yearAgoEps")
+    raw_g = est_0y.get("growth")
+    if year_ago is None or raw_g is None:
+        return None
+    try:
+        eps = float(year_ago)
+        g = float(raw_g)
+        g_dec = g if abs(g) <= 1.5 else g / 100.0
+        if eps <= 0 or g_dec <= -0.99:
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    out: dict[int, float] = {}
+    for i in range(years):
+        y = last_completed_year - i
+        out[y] = eps
+        eps = eps / (1.0 + g_dec)
+    return out
+
+
+def resolve_growth_eps_map(
+    completed_eps: dict[int, float] | None,
+    earnings_estimates: dict[str, Any] | None,
+    last_completed_year: int | None,
+    *,
+    years: int = 5,
+) -> dict[int, float]:
+    """EPS basis for historical growth: analyst backfill when available, else reported."""
+    analyst = analyst_backfill_eps_years(
+        earnings_estimates,
+        last_completed_year,
+        years=years,
+    )
+    if analyst:
+        return analyst
+    return dict(completed_eps or {})
 
 
 def compute_forecast_growth_pct(
@@ -562,7 +615,7 @@ class FastGraphFilterConfig:
     growth_threshold: float = 15.0
     growth_cap_pct: float = DEFAULT_GROWTH_CAP_PCT
     valuation_pe_mode: str = "fair"  # fair | normal
-    growth_years: int = 10
+    growth_years: int = 5
 
     @classmethod
     def fg_undervalued_quality(
@@ -767,9 +820,15 @@ def build_fast_graph_metrics(
 ) -> dict[str, Any]:
     """Assemble all FAST Graph metrics for one symbol."""
     completed_eps, last_completed_year = chart_annual_eps(annual_eps, earnings_history)
+    growth_eps = resolve_growth_eps_map(
+        completed_eps,
+        earnings_estimates,
+        last_completed_year,
+        years=cfg.growth_years,
+    )
 
     historical_growth = compute_historical_growth_rate_pct(
-        completed_eps,
+        growth_eps,
         years=cfg.growth_years,
     )
     forecast_growth = compute_forecast_growth_pct(

@@ -18,6 +18,7 @@ from fast_graph_chart import _annual_eps_table_rows, build_fast_graph_figure
 from fast_graph_metrics import (
     FastGraphFilterConfig,
     _estimate_eps_chain,
+    analyst_backfill_eps_years,
     chart_annual_eps,
     compute_forecast_growth_pct,
     compute_forward_eps_growth_pct,
@@ -193,6 +194,52 @@ def _test_partial_year_eps() -> bool:
 
     if ok:
         print("  Partial-year EPS: OK")
+    return ok
+
+
+def _test_growth_rate_adbe() -> bool:
+    """ADBE growth should be ~12-13% (FAST Graphs 5Y), not 30% from SEC turnaround window."""
+    ok = True
+    estimates = {
+        "0y": {"avg": 23.5584, "yearAgoEps": 20.94, "growth": 0.125},
+        "+1y": {"avg": 26.48722, "yearAgoEps": 23.5584, "growth": 0.1243},
+    }
+    backfill = analyst_backfill_eps_years(estimates, 2025, years=5)
+    if not backfill or backfill.get(2025) != 20.94:
+        print(f"  FAIL: analyst backfill expected 2025=20.94, got {backfill}")
+        ok = False
+
+    growth = compute_historical_growth_rate_pct(backfill, years=5)
+    fair = resolve_fair_pe(growth, sidebar_fair_pe=15.0)
+    if growth is None or growth < 11.0 or growth > 14.5:
+        print(f"  FAIL: ADBE-like growth expected ~12.5%, got {growth}")
+        ok = False
+    if fair != 15.0:
+        print(f"  FAIL: ADBE-like fair P/E should be 15x when growth < 15%, got {fair}")
+        ok = False
+
+    cache_path = ROOT / ".cache" / "fg_bundle" / "ADBE.json"
+    if cache_path.is_file():
+        with open(cache_path, encoding="utf-8") as f:
+            bundle = json.load(f)
+        adbe_eps = {int(k): float(v) for k, v in bundle["annual_eps"].items()}
+        completed, last_y = chart_annual_eps(adbe_eps, bundle.get("earnings_history"))
+        from fast_graph_metrics import resolve_growth_eps_map
+
+        growth_eps = resolve_growth_eps_map(
+            completed, bundle.get("earnings_estimates"), last_y, years=5,
+        )
+        cache_growth = compute_historical_growth_rate_pct(growth_eps, years=5)
+        cache_fair = resolve_fair_pe(cache_growth, sidebar_fair_pe=15.0)
+        if cache_growth is None or cache_growth > 15.0:
+            print(f"  FAIL: cached ADBE growth should be <=15%, got {cache_growth}")
+            ok = False
+        if cache_fair != 15.0:
+            print(f"  FAIL: cached ADBE fair P/E should be 15x, got {cache_fair}")
+            ok = False
+
+    if ok:
+        print("  Growth rate (ADBE): OK")
     return ok
 
 
@@ -793,6 +840,10 @@ def main() -> int:
     if not _test_partial_year_eps():
         failures += 1
 
+    print("\n=== Growth rate (ADBE) ===")
+    if not _test_growth_rate_adbe():
+        failures += 1
+
     print("\n=== Parity tickers (BIIB/CDE/OC) ===")
     if not _test_parity_tickers():
         failures += 1
@@ -877,6 +928,16 @@ def main() -> int:
                     failures += 1
                 else:
                     print(f"  ADBE partial-year EPS uses 0y estimate ({est_0y}): OK")
+            hist_growth = metrics.get("historical_growth_rate")
+            hist_fair = metrics.get("historical_fair_pe")
+            if hist_growth is None or hist_growth > 15.0:
+                print(f"  FAIL: ADBE historical growth should be <=15%, got {hist_growth}")
+                failures += 1
+            elif hist_fair != 15.0:
+                print(f"  FAIL: ADBE historical fair P/E should be 15x, got {hist_fair}")
+                failures += 1
+            else:
+                print(f"  ADBE growth={hist_growth}% fair_pe={hist_fair}x: OK")
 
         hist = build_fast_graph_figure(
             df_weekly=weekly,
