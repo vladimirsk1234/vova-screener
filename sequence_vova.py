@@ -30,7 +30,11 @@ except ImportError:
         return _wrap
 
 
-_PINE_USE_NUMBA = os.environ.get("PINE_USE_NUMBA", "1") != "0"
+_PINE_USE_NUMBA = (
+    os.environ.get("PINE_USE_NUMBA", "1") != "0"
+    and _NUMBA_AVAILABLE
+    and not os.environ.get("STREAMLIT_SERVER_PORT")  # Cloud: avoid native JIT crashes
+)
 
 
 def calc_atr(df: pd.DataFrame, length: int) -> pd.Series:

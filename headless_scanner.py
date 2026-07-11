@@ -143,7 +143,7 @@ def _st_dataframe(df, **kwargs):
     n_rows = len(df) if hasattr(df, "__len__") else 1
     return st.dataframe(
         df,
-        use_container_width=True,
+        width="stretch",
         height=_results_table_height(n_rows),
         **kwargs,
     )
@@ -825,7 +825,7 @@ def render_scan_results(
                 )
                 if fig is not None:
                     with st.container(border=True):
-                        st.plotly_chart(fig, use_container_width=True, config=FAST_GRAPH_PLOTLY_CONFIG)
+                        st.plotly_chart(fig, width="stretch", config=FAST_GRAPH_PLOTLY_CONFIG)
             elif not is_fast and payload:
                 chart_params = render_chart_settings()
                 fig = figure_from_payload(
@@ -838,7 +838,7 @@ def render_scan_results(
                     with st.container(border=True):
                         st.plotly_chart(
                             fig,
-                            use_container_width=True,
+                            width="stretch",
                             config=PLOTLY_CHART_CONFIG,
                         )
                         desc = company_description_from_payload(

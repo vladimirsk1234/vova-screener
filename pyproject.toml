@@ -1,3 +1,0 @@
-[project]
-name = "vova-screener"
-requires-python = ">=3.11,<3.14"

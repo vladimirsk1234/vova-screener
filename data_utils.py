@@ -12,7 +12,17 @@ def interval_and_period(tf: str, *, scanner_id: str | None = None) -> tuple[str,
     if scanner_id == "fast_graphs":
         # 15y is enough for 10Y CAGR + charts; "max" OOMs Streamlit Cloud on large lists.
         return "1d", "15y"
-    return "1d", ("10y" if tf != "Daily" else "2y")
+    if tf != "Daily":
+        # Shorter history on Cloud avoids OOM / native crashes during large-universe scans.
+        try:
+            from scan_memory import is_low_memory_runtime
+
+            if is_low_memory_runtime():
+                return "1d", "5y"
+        except Exception:
+            pass
+        return "1d", "10y"
+    return "1d", "2y"
 
 
 def resample_to_timeframe(df: pd.DataFrame | None, tf: str) -> pd.DataFrame | None:
