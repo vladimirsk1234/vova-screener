@@ -28,6 +28,8 @@ def is_low_memory_runtime() -> bool:
 def scan_chunk_size(scanner_id: str) -> int:
     if scanner_id == "fast_graphs":
         return FG_CHUNK_SIZE if is_low_memory_runtime() else FG_CHUNK_SIZE_LOCAL
+    if is_low_memory_runtime():
+        return 50
     return 200
 
 
@@ -38,8 +40,25 @@ def ta_max_workers(scanner_id: str, *, default: int) -> int:
 
 
 def download_max_workers(scanner_id: str, *, default: int) -> int:
-    if scanner_id == "fast_graphs" and is_low_memory_runtime():
+    if is_low_memory_runtime():
         return 1
+    return default
+
+
+def yf_download_threads() -> bool:
+    """Parallel symbol fetch inside yf.download — off on Streamlit Cloud."""
+    return not is_low_memory_runtime()
+
+
+def yf_info_max_workers(*, default: int) -> int:
+    if is_low_memory_runtime():
+        return 2
+    return default
+
+
+def yf_name_cache_rate_per_sec(*, default: float) -> float:
+    if is_low_memory_runtime():
+        return 4.0
     return default
 
 

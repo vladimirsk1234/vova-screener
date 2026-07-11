@@ -72,14 +72,19 @@ def _tv_to_yahoo_symbol(ex: str, raw_sym: str) -> str:
     if ex in _TV_TO_YAHOO_SUFFIX:
         suffix = _TV_TO_YAHOO_SUFFIX[ex]
         if upper.endswith(suffix.upper()):
-            return upper
+            return _normalize_yahoo_ticker(upper)
         if any(upper.endswith(s.upper()) for s in _YAHOO_CANADIAN_SUFFIXES if s != suffix):
-            return upper
+            return _normalize_yahoo_ticker(upper)
         base = upper.replace(".", "-") if "." in upper and not upper.endswith(suffix.upper()) else upper
         if base.endswith(suffix.upper().replace(".", "")):
-            return base
-        return f"{base.split('.')[0]}{suffix}"
-    return sym.replace(".", "-").upper()
+            return _normalize_yahoo_ticker(base)
+        return _normalize_yahoo_ticker(f"{base.split('.')[0]}{suffix}")
+    return _normalize_yahoo_ticker(sym)
+
+
+def _normalize_yahoo_ticker(sym: str) -> str:
+    """Yahoo uses '-' for share classes (BRK-B, KKR-PD); TV lists may use '/'."""
+    return sym.replace(".", "-").replace("/", "-").upper()
 
 
 def is_otc_yahoo_exchange(exchange: str | None) -> bool:
@@ -135,7 +140,7 @@ def _parse_list_entry(part: str) -> tuple[str, str, str | None] | None:
         yahoo_sym = _tv_to_yahoo_symbol(ex, raw_sym)
         tv_sym = f"{ex}:{raw_sym.upper()}"
     else:
-        yahoo_sym = tv_part.replace(".", "-").upper()
+        yahoo_sym = _normalize_yahoo_ticker(tv_part)
         tv_sym = yahoo_sym
     return yahoo_sym, tv_sym, company_name
 

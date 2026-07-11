@@ -97,6 +97,9 @@ from scan_memory import (
     scan_chunk_size,
     slim_ohlc_entry,
     ta_max_workers,
+    yf_download_threads,
+    yf_info_max_workers,
+    yf_name_cache_rate_per_sec,
 )
 from tradingview_embed import (
     build_chart_url,
@@ -657,7 +660,7 @@ def _patch_symbol_only_company_names(table_rows: list[dict]) -> None:
         row, ticker = item
         return row, ticker, _rate_limited_resolve_company_name(ticker)
 
-    with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=yf_info_max_workers(default=YF_INFO_MAX_WORKERS)) as pool:
         for row, ticker, name in pool.map(_resolve_one, pending):
             if name and name.upper() != ticker.upper():
                 row["Company Name"] = name
@@ -940,6 +943,7 @@ def _download_batch(
     auto_adjust: bool = False,
 ) -> tuple[int, list[str], pd.DataFrame | None]:
     all_data = None
+    use_threads = yf_download_threads()
     for attempt in range(YF_DOWNLOAD_MAX_RETRIES):
         try:
             all_data = yf.download(
@@ -949,12 +953,16 @@ def _download_batch(
                 progress=False,
                 auto_adjust=auto_adjust,
                 group_by="ticker",
-                threads=True,
+                threads=use_threads,
             )
             break
-        except Exception:
+        except Exception as exc:
+            is_rate_limit = type(exc).__name__ == "YFRateLimitError" or "Rate limit" in str(exc)
             if attempt < YF_DOWNLOAD_MAX_RETRIES - 1:
-                time.sleep(YF_INFO_RETRY_DELAY_SEC * (attempt + 1))
+                delay = YF_DOWNLOAD_BACKOFF_SEC * (attempt + 1)
+                if is_rate_limit:
+                    delay = max(delay, 8.0)
+                time.sleep(delay)
     if all_data is None or (hasattr(all_data, "empty") and all_data.empty):
         return batch_idx, batch, None
     return batch_idx, batch, all_data
@@ -1451,7 +1459,7 @@ def run_scan(
 
         if on_phase_start:
             on_phase_start("info")
-        with ThreadPoolExecutor(max_workers=YF_INFO_MAX_WORKERS) as executor:
+        with ThreadPoolExecutor(max_workers=yf_info_max_workers(default=YF_INFO_MAX_WORKERS)) as executor:
             futures = {executor.submit(_rate_limited_info, t): t for t in tickers}
             for future in as_completed(futures):
                 if is_cancelled and is_cancelled():
@@ -1596,8 +1604,8 @@ def run_scan(
                     on_phase_start("download")
                 name_cache = build_name_cache(
                     tickers,
-                    rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
-                    max_workers=min(4, YF_INFO_MAX_WORKERS),
+                    rate_limit_per_sec=yf_name_cache_rate_per_sec(default=YF_INFO_RATE_LIMIT_PER_SEC),
+                    max_workers=yf_info_max_workers(default=YF_INFO_MAX_WORKERS),
                     is_cancelled=is_cancelled,
                     on_one_done=None,
                 )
@@ -1652,25 +1660,43 @@ def run_scan(
             # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
             if on_phase_start:
                 on_phase_start("download")
-            with ThreadPoolExecutor(max_workers=2) as prep_pool:
-                name_future = prep_pool.submit(
-                    build_name_cache,
+            _name_rate = yf_name_cache_rate_per_sec(default=YF_INFO_RATE_LIMIT_PER_SEC)
+            _name_workers = yf_info_max_workers(default=YF_INFO_MAX_WORKERS)
+            if is_low_memory_runtime():
+                name_cache = build_name_cache(
                     tickers,
-                    rate_limit_per_sec=YF_INFO_RATE_LIMIT_PER_SEC,
-                    max_workers=YF_INFO_MAX_WORKERS,
+                    rate_limit_per_sec=_name_rate,
+                    max_workers=_name_workers,
                     is_cancelled=None,
                     on_one_done=None,
                 )
-                dl_future = prep_pool.submit(
-                    _parallel_download_batches,
+                batches_data, reference_end_date = _parallel_download_batches(
                     batches,
                     fetch_period,
                     inter,
-                    None,
+                    is_cancelled,
                     None,
                 )
-                name_cache = name_future.result()
-                batches_data, reference_end_date = dl_future.result()
+            else:
+                with ThreadPoolExecutor(max_workers=2) as prep_pool:
+                    name_future = prep_pool.submit(
+                        build_name_cache,
+                        tickers,
+                        rate_limit_per_sec=_name_rate,
+                        max_workers=_name_workers,
+                        is_cancelled=None,
+                        on_one_done=None,
+                    )
+                    dl_future = prep_pool.submit(
+                        _parallel_download_batches,
+                        batches,
+                        fetch_period,
+                        inter,
+                        None,
+                        None,
+                    )
+                    name_cache = name_future.result()
+                    batches_data, reference_end_date = dl_future.result()
 
             if on_phase_progress:
                 on_phase_progress("download", n_batches, n_batches)
