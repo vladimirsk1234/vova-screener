@@ -1,9 +1,9 @@
-streamlit>=1.52
+streamlit>=1.52,<2
 pandas
 yfinance
 numpy
 requests
 lxml
 plotly>=5.18
-numba>=0.59
+numba>=0.59; python_version < "3.13"
 edgartools
