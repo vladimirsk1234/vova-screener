@@ -691,7 +691,6 @@ NASDAQ:SAIA|Saia, Inc.
 NYSE:SAN|Banco Santander, S.A.
 NYSE:SAP|SAP SE
 NYSE:SARO|StandardAero, Inc.
-NASDAQ:SATS|EchoStar Corporation
 NASDAQ:SBAC|SBA Communications Corporation
 NYSE:SBS|Companhia de Saneamento Básico do Estado de São Paulo - SABESP
 NYSE:SBSW|Sibanye Stillwater Limited
