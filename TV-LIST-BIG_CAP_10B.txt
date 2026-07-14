@@ -115,7 +115,6 @@ NASDAQ:BIIB|Biogen Inc.
 NASDAQ:BILI|Bilibili Inc.
 NYSE:BIP|Brookfield Infrastructure Partners L.P.
 NYSE:BJ|BJ's Wholesale Club Holdings, Inc.
-NYSE:BK|Bank of New York Mellon Corp
 NASDAQ:BKNG|Booking Holdings Inc.
 NASDAQ:BKR|Baker Hughes Company
 NYSE:BLD|TopBuild Corp.
@@ -163,7 +162,6 @@ NASDAQ:CEG|Constellation Energy Corporation
 NASDAQ:CELH|Celsius Holdings, Inc.
 NYSE:CF|CF Industries Holdings, Inc.
 NYSE:CFG|Citizens Financial Group, Inc.
-NASDAQ:CFLT|Confluent, Inc.
 NASDAQ:CG|The Carlyle Group Inc.
 NYSE:CHD|Church & Dwight Co., Inc.
 NASDAQ:CHKP|Check Point Software Technologies Ltd.
@@ -218,10 +216,8 @@ NASDAQ:CSGP|CoStar Group, Inc.
 NYSE:CSL|Carlisle Companies Incorporated
 NASDAQ:CSX|CSX Corporation
 NASDAQ:CTAS|Cintas Corporation
-NYSE:CTRA|Coterra Energy Inc.
 NASDAQ:CTSH|Cognizant Technology Solutions Corporation
 NYSE:CTVA|Corteva, Inc.
-NYSE:CUK|Carnival PLC
 NYSE:CVE|Cenovus Energy Inc.
 NYSE:CVNA|Carvana Co.
 NYSE:CVS|CVS Health Corporation
@@ -300,7 +296,6 @@ NYSE:EVR|Evercore Inc.
 NASDAQ:EVRG|Evergy, Inc.
 NYSE:EW|Edwards Lifesciences Corporation
 NASDAQ:EWBC|East West Bancorp, Inc.
-NASDAQ:EXAS|Exact Sciences Corporation
 NASDAQ:EXC|Exelon Corporation
 NASDAQ:EXE|Expand Energy Corporation
 NASDAQ:EXEL|Exelixis, Inc.
@@ -392,7 +387,6 @@ NYSE:HLN|Haleon plc
 NYSE:HLT|Hilton Worldwide Holdings Inc.
 NYSE:HMC|Honda Motor Co., Ltd.
 NYSE:HMY|Harmony Gold Mining Company Limited
-NASDAQ:HOLX|Hologic, Inc.
 NASDAQ:HON|Honeywell International Inc.
 NASDAQ:HOOD|Robinhood Markets, Inc.
 NYSE:HPE|Hewlett Packard Enterprise Company
