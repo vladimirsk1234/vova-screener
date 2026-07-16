@@ -60,6 +60,7 @@ from ticker_data import (
     TV_LIST_BIG_CAP,
     TV_LIST_ETF,
     TV_LIST_SMALL_CAP,
+    TV_LIST_STOCK_TICKERS,
     TV_LIST_US_CANADA_FULL,
     build_name_cache,
     get_ticker_info_and_filter,
@@ -100,15 +101,25 @@ from tradingview_embed import (
 from ticker_sources import FileListSource, ManualSource
 
 # Ticker sources: list files + optional MANUAL symbols
-def _us_canada_full_list_available() -> bool:
+def _list_file_available(filename: str) -> bool:
     base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.isfile(os.path.join(base, TV_LIST_US_CANADA_FULL))
+    return os.path.isfile(os.path.join(base, filename))
+
+
+def _us_canada_full_list_available() -> bool:
+    return _list_file_available(TV_LIST_US_CANADA_FULL)
+
+
+def _stock_tickers_list_available() -> bool:
+    return _list_file_available(TV_LIST_STOCK_TICKERS)
 
 
 def _source_options() -> list[str]:
     opts = ["BIG CAP", "SMALL CAP", "BIG + SMALL CAP", "ETF"]
     if _us_canada_full_list_available():
         opts.append("US + CANADA FULL")
+    if _stock_tickers_list_available():
+        opts.append("STOCK TICKERS")
     opts.append("MANUAL SCAN")
     return opts
 
@@ -177,6 +188,8 @@ def _build_source_registry():
     }
     if _us_canada_full_list_available():
         registry["US + CANADA FULL"] = FileListSource(TV_LIST_US_CANADA_FULL, read_list_file)
+    if _stock_tickers_list_available():
+        registry["STOCK TICKERS"] = FileListSource(TV_LIST_STOCK_TICKERS, read_list_file)
     return registry
 
 

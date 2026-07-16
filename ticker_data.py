@@ -24,6 +24,7 @@ TV_LIST_SMALL_CAP = "TV-LIST-SMALL_CAP_2B-10B.txt"
 TV_LIST_ETF = "TV-LIST-ETF.txt"
 # Phase 2: plug FileListSource(TV_LIST_US_CANADA_FULL) when list file is generated
 TV_LIST_US_CANADA_FULL = "TV-LIST-US-CANADA-FULL.txt"
+TV_LIST_STOCK_TICKERS = "STOCK-TICKERS.txt"
 
 # TradingView exchange prefix -> Yahoo Finance suffix (Canadian listings)
 _TV_TO_YAHOO_SUFFIX: dict[str, str] = {
@@ -83,9 +84,26 @@ def _tv_to_yahoo_symbol(ex: str, raw_sym: str) -> str:
 
 
 def _normalize_yahoo_ticker(sym: str) -> str:
-    """Yahoo uses '-' for share classes (BRK-B, KKR-PD); TV lists may use '/'."""
-    return sym.replace(".", "-").replace("/", "-").upper()
+    """
+    Yahoo US share classes use '-' (BRK-B); Canadian listings keep exchange suffix
+    with a dot (.TO / .V / .NE / .CN). Never convert those dots to dashes.
+    """
+    s = str(sym or "").strip().upper().replace("/", "-")
+    if not s:
+        return s
 
+    # Restore dash-suffixed Canadian tickers produced by older normalize (SHOP-TO -> SHOP.TO)
+    for suffix in sorted(_YAHOO_CANADIAN_SUFFIXES, key=len, reverse=True):
+        dash_suf = suffix.replace(".", "-").upper()  # -TO, -V, ...
+        suf_u = suffix.upper()
+        if s.endswith(dash_suf):
+            base = s[: -len(dash_suf)].replace(".", "-")
+            return f"{base}{suf_u}"
+        if s.endswith(suf_u):
+            base = s[: -len(suf_u)].replace(".", "-")
+            return f"{base}{suf_u}"
+
+    return s.replace(".", "-")
 
 def is_otc_yahoo_exchange(exchange: str | None) -> bool:
     ex = str(exchange or "").strip().upper()

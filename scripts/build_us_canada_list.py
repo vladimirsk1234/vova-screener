@@ -18,6 +18,7 @@ import csv
 import io
 import json
 import re
+import ssl
 import sys
 import time
 import urllib.error
@@ -25,6 +26,11 @@ import urllib.request
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import certifi
+except ImportError:
+    certifi = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -99,8 +105,27 @@ class Candidate:
 
 def _fetch_text(url: str, timeout: int = 60) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": "vova-screener/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    contexts: list[ssl.SSLContext | None] = []
+    if certifi is not None:
+        contexts.append(ssl.create_default_context(cafile=certifi.where()))
+    contexts.append(None)
+    contexts.append(ssl._create_unverified_context())
+
+    last_err: BaseException | None = None
+    for i, ctx in enumerate(contexts):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                if i == len(contexts) - 1:
+                    print(f"Warning: fetched {url} with SSL verify disabled", file=sys.stderr)
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.URLError as exc:
+            last_err = exc
+            if "CERTIFICATE_VERIFY_FAILED" not in str(exc) and "certificate verify failed" not in str(exc).lower():
+                raise
+            continue
+    if last_err:
+        raise last_err
+    raise RuntimeError(f"Could not fetch {url}")
 
 
 def _looks_otc_exchange_name(name: str) -> bool:
@@ -187,6 +212,61 @@ def _load_us_candidates() -> list[Candidate]:
         add(tv_ex, sym, name)
 
     return out
+
+
+ADANOS_US_TV: dict[str, str] = {
+    "NYSE": "NYSE",
+    "NASDAQ": "NASDAQ",
+    "AMEX": "AMEX",
+}
+
+
+def _load_us_candidates_from_adanos() -> list[Candidate]:
+    """US common stocks from adanos listings.csv (NYSE + NASDAQ; AMEX if present)."""
+    out: list[Candidate] = []
+    try:
+        raw = _fetch_text(ADANOS_LISTINGS_URL, timeout=90)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+        print(f"Warning: could not load US listings CSV: {exc}", file=sys.stderr)
+        return out
+
+    reader = csv.DictReader(io.StringIO(raw))
+    for row in reader:
+        exchange = (row.get("exchange") or "").strip().upper()
+        if exchange not in ADANOS_US_TV:
+            continue
+        if (row.get("country_code") or "").strip().upper() != "US":
+            continue
+        if (row.get("asset_type") or "").strip() != "Stock":
+            continue
+        if (row.get("etf_category") or "").strip():
+            continue
+        sym = (row.get("ticker") or "").strip().upper()
+        name = (row.get("name") or "").strip()
+        if not sym or _symbol_non_common(sym):
+            continue
+        if name_suggests_non_common(name):
+            continue
+        tv_ex = ADANOS_US_TV[exchange]
+        tv_part = f"{tv_ex}:{sym}"
+        yahoo = tv_part_to_yahoo(tv_part)
+        if not yahoo:
+            continue
+        out.append(Candidate(tv_part=tv_part, yahoo=yahoo, name_hint=name, region="US"))
+    print(f"  US (adanos listings.csv): {len(out)} Layer-1 candidates", file=sys.stderr)
+    return out
+
+
+def _load_us_candidates_resilient() -> list[Candidate]:
+    """NasdaqTrader directories when reachable; otherwise adanos CSV fallback."""
+    try:
+        out = _load_us_candidates()
+        if out:
+            print(f"  US (NasdaqTrader): {len(out)} Layer-1 candidates")
+            return out
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+        print(f"Warning: NasdaqTrader US dirs failed ({exc})", file=sys.stderr)
+    return _load_us_candidates_from_adanos()
 
 
 def _load_tsx_json(url: str, tv_ex: str) -> list[Candidate]:
@@ -285,6 +365,61 @@ def _load_ca_candidates() -> list[Candidate]:
     return merged
 
 
+def _load_tsx_only_candidates() -> list[Candidate]:
+    """TSX main board only (.TO) — no TSXV."""
+    out = [c for c in _load_ca_candidates_from_adanos() if c.tv_part.startswith("TSX:")]
+    if out:
+        print(f"  Canada TSX only (adanos listings.csv): {len(out)} Layer-1 candidates")
+        seen: set[str] = set()
+        deduped: list[Candidate] = []
+        for c in out:
+            if c.yahoo in seen:
+                continue
+            seen.add(c.yahoo)
+            deduped.append(c)
+        return deduped
+
+    print("  Falling back to TSX JSON directory (legacy API)...", file=sys.stderr)
+    tsx = _load_tsx_json(TSX_JSON_URL, "TSX")
+    seen: set[str] = set()
+    deduped: list[Candidate] = []
+    for c in tsx:
+        if c.yahoo in seen:
+            continue
+        seen.add(c.yahoo)
+        deduped.append(c)
+    return deduped
+
+
+def load_layer1_candidates(
+    *,
+    us_only: bool = False,
+    ca_only: bool = False,
+    tsx_only: bool = True,
+) -> list[Candidate]:
+    """
+    Layer-1 universe from exchange directories (no Yahoo .info).
+    tsx_only=True: Canada = TSX main board only (default for full OHLC build).
+    """
+    candidates: list[Candidate] = []
+    if not ca_only:
+        print("Loading US symbol directories...")
+        candidates.extend(_load_us_candidates_resilient())
+    if not us_only:
+        print("Loading Canadian symbol directories...")
+        if tsx_only:
+            candidates.extend(_load_tsx_only_candidates())
+        else:
+            candidates.extend(_load_ca_candidates())
+
+    by_yahoo: dict[str, Candidate] = {}
+    for c in candidates:
+        by_yahoo.setdefault(c.yahoo, c)
+    result = list(by_yahoo.values())
+    result.sort(key=lambda c: (c.region, c.yahoo))
+    return result
+
+
 def _load_cache() -> dict:
     if not CACHE_PATH.exists():
         return {"checked": {}, "passed": []}
@@ -353,7 +488,7 @@ def build_list(
     candidates: list[Candidate] = []
     if not ca_only:
         print("Loading US symbol directories...")
-        candidates.extend(_load_us_candidates())
+        candidates.extend(_load_us_candidates_resilient())
     if not us_only:
         print("Loading Canadian symbol directories...")
         candidates.extend(_load_ca_candidates())
