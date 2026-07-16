@@ -22,7 +22,8 @@ if not _APP.is_file():
 
 try:
     runpy.run_path(str(_APP), run_name="__main__")
-except Exception:
+except Exception as exc:
     # Surface startup failures in Cloud logs (generic "Oh no" hides the traceback).
     traceback.print_exc()
-    raise
+    # Re-raise with chained cause so Cloud UI shows the real ImportError/module error.
+    raise RuntimeError(f"App startup failed: {type(exc).__name__}: {exc}") from exc

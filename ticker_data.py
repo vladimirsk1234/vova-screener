@@ -11,6 +11,38 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
+# Streamlit Community Cloud: default user cache dirs are often not writable;
+# yfinance can raise on import / first use if cache init fails.
+def _is_streamlit_cloud() -> bool:
+    return bool(
+        os.environ.get("STREAMLIT_SERVER_PORT")
+        or os.path.isdir("/mount/src")
+        or os.environ.get("HOME", "").startswith("/home/appuser")
+    )
+
+
+def _writable_cache_root() -> str:
+    if _is_streamlit_cloud():
+        root = "/tmp/vova-screener-cache"
+    else:
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+
+if _is_streamlit_cloud():
+    _tmp_cache = "/tmp"
+    os.makedirs(_tmp_cache, exist_ok=True)
+    os.environ.setdefault("XDG_CACHE_HOME", _tmp_cache)
+    os.environ.setdefault("YF_CACHE_DIR", os.path.join(_tmp_cache, "yfinance"))
+    os.makedirs(os.environ["YF_CACHE_DIR"], exist_ok=True)
+    try:
+        import appdirs as _appdirs
+
+        _appdirs.user_cache_dir = lambda *args, **kwargs: os.environ["YF_CACHE_DIR"]  # type: ignore[method-assign]
+    except Exception:
+        pass
+
 import pandas as pd
 import yfinance as yf
 
@@ -240,7 +272,7 @@ US_EQUITY_EXCHANGES = {
 
 
 def _info_cache_base_dir() -> str:
-    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache", "yf_info")
+    d = os.path.join(_writable_cache_root(), "yf_info")
     os.makedirs(d, exist_ok=True)
     return d
 

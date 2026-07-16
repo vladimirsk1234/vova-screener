@@ -56,17 +56,24 @@ inject_styles()
 # ==========================================
 # 2. DATA & API (from ticker_data.py)
 # ==========================================
-from ticker_data import (
-    TV_LIST_BIG_CAP,
-    TV_LIST_ETF,
-    TV_LIST_SMALL_CAP,
-    TV_LIST_STOCK_TICKERS,
-    TV_LIST_US_CANADA_FULL,
-    build_name_cache,
-    get_ticker_info_and_filter,
-    read_list_file,
-    resolve_company_name,
-)
+try:
+    from ticker_data import (
+        TV_LIST_BIG_CAP,
+        TV_LIST_ETF,
+        TV_LIST_SMALL_CAP,
+        TV_LIST_STOCK_TICKERS,
+        TV_LIST_US_CANADA_FULL,
+        build_name_cache,
+        get_ticker_info_and_filter,
+        read_list_file,
+        resolve_company_name,
+    )
+except ImportError as exc:
+    raise ImportError(
+        f"Failed to import ticker_data ({exc}). "
+        "On Streamlit Cloud open Manage app -> Logs for the full traceback "
+        "(often yfinance cache / dependency)."
+    ) from exc
 
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
