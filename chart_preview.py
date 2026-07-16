@@ -32,12 +32,6 @@ PLOTLY_CHART_CONFIG = {
     "doubleClick": "reset",
 }
 
-FAST_GRAPH_PLOTLY_CONFIG = {
-    "displayModeBar": False,
-    "scrollZoom": False,
-    "doubleClick": False,
-}
-
 DAY_MS = 86_400_000
 
 
@@ -670,19 +664,6 @@ def chart_payload_from_ohlc(ohlc_cache: dict, tv_symbol: str) -> dict | None:
     if isinstance(df_daily, dict):
         df_daily = pd.DataFrame(df_daily)
 
-    # FAST Graphs needs full price history + forward FY extension, not TA trim window.
-    if entry.get("scanner_id") == "fast_graphs":
-        payload = {
-            "df": df.copy(),
-            "df_daily": df_daily.copy() if isinstance(df_daily, pd.DataFrame) else df_daily,
-            "tf": str(entry.get("tf", "Daily")),
-            "symbol": str(entry.get("symbol", "") or tv_symbol),
-            "yahoo_ticker": str(entry.get("yahoo_ticker", "") or ""),
-            "fast_metrics": entry.get("fast_metrics"),
-            "scanner_id": "fast_graphs",
-        }
-        return payload
-
     payload = build_chart_payload(
         df,
         str(entry.get("tf", "Daily")),
@@ -690,12 +671,6 @@ def chart_payload_from_ohlc(ohlc_cache: dict, tv_symbol: str) -> dict | None:
         yahoo_ticker=str(entry.get("yahoo_ticker", "") or ""),
         df_daily=df_daily,
     )
-    if payload is None:
-        return None
-    if entry.get("fast_metrics") is not None:
-        payload["fast_metrics"] = entry["fast_metrics"]
-    if entry.get("scanner_id"):
-        payload["scanner_id"] = entry["scanner_id"]
     return payload
 
 
