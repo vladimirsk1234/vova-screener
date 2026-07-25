@@ -97,13 +97,45 @@ if not callable(explain_invalid_buy):
     def explain_invalid_buy(full, *, min_rr=1.5):  # noqa: N802 — matches sequence_vova API
         return "NO_VALID_SIGNAL"
 
-from data_utils import (
-    extract_ohlcv as _extract_ohlcv,
-    fill_last_bar_ohlc as _fill_last_bar_ohlc,
-    interval_and_period as _interval_and_period,
-    prepare_scan_ohlc as _prepare_scan_ohlc,
-    split_batch_ohlcv as _split_batch_ohlcv,
-)
+try:
+    import data_utils as _data_utils
+    from data_utils import (
+        extract_ohlcv as _extract_ohlcv,
+        fill_last_bar_ohlc as _fill_last_bar_ohlc,
+        interval_and_period as _interval_and_period_raw,
+        split_batch_ohlcv as _split_batch_ohlcv,
+    )
+except ImportError as exc:
+    raise ImportError(
+        f"Failed to import data_utils ({exc}). "
+        "On Streamlit Cloud open Manage app -> Logs for the full traceback."
+    ) from exc
+
+_resample_to_timeframe = getattr(_data_utils, "resample_to_timeframe", None)
+
+
+def _interval_and_period(tf: str, *, scanner_id: str | None = None) -> tuple[str, str]:
+    """Native Weekly/Monthly Yahoo intervals even if a stale data_utils is loaded."""
+    inter, period = _interval_and_period_raw(tf, scanner_id=scanner_id)
+    if tf == "Weekly" and inter in ("1d", "1day", "daily"):
+        return "1wk", period or "10y"
+    if tf == "Monthly" and inter in ("1d", "1day", "daily"):
+        return "1mo", period or "10y"
+    return inter, period
+
+
+_prepare_scan_ohlc = getattr(_data_utils, "prepare_scan_ohlc", None)
+if not callable(_prepare_scan_ohlc):
+    def _prepare_scan_ohlc(df, tf, *, inter):
+        """Fallback when Cloud hot-reload still has pre-parity data_utils."""
+        if df is None or getattr(df, "empty", True):
+            return None, None
+        frame = df.copy()
+        is_daily = inter in ("1d", "1day", "daily")
+        daily = frame.copy() if is_daily else None
+        if is_daily and tf != "Daily" and callable(_resample_to_timeframe):
+            frame = _resample_to_timeframe(frame, tf)
+        return frame, daily
 from scan_memory import (
     download_max_workers,
     is_low_memory_runtime,

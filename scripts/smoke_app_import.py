@@ -23,7 +23,8 @@ def main() -> int:
         run_sequence_vova_close_scan,
         run_sequence_vova_full,
     )
-    from data_utils import fill_last_bar_ohlc, interval_and_period, prepare_scan_ohlc
+    import data_utils as du
+    from data_utils import fill_last_bar_ohlc, interval_and_period, split_batch_ohlcv  # noqa: F401
 
     for name in (
         "run_sequence_vova_pine",
@@ -34,9 +35,16 @@ def main() -> int:
             print(f"FAIL: missing {name}")
             return 1
 
-    # Boot must not require explain_invalid_buy; helper may still exist.
+    # Boot must not require new optional names (Cloud hot-reload safe).
     explain = getattr(sv, "explain_invalid_buy", None)
-    print(f"OK: imports (explain_invalid_buy={'yes' if callable(explain) else 'fallback'})")
+    prepare_scan_ohlc = getattr(du, "prepare_scan_ohlc", None)
+    if not callable(prepare_scan_ohlc):
+        print("FAIL: prepare_scan_ohlc missing from data_utils on this checkout")
+        return 1
+    print(
+        f"OK: imports (explain_invalid_buy={'yes' if callable(explain) else 'fallback'}, "
+        f"prepare_scan_ohlc=yes)"
+    )
 
     inter, period = interval_and_period("Weekly")
     if inter != "1wk":
