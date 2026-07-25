@@ -78,12 +78,17 @@ except ImportError as exc:
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
-from sequence_vova import run_sequence_vova_pine, run_sequence_vova_close_scan, run_sequence_vova_full
+from sequence_vova import (
+    run_sequence_vova_pine,
+    run_sequence_vova_close_scan,
+    run_sequence_vova_full,
+    explain_invalid_buy,
+)
 from data_utils import (
     extract_ohlcv as _extract_ohlcv,
     fill_last_bar_ohlc as _fill_last_bar_ohlc,
     interval_and_period as _interval_and_period,
-    resample_to_timeframe as _resample_to_timeframe,
+    prepare_scan_ohlc as _prepare_scan_ohlc,
     split_batch_ohlcv as _split_batch_ohlcv,
 )
 from scan_memory import (
@@ -649,9 +654,7 @@ def _process_ticker_for_scan(
         if ref_end is None and len(df.index) > 0:
             pass  # reference_end_date alignment handled in main scan
 
-        df = df.copy()
-        df_daily_chart = df.copy()
-        df = _resample_to_timeframe(df, tf)
+        df, df_daily_chart = _prepare_scan_ohlc(df, tf, inter=inter)
         if df is None or df.empty or len(df) < MIN_BARS:
             if is_manual_src:
                 return {"kind": "reject", "row": {"Symbol": t, "Reason": "NO_DATA"}}
@@ -659,6 +662,9 @@ def _process_ticker_for_scan(
 
         df = _fill_last_bar_ohlc(df)
         df = df.dropna(subset=["Close", "High", "Low", "Open"])
+        if df_daily_chart is not None:
+            df_daily_chart = _fill_last_bar_ohlc(df_daily_chart)
+            df_daily_chart = df_daily_chart.dropna(subset=["Close", "High", "Low", "Open"])
         if len(df) < MIN_BARS:
             if is_manual_src:
                 return {"kind": "reject", "row": {"Symbol": t, "Reason": "INSUFFICIENT_DATA"}}
@@ -688,7 +694,17 @@ def _process_ticker_for_scan(
         )
         if out is None or not out["Valid"]:
             if is_manual_src:
-                reason = "NO_CLOSE_SIGNAL" if scan_direction == "sell" else "NO_VALID_SIGNAL"
+                if scan_direction == "sell":
+                    reason = "NO_CLOSE_SIGNAL"
+                else:
+                    full_dbg = run_sequence_vova_full(
+                        df,
+                        atr_len=ATR_LEN,
+                        min_rr=min_rr,
+                        use_last_hl_sl=use_last_hl_sl,
+                        risk_dollars=risk_per_trade,
+                    )
+                    reason = explain_invalid_buy(full_dbg, min_rr=min_rr)
                 return {"kind": "reject", "row": {"Symbol": t, "Reason": reason}}
             return {"kind": "skip"}
         if new_only and not out["New"]:
@@ -743,7 +759,7 @@ def _process_ticker_for_scan(
             }
         ohlc_entry = {
             "df": df.copy(),
-            "df_daily": df_daily_chart.copy(),
+            "df_daily": df_daily_chart.copy() if df_daily_chart is not None else None,
             "tf": tf,
             "symbol": tv_sym,
             "yahoo_ticker": t,

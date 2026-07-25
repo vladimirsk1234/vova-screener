@@ -116,15 +116,21 @@ def build_dwm_lines(
 ) -> dict[str, str]:
     """Build D / W / M status lines from resampled OHLC."""
     length_major = length_major or params.length_major
-    daily = df_daily if df_daily is not None and not df_daily.empty else df_chart
-    if chart_tf == "Daily":
-        daily = df_chart
-
-    d_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Daily")
-    w_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Weekly")
-    m_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Monthly")
-
+    has_daily = df_daily is not None and not df_daily.empty
     lines: dict[str, str] = {}
+
+    # Native Weekly/Monthly Yahoo scans may not ship a daily companion frame.
+    # Only emit HTF lines we can compute honestly (no fake daily-from-weekly).
+    if chart_tf == "Daily" or has_daily:
+        daily = df_chart if chart_tf == "Daily" else df_daily
+        d_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Daily")
+        w_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Weekly")
+        m_snap = _htf_snapshot(df_chart, daily, params, chart_tf=chart_tf, target_tf="Monthly")
+    else:
+        d_snap = None
+        w_snap = snapshot_for_df(df_chart, params) if chart_tf == "Weekly" else None
+        m_snap = snapshot_for_df(df_chart, params) if chart_tf == "Monthly" else None
+
     if d_snap:
         d_seq = _seq_display(d_snap, d_snap.get("sma_above"))
         d_struct_e, d_struct_l = _struct_display(d_snap, d_snap.get("sma_above"))
@@ -159,8 +165,18 @@ def build_trade_line(full: dict, params: IndicatorParams, bar_index_last: int) -
     seq_ok = seq_state == 1
 
     crit = full.get("critical_level")
-    atr = full.get("ATR", 0)
-    sl = min(crit if crit is not None else close - atr, close - atr)
+    atr = full.get("ATR", 0) or 0.0
+    last_trough = full.get("last_trough")
+    sl = close - atr
+    if crit is not None and crit < close:
+        sl = min(sl, crit)
+    if (
+        params.use_last_hl_sl
+        and last_trough_hl
+        and last_trough is not None
+        and last_trough < close
+    ):
+        sl = min(sl, last_trough)
     risk = close - sl
     reward = (last_peak - close) if last_peak is not None else 0.0
     rr = (reward / risk) if risk > 0 else 0.0

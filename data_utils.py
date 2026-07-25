@@ -8,18 +8,52 @@ import pandas as pd
 
 
 def interval_and_period(tf: str, *, scanner_id: str | None = None) -> tuple[str, str]:
-    """Always fetch daily; Weekly/Monthly resampled from daily so current period is included."""
-    if tf != "Daily":
-        # Shorter history on Cloud avoids OOM / native crashes during large-universe scans.
-        try:
-            from scan_memory import is_low_memory_runtime
+    """
+    Yahoo interval + history period for a scan timeframe.
 
-            if is_low_memory_runtime():
-                return "1d", "5y"
-        except Exception:
-            pass
-        return "1d", "10y"
+    Weekly/Monthly use native Yahoo bars (1wk / 1mo) so the in-progress bar Close
+    matches TradingView / Yahoo quotes. Resampling daily→W-FRI can leave a stale
+    Close when the latest daily Close is missing, which flips sequence state.
+    """
+    low_mem = False
+    try:
+        from scan_memory import is_low_memory_runtime
+
+        low_mem = bool(is_low_memory_runtime())
+    except Exception:
+        pass
+
+    if tf == "Weekly":
+        return "1wk", "5y" if low_mem else "10y"
+    if tf == "Monthly":
+        return "1mo", "5y" if low_mem else "10y"
     return "1d", "2y"
+
+
+def source_is_daily(inter: str) -> bool:
+    """True when downloaded bars are daily and may need Weekly/Monthly resample."""
+    return inter in ("1d", "1day", "daily")
+
+
+def prepare_scan_ohlc(
+    df: pd.DataFrame | None,
+    tf: str,
+    *,
+    inter: str,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """
+    Build (scan_tf_df, daily_df_or_none) for the scanner.
+
+    When Yahoo already returned native Weekly/Monthly bars, do not resample.
+    Daily companion is only available when the download interval was daily.
+    """
+    if df is None or df.empty:
+        return None, None
+    frame = df.copy()
+    daily = frame.copy() if source_is_daily(inter) else None
+    if source_is_daily(inter) and tf != "Daily":
+        frame = resample_to_timeframe(frame, tf)
+    return frame, daily
 
 
 def resample_to_timeframe(df: pd.DataFrame | None, tf: str) -> pd.DataFrame | None:
