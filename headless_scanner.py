@@ -155,30 +155,39 @@ from tradingview_embed import (
 # ==========================================
 # 4. UI & SIDEBAR
 # ==========================================
-from ticker_sources import FileListSource, ManualSource
+from ticker_sources import CombinedListSource, FileListSource, ManualSource
 
-# Ticker sources: list files + optional MANUAL symbols
+# Ticker sources: one combined stocks list + ETF + optional MANUAL symbols
+STOCKS_SRC = "STOCKS"
+ETF_SRC = "ETF"
+MANUAL_SRC = "MANUAL SCAN"
+# Legacy session/run_params source labels map onto the combined stocks list.
+_LEGACY_STOCK_SOURCES = frozenset(
+    {
+        "BIG CAP",
+        "SMALL CAP",
+        "BIG + SMALL CAP",
+        "US + CANADA FULL",
+        "STOCK TICKERS",
+    }
+)
+
+
 def _list_file_available(filename: str) -> bool:
     base = os.path.dirname(os.path.abspath(__file__))
     return os.path.isfile(os.path.join(base, filename))
 
 
-def _us_canada_full_list_available() -> bool:
-    return _list_file_available(TV_LIST_US_CANADA_FULL)
-
-
-def _stock_tickers_list_available() -> bool:
-    return _list_file_available(TV_LIST_STOCK_TICKERS)
+def _normalize_source_label(src: str | None) -> str:
+    if not src:
+        return STOCKS_SRC
+    if src in _LEGACY_STOCK_SOURCES:
+        return STOCKS_SRC
+    return src
 
 
 def _source_options() -> list[str]:
-    opts = ["BIG CAP", "SMALL CAP", "BIG + SMALL CAP", "ETF"]
-    if _us_canada_full_list_available():
-        opts.append("US + CANADA FULL")
-    if _stock_tickers_list_available():
-        opts.append("STOCK TICKERS")
-    opts.append("MANUAL SCAN")
-    return opts
+    return [STOCKS_SRC, ETF_SRC, MANUAL_SRC]
 
 
 SOURCE_OPTIONS = _source_options()
@@ -203,51 +212,33 @@ def _st_dataframe(df, **kwargs):
     )
 
 
-class _CombinedListSource:
-    """Merge ticker sources in-process (no ticker_sources.CombinedListSource dependency)."""
-
-    def __init__(self, sources, label: str = "combined list"):
-        self._sources = sources
-        self._label = label
-
-    def get_tickers(self):
-        tickers: list[str] = []
-        tv_map: dict[str, str] = {}
-        name_map: dict[str, str] = {}
-        seen: set[str] = set()
-        for src in self._sources:
-            t_list, tv, names, err = src.get_tickers()
-            if err:
-                return [], {}, {}, err
-            for t in t_list:
-                if t in seen:
-                    continue
-                seen.add(t)
-                tickers.append(t)
-                if t in tv:
-                    tv_map[t] = tv[t]
-                if t in names:
-                    name_map[t] = names[t]
-        return tickers, tv_map, name_map, None
-
-    def description(self) -> str:
-        return f"Combined {self._label}. Edit list files — next START uses new tickers."
+def _build_stocks_source():
+    """Merge all individual-company lists; Yahoo ticker uniqueness (first wins)."""
+    # Priority matches scripts/build_stock_tickers_list.py: BIG -> SMALL -> FULL -> STOCK-TICKERS
+    stock_files = (
+        TV_LIST_BIG_CAP,
+        TV_LIST_SMALL_CAP,
+        TV_LIST_US_CANADA_FULL,
+        TV_LIST_STOCK_TICKERS,
+    )
+    parts = [
+        FileListSource(filename, read_list_file)
+        for filename in stock_files
+        if _list_file_available(filename)
+    ]
+    if not parts:
+        # Keep registry key stable even if list files are missing; scan will surface the read error.
+        return FileListSource(TV_LIST_BIG_CAP, read_list_file)
+    if len(parts) == 1:
+        return parts[0]
+    return CombinedListSource(parts, label="STOCKS")
 
 
 def _build_source_registry():
-    big = FileListSource(TV_LIST_BIG_CAP, read_list_file)
-    small = FileListSource(TV_LIST_SMALL_CAP, read_list_file)
-    registry = {
-        "BIG CAP": big,
-        "SMALL CAP": small,
-        "BIG + SMALL CAP": _CombinedListSource([big, small], label="BIG + SMALL CAP"),
-        "ETF": FileListSource(TV_LIST_ETF, read_list_file),
+    return {
+        STOCKS_SRC: _build_stocks_source(),
+        ETF_SRC: FileListSource(TV_LIST_ETF, read_list_file),
     }
-    if _us_canada_full_list_available():
-        registry["US + CANADA FULL"] = FileListSource(TV_LIST_US_CANADA_FULL, read_list_file)
-    if _stock_tickers_list_available():
-        registry["STOCK TICKERS"] = FileListSource(TV_LIST_STOCK_TICKERS, read_list_file)
-    return registry
 
 
 SOURCE_REGISTRY = _build_source_registry()
@@ -261,21 +252,22 @@ disabled = st.session_state.scanning
 
 scanner_id = "sequence_vova"
 
-last_src = st.session_state.get("run_params", {}).get("src", "BIG CAP")
+last_src = _normalize_source_label(
+    st.session_state.get("run_params", {}).get("src", STOCKS_SRC)
+)
 _source_opts = _source_options()
 default_idx = _source_opts.index(last_src) if last_src in _source_opts else 0
 src = st.sidebar.radio("SOURCE", _source_opts, disabled=disabled, index=default_idx)
-_is_full_us_ca_src = src == "US + CANADA FULL"
-if _is_full_us_ca_src:
-    _full_tickers, _, _, _full_err = read_list_file(TV_LIST_US_CANADA_FULL)
-    if _full_err:
-        st.sidebar.warning(_full_err)
-    elif _full_tickers:
+if src == STOCKS_SRC:
+    _stocks_tickers, _, _, _stocks_err = SOURCE_REGISTRY[STOCKS_SRC].get_tickers()
+    if _stocks_err:
+        st.sidebar.warning(_stocks_err)
+    elif _stocks_tickers:
         st.sidebar.caption(
-            f"~{len(_full_tickers)} common stocks · positive P/E · US + Canada · no OTC/ETF"
+            f"{len(_stocks_tickers)} unique company tickers (all stock lists merged)"
         )
 man_txt = ""
-if src == "MANUAL SCAN":
+if src == MANUAL_SRC:
     man_txt = st.sidebar.text_area("TICKERS", "AAPL, TSLA, NVDA", disabled=disabled)
     st.sidebar.caption("Comma-separated symbols. Next START scans these tickers.")
 
@@ -354,7 +346,7 @@ class ScanConfig:
             use_last_hl_sl=bool(p.get("use_last_hl_sl", True)),
             tf=str(p.get("tf", "Daily")),
             new_only=bool(p.get("new", True)),
-            is_manual_src=(p.get("src") == "MANUAL SCAN"),
+            is_manual_src=(p.get("src") == MANUAL_SRC),
             scan_direction=scan_direction,
             scanner_id=str(p.get("scanner_id", "sequence_vova")),
         )
@@ -1377,10 +1369,10 @@ if st.session_state.scanning:
     progress_ui = ScanPhaseProgressUI()
     progress_ui.setup(phases)
 
-    if p["src"] == "MANUAL SCAN":
+    if p["src"] == MANUAL_SRC:
         source = ManualSource(lambda: p["txt"])
     else:
-        source = SOURCE_REGISTRY[p["src"]]
+        source = SOURCE_REGISTRY[_normalize_source_label(p["src"])]
     tickers, tv_symbol_by_ticker, company_names, err = source.get_tickers()
     if err:
         st.warning(err)
@@ -1444,7 +1436,9 @@ if st.session_state.scanning:
     info_box.success("SCAN COMPLETE ✅")
 
 else:
-    last_src = st.session_state.run_params.get('src', "BIG CAP")
+    last_src = _normalize_source_label(
+        st.session_state.run_params.get("src", STOCKS_SRC)
+    )
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
     as_of = st.session_state.get("results_as_of")
@@ -1455,7 +1449,7 @@ else:
     with res_area.container():
         render_scan_results(
             table_rows, rejected_reasons, as_of, as_of_tf,
-            is_manual_src=(last_src == "MANUAL SCAN"),
+            is_manual_src=(last_src == MANUAL_SRC),
             chart_cache=st.session_state.get("chart_cache", {}),
             ohlc_cache=st.session_state.get("ohlc_cache", {}),
             scan_direction=as_of_dir,
