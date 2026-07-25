@@ -78,12 +78,25 @@ except ImportError as exc:
 # ==========================================
 # 3. SEQUENCE VOVA (from sequence_vova.py)
 # ==========================================
-from sequence_vova import (
-    run_sequence_vova_pine,
-    run_sequence_vova_close_scan,
-    run_sequence_vova_full,
-    explain_invalid_buy,
-)
+try:
+    import sequence_vova as _sequence_vova
+    from sequence_vova import (
+        run_sequence_vova_pine,
+        run_sequence_vova_close_scan,
+        run_sequence_vova_full,
+    )
+except ImportError as exc:
+    raise ImportError(
+        f"Failed to import sequence_vova ({exc}). "
+        "On Streamlit Cloud open Manage app -> Logs for the full traceback."
+    ) from exc
+
+# Optional helper: never require a 4th import name for app boot (Cloud hot-reload safe).
+explain_invalid_buy = getattr(_sequence_vova, "explain_invalid_buy", None)
+if not callable(explain_invalid_buy):
+    def explain_invalid_buy(full, *, min_rr=1.5):  # noqa: N802 — matches sequence_vova API
+        return "NO_VALID_SIGNAL"
+
 from data_utils import (
     extract_ohlcv as _extract_ohlcv,
     fill_last_bar_ohlc as _fill_last_bar_ohlc,
