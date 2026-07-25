@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 import yfinance as yf
 
 from chart_preview import build_chart_payload, figure_from_payload
-from data_utils import fill_last_bar_ohlc, resample_to_timeframe
+from data_utils import fill_last_bar_ohlc, interval_and_period, prepare_scan_ohlc
 from indicator_params import IndicatorParams, default_chart_params
 from sequence_vova import run_sequence_vova_full, run_sequence_vova_pine
 
@@ -19,11 +19,12 @@ from sequence_vova import run_sequence_vova_full, run_sequence_vova_pine
 def main() -> int:
     ticker = "MSFT"
     tf = "Monthly"
-    print(f"Downloading {ticker} daily OHLC...")
+    inter, period = interval_and_period(tf)
+    print(f"Downloading {ticker} {inter} OHLC ({period})...")
     df = yf.download(
         ticker,
-        period="10y",
-        interval="1d",
+        period=period,
+        interval=inter,
         progress=False,
         auto_adjust=False,
         multi_level_index=False,
@@ -31,12 +32,13 @@ def main() -> int:
     if df is None or df.empty:
         print("FAIL: no data")
         return 1
-    df = fill_last_bar_ohlc(df)
-    df_daily = df.copy()
-    df = resample_to_timeframe(df, tf)
+    df, df_daily = prepare_scan_ohlc(df, tf, inter=inter)
     if df is None or df.empty:
-        print("FAIL: resample empty")
+        print("FAIL: prepare_scan_ohlc empty")
         return 1
+    df = fill_last_bar_ohlc(df)
+    if df_daily is not None:
+        df_daily = fill_last_bar_ohlc(df_daily)
 
     print("Running screener...")
     out = run_sequence_vova_pine(df, min_rr=1.0)

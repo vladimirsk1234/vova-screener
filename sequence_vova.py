@@ -1288,3 +1288,53 @@ def structure_snapshot_from_full(full: dict) -> dict:
         "seq_high": full.get("seq_high_final"),
         "struct_invalid": full.get("struct_invalid_seq_down", False),
     }
+
+
+def explain_invalid_buy(full: dict | None, *, min_rr: float = 1.5) -> str:
+    """Compact manual-scan reject reason when BUY Valid is false."""
+    if full is None:
+        return "NO_VALID_SIGNAL"
+    seq_ok = int(full.get("seq_state_final", 0) or 0) == 1
+    trough_hl = bool(full.get("last_trough_was_hl", False))
+    peak_hh = bool(full.get("last_peak_was_hh", False))
+    struct_invalid = bool(full.get("struct_invalid_seq_down", False))
+    close = full.get("Close")
+    last_peak = full.get("last_peak")
+    struct_ok = (
+        trough_hl
+        or (
+            last_peak is not None
+            and close is not None
+            and close > last_peak
+            and trough_hl
+        )
+    ) and peak_hh and not struct_invalid
+    rr = full.get("RR")
+    try:
+        rr_f = float(rr) if rr is not None and not (isinstance(rr, float) and np.isnan(rr)) else 0.0
+    except (TypeError, ValueError):
+        rr_f = 0.0
+    risk_ok = True
+    sl = full.get("SL")
+    if close is not None and sl is not None:
+        try:
+            risk_ok = float(close) - float(sl) > 0
+        except (TypeError, ValueError):
+            risk_ok = False
+    reward_ok = last_peak is not None and close is not None and float(last_peak) - float(close) > 0
+
+    if not seq_ok:
+        return "NO_SEQ_UP"
+    if not trough_hl:
+        return "NO_STRUCT_HL"
+    if not peak_hh:
+        return "NO_STRUCT_HH"
+    if struct_invalid:
+        return "STRUCT_INVALID"
+    if not reward_ok:
+        return "NO_REWARD"
+    if not risk_ok:
+        return "NO_RISK"
+    if rr_f < float(min_rr):
+        return f"RR_TOO_LOW:{rr_f:.2f}"
+    return "NO_VALID_SIGNAL"
