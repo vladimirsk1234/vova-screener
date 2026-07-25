@@ -158,7 +158,7 @@ from tradingview_embed import (
 from ticker_sources import CombinedListSource, FileListSource, ManualSource
 
 # Ticker sources: one combined stocks list + ETF + optional MANUAL symbols
-STOCKS_SRC = "STOCKS"
+STOCKS_SRC = "Stocks"
 ETF_SRC = "ETF"
 MANUAL_SRC = "MANUAL SCAN"
 # Legacy session/run_params source labels map onto the combined stocks list.
@@ -169,6 +169,7 @@ _LEGACY_STOCK_SOURCES = frozenset(
         "BIG + SMALL CAP",
         "US + CANADA FULL",
         "STOCK TICKERS",
+        "STOCKS",
     }
 )
 
@@ -231,13 +232,17 @@ def _build_stocks_source():
         return FileListSource(TV_LIST_BIG_CAP, read_list_file)
     if len(parts) == 1:
         return parts[0]
-    return CombinedListSource(parts, label="STOCKS")
+    return CombinedListSource(parts, label="Stocks")
 
 
 def _build_source_registry():
     return {
         STOCKS_SRC: _build_stocks_source(),
-        ETF_SRC: FileListSource(TV_LIST_ETF, read_list_file),
+        # CombinedListSource dedupes Yahoo symbols (ETF file can contain repeats).
+        ETF_SRC: CombinedListSource(
+            [FileListSource(TV_LIST_ETF, read_list_file)],
+            label="ETF",
+        ),
     }
 
 
