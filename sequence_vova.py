@@ -196,6 +196,7 @@ def _run_sequence_vova_pine_python(
     use_last_hl_sl: bool,
     risk_dollars: float,
     direction_sell: bool,
+    no_rr_req: bool = False,
 ) -> tuple:
     n = len(c_a)
     seq_state = 0
@@ -211,7 +212,7 @@ def _run_sequence_vova_pine_python(
     last_new = False
     last_strong = False
     last_sl = np.nan
-    last_rr = 0.0
+    last_rr = np.nan
     last_pos_size = np.nan
     last_pos_value = np.nan
     prev_bar_seq_low = l_a[0]
@@ -314,17 +315,20 @@ def _run_sequence_vova_pine_python(
                 sl = max(sl, last_confirmed_peak)
             risk = sl - c
             reward = c - last_confirmed_trough if not np.isnan(last_confirmed_trough) else 0.0
-            rr = (reward / risk) if risk > 0 else 0.0
+            rr = (reward / risk) if risk > 0 else np.nan
             position_size = (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
             position_value = position_size * c if not np.isnan(position_size) else np.nan
 
-            valid_signal = (
-                (seq_state == -1)
-                and struct_ok_sell
-                and (rr >= min_rr)
-                and (risk > 0)
-                and (reward > 0)
-            )
+            if no_rr_req:
+                valid_signal = (seq_state == -1) and struct_ok_sell
+            else:
+                valid_signal = (
+                    (seq_state == -1)
+                    and struct_ok_sell
+                    and (rr >= min_rr)
+                    and (risk > 0)
+                    and (reward > 0)
+                )
             new_signal = valid_signal and is_bullish_break
             strong_signal = (
                 new_signal and (not np.isnan(prev_bar_seq_high)) and (h >= prev_bar_seq_high)
@@ -358,13 +362,16 @@ def _run_sequence_vova_pine_python(
                 sl = min(sl, last_confirmed_trough)
             risk = c - sl
             reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
-            rr = (reward / risk) if risk > 0 else 0.0
+            rr = (reward / risk) if risk > 0 else np.nan
             position_size = (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
             position_value = position_size * c if not np.isnan(position_size) else np.nan
 
-            valid_signal = (
-                (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
-            )
+            if no_rr_req:
+                valid_signal = (seq_state == 1) and struct_ok
+            else:
+                valid_signal = (
+                    (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+                )
             new_signal = valid_signal and is_bearish_break
             strong_signal = (
                 new_signal and (not np.isnan(prev_bar_seq_low)) and (l <= prev_bar_seq_low)
@@ -407,6 +414,7 @@ if _NUMBA_AVAILABLE:
         use_last_hl_sl,
         risk_dollars,
         direction_sell,
+        no_rr_req,
     ):
         n = len(c_a)
         seq_state = 0
@@ -423,7 +431,7 @@ if _NUMBA_AVAILABLE:
         last_new = False
         last_strong = False
         last_sl = np.nan
-        last_rr = 0.0
+        last_rr = np.nan
         last_pos_size = np.nan
         last_pos_value = np.nan
         prev_bar_seq_low = l_a[0]
@@ -546,7 +554,7 @@ if _NUMBA_AVAILABLE:
                 if risk > 0:
                     rr = reward / risk
                 else:
-                    rr = 0.0
+                    rr = np.nan
                 if risk > 0 and risk_dollars > 0:
                     position_size = risk_dollars / risk
                 else:
@@ -556,13 +564,16 @@ if _NUMBA_AVAILABLE:
                 else:
                     position_value = np.nan
 
-                valid_signal = (
-                    seq_state == -1
-                    and struct_ok_sell
-                    and rr >= min_rr
-                    and risk > 0
-                    and reward > 0
-                )
+                if no_rr_req:
+                    valid_signal = seq_state == -1 and struct_ok_sell
+                else:
+                    valid_signal = (
+                        seq_state == -1
+                        and struct_ok_sell
+                        and rr >= min_rr
+                        and risk > 0
+                        and reward > 0
+                    )
                 new_signal = valid_signal and is_bullish_break
                 strong_signal = (
                     new_signal and (not np.isnan(prev_bar_seq_high)) and h >= prev_bar_seq_high
@@ -602,7 +613,7 @@ if _NUMBA_AVAILABLE:
                 if risk > 0:
                     rr = reward / risk
                 else:
-                    rr = 0.0
+                    rr = np.nan
                 if risk > 0 and risk_dollars > 0:
                     position_size = risk_dollars / risk
                 else:
@@ -612,9 +623,12 @@ if _NUMBA_AVAILABLE:
                 else:
                     position_value = np.nan
 
-                valid_signal = (
-                    seq_state == 1 and struct_ok and rr >= min_rr and risk > 0 and reward > 0
-                )
+                if no_rr_req:
+                    valid_signal = seq_state == 1 and struct_ok
+                else:
+                    valid_signal = (
+                        seq_state == 1 and struct_ok and rr >= min_rr and risk > 0 and reward > 0
+                    )
                 new_signal = valid_signal and is_bearish_break
                 strong_signal = (
                     new_signal and (not np.isnan(prev_bar_seq_low)) and l <= prev_bar_seq_low
@@ -670,6 +684,7 @@ def run_sequence_vova_pine(
     use_last_hl_sl=True,
     risk_dollars=100,
     direction: ScanDirection = "buy",
+    no_rr_req: bool = False,
 ):
     """
     Exact port of Pine "Sequence Vova Screener". Returns dict for last bar:
@@ -688,14 +703,15 @@ def run_sequence_vova_pine(
     min_rr_f = float(min_rr)
     risk_f = float(risk_dollars)
     direction_sell = str(direction).lower() == "sell"
+    no_rr = bool(no_rr_req)
 
     if _PINE_USE_NUMBA and _NUMBA_AVAILABLE and _run_sequence_vova_pine_numba is not None:
         tup = _run_sequence_vova_pine_numba(
-            c_a, h_a, l_a, atr_a, min_rr_f, use_last, risk_f, direction_sell
+            c_a, h_a, l_a, atr_a, min_rr_f, use_last, risk_f, direction_sell, no_rr
         )
     else:
         tup = _run_sequence_vova_pine_python(
-            c_a, h_a, l_a, atr_a, min_rr_f, use_last, risk_f, direction_sell
+            c_a, h_a, l_a, atr_a, min_rr_f, use_last, risk_f, direction_sell, no_rr
         )
     return _pine_result_dict(tup)
 
@@ -708,6 +724,7 @@ def _run_sequence_vova_close_python(
     min_rr: float,
     use_last_hl_sl: bool,
     risk_dollars: float,
+    no_rr_req: bool = False,
 ) -> dict:
     """
     Simulate long open (BUY new with min_rr at entry) and close on break SEQ down.
@@ -831,11 +848,14 @@ def _run_sequence_vova_close_python(
             sl = min(sl, last_confirmed_trough)
         risk = c - sl
         reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
-        rr = (reward / risk) if risk > 0 else 0.0
+        rr = (reward / risk) if risk > 0 else np.nan
 
-        valid_signal = (
-            (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
-        )
+        if no_rr_req:
+            valid_signal = (seq_state == 1) and struct_ok
+        else:
+            valid_signal = (
+                (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+            )
         new_signal = valid_signal and is_bearish_break
 
         if new_signal and not position_open:
@@ -907,6 +927,7 @@ def run_sequence_vova_close_scan(
     min_rr: float = 1.5,
     use_last_hl_sl: bool = True,
     risk_dollars: float = 100,
+    no_rr_req: bool = False,
 ) -> dict | None:
     """
     Close-scan for SELL TO CLOSE mode: find long positions opened on BUY new (min_rr at entry only),
@@ -920,7 +941,14 @@ def run_sequence_vova_close_scan(
     l_a = np.ascontiguousarray(df["Low"].values, dtype=np.float64)
     atr_a = _calc_atr_numpy(h_a, l_a, c_a, atr_len)
     return _run_sequence_vova_close_python(
-        c_a, h_a, l_a, atr_a, float(min_rr), bool(use_last_hl_sl), float(risk_dollars)
+        c_a,
+        h_a,
+        l_a,
+        atr_a,
+        float(min_rr),
+        bool(use_last_hl_sl),
+        float(risk_dollars),
+        bool(no_rr_req),
     )
 
 
@@ -932,6 +960,7 @@ def run_sequence_vova_full(
     min_rr: float = 1.5,
     use_last_hl_sl: bool = True,
     risk_dollars: float = 100,
+    no_rr_req: bool = False,
     len_fast: int = 20,
     len_slow: int = 40,
     length_major: int = 200,
@@ -953,6 +982,7 @@ def run_sequence_vova_full(
         min_rr = float(kw["min_rr"])
         use_last_hl_sl = bool(kw["use_last_hl_sl"])
         risk_dollars = float(kw["risk_dollars"])
+        no_rr_req = bool(kw.get("no_rr_req", False))
         len_fast = int(kw["len_fast"])
         len_slow = int(kw["len_slow"])
         length_major = int(kw["length_major"])
@@ -1004,7 +1034,7 @@ def run_sequence_vova_full(
     last_new = False
     last_strong = False
     last_sl = np.nan
-    last_rr = 0.0
+    last_rr = np.nan
     last_pos_size = np.nan
     last_pos_value = np.nan
     prev_bar_seq_low = l_a[0]
@@ -1168,13 +1198,16 @@ def run_sequence_vova_full(
             sl = min(sl, last_confirmed_trough)
         risk = c - sl
         reward = last_confirmed_peak - c if not np.isnan(last_confirmed_peak) else 0.0
-        rr = (reward / risk) if risk > 0 else 0.0
+        rr = (reward / risk) if risk > 0 else np.nan
         position_size = (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
         position_value = position_size * c if not np.isnan(position_size) else np.nan
 
-        valid_signal = (
-            (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
-        )
+        if no_rr_req:
+            valid_signal = (seq_state == 1) and struct_ok
+        else:
+            valid_signal = (
+                (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
+            )
         new_signal = valid_signal and is_bearish_break
         strong_signal = new_signal and (not np.isnan(prev_bar_seq_low)) and (l <= prev_bar_seq_low)
 
@@ -1290,7 +1323,7 @@ def structure_snapshot_from_full(full: dict) -> dict:
     }
 
 
-def explain_invalid_buy(full: dict | None, *, min_rr: float = 1.5) -> str:
+def explain_invalid_buy(full: dict | None, *, min_rr: float = 1.5, no_rr_req: bool = False) -> str:
     """Compact manual-scan reject reason when BUY Valid is false."""
     if full is None:
         return "NO_VALID_SIGNAL"
@@ -1331,6 +1364,8 @@ def explain_invalid_buy(full: dict | None, *, min_rr: float = 1.5) -> str:
         return "NO_STRUCT_HH"
     if struct_invalid:
         return "STRUCT_INVALID"
+    if no_rr_req:
+        return "NO_VALID_SIGNAL"
     if not reward_ok:
         return "NO_REWARD"
     if not risk_ok:

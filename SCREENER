@@ -6,7 +6,8 @@ indicator("Sequence Vova Screener", overlay=false)
 // ==================================================================================
 grp_risk = "Screener Settings"
 scanDirection = input.string("BUY TO OPEN", "Scan Direction", options=["BUY TO OPEN", "SELL TO CLOSE"], group=grp_risk)
-minRR = input.float(1.5, "Minimum R/R Ratio", minval=0.5, step=0.1, group=grp_risk)
+noRrReq = input.bool(false, "Any Valid Signal (No RR Req)", group=grp_risk)
+minRR = input.float(1.5, "Minimum R/R Ratio", minval=0.1, step=0.1, group=grp_risk)
 atrLen = input.int(14, "ATR Length", minval=1, group=grp_risk)
 useLastHLInSL = input.bool(true, "Use last HL/LH in SL (safety)", group=grp_risk)
 riskDollars = input.float(100, "Risk per trade ($)", minval=0.01, step=10, group=grp_risk)
@@ -186,7 +187,7 @@ if useLastHLInSL and lastTroughWasHL and not na(lastConfirmedTrough) and lastCon
     sl_buy := math.min(sl_buy, lastConfirmedTrough)
 float risk_buy = close - sl_buy
 float reward_buy = lastConfirmedPeak - close
-float rr_buy = (risk_buy > 0) ? (reward_buy / risk_buy) : 0.0
+float rr_buy = (risk_buy > 0) ? (reward_buy / risk_buy) : na
 
 // SELL (short)
 float sl_sell = close + cur_atr
@@ -196,7 +197,7 @@ if useLastHLInSL and lastPeakWasLH and not na(lastConfirmedPeak) and lastConfirm
     sl_sell := math.max(sl_sell, lastConfirmedPeak)
 float risk_sell = sl_sell - close
 float reward_sell = close - lastConfirmedTrough
-float rr_sell = (risk_sell > 0) ? (reward_sell / risk_sell) : 0.0
+float rr_sell = (risk_sell > 0) ? (reward_sell / risk_sell) : na
 
 bool isSellScan = scanDirection == "SELL TO CLOSE"
 float sl = isSellScan ? sl_sell : sl_buy
@@ -224,8 +225,8 @@ float pe_final = not na(pe_ttm) ? pe_ttm : (not na(eps_ttm) and eps_ttm != 0 ? c
 // ==================================================================================
 // SIGNAL DEFINITIONS
 // ==================================================================================
-bool valid_buy = (seqState == 1) and struct_ok and (rr_buy >= minRR) and (risk_buy > 0) and (reward_buy > 0)
-bool valid_sell = (seqState == -1) and struct_ok_sell and (rr_sell >= minRR) and (risk_sell > 0) and (reward_sell > 0)
+bool valid_buy = noRrReq ? ((seqState == 1) and struct_ok) : ((seqState == 1) and struct_ok and (rr_buy >= minRR) and (risk_buy > 0) and (reward_buy > 0))
+bool valid_sell = noRrReq ? ((seqState == -1) and struct_ok_sell) : ((seqState == -1) and struct_ok_sell and (rr_sell >= minRR) and (risk_sell > 0) and (reward_sell > 0))
 bool new_buy = valid_buy and isBearishBreak
 bool new_sell = valid_sell and isBullishBreak
 bool strong_buy = new_buy and not na(seqLow[1]) and (low <= seqLow[1])

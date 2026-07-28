@@ -40,6 +40,7 @@ def _apply_hardcoded_params(p: IndicatorParams) -> None:
     p.risk_dollars = float(run.get("risk_per_trade", 100))
     p.use_last_hl_sl = bool(run.get("use_last_hl_sl", True))
     p.min_rr = float(run.get("rr", 1.5))
+    p.no_rr_req = bool(run.get("no_rr_req", False))
 
 
 def render_chart_settings() -> IndicatorParams:

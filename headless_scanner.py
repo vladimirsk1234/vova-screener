@@ -91,7 +91,7 @@ except ImportError as exc:
 # Optional helper: never require a 4th import name for app boot (Cloud hot-reload safe).
 explain_invalid_buy = getattr(_sequence_vova, "explain_invalid_buy", None)
 if not callable(explain_invalid_buy):
-    def explain_invalid_buy(full, *, min_rr=1.5):  # noqa: N802 — matches sequence_vova API
+    def explain_invalid_buy(full, *, min_rr=1.5, no_rr_req=False):  # noqa: N802 — matches sequence_vova API
         return "NO_VALID_SIGNAL"
 
 try:
@@ -253,7 +253,18 @@ if src == MANUAL_SRC:
 
 st.sidebar.subheader("RISK MANAGEMENT")
 risk_per_trade = st.sidebar.number_input("$ RISK PER TRADE", value=100, min_value=1, step=10, disabled=disabled)
-min_rr_in = st.sidebar.number_input("MIN RR (>=1.5)", value=1.5, min_value=0.5, step=0.1, disabled=disabled)
+no_rr_req = st.sidebar.checkbox(
+    "ANY VALID SIGNAL (NO RR REQ)",
+    False,
+    disabled=disabled,
+)
+min_rr_in = st.sidebar.number_input(
+    "MIN RR (>=0.1)",
+    value=1.5,
+    min_value=0.1,
+    step=0.1,
+    disabled=disabled or no_rr_req,
+)
 st.sidebar.subheader("FILTERS")
 SCAN_DIRECTION_OPTIONS = ["BUY TO OPEN", "SELL TO CLOSE"]
 _last_dir = str(st.session_state.get("run_params", {}).get("scan_direction", "buy")).lower()
@@ -289,6 +300,7 @@ if start_btn:
     # FREEZE PARAMS
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
+        'no_rr_req': no_rr_req,
         'use_last_hl_sl': use_last_hl_sl, 'tf': tf_p, 'new': new_p,
         'scan_direction': "sell" if is_sell_scan else "buy",
         'scanner_id': scanner_id,
@@ -309,6 +321,7 @@ class ScanConfig:
     """Scan parameters; built from run_params dict for type safety and centralization."""
     risk_per_trade: int
     min_rr: float
+    no_rr_req: bool
     use_last_hl_sl: bool
     tf: str
     new_only: bool
@@ -323,6 +336,7 @@ class ScanConfig:
         return cls(
             risk_per_trade=int(p.get("risk_per_trade", 100)),
             min_rr=float(p.get("rr", 1.5)),
+            no_rr_req=bool(p.get("no_rr_req", False)),
             use_last_hl_sl=bool(p.get("use_last_hl_sl", True)),
             tf=str(p.get("tf", "Daily")),
             new_only=bool(p.get("new", True)),
@@ -622,6 +636,7 @@ def _process_ticker_for_scan(
     name_cache: dict[str, str] | None = None,
     scan_direction: str = "buy",
     scanner_id: str = "sequence_vova",
+    no_rr_req: bool = False,
 ) -> dict:
     """
     Pure per-ticker work for one symbol. Returns:
@@ -701,6 +716,7 @@ def _process_ticker_for_scan(
             min_rr=min_rr,
             use_last_hl_sl=use_last_hl_sl,
             risk_dollars=risk_per_trade,
+            no_rr_req=no_rr_req,
         ) if scan_direction == "sell" else run_sequence_vova_pine(
             df,
             atr_len=ATR_LEN,
@@ -708,6 +724,7 @@ def _process_ticker_for_scan(
             use_last_hl_sl=use_last_hl_sl,
             risk_dollars=risk_per_trade,
             direction="buy",
+            no_rr_req=no_rr_req,
         )
         if out is None or not out["Valid"]:
             if is_manual_src:
@@ -720,8 +737,9 @@ def _process_ticker_for_scan(
                         min_rr=min_rr,
                         use_last_hl_sl=use_last_hl_sl,
                         risk_dollars=risk_per_trade,
+                        no_rr_req=no_rr_req,
                     )
-                    reason = explain_invalid_buy(full_dbg, min_rr=min_rr)
+                    reason = explain_invalid_buy(full_dbg, min_rr=min_rr, no_rr_req=no_rr_req)
                 return {"kind": "reject", "row": {"Symbol": t, "Reason": reason}}
             return {"kind": "skip"}
         if new_only and not out["New"]:
@@ -741,6 +759,14 @@ def _process_ticker_for_scan(
         else:
             pos_size = int(round(pos_size))
 
+        def _fmt_rr(val) -> float | str:
+            try:
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return "N/A"
+                return round(float(val), 2)
+            except (TypeError, ValueError):
+                return "N/A"
+
         if scan_direction == "sell":
             entry_px = round(float(out["entry_price"]), 2)
             invested = round(entry_px * pos_size, 2) if pos_size > 0 else 0.0
@@ -753,8 +779,8 @@ def _process_ticker_for_scan(
                 "Entry": entry_px,
                 "Exit": round(float(out["exit_price"]), 2),
                 "Position Size (shares)": pos_size,
-                "RR at Entry": round(float(entry_rr), 2) if not np.isnan(entry_rr) else 0.0,
-                "RR at Close": round(float(close_rr), 2) if not np.isnan(close_rr) else 0.0,
+                "RR at Entry": _fmt_rr(entry_rr),
+                "RR at Close": _fmt_rr(close_rr),
                 "Invested ($)": invested,
                 "P&L ($)": round(float(out["pnl_dollars"]), 2),
                 "P&L (%)": round(float(out["pnl_pct"]), 2),
@@ -767,7 +793,7 @@ def _process_ticker_for_scan(
                 "Company Name": company_name,
                 "TP": round(float(out["TP"]), 2),
                 "SL": round(float(out["SL"]), 2),
-                "RR": round(float(out["RR"]), 2),
+                "RR": _fmt_rr(out["RR"]),
                 "Position Size (shares)": pos_size,
                 "Position Value ($)": round(float(pos_value), 2),
                 "New": 1 if out["New"] else 0,
@@ -964,6 +990,7 @@ def run_scan(
     is_manual_src,
     scan_direction="buy",
     scanner_id: str = "sequence_vova",
+    no_rr_req: bool = False,
     tv_symbol_by_ticker: dict[str, str] | None = None,
     company_name_by_ticker: dict[str, str] | None = None,
     on_phase_progress=None,
@@ -1118,6 +1145,7 @@ def run_scan(
                         nc,
                         scan_direction,
                         scanner_id,
+                        no_rr_req,
                     )
                     pairs.append((t, fut))
                 for t, fut in pairs:
@@ -1159,6 +1187,7 @@ def run_scan(
                     nc,
                     scan_direction,
                     scanner_id,
+                    no_rr_req,
                 )
                 _merge_ticker_result(res)
                 proc_done[0] += 1
@@ -1383,6 +1412,7 @@ if st.session_state.scanning:
         is_manual_src=cfg.is_manual_src,
         scan_direction=cfg.scan_direction,
         scanner_id=cfg.scanner_id,
+        no_rr_req=cfg.no_rr_req,
         tv_symbol_by_ticker=tv_symbol_by_ticker,
         company_name_by_ticker=company_names,
         on_phase_progress=on_phase_progress,

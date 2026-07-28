@@ -64,10 +64,19 @@ export function ScanScreen({ navigation }: { navigation: any }) {
         }
       />
 
-      <Text style={styles.label}>MIN RR (&gt;=1.5)</Text>
+      <View style={styles.switchRow}>
+        <Text style={styles.labelInline}>ANY VALID SIGNAL (NO RR REQ)</Text>
+        <Switch
+          disabled={scanning}
+          value={params.noRrReq}
+          onValueChange={(v) => setParams((p) => ({ ...p, noRrReq: v }))}
+        />
+      </View>
+
+      <Text style={styles.label}>MIN RR (&gt;=0.1)</Text>
       <TextInput
-        editable={!scanning}
-        style={styles.input}
+        editable={!scanning && !params.noRrReq}
+        style={[styles.input, params.noRrReq && styles.inputDisabled]}
         keyboardType="decimal-pad"
         value={String(params.minRr)}
         onChangeText={(t) =>
@@ -190,6 +199,9 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: '#3a4150',
+  },
+  inputDisabled: {
+    opacity: 0.45,
   },
   switchRow: {
     flexDirection: 'row',

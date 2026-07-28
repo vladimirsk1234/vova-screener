@@ -57,6 +57,7 @@ class IndicatorParams:
     adx_len: int = 14
     adx_thresh: int = 20
     min_rr: float = 1.5
+    no_rr_req: bool = False
     use_last_hl_sl: bool = True
     risk_dollars: float = 100.0
 
@@ -93,6 +94,7 @@ class IndicatorParams:
         return {
             "atr_len": self.atr_len,
             "min_rr": self.min_rr,
+            "no_rr_req": self.no_rr_req,
             "use_last_hl_sl": self.use_last_hl_sl,
             "risk_dollars": self.risk_dollars,
             "len_fast": self.len_fast,

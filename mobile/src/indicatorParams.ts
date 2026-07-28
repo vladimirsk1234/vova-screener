@@ -8,6 +8,7 @@ export type IndicatorParams = {
   multiplier: number;
   atr_len: number;
   min_rr: number;
+  no_rr_req: boolean;
   use_last_hl_sl: boolean;
   risk_dollars: number;
   show_crit_level: boolean;
@@ -38,6 +39,7 @@ export function defaultChartParams(): IndicatorParams {
     multiplier: 2.0,
     atr_len: 14,
     min_rr: 1.5,
+    no_rr_req: false,
     use_last_hl_sl: true,
     risk_dollars: 100,
     show_crit_level: true,

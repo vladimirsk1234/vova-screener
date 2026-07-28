@@ -51,7 +51,7 @@ export type BuyRow = {
   'Company Name': string;
   TP: number;
   SL: number;
-  RR: number;
+  RR: number | string;
   'Position Size (shares)': number;
   'Position Value ($)': number;
   New: number;
@@ -67,8 +67,8 @@ export type SellRow = {
   Entry: number;
   Exit: number;
   'Position Size (shares)': number;
-  'RR at Entry': number;
-  'RR at Close': number;
+  'RR at Entry': number | string;
+  'RR at Close': number | string;
   'Invested ($)': number;
   'P&L ($)': number;
   'P&L (%)': number;
@@ -85,6 +85,7 @@ export type ScanParams = {
   manualTickers: string;
   riskPerTrade: number;
   minRr: number;
+  noRrReq: boolean;
   scanDirection: ScanDirection;
   useLastHlSl: boolean;
   tf: Timeframe;

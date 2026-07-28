@@ -32,6 +32,10 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+function fmtRr(n: number): number | string {
+  return Number.isFinite(n) ? round2(n) : 'N/A';
+}
+
 function buildSellSummary(rows: SellRow[]): SellRow | null {
   const data = rows.filter((r) => !r._is_summary);
   if (!data.length) return null;
@@ -142,6 +146,7 @@ export async function runScan(
           min_rr: params.minRr,
           use_last_hl_sl: params.useLastHlSl,
           risk_dollars: params.riskPerTrade,
+          no_rr_req: params.noRrReq,
         });
         if (!out || !out.Valid) {
           if (isManual) rejected.push({ Symbol: t, Reason: 'NO_CLOSE_SIGNAL' });
@@ -160,8 +165,8 @@ export async function runScan(
           Entry: entryPx,
           Exit: round2(out.exit_price),
           'Position Size (shares)': posSize,
-          'RR at Entry': Number.isFinite(out.entry_rr) ? round2(out.entry_rr) : 0,
-          'RR at Close': Number.isFinite(out.close_rr) ? round2(out.close_rr) : 0,
+          'RR at Entry': fmtRr(out.entry_rr),
+          'RR at Close': fmtRr(out.close_rr),
           'Invested ($)': invested,
           'P&L ($)': round2(out.pnl_dollars),
           'P&L (%)': round2(out.pnl_pct),
@@ -176,12 +181,13 @@ export async function runScan(
           use_last_hl_sl: params.useLastHlSl,
           risk_dollars: params.riskPerTrade,
           direction: 'buy',
+          no_rr_req: params.noRrReq,
         });
         if (!out || !out.Valid) {
           if (isManual) {
             rejected.push({
               Symbol: t,
-              Reason: explainInvalidBuy(out, params.minRr),
+              Reason: explainInvalidBuy(out, params.minRr, params.noRrReq),
             });
           }
           continue;
@@ -201,7 +207,7 @@ export async function runScan(
           'Company Name': company,
           TP: round2(out.TP),
           SL: round2(out.SL),
-          RR: round2(out.RR),
+          RR: fmtRr(out.RR),
           'Position Size (shares)': posSize,
           'Position Value ($)': round2(posValue),
           New: out.New ? 1 : 0,
@@ -235,6 +241,7 @@ export function defaultScanParams(): ScanParams {
     manualTickers: 'AAPL, TSLA, NVDA',
     riskPerTrade: 100,
     minRr: 1.5,
+    noRrReq: false,
     scanDirection: 'buy',
     useLastHlSl: true,
     tf: 'Weekly' as Timeframe,

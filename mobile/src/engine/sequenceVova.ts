@@ -52,6 +52,7 @@ function pinePython(
   use_last_hl_sl: boolean,
   risk_dollars: number,
   direction_sell: boolean,
+  no_rr_req: boolean,
 ): PineResult {
   const n = c_a.length;
   let seq_state = 0;
@@ -68,7 +69,7 @@ function pinePython(
   let last_new = false;
   let last_strong = false;
   let last_sl = NaN_;
-  let last_rr = 0.0;
+  let last_rr = NaN_;
   let last_pos_size = NaN_;
   let last_pos_value = NaN_;
   let prev_bar_seq_low = l_a[0];
@@ -170,12 +171,13 @@ function pinePython(
       }
       const risk = sl - c;
       const reward = !isNaN_(last_confirmed_trough) ? c - last_confirmed_trough : 0.0;
-      rr = risk > 0 ? reward / risk : 0.0;
+      rr = risk > 0 ? reward / risk : NaN_;
       position_size = risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_;
       position_value = !isNaN_(position_size) ? position_size * c : NaN_;
 
-      valid_signal =
-        seq_state === -1 && struct_ok_sell && rr >= min_rr && risk > 0 && reward > 0;
+      valid_signal = no_rr_req
+        ? seq_state === -1 && struct_ok_sell
+        : seq_state === -1 && struct_ok_sell && rr >= min_rr && risk > 0 && reward > 0;
       new_signal = valid_signal && is_bullish_break;
       strong_signal =
         new_signal && !isNaN_(prev_bar_seq_high) && h >= prev_bar_seq_high;
@@ -204,11 +206,13 @@ function pinePython(
       }
       const risk = c - sl;
       const reward = !isNaN_(last_confirmed_peak) ? last_confirmed_peak - c : 0.0;
-      rr = risk > 0 ? reward / risk : 0.0;
+      rr = risk > 0 ? reward / risk : NaN_;
       position_size = risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_;
       position_value = !isNaN_(position_size) ? position_size * c : NaN_;
 
-      valid_signal = seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
+      valid_signal = no_rr_req
+        ? seq_state === 1 && struct_ok
+        : seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
       new_signal = valid_signal && is_bearish_break;
       strong_signal =
         new_signal && !isNaN_(prev_bar_seq_low) && l <= prev_bar_seq_low;
@@ -250,6 +254,7 @@ export function runSequenceVovaPine(
     use_last_hl_sl?: boolean;
     risk_dollars?: number;
     direction?: 'buy' | 'sell';
+    no_rr_req?: boolean;
   } = {},
 ): PineResult | null {
   if (bars.length < 2) return null;
@@ -264,6 +269,7 @@ export function runSequenceVovaPine(
     opts.use_last_hl_sl ?? true,
     opts.risk_dollars ?? 100,
     (opts.direction ?? 'buy') === 'sell',
+    opts.no_rr_req ?? false,
   );
 }
 
@@ -275,6 +281,7 @@ function closePython(
   min_rr: number,
   use_last_hl_sl: boolean,
   risk_dollars: number,
+  no_rr_req: boolean,
 ): CloseScanResult {
   const n = c_a.length;
   let seq_state = 0;
@@ -387,10 +394,11 @@ function closePython(
     }
     const risk = c - sl;
     const reward = !isNaN_(last_confirmed_peak) ? last_confirmed_peak - c : 0.0;
-    const rr = risk > 0 ? reward / risk : 0.0;
+    const rr = risk > 0 ? reward / risk : NaN_;
 
-    const valid_signal =
-      seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
+    const valid_signal = no_rr_req
+      ? seq_state === 1 && struct_ok
+      : seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
     const new_signal = valid_signal && is_bearish_break;
 
     if (new_signal && !position_open) {
@@ -458,6 +466,7 @@ export function runSequenceVovaCloseScan(
     min_rr?: number;
     use_last_hl_sl?: boolean;
     risk_dollars?: number;
+    no_rr_req?: boolean;
   } = {},
 ): CloseScanResult | null {
   if (bars.length < 2) return null;
@@ -471,6 +480,7 @@ export function runSequenceVovaCloseScan(
     opts.min_rr ?? 1.5,
     opts.use_last_hl_sl ?? true,
     opts.risk_dollars ?? 100,
+    opts.no_rr_req ?? false,
   );
 }
 
@@ -604,12 +614,18 @@ export function runStructureOverlay(
   };
 }
 
-export function explainInvalidBuy(pine: PineResult | null, min_rr = 1.5): string {
+export function explainInvalidBuy(
+  pine: PineResult | null,
+  min_rr = 1.5,
+  no_rr_req = false,
+): string {
   if (!pine) return 'NO_VALID_SIGNAL';
   if (!pine.Valid) {
     if (!pine.last_trough_was_hl) return 'NO_STRUCT_HL';
     if (!pine.last_peak_was_hh) return 'NO_STRUCT_HH';
-    if (pine.RR < min_rr) return `RR_TOO_LOW:${pine.RR.toFixed(2)}`;
+    if (!no_rr_req && Number.isFinite(pine.RR) && pine.RR < min_rr) {
+      return `RR_TOO_LOW:${pine.RR.toFixed(2)}`;
+    }
     return 'NO_VALID_SIGNAL';
   }
   return 'NO_VALID_SIGNAL';

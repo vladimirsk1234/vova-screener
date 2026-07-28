@@ -179,24 +179,32 @@ def build_trade_line(full: dict, params: IndicatorParams, bar_index_last: int) -
         sl = min(sl, last_trough)
     risk = close - sl
     reward = (last_peak - close) if last_peak is not None else 0.0
-    rr = (reward / risk) if risk > 0 else 0.0
-    valid = seq_ok and struct_ok and rr >= params.min_rr and risk > 0 and reward > 0
+    rr = (reward / risk) if risk > 0 else float("nan")
+    if params.no_rr_req:
+        valid = seq_ok and struct_ok
+    else:
+        valid = seq_ok and struct_ok and rr >= params.min_rr and risk > 0 and reward > 0
 
     bear = full.get("bearish_break")
     bearish_break_last = bool(bear[-1]) if bear is not None and len(bear) else False
     sig_idx = full.get("signal_bar_index")
 
+    def _rr_label(val: float) -> str:
+        if val != val:  # NaN
+            return "N/A"
+        return f"{val:.2f}"
+
     if valid and bearish_break_last:
-        return f"🆕 NEW | R/R: {rr:.2f}"
+        return f"🆕 NEW | R/R: {_rr_label(rr)}"
     if valid:
         bars_since = (bar_index_last - sig_idx) if sig_idx is not None else 0
-        return f"✅ VALID | R/R: {rr:.2f} | Bars {bars_since}"
+        return f"✅ VALID | R/R: {_rr_label(rr)} | Bars {bars_since}"
     debug = ""
     if not seq_ok:
         debug += "Seq❌ "
     if not struct_ok:
         debug += "Struct❌ "
-    if not debug and rr < params.min_rr:
+    if not params.no_rr_req and not debug and rr == rr and rr < params.min_rr:
         return f"❌ R/R too low: {rr:.2f} (need {params.min_rr:.2f})"
     if not debug:
         return "NO SETUP: Risk/Reward Invalid"
