@@ -25,9 +25,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite",
-      "expo-asset",
-      "expo-sharing"
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {

@@ -12,9 +12,37 @@ cd mobile
 npm start
 ```
 
-3. Scan the QR code with the Camera / Expo Go app (same Wi‑Fi as your PC).
+3. In Expo Go, tap **Enter URL manually** and type `exp://<your-pc-ip>:8081`
+   (this PC: `exp://192.168.1.113:8081`). The iPhone must be on the same Wi‑Fi/LAN as the PC.
 
 EAS project id: `57d9162f-b2bf-4549-906c-cfb4a63a3f77`
+
+## Troubleshooting "Request timed out" in Expo Go
+
+`npm start` runs `expo start --offline` on purpose. Without `--offline`, the CLI stops at an
+interactive prompt (`Log in` / `Proceed anonymously`, see expo.fyi/unverified-app-expo-go)
+because `app.json` carries an EAS `projectId` while no Expo account is logged in. While that
+prompt is waiting, the dev server never finishes serving and Expo Go reports a timeout.
+
+Checks, in order:
+
+1. **Is Metro up?** In a PC browser open `http://192.168.1.113:8081/status` — it must print
+   `packager-status:running`.
+2. **Can the phone reach the PC?** Open the same URL in iPhone Safari. Timeout here means the
+   phone is on a different subnet / has client isolation (common on corporate Wi‑Fi).
+   Fallback: enable iPhone **Personal Hotspot** and join it from the PC, then restart with
+   `REACT_NATIVE_PACKAGER_HOSTNAME=<pc-ip-on-hotspot>`.
+3. **Wrong LAN IP picked?** This PC has several adapters; only `192.168.1.113` (Ethernet 2)
+   is routable. Force it:
+
+```bash
+$env:REACT_NATIVE_PACKAGER_HOSTNAME="192.168.1.113"; npx expo start --offline
+```
+
+4. **QR code instead of manual URL:** log in once with `npx expo login`, then `npm run start:lan`.
+5. **`npm run start:tunnel` does not work on this network** — ngrok's endpoint fails TLS here
+   (corporate TLS inspection), so `expo start --tunnel` reports
+   `ngrok tunnel took too long to connect`. Use LAN or hotspot instead.
 
 ## What it does
 
