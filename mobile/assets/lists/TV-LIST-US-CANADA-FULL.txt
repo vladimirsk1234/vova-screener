@@ -1,0 +1,750 @@
+AMEX:AMBO|Ambow Education Holding Ltd.
+AMEX:APT|Alpha Pro Tech, Ltd.
+AMEX:AREN|The Arena Group Holdings, Inc.
+AMEX:ASM|Avino Silver & Gold Mines Ltd.
+AMEX:AWX|Avalon Holdings Corporation
+AMEX:AXIL|AXIL Brands, Inc.
+AMEX:BDL|Flanigan's Enterprises, Inc.
+AMEX:BHB|Bar Harbor Bankshares
+AMEX:BKTI|BK Technologies Corporation
+AMEX:BRBS|Blue Ridge Bankshares, Inc.
+AMEX:BTG|B2Gold Corp.
+AMEX:BUDA|Buda Juice, Inc.
+AMEX:CET|Central Securities Corporation
+AMEX:CIX|CompX International Inc.
+AMEX:CKX|CKX Lands, Inc.
+AMEX:CMT|Core Molding Technologies, Inc.
+AMEX:COHN|Cohen & Company Inc.
+NASDAQ:A|Agilent Technologies, Inc.
+NASDAQ:AA|Alcoa Corporation
+NASDAQ:AACB|Artius II Acquisition Inc.
+NASDAQ:AAL|American Airlines Group Inc.
+NASDAQ:AAME|Atlantic American Corporation
+NASDAQ:AAMI|Acadian Asset Management Inc.
+NASDAQ:AAON|AAON, Inc.
+NASDAQ:AAP|Advance Auto Parts, Inc.
+NASDAQ:AAPL|Apple Inc.
+NASDAQ:AAT|American Assets Trust, Inc.
+NASDAQ:ABBV|AbbVie Inc.
+NASDAQ:ABCB|Ameris Bancorp
+NASDAQ:ABG|Asbury Automotive Group, Inc.
+NASDAQ:ABM|ABM Industries Incorporated
+NASDAQ:ABNB|Airbnb, Inc.
+NASDAQ:ABR|Arbor Realty Trust, Inc.
+NASDAQ:ABT|Abbott Laboratories
+NASDAQ:ABUS|Arbutus Biopharma Corporation
+NASDAQ:ABX|Abacus Global Management, Inc.
+NASDAQ:ACA|Arcosa, Inc.
+NASDAQ:ACAD|ACADIA Pharmaceuticals Inc.
+NASDAQ:ACCO|ACCO Brands Corporation
+NASDAQ:ACEL|Accel Entertainment, Inc.
+NASDAQ:ACI|Albertsons Companies, Inc.
+NASDAQ:ACIW|ACI Worldwide, Inc.
+NASDAQ:ACLS|Axcelis Technologies, Inc.
+NASDAQ:ACM|AECOM
+NASDAQ:ACMR|ACM Research, Inc.
+NASDAQ:ACR|ACRES Commercial Realty Corp.
+NASDAQ:ACT|Enact Holdings, Inc.
+NASDAQ:AD|Array Digital Infrastructure, Inc.
+NASDAQ:ADAM|Adamas Trust, Inc.
+NASDAQ:ADBE|Adobe Inc.
+NASDAQ:ADC|Agree Realty Corporation
+NASDAQ:ADEA|Adeia Inc.
+NASDAQ:ADI|Analog Devices, Inc.
+NASDAQ:ADM|Archer-Daniels-Midland Company
+NASDAQ:ADMA|ADMA Biologics, Inc.
+NASDAQ:ADP|Automatic Data Processing, Inc.
+NASDAQ:ADSK|Autodesk, Inc.
+NASDAQ:ADT|ADT Inc.
+NASDAQ:ADUS|Addus HomeCare Corporation
+NASDAQ:AEE|Ameren Corporation
+NASDAQ:AEIS|Advanced Energy Industries, Inc.
+NASDAQ:AEM|Agnico Eagle Mines Limited
+NASDAQ:AEO|American Eagle Outfitters, Inc.
+NASDAQ:AEP|American Electric Power Company, Inc.
+NASDAQ:AES|The AES Corporation
+NASDAQ:AFG|American Financial Group, Inc.
+NASDAQ:AFJK|Aimei Health Technology Co., Ltd
+NASDAQ:AFL|Aflac Incorporated
+NASDAQ:AFRM|Affirm Holdings, Inc.
+NASDAQ:AG|First Majestic Silver Corp.
+NASDAQ:AGCO|AGCO Corporation
+NASDAQ:AGI|Alamos Gold Inc.
+NASDAQ:AGM|Federal Agricultural Mortgage Corporation
+NASDAQ:AGM.A|Federal Agricultural Mortgage Corporation
+NASDAQ:AGNC|AGNC Investment Corp.
+NASDAQ:AGX|Argan, Inc.
+NASDAQ:AGYS|Agilysys, Inc.
+NASDAQ:AHR|American Healthcare REIT, Inc.
+NASDAQ:AIG|American International Group, Inc.
+NASDAQ:AII|American Integrity Insurance Group, Inc.
+NASDAQ:AIR|AAR Corp.
+NASDAQ:AISP|Airship AI Holdings, Inc.
+NASDAQ:AIT|Applied Industrial Technologies, Inc.
+NASDAQ:AIV|Apartment Investment and Management Company
+NASDAQ:AIZ|Assurant, Inc.
+NASDAQ:AJG|Arthur J. Gallagher & Co.
+NASDAQ:AKAM|Akamai Technologies, Inc.
+NASDAQ:AKR|Acadia Realty Trust
+NASDAQ:ALAB|Astera Labs, Inc.
+NASDAQ:ALDF|Aldel Financial II Inc.
+NASDAQ:ALF|Centurion Acquisition Corp.
+NASDAQ:ALG|Alamo Group Inc.
+NASDAQ:ALGN|Align Technology, Inc.
+NASDAQ:ALH|Alliance Laundry Holdings Inc.
+NASDAQ:ALHC|Alignment Healthcare, Inc.
+NASDAQ:ALIS|Calisa Acquisition Corp
+NASDAQ:ALK|Alaska Air Group, Inc.
+NASDAQ:ALL|The Allstate Corporation
+NASDAQ:ALLY|Ally Financial Inc.
+NASDAQ:ALNT|Allient Inc.
+NASDAQ:ALNY|Alnylam Pharmaceuticals, Inc.
+NASDAQ:ALRM|Alarm.com Holdings, Inc.
+NASDAQ:ALSN|Allison Transmission Holdings, Inc.
+NASDAQ:ALX|Alexander's, Inc.
+NASDAQ:AM|Antero Midstream Corporation
+NASDAQ:AMAL|Amalgamated Financial Corp.
+NASDAQ:AMAT|Applied Materials, Inc.
+NASDAQ:AMCX|AMC Global Media Inc.
+NASDAQ:AMD|Advanced Micro Devices, Inc.
+NASDAQ:AME|AMETEK, Inc.
+NASDAQ:AMG|Affiliated Managers Group, Inc.
+NASDAQ:AMGN|Amgen Inc.
+NASDAQ:AMH|American Homes 4 Rent
+NASDAQ:AMKR|Amkor Technology, Inc.
+NASDAQ:AMP|Ameriprise Financial, Inc.
+NASDAQ:AMPH|Amphastar Pharmaceuticals, Inc.
+NASDAQ:AMPY|Amplify Energy Corp.
+NASDAQ:AMRC|Ameresco, Inc.
+NASDAQ:AMRX|Amneal Pharmaceuticals, Inc.
+NASDAQ:AMSC|American Superconductor Corporation
+NASDAQ:AMSF|AMERISAFE, Inc.
+NASDAQ:AMT|American Tower Corporation
+NASDAQ:AMTB|Amerant Bancorp Inc.
+NASDAQ:AMTM|Amentum Holdings, Inc.
+NASDAQ:AMZN|Amazon.com, Inc.
+NASDAQ:AN|AutoNation, Inc.
+NASDAQ:ANDE|The Andersons, Inc.
+NASDAQ:ANET|Arista Networks, Inc.
+NASDAQ:ANF|Abercrombie & Fitch Co.
+NASDAQ:ANGI|Angi Inc.
+NASDAQ:ANIP|ANI Pharmaceuticals, Inc.
+NASDAQ:ANSC|Agriculture & Natural Solutions Acquisition Corporation
+NASDAQ:AOMR|Angel Oak Mortgage REIT, Inc.
+NASDAQ:AORT|Artivion, Inc.
+NASDAQ:AOS|A. O. Smith Corporation
+NASDAQ:APA|APA Corporation
+NASDAQ:APAM|Artisan Partners Asset Management Inc.
+NASDAQ:APD|Air Products and Chemicals, Inc.
+NASDAQ:APEI|American Public Education, Inc.
+NASDAQ:APH|Amphenol Corporation
+NASDAQ:API|Agora, Inc.
+NASDAQ:APLE|Apple Hospitality REIT, Inc.
+NASDAQ:APO|Apollo Global Management, Inc.
+NASDAQ:APOG|Apogee Enterprises, Inc.
+NASDAQ:APP|AppLovin Corporation
+NASDAQ:APPF|AppFolio, Inc.
+NASDAQ:APPN|Appian Corporation
+NASDAQ:AQN|Algonquin Power & Utilities Corp.
+NASDAQ:AR|Antero Resources Corporation
+NASDAQ:ARCB|ArcBest Corporation
+NASDAQ:ARDT|Ardent Health, Inc.
+NASDAQ:ARES|Ares Management Corporation
+NASDAQ:ARHS|Arhaus, Inc.
+NASDAQ:ARI|Apollo Commercial Real Estate Finance, Inc.
+NASDAQ:ARIS|Aris Mining Corporation
+NASDAQ:ARL|American Realty Investors, Inc.
+NASDAQ:ARLO|Arlo Technologies, Inc.
+NASDAQ:ARMK|Aramark
+NASDAQ:AROC|Archrock, Inc.
+NASDAQ:AROW|Arrow Financial Corporation
+NASDAQ:ARTNA|Artesian Resources Corporation
+NASDAQ:ARW|Arrow Electronics, Inc.
+NASDAQ:ARXS|Arxis, Inc.
+NASDAQ:ASA|ASA Gold and Precious Metals Limited
+NASDAQ:ASB|Associated Banc-Corp
+NASDAQ:ASIC|Ategrity Specialty Insurance Company Holdings
+NASDAQ:ASIX|AdvanSix Inc.
+NASDAQ:ASMB|Assembly Biosciences, Inc.
+NASDAQ:ASO|Academy Sports and Outdoors, Inc.
+NASDAQ:ASRV|AmeriServ Financial, Inc.
+NASDAQ:ASTE|Astec Industries, Inc.
+NASDAQ:ASYS|Amtech Systems, Inc.
+NASDAQ:ATEN|A10 Networks, Inc.
+NASDAQ:ATI|ATI Inc.
+NASDAQ:ATII|Archimedes Tech SPAC Partners II Co.
+NASDAQ:ATLC|Atlanticus Holdings Corporation
+NASDAQ:ATMU|Atmus Filtration Technologies Inc.
+NASDAQ:ATO|Atmos Energy Corporation
+NASDAQ:ATR|AptarGroup, Inc.
+NASDAQ:ATRO|Astronics Corporation
+NASDAQ:ATS|ATS Corporation
+NASDAQ:AU|AngloGold Ashanti plc
+NASDAQ:AUB|Atlantic Union Bankshares Corporation
+NASDAQ:AUBN|Auburn National Bancorporation, Inc.
+NASDAQ:AUGO|Aura Minerals Inc.
+NASDAQ:AUPH|Aurinia Pharmaceuticals Inc.
+NASDAQ:AVA|Avista Corporation
+NASDAQ:AVAH|Aveanna Healthcare Holdings Inc.
+NASDAQ:AVB|AvalonBay Communities, Inc.
+NASDAQ:AVBC|Avidia Bancorp, Inc.
+NASDAQ:AVEX|AEVEX Corp.
+NASDAQ:AVGO|Broadcom Inc.
+NASDAQ:AVNT|Avient Corporation
+NASDAQ:AVNW|Aviat Networks, Inc.
+NASDAQ:AVO|Mission Produce, Inc.
+NASDAQ:AVPT|AvePoint, Inc.
+NASDAQ:AVT|Avnet, Inc.
+NASDAQ:AVY|Avery Dennison Corporation
+NASDAQ:AWI|Armstrong World Industries, Inc.
+NASDAQ:AWK|American Water Works Company, Inc.
+NASDAQ:AWR|American States Water Company
+NASDAQ:AX|Axos Financial, Inc.
+NASDAQ:AXON|Axon Enterprise, Inc.
+NASDAQ:AXP|American Express Company
+NASDAQ:AXR|AMREP Corporation
+NASDAQ:AXTA|Axalta Coating Systems Ltd.
+NASDAQ:AYA|Aya Gold & Silver Inc.
+NASDAQ:AYI|Acuity Inc.
+NASDAQ:AZO|AutoZone, Inc.
+NASDAQ:AZZ|AZZ Inc.
+NASDAQ:B|Barrick Mining Corporation
+NASDAQ:BA|The Boeing Company
+NASDAQ:BAC|Bank of America Corporation
+NASDAQ:BAH|Booz Allen Hamilton Holding Corporation
+NASDAQ:BALL|Ball Corporation
+NASDAQ:BAM|Brookfield Asset Management Ltd.
+NASDAQ:BANC|Banc of California, Inc.
+NASDAQ:BANF|BancFirst Corporation
+NASDAQ:BANR|Banner Corporation
+NASDAQ:BB|BlackBerry Limited
+NASDAQ:BBDC|Barings BDC, Inc.
+NASDAQ:BBN|BlackRock Taxable Municipal Bond Trust
+NASDAQ:BBSI|Barrett Business Services, Inc.
+NASDAQ:BBT|Beacon Financial Corporation
+NASDAQ:BBW|Build-A-Bear Workshop, Inc.
+NASDAQ:BBWI|Bath & Body Works, Inc.
+NASDAQ:BBY|Best Buy Co., Inc.
+NASDAQ:BCAT|BlackRock Capital Allocation Term Trust
+NASDAQ:BCC|Boise Cascade Company
+NASDAQ:BCE|BCE Inc.
+NASDAQ:BCG|Binah Capital Group, Inc.
+NASDAQ:BCML|BayCom Corp
+NASDAQ:BCO|The Brink's Company
+NASDAQ:BCPC|Balchem Corporation
+NASDAQ:BCSF|Bain Capital Specialty Finance, Inc.
+NASDAQ:BCX|Blackrock Resources & Commodities Strategy Trust
+NASDAQ:BDC|Belden Inc.
+NASDAQ:BDCI|BTC Development Corp.
+NASDAQ:BDJ|BlackRock Enhanced Equity Dividend Trust
+NASDAQ:BDX|Becton, Dickinson and Company
+NASDAQ:BEAG|Bold Eagle Acquisition Corp.
+NASDAQ:BELFA|Bel Fuse Inc.
+NASDAQ:BELFB|Bel Fuse Inc.
+NASDAQ:BEN|Franklin Resources, Inc.
+NASDAQ:BF.A|Brown-Forman Corporation
+NASDAQ:BF.B|Brown-Forman Corporation
+NASDAQ:BFAM|Bright Horizons Family Solutions Inc.
+NASDAQ:BFH|Bread Financial Holdings, Inc.
+NASDAQ:BFS|Saul Centers, Inc.
+NASDAQ:BFST|Business First Bancshares, Inc.
+NASDAQ:BG|Bunge Global SA
+NASDAQ:BGC|BGC Group, Inc.
+NASDAQ:BGR|BlackRock Energy and Resources Trust
+NASDAQ:BGSI|Boyd Group Services Inc.
+NASDAQ:BGT|BlackRock Floating Rate Income Trust
+NASDAQ:BGY|BlackRock Enhanced International Dividend Trust
+NASDAQ:BHE|Benchmark Electronics, Inc.
+NASDAQ:BIIB|Biogen Inc.
+NASDAQ:BIO|Bio-Rad Laboratories, Inc.
+NASDAQ:BIO.B|Bio-Rad Laboratories, Inc.
+NASDAQ:BIT|BlackRock Multi-Sector Income Trust
+NASDAQ:BJ|BJ's Wholesale Club Holdings, Inc.
+NASDAQ:BJRI|BJ's Restaurants, Inc.
+NASDAQ:BKE|The Buckle, Inc.
+NASDAQ:BKH|Black Hills Corporation
+NASDAQ:BKHA|Black Hawk Acquisition Corporation
+NASDAQ:BKNG|Booking Holdings Inc.
+NASDAQ:BKR|Baker Hughes Company
+NASDAQ:BKT|BlackRock Income Trust, Inc.
+NASDAQ:BKU|BankUnited, Inc.
+NASDAQ:BKV|BKV Corporation
+NASDAQ:BL|BlackLine, Inc.
+NASDAQ:BLBD|Blue Bird Corporation
+NASDAQ:BLD|TopBuild Corp.
+NASDAQ:BLDR|Builders FirstSource, Inc.
+NASDAQ:BLK|BlackRock, Inc.
+NASDAQ:BLKB|Blackbaud, Inc.
+NASDAQ:BLLN|BillionToOne, Inc.
+NASDAQ:BLMN|Bloomin' Brands, Inc.
+NASDAQ:BLUW|Blue Water Acquisition Corp. III
+NASDAQ:BLW|BlackRock Limited Duration Income Trust
+NASDAQ:BME|BlackRock Health Sciences Trust
+NASDAQ:BMEZ|BlackRock Health Sciences Term Trust
+NASDAQ:BMI|Badger Meter, Inc.
+NASDAQ:BMN|Blackrock 2037 Municipal Target Term Trust
+NASDAQ:BMO|Bank of Montreal
+NASDAQ:BMRN|BioMarin Pharmaceutical Inc.
+NASDAQ:BMY|Bristol-Myers Squibb Company
+NASDAQ:BN|Brookfield Corporation
+NASDAQ:BNL|Broadstone Net Lease, Inc.
+NASDAQ:BNS|The Bank of Nova Scotia
+NASDAQ:BNY|The Bank of New York Mellon Cor
+NASDAQ:BOBS|Bob's Discount Furniture, Inc.
+NASDAQ:BOE|BlackRock Enhanced Global Dividend Trust
+NASDAQ:BOH|Bank of Hawaii Corporation
+NASDAQ:BOKF|BOK Financial Corporation
+NASDAQ:BOOT|Boot Barn Holdings, Inc.
+NASDAQ:BOW|Bowhead Specialty Holdings Inc.
+NASDAQ:BOX|Box, Inc.
+NASDAQ:BPOP|Popular, Inc.
+NASDAQ:BPRN|Princeton Bancorp, Inc.
+NASDAQ:BR|Broadridge Financial Solutions, Inc.
+NASDAQ:BRBR|BellRing Brands, Inc.
+NASDAQ:BRC|Brady Corporation
+NASDAQ:BRK.A|Berkshire Hathaway Inc.
+NASDAQ:BRK.B|Berkshire Hathaway Inc.
+NASDAQ:BRO|Brown & Brown, Inc.
+NASDAQ:BROS|Dutch Bros Inc.
+NASDAQ:BRX|Brixmor Property Group Inc.
+NASDAQ:BSET|Bassett Furniture Industries, Incorporated
+NASDAQ:BSRR|Sierra Bancorp
+NASDAQ:BST|BlackRock Science and Technology Trust
+NASDAQ:BSTZ|BlackRock Science and Technology Term Trust
+NASDAQ:BSVN|Bank7 Corp.
+NASDAQ:BSX|Boston Scientific Corporation
+NASDAQ:BSY|Bentley Systems, Incorporated
+NASDAQ:BTMD|biote Corp.
+NASDAQ:BTSG|BrightSpring Health Services, Inc.
+NASDAQ:BTT|Blackrock Municipal 2030 Target Term Trust
+NASDAQ:BTX|BlackRock Innovation and Growth Term Trust
+NASDAQ:BTZ|BlackRock Credit Allocation Income Trust
+NASDAQ:BUI|BlackRock Utilities, Infrastructure & Power Opportunities Trust
+NASDAQ:BURL|Burlington Stores, Inc.
+NASDAQ:BUSE|First Busey Corporation
+NASDAQ:BV|BrightView Holdings, Inc.
+NASDAQ:BVS|Bioventus Inc.
+NASDAQ:BWA|BorgWarner Inc.
+NASDAQ:BWFG|Bankwell Financial Group, Inc.
+NASDAQ:BWMN|Bowman Consulting Group Ltd.
+NASDAQ:BWXT|BWX Technologies, Inc.
+NASDAQ:BX|Blackstone Inc.
+NASDAQ:BXMT|Blackstone Mortgage Trust, Inc.
+NASDAQ:BXP|BXP, Inc.
+NASDAQ:BY|Byline Bancorp, Inc.
+NASDAQ:BYD|Boyd Gaming Corporation
+NASDAQ:C|Citigroup Inc.
+NASDAQ:CAC|Camden National Corporation
+NASDAQ:CACC|Credit Acceptance Corporation
+NASDAQ:CACI|CACI International Inc
+NASDAQ:CAE|CAE Inc.
+NASDAQ:CAH|Cardinal Health, Inc.
+NASDAQ:CAKE|The Cheesecake Factory Incorporated
+NASDAQ:CALM|Cal-Maine Foods, Inc.
+NASDAQ:CALX|Calix, Inc.
+NASDAQ:CALY|Callaway Golf Company
+NASDAQ:CAPN|Cayson Acquisition Corp
+NASDAQ:CARE|Carter Bankshares, Inc.
+NASDAQ:CARG|CarGurus, Inc.
+NASDAQ:CARR|Carrier Global Corporation
+NASDAQ:CARS|Cars.com Inc.
+NASDAQ:CART|Maplebear Inc.
+NASDAQ:CASH|Pathward Financial, Inc.
+NASDAQ:CASS|Cass Information Systems, Inc.
+NASDAQ:CASY|Casey's General Stores, Inc.
+NASDAQ:CAT|Caterpillar Inc.
+NASDAQ:CATY|Cathay General Bancorp
+NASDAQ:CAVA|CAVA Group, Inc.
+NASDAQ:CBAN|Colony Bankcorp, Inc.
+NASDAQ:CBC|Central Bancompany, Inc.
+NASDAQ:CBFV|CB Financial Services, Inc.
+NASDAQ:CBL|CBL & Associates Properties, Inc.
+NASDAQ:CBNA|Chain Bridge Bancorp, Inc.
+NASDAQ:CBNK|Capital Bancorp, Inc.
+NASDAQ:CBOE|Cboe Global Markets, Inc.
+NASDAQ:CBRE|CBRE Group, Inc.
+NASDAQ:CBRS|Cerebras Systems Inc.
+NASDAQ:CBSH|Commerce Bancshares, Inc.
+NASDAQ:CBT|Cabot Corporation
+NASDAQ:CBU|Community Financial System, Inc.
+NASDAQ:CBZ|CBIZ, Inc.
+NASDAQ:CCAP|Crescent Capital BDC, Inc.
+NASDAQ:CCAQ|Collective Acquisition Corp.
+NASDAQ:CCB|Coastal Financial Corporation
+NASDAQ:CCBG|Capital City Bank Group, Inc.
+NASDAQ:CCC|CCC Intelligent Solutions Holdings Inc.
+NASDAQ:CCI|Crown Castle Inc.
+NASDAQ:CCII|Cohen Circle Acquisition Corp. II
+NASDAQ:CCIX|Churchill Capital Corp IX
+NASDAQ:CCJ|Cameco Corporation
+NASDAQ:CCK|Crown Holdings, Inc.
+NASDAQ:CCL|Carnival Corporation Ltd.
+NASDAQ:CCLD|CareCloud, Inc.
+NASDAQ:CCNE|CNB Financial Corporation
+NASDAQ:CCS|Century Communities, Inc.
+NASDAQ:CCSI|Consensus Cloud Solutions, Inc.
+NASDAQ:CDE|Coeur Mining, Inc.
+NASDAQ:CDNL|Cardinal Infrastructure Group Inc.
+NASDAQ:CDNS|Cadence Design Systems, Inc.
+NASDAQ:CDP|COPT Defense Properties
+NASDAQ:CDRE|Cadre Holdings, Inc.
+NASDAQ:CDW|CDW Corporation
+NASDAQ:CECO|CECO Environmental Corp.
+NASDAQ:CEG|Constellation Energy Corporation
+NASDAQ:CENT|Central Garden & Pet Company
+NASDAQ:CENTA|Central Garden & Pet Company
+NASDAQ:CENX|Century Aluminum Company
+NASDAQ:CEPF|Cantor Equity Partners IV, Inc.
+NASDAQ:CEPS|Cantor Equity Partners VI, Inc.
+NASDAQ:CEPT|Cantor Equity Partners II, Inc.
+NASDAQ:CEPV|Cantor Equity Partners V, Inc.
+NASDAQ:CF|CF Industries Holdings, Inc.
+NASDAQ:CFFI|C&F Financial Corporation
+NASDAQ:CFFN|Capitol Federal Financial, Inc.
+NASDAQ:CFG|Citizens Financial Group, Inc.
+NASDAQ:CFR|Cullen/Frost Bankers, Inc.
+NASDAQ:CG|The Carlyle Group Inc.
+NASDAQ:CGAU|Centerra Gold Inc.
+NASDAQ:CGCT|Cartesian Growth Corporation III
+NASDAQ:CGNX|Cognex Corporation
+NASDAQ:CHAR|Charlton Aria Acquisition Corporation
+NASDAQ:CHCO|City Holding Company
+NASDAQ:CHCT|Community Healthcare Trust Incorporated
+NASDAQ:CHD|Church & Dwight Co., Inc.
+NASDAQ:CHDN|Churchill Downs Incorporated
+NASDAQ:CHE|Chemed Corporation
+NASDAQ:CHEF|The Chefs' Warehouse, Inc.
+NASDAQ:CHH|Choice Hotels International, Inc.
+NASDAQ:CHMG|Chemung Financial Corporation
+NASDAQ:CHMI|Cherry Hill Mortgage Investment Corporation
+NASDAQ:CHPG|ChampionsGate Acquisition Corporation
+NASDAQ:CHRW|C.H. Robinson Worldwide, Inc.
+NASDAQ:CHTR|Charter Communications, Inc.
+NASDAQ:CHWY|Chewy, Inc.
+NASDAQ:CI|The Cigna Group
+NASDAQ:CIA|Citizens, Inc.
+NASDAQ:CIEN|Ciena Corporation
+NASDAQ:CIGI|Colliers International Group Inc.
+NASDAQ:CINF|Cincinnati Financial Corporation
+NASDAQ:CL|Colgate-Palmolive Company
+NASDAQ:CLB|Core Laboratories Inc.
+NASDAQ:CLBK|Columbia Financial, Inc.
+NASDAQ:CLDT|Chatham Lodging Trust
+NASDAQ:CLFD|Clearfield, Inc.
+NASDAQ:CLH|Clean Harbors, Inc.
+NASDAQ:CLMB|Climb Global Solutions, Inc.
+NASDAQ:CLS|Celestica Inc.
+NASDAQ:CLX|The Clorox Company
+NASDAQ:CM|Canadian Imperial Bank of Commerce
+NASDAQ:CMC|Commercial Metals Company
+NASDAQ:CMCSA|Comcast Corporation
+NASDAQ:CME|CME Group Inc.
+NASDAQ:CMG|Chipotle Mexican Grill, Inc.
+NASDAQ:CMI|Cummins Inc.
+NASDAQ:CMP|Compass Minerals International, Inc.
+NASDAQ:CMS|CMS Energy Corporation
+NASDAQ:CNA|CNA Financial Corporation
+NASDAQ:CNI|Canadian National Railway Company
+NASDAQ:CNK|Cinemark Holdings, Inc.
+NASDAQ:CNM|Core & Main, Inc.
+NASDAQ:CNMD|CONMED Corporation
+NASDAQ:CNO|CNO Financial Group, Inc.
+NASDAQ:CNOB|ConnectOne Bancorp, Inc.
+NASDAQ:CNP|CenterPoint Energy, Inc.
+NASDAQ:CNQ|Canadian Natural Resources Limited
+NASDAQ:CNS|Cohen & Steers, Inc.
+NASDAQ:CNX|CNX Resources Corporation
+NASDAQ:CNXN|PC Connection, Inc.
+NASDAQ:COCO|The Vita Coco Company, Inc.
+NASDAQ:COF|Capital One Financial Corporation
+NASDAQ:COHR|Coherent Corp.
+NASDAQ:COIN|Coinbase Global, Inc.
+NASDAQ:COKE|Coca-Cola Consolidated, Inc.
+NASDAQ:COLB|Columbia Banking System, Inc.
+NASDAQ:COLL|Collegium Pharmaceutical, Inc.
+NASDAQ:COLM|Columbia Sportswear Company
+NASDAQ:COMP|Compass, Inc.
+NASDAQ:CON|Concentra Group Holdings Parent, Inc.
+NASDAQ:COO|The Cooper Companies, Inc.
+NASDAQ:COP|ConocoPhillips
+NASDAQ:COR|Cencora, Inc.
+NASDAQ:COSO|CoastalSouth Bancshares, Inc.
+NASDAQ:COST|Costco Wholesale Corporation
+NASDAQ:CP|Canadian Pacific Kansas City Limited
+NASDAQ:CPAY|Corpay, Inc.
+NASDAQ:CPB|The Campbell's Company
+NASDAQ:CPF|Central Pacific Financial Corp.
+NASDAQ:CPK|Chesapeake Utilities Corporation
+NASDAQ:CPRT|Copart, Inc.
+NASDAQ:CPSS|Consumer Portfolio Services, Inc.
+NASDAQ:CPT|Camden Property Trust
+NASDAQ:CR|Crane Company
+NASDAQ:CRAI|CRA International, Inc.
+NASDAQ:CRAQ|Cal Redwood Acquisition Corp.
+NASDAQ:CRBG|Corebridge Financial, Inc.
+NASDAQ:CRCT|Cricut, Inc.
+NASDAQ:CRD.A|Crawford & Company
+NASDAQ:CRD.B|Crawford & Company
+NASDAQ:CRI|Carter's, Inc.
+NASDAQ:CRK|Comstock Resources, Inc.
+NASDAQ:CRM|Salesforce, Inc.
+TSX:AAV|Advantage Energy Ltd.
+TSX:ACO-X|ATCO Ltd.
+TSX:ACQ|AutoCanada Inc.
+TSX:ADN|Acadian Timber Corp.
+TSX:ADW-A|Andrew Peller Limited
+TSX:ADW-B|Andrew Peller Limited
+TSX:AKT-A|AKITA Drilling Ltd.
+TSX:ALA|AltaGas Ltd.
+TSX:ALS|Altius Minerals Corporation
+TSX:ANRG|Anaergia Inc.
+TSX:ATH|Athabasca Oil Corporation
+TSX:ATRL|AtkinsRéalis Group Inc.
+TSX:ATZ|Aritzia Inc.
+TSX:AW|A & W Food Services of Canada Inc.
+TSX:AYA|Aya Gold & Silver Inc.
+TSX:BAMI|Blue Ant Media Corporation
+TSX:BBD-A|Bombardier Inc.
+TSX:BBD-B|Bombardier Inc.
+TSX:BDGI|Badger Infrastructure Solutions Ltd.
+TSX:BDI|Black Diamond Group Limited
+TSX:BEK-B|The Becker Milk Company Limited
+TSX:BIR|Birchcliff Energy Ltd.
+TSX:BRY|Bri-Chem Corp.
+TSX:CCA|Cogeco Communications Inc.
+TSX:CCL-A|CCL Industries Inc.
+TSX:CCL-B|CCL Industries Inc.
+TSX:CFW|Calfrac Well Services Ltd.
+TSX:CGG|China Gold International Resources Corp. Ltd.
+TSX:CGY|Calian Group Ltd.
+TSX:CJ|Cardinal Energy Ltd.
+TSX:CJT|Cargojet Inc.
+TSX:CPH|Cipher Pharmaceuticals Inc.
+TSX:CPKR|CANADA PACKERS INC
+TSX:CRRX|CareRx Corporation
+TSX:CSU|Constellation Software Inc.
+TSX:CSW-A|Corby Spirit and Wine Limited
+TSX:CSW-B|Corby Spirit and Wine Limited
+TSX:CTC|Canadian Tire Corporation, Limited
+TSX:CTC-A|Canadian Tire Corporation, Limited
+TSX:CU|Canadian Utilities Limited
+TSX:CVG|Clairvest Group Inc.
+TSX:CWL|The Caldwell Partners International Inc.
+TSX:CYB|Cymbria Corporation
+TSX:DBM|Doman Building Materials Group Ltd.
+TSX:DC-A|Dundee Corporation
+TSX:DCM|DATA Communications Management Corp.
+TSX:DF|Dividend 15 Split Corp. II
+TSX:DFN|Dividend 15 Split Corp.
+TSX:DFY|Definity Financial Corporation
+TSX:DLCG|Dominion Lending Centres Inc.
+TSX:DNG|Dynacor Group Inc.
+TSX:DR|Medical Facilities Corporation
+TSX:DS|Dividend Select 15 Corp.
+TSX:DTOL|D2L Inc.
+TSX:DXT|Dexterra Group Inc.
+TSX:E|Enterprise Group, Inc.
+TSX:EFN|Element Fleet Management Corp.
+TSX:ELEF|Silver Elephant Mining Corp.
+TSX:EMP-A|Empire Company Limited
+TSX:ENGH|Enghouse Systems Limited
+TSX:EQB|EQB Inc.
+TSX:ERD|Erdene Resource Development Corporation
+TSX:FFH|Fairfax Financial Holdings Limited
+TSX:FFN|North American Financial 15 Split Corp.
+TSX:FRU|Freehold Royalties Ltd.
+TSX:FTG|Firan Technology Group Corporation
+TSX:FTN|Financial 15 Split Corp.
+TSX:FTT|Finning International Inc.
+TSX:FVI|Fortuna Mining Corp.
+TSX:GCU|Gunnison Copper Corp.
+TSX:GDL|Goodfellow Inc.
+TSX:GDV|Global Dividend Growth Split Corp.
+TSX:GEI|Gibson Energy Inc.
+TSX:GGD|GoGold Resources Inc.
+TSX:GIB-A|CGI Inc.
+TSX:GMIN|G Mining Ventures Corp.
+TSX:GMX|Globex Mining Enterprises Inc.
+TSX:GRGD|Groupe Dynamite Inc.
+TSX:GUD|Knight Therapeutics Inc.
+TSX:GVC|Glacier Media Inc.
+TSX:GWO|Great-West Lifeco Inc.
+TSX:HMM-A|Hammond Manufacturing Company Limited
+TSX:HPS-A|Hammond Power Solutions Inc.
+TSX:HWO|High Arctic Energy Services Inc
+TSX:HWX|Headwater Exploration Inc.
+TSX:ISC|Information Services Corporation
+TSX:IVN|Ivanhoe Mines Ltd.
+TSX:JOY|Journey Energy Inc.
+TSX:K|Kinross Gold Corporation
+TSX:KBL|K-Bro Linen Inc.
+TSX:KEI|Kolibri Global Energy Inc.
+TSX:KEL|Kelt Exploration Ltd.
+TSX:KITS|Kits Eyecare Ltd.
+TSX:KNT|K92 Mining Inc.
+TSX:KPT|KP Tissue Inc.
+TSX:KXS|Kinaxis Inc.
+TSX:LAS-A|Lassonde Industries Inc.
+TSX:LBS|Life & Banc Split Corp.
+TSX:LCFS|Tidewater Renewables Ltd.
+TSX:LFE|Canadian Life Companies Split Corp.
+TSX:LNF|Leon's Furniture Limited
+TSX:LNR|Linamar Corporation
+TSX:LUN|Lundin Mining Corporation
+TSX:MAL|Magellan Aerospace Corporation
+TSX:MATR|Mattr Corp.
+TSX:MEQ|Mainstreet Equity Corp.
+TSX:MKP|MCAN Mortgage Corporation
+TSX:MPC-C|Madison Pacific Properties Inc.
+TSX:MRD|Melcor Developments Ltd.
+TSX:MRE|Martinrea International Inc.
+TSX:MRU|Metro Inc.
+TSX:MSV|Minco Silver Corporation
+TSX:MTY|MTY Food Group Inc.
+TSX:MXG|Maxim Power Corp.
+TSX:NPS|CANADIAN LARGE CAP LEADERS SPLI
+TSX:NWC|The North West Company Inc.
+TSX:OGC|OceanaGold Corporation
+TSX:OGD|Orbit Garant Drilling Inc.
+TSX:OLA|Orla Mining Ltd.
+TSX:ONEX|Onex Corporation
+TSX:ORE|Orezone Gold Corporation
+TSX:PDV|Prime Dividend Corp.
+TSX:PHX|PHX Energy Services Corp.
+TSX:PIC-A|Premium Income Corporation
+TSX:PIF|Polaris Renewable Energy Inc.
+TSX:POU|Paramount Resources Ltd.
+TSX:PRL|Propel Holdings Inc.
+TSX:PSD|Pulse Seismic Inc.
+TSX:PWI|Power & Infrastructure Split Corp.
+TSX:PXT|Parex Resources Inc.
+TSX:QBR-A|Quebecor Inc.
+TSX:QBR-B|Quebecor Inc.
+TSX:RBY|Rubellite Energy Corp.
+TSX:RCI-A|Rogers Communications Inc.
+TSX:RCI-B|Rogers Communications Inc.
+TSX:RGSI|ROCKPOINT GAS STORAGE INC
+TSX:RIC|Richards Group Inc.
+TSX:RUS|Russel Metals Inc.
+TSX:SDE|Spartan Delta Corp.
+TSX:SGY|Surge Energy Inc.
+TSX:SHLE|Source Energy Services Ltd.
+TSX:SIA|Sienna Senior Living Inc.
+TSX:SOY|SunOpta Inc
+TSX:STCK|Stack Capital Group Inc.
+TSX:SXP|Supremex Inc.
+TSX:TCL-A|Transcontinental Inc.
+TSX:TCL-B|Transcontinental Inc.
+TSX:TCS|Tecsys Inc.
+TSX:TCW|Trican Well Service Ltd.
+TSX:TECK-A|Teck Resources Limited
+TSX:TECK-B|Teck Resources Limited
+TSX:TF|Timbercreek Financial Corp.
+TSX:TIH|Toromont Industries Ltd.
+TSX:TNZ|Tenaz Energy Corp.
+TSX:TOU|Tourmaline Oil Corp.
+TSX:TPZ|Topaz Energy Corp.
+TSX:TRZ|Transat A.T. Inc.
+TSX:TSU|Trisura Group Ltd.
+TSX:TVA-B|TVA Group Inc.
+TSX:TVK|TerraVest Industries Inc.
+TSX:TWC|TWC Enterprises Limited
+TSX:URB|Urbana Corporation
+TSX:URB-A|Urbana Corporation
+TSX:URC|Uranium Royalty Corp.
+TSX:VMET|Versamet Royalties Corporation
+TSX:VNP|5N Plus Inc.
+TSX:WCM-A|Wilmington Capital Management Inc.
+TSX:WCP|Whitecap Resources Inc.
+TSX:WDO|Wesdome Gold Mines Ltd.
+TSX:WJX|Wajax Corporation
+TSX:WN|George Weston Limited
+TSX:WPK|Winpak Ltd.
+TSX:X|TMX Group Limited
+TSX:XMF-A|M Split Corp.
+TSX:XTC|Exco Technologies Limited
+TSX:XTD|TDb Split Corp.
+TSX:Y|Yellow Pages Limited
+TSX:YGR|Yangarra Resources Ltd.
+TSXV:ARTG|Artemis Gold Inc.
+TSXV:AZM|Azimut Exploration Inc.
+TSXV:BCF|Builders Capital Mortgage Corp.
+TSXV:BEW|BeWhere Holdings Inc.
+TSXV:BQE|BQE Water Inc.
+TSXV:CCCM|C3 Metals Inc.
+TSXV:CCDS|Carrier Connect Data Solutions Inc.
+TSXV:CFY|CF Energy Corp.
+TSXV:CGD|Carlin Gold Corporation
+TSXV:CRD|Copper Road Resources Inc.
+TSXV:CSOC-A|Canso Select Opportunities Corporation
+TSXV:CSOC-B|Canso Select Opportunities Corporation
+TSXV:CTZ|NamSys Inc.
+TSXV:EDCU|Edge Copper Corporation
+TSXV:ELC|Elysee Development Corp.
+TSXV:ELL|Everybody Loves Languages Corp.
+TSXV:EON|Eon Lithium Corp.
+TSXV:EPL|Eagle Plains Resources Ltd.
+TSXV:ESBL|ESHBAL FUNCTIONAL FOOD INC
+TSXV:ESPN|Hispania Resources Inc.
+TSXV:FBF|Fab-Form Industries Ltd.
+TSXV:FFP|Consolidated Firstfund Capital Corp.
+TSXV:FNC|Fancamp Exploration Ltd.
+TSXV:FNR|49 North Resources Inc.
+TSXV:FW|Flow Capital Corp
+TSXV:GCOM|Green Shift Commodities Ltd.
+TSXV:GG|Golconda Gold Ltd.
+TSXV:HAM|Highwood Asset Management Ltd.
+TSXV:HASH|SIMPLY SOLVENTLESS CONCENTRATES
+TSXV:HME|Hemisphere Energy Corporation
+TSXV:HMT|Halmont Properties Corporation
+TSXV:INFI|Infinitum Copper Corp.
+TSXV:IRO|Inter-Rock Minerals Inc.
+TSXV:ITR|Integra Resources Corp.
+TSXV:JUMP|Leveljump Healthcare Corp.
+TSXV:LUXR|Luxor Metals Ltd.
+TSXV:MCM-A|Matachewan Consolidated Mines, Limited
+TSXV:MJS|Majestic Gold Corp.
+TSXV:MKO|Mako Mining Corp.
+TSXV:MMY|Monument Mining Limited
+TSXV:MT|M3 Metals Corp.
+TSXV:MTT|Magna Terra Minerals Inc.
+TSXV:NAM|New Age Metals Inc.
+TSXV:NFD-A|Northfield Capital Corporation
+TSXV:NOAL|NOA Lithium Brines Inc.
+TSXV:NURS|Hydreight Technologies Inc.
+TSXV:NVI|Novra Technologies Inc.
+TSXV:PKT|Parkit Enterprise Inc.
+TSXV:PRH|Pearl River Holdings Limited
+TSXV:PTFY|Plantify Foods, Inc.
+TSXV:REKO|Reko International Group Inc.
+TSXV:RMB|Rumbu Holdings Ltd.
+TSXV:RRI|Riverside Resources Inc.
+TSXV:RX|BioSyent Inc.
+TSXV:SAE|Sable Resources Ltd.
+TSXV:SQG|Spackman Equities Group Inc.
+TSXV:SRR|Source Rock Royalties Ltd.
+TSXV:SUGR|Sucro Limited
+TSXV:SUM|Summit Royalties Ltd.
+TSXV:TIE|Coloured Ties Capital Inc.
+TSXV:TM|Trigon Metals Inc
+TSXV:TNGD|Tiernan Gold Corp.
+TSXV:TORR|Torrent Capital Ltd.
+TSXV:TTZ|Total Telcom Inc.
+TSXV:TVI|TVI Pacific Inc.
+TSXV:UFC|Urbanfund Corp.
+TSXV:USHA|Usha Resources Ltd.
+TSXV:VAND|Largo Physical Vanadium Corp.
+TSXV:VCI|Vitreous Glass Inc.
+TSXV:VGD|Visible Gold Mines Inc.
+TSXV:VXL|Vaxil Bio Ltd.
+TSXV:VZZ|Val-d'Or Mining Corporation
+TSXV:WBE|WestBond Enterprises Corporation
+TSXV:WI|The Western Investment Company of Canada Limited
+TSXV:WRLG|West Red Lake Gold Mines Ltd.
+TSXV:WSK|Wildsky Resources Inc.
+TSXV:XGC|Xali Gold Corp.
+TSXV:XTM|Transition Metals Corp.
+TSXV:YOO|YANGAROO Inc.
+TSXV:ZC|Zimtu Capital Corp.
+TSXV:ZDC|Zedcor Inc.
+TSXV:ZOMD|Zoomd Technologies Ltd.

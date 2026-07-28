@@ -1,0 +1,842 @@
+NEO:FEQT|Fidelity All-in-One Equity ETF
+AMEX:ULTY|YieldMax Ultra Option Income Strategy ETF
+AMEX:XCEM|Columbia EM Core ex-China ETF
+AMEX:KLMN|Invesco MSCI North America Climate ETF
+AMEX:MSTY|Yieldmax MSTR Option Income Strategy ETF
+TSX:DMEC|Desjardins Canadian Equity Index ETF
+AMEX:KLMT|Invesco MSCI Global Climate 500 ETF
+TSX:FCUV.U|Fidelity U.S. Value ETF
+AMEX:EWA|iShares MSCI Australia ETF
+NEO:BGEQ|BMO Global Equity Fund Active ETF Series
+NASDAQ:TSLL|Direxion Daily TSLA Bull 2X Shares
+TSX:FCUQ.U|Fidelity U.S. High Quality ETF
+AMEX:GDXU|MicroSectors Gold Miners 3X Leveraged ETNs
+TSX:FCUQ|Fidelity U.S. High Quality ETF
+TSX:FCIQ.U|Fidelity International High Quality ETF
+TSX:XDV|iShares Canadian Select Dividend Index ETF
+AMEX:FDLO|Fidelity Low Volatility Factor ETF
+NEO:ZNQ|BMO NASDAQ 100 Equity Index ETF
+NASDAQ:FTC|First Trust Large Cap Growth AlphaDEX Fund
+AMEX:EWP|iShares MSCI Spain ETF
+AMEX:NVDY|YieldMax NVDA Option Income Strategy ETF
+AMEX:IXJ|iShares Global Healthcare ETF
+AMEX:NUGT|Direxion Daily Gold Miners Index Bull 2X Shares
+TSX:VUN|Vanguard U.S. Total Market Index ETF
+TSX:ZWB|BMO Covered Call Canadian Banks ETF
+CBOE:ARKG|ARK Genomic Revolution ETF
+NEO:ZNQ|BMO NASDAQ 100 Equity Index ETF
+AMEX:SOXL|Direxion Daily Semiconductor Bull 3X Shares
+TSX:TPU|TD U.S. Equity Index ETF
+AMEX:USD|ProShares Ultra Semiconductors
+AMEX:USO|United States Oil Fund, LP
+TSX:XEI|iShares S&P/TSX Composite High Dividend Index ETF
+NASDAQ:QQEW|First Trust Nasdaq-100 Select Equal Weight ETF
+AMEX:VIOV|Vanguard S&P Small-Cap 600 Value Index Fund ETF Shares
+CBOE:ECH|iShares MSCI Chile ETF
+AMEX:IWC|iShares Micro-Cap ETF
+TSX:HXS|Global X S&P 500 Corporate Class ETF
+AMEX:VGT|Vanguard Information Technology Index Fund ETF Shares
+NASDAQ:FTGS|First Trust Growth Strength ETF
+TSX:ZWB|BMO Covered Call Canadian Banks ETF
+AMEX:FXL|First Trust Technology AlphaDEX Fund
+TSX:VFV|Vanguard S&P 500 Index ETF
+AMEX:QUS|State Street SPDR MSCI USA StrategicFactors ETF
+TSX:XFH|1391
+TSX:XFH|1391
+NASDAQ:FYX|First Trust Small Cap Core AlphaDEX Fund
+AMEX:SFGV|EA Series Trust - Sequoia Global Value ETF
+TSX:HMAX|Hamilton Canadian Financials YIELD MAXIMIZER ETF
+AMEX:EQTY|Kovitz Core Equity ETF
+AMEX:RECS|Columbia Research Enhanced Core ETF
+TSX:XAW|iShares Core MSCI All Country World ex Canada Index ETF
+TSX:HXS.U|Global X S&P 500 Corporate Class ETF
+TSX:XGRO|iShares Core Growth ETF Portfolio
+CBOE:SMMD|iShares Russell 2500 ETF
+TSX:VCN|Vanguard FTSE Canada All Cap Index ETF
+NASDAQ:VTWG|Vanguard Russell 2000 Growth Index Fund ETF Shares
+AMEX:AKRE|Akre Focus ETF
+NASDAQ:FEX|First Trust Large Cap Core AlphaDEX Fund
+AMEX:OIH|VanEck Oil Services ETF
+NEO:ZWU|BMO Covered Call Utilities ETF
+NASDAQ:IUSV|iShares Core S&P U.S. Value ETF
+AMEX:FXO|First Trust Financials AlphaDEX Fund
+NASDAQ:SQQQ|ProShares UltraPro Short QQQ
+TSX:XBAL|iShares Core Balanced ETF Portfolio
+AMEX:IYY|iShares Dow Jones U.S. ETF
+TSX:ZCN|BMO S&P/TSX Capped Composite Index ETF
+NEO:VGG|Vanguard U.S. Dividend Appreciation Index ETF
+NEO:XFN|iShares S&P/TSX Capped Financials Index ETF
+AMEX:FMDE|Fidelity Enhanced Mid Cap Core ETF
+NASDAQ:FTA|First Trust Large Cap Value AlphaDEX Fund
+TSX:HXS|Global X S&P 500 Corporate Class ETF
+TSX:HXS.U|Global X S&P 500 Corporate Class ETF
+AMEX:DTD|WisdomTree U.S. Total Dividend Fund
+NEO:FCUL|Food Culture Inc.
+NASDAQ:PDP|Invesco Dorsey Wright Momentum ETF
+TSX:TTP|TD Canadian Equity Index ETF
+TSX:XAW|iShares Core MSCI All Country World ex Canada Index ETF
+TSX:VUN|Vanguard U.S. Total Market Index ETF
+AMEX:DON|WisdomTree U.S. MidCap Dividend Fund
+TSX:FCUQ|Fidelity U.S. High Quality ETF
+AMEX:SLYG|State Street SPDR S&P 600 Small Cap Growth ETF
+NASDAQ:USVM|VictoryShares US Small Mid Cap Value Momentum ETF
+NEO:NSCE|NBI Sustainable Canadian Equity ETF
+AMEX:PWV|Invesco Dynamic Large Cap Value ETF
+NASDAQ:PHO|Invesco Water Resources ETF
+NEO:SITU|Scotia U.S. Equity Index Tracker ETF
+AMEX:NUGO|Nuveen Growth Opportunities ETF
+AMEX:RWR|State Street SPDR Dow Jones REIT ETF
+NEO:XSP|iShares Core S&P 500 Index ETF (CAD-Hedged)
+CBOE:TILT|FlexShares Morningstar US Market Factors Tilt Index Fund
+CBOE:ACIO|Aptus Collared Investment Opportunity ETF
+AMEX:EWL|iShares MSCI Switzerland ETF
+CBOE:TMFC|Motley Fool 100 Index ETF
+AMEX:URTH|iShares MSCI World ETF
+TSX:HXT.U|Global X S&P/TSX 60 Corporate Class ETF
+AMEX:HACK|Amplify Cybersecurity ETF
+NASDAQ:PABU|iShares Paris-Aligned Climate Optimized MSCI USA ETF
+NYSE:STRV|Strive 500 ETF
+NEO:ZDV|BMO Canadian Dividend ETF
+NEO:ZDV|BMO Canadian Dividend ETF
+AMEX:DSTL|Distillate U.S. Fundamental Stability & Value ETF
+AMEX:FVD|First Trust Value Line Dividend Index Fund
+AMEX:RWJ|Invesco S&P SmallCap 600 Revenue ETF
+NASDAQ:XT|iShares Future Exponential Technologies ETF
+AMEX:FCOM|Fidelity MSCI Communication Services Index ETF
+NASDAQ:FNX|First Trust Mid Cap Core AlphaDEX Fund
+NEO:VXC|Vanguard FTSE Global All Cap ex Canada Index ETF
+NEO:XUU|iShares Core S&P U.S. Total Market Index ETF
+TSX:ZEB|BMO Equal Weight Banks Index ETF
+TSX:VGRO|Virtus Silvant Growth Opportunities ETF
+TSX:XDV|iShares Canadian Select Dividend Index ETF
+AMEX:BBMC|JPMorgan BetaBuilders U.S. Mid Cap Equity ETF
+AMEX:USRT|iShares Core U.S. REIT ETF
+NASDAQ:USCL|Ishares Climate Conscious & Transition MSCI USA ETF
+AMEX:IAI|iShares U.S. Broker-Dealers & Securities Exchanges ETF
+NEO:XFN|iShares S&P/TSX Capped Financials Index ETF
+TSX:VSP|Vanguard S&P 500 Index ETF (CAD-hedged)
+NEO:XSP|iShares Core S&P 500 Index ETF (CAD-Hedged)
+AMEX:IYF|iShares U.S. Financials ETF
+AMEX:USCA|Xtrackers MSCI USA Climate Action Equity ETF
+TSX:HHL|Harvest Healthcare Leaders Income ETF
+AMEX:IJJ|iShares S&P Mid-Cap 400 Value ETF
+NEO:FCUL.U|Fidelity U.S. Low Volatility ETF
+AMEX:ILCG|iShares Morningstar Growth ETF
+AMEX:FNDA|Schwab Fundamental U.S. Small Company ETF
+TSX:XBAL|iShares Core Balanced ETF Portfolio
+NASDAQ:ONEQ|Fidelity Nasdaq Composite Index ETF
+TSX:VEQT|Vanguard All-Equity ETF Portfolio
+AMEX:RSPT|Invesco S&P 500 Equal Weight Technology ETF
+NASDAQ:SMH|VanEck Semiconductor ETF
+CBOE:IYJ|iShares U.S. Industrials ETF
+AMEX:IWO|iShares Russell 2000 Growth ETF
+AMEX:KBE|State Street SPDR S&P Bank ETF
+AMEX:APUE|ActivePassive U.S. Equity ETF
+CBOE:BBRE|JPMorgan BetaBuilders MSCI U.S. REIT ETF
+NASDAQ:VTWV|Vanguard Russell 2000 Value Index Fund ETF Shares
+AMEX:EMLP|First Trust North American Energy Infrastructure Fund
+AMEX:FSTA|Fidelity MSCI Consumer Staples Index ETF
+AMEX:SH|ProShares Short S&P500
+AMEX:FNCL|Fidelity MSCI Financials Index ETF
+AMEX:IVOO|Vanguard S&P Mid-Cap 400 Index Fund ETF Shares
+AMEX:FESM|Fidelity Enhanced Small Cap Core ETF
+AMEX:FREL|Fidelity MSCI Real Estate Index ETF
+AMEX:XMMO|Invesco S&P MidCap Momentum ETF
+TSX:VSP|Vanguard S&P 500 Index ETF (CAD-hedged)
+AMEX:PPA|Invesco Aerospace & Defense ETF
+NEO:QUU|Mackenzie US Large Cap Equity Index ETF
+AMEX:TDVG|T. Rowe Price Dividend Growth ETF
+TSX:XUS|iShares Core S&P 500 Index ETF
+AMEX:PSI|Invesco Semiconductors ETF
+NEO:FCNS|Fidelity All-in-One Conservative ETF
+TSX:XQQ|iShares NASDAQ 100 Index ETF (CAD-Hedged)
+NEO:XTOT|iShares Core S&P Total U.S. Stock Market Index ETF
+AMEX:FIW|First Trust Water ETF
+NEO:XWD|iShares MSCI World Index ETF
+AMEX:IYG|iShares U.S. Financial Services ETF
+AMEX:IWP|iShares Russell Mid-Cap Growth ETF
+AMEX:VPU|Vanguard Utilities Index Fund ETF Shares
+TSX:XEQT|iShares Core Equity ETF Portfolio
+NEO:ZWU|BMO Covered Call Utilities ETF
+AMEX:GUSA|Goldman Sachs MarketBeta U.S. 1000 Equity ETF
+AMEX:SDY|State Street SPDR S&P Dividend ETF
+AMEX:VB|Vanguard Small-Cap Index Fund ETF Shares
+CBOE:PTLC|Pacer Trendpilot US Large Cap ETF
+AMEX:IXN|iShares Global Tech ETF
+AMEX:SPHD|Invesco S&P 500 High Dividend Low Volatility ETF
+CBOE:ICF|iShares Select U.S. REIT ETF
+NASDAQ:SOXQ|Invesco PHLX Semiconductor ETF
+CBOE:ITA|iShares U.S. Aerospace & Defense ETF
+AMEX:DSI|iShares ESG MSCI KLD 400 ETF
+NASDAQ:JPEF|JPMorgan Equity Focus ETF
+NASDAQ:PTNQ|Pacer Trendpilot 100 ETF
+TSX:VEE|Vanguard FTSE Emerging Markets All Cap Index ETF
+CBOE:OMFL|Invesco Russell 1000 Dynamic Multifactor ETF
+AMEX:VFH|Vanguard Financials Index Fund ETF Shares
+AMEX:XLE|State Street Energy Select Sector SPDR ETF
+AMEX:SUSA|iShares ESG Optimized MSCI USA ETF
+AMEX:VOT|Vanguard Mid-Cap Growth Index Fund ETF Shares
+AMEX:IDU|iShares U.S. Utilities ETF
+NASDAQ:CATH|Global X S&P 500 Catholic Values ETF
+NASDAQ:SOXX|iShares Semiconductor ETF
+AMEX:DFSU|Dimensional US Sustainability Core 1 ETF
+TSX:HMAX|Hamilton Canadian Financials YIELD MAXIMIZER ETF
+NASDAQ:VTHR|Vanguard Russell 3000 Index Fund ETF Shares
+CBOE:EFG|iShares MSCI EAFE Growth ETF
+AMEX:IWY|iShares Russell Top 200 Growth ETF
+AMEX:VBK|Vanguard Small-Cap Growth Index Fund ETF Shares
+AMEX:ILCB|iShares Morningstar U.S. Equity ETF
+NASDAQ:TDIV|First Trust NASDAQ Technology Dividend Index Fund
+AMEX:SLYV|State Street SPDR S&P 600 Small Cap Value ETF
+AMEX:FQAL|Fidelity Quality Factor ETF
+NASDAQ:PPH|VanEck Pharmaceutical ETF
+CBOE:CALF|Pacer US Small Cap Cash Cows 100 ETF
+AMEX:IYC|iShares US Consumer Discretionary ETF
+AMEX:IWN|iShares Russell 2000 Value ETF
+AMEX:FDIS|Fidelity MSCI Consumer Discretionary Index ETF
+AMEX:FAS|Direxion Daily Financial Bull 3X Shares
+AMEX:RSSL|Global X Russell 2000 ETF
+TSX:QDX|Mackenzie International Equity Index ETF
+TSX:XIC|iShares Core S&P/TSX Capped Composite Index ETF
+AMEX:XLB|State Street Materials Select Sector SPDR ETF
+NASDAQ:BSVO|EA Bridgeway Omni Small-Cap Value ETF
+CBOE:VLUE|iShares MSCI USA Value Factor ETF
+NASDAQ:QQQI|NEOS NASDAQ-100(R) High Income ETF
+AMEX:VDC|Vanguard Consumer Staples Index Fund ETF Shares
+NASDAQ:GGLL|Direxion Daily GOOGL Bull 2X Shares
+NASDAQ:COWG|Pacer US Large Cap Cash Cows Growth Leaders ETF
+NASDAQ:SUSL|iShares ESG MSCI USA Leaders ETF
+AMEX:XNTK|State Street SPDR NYSE Technology ETF
+TSX:VFV|Vanguard S&P 500 Index ETF
+AMEX:XLU|State Street Utilities Select Sector SPDR ETF
+CBOE:QUAL|iShares MSCI USA Quality Factor ETF
+NEO:XUU|iShares Core S&P U.S. Total Market Index ETF
+AMEX:AOA|iShares Core 80/20 Aggressive Allocation ETF
+AMEX:GSLC|Goldman Sachs ActiveBeta U.S. Large Cap Equity ETF
+AMEX:TSPA|T. Rowe Price US Equity Research ETF
+AMEX:IJH|iShares Core S&P Mid-Cap ETF
+CBOE:COWZ|Pacer US Cash Cows 100 ETF
+TSX:VBAL|3212
+AMEX:QDF|FlexShares Quality Dividend Index Fund
+AMEX:IYW|iShares U.S. Technology ETF
+AMEX:VV|Vanguard Large Cap Index Fund
+AMEX:HDV|iShares Core High Dividend ETF
+AMEX:AVUS|Avantis US Equity ETF
+TSX:ZLU|BMO Low Volatility US Equity ETF (CAD)
+AMEX:IYM|iShares U.S. Basic Materials ETF
+AMEX:VOE|Vanguard Mid-Cap Value Index Fund ETF Shares
+NASDAQ:MUU|Direxion Daily MU Bull 2X Shares
+AMEX:XLK|State Street Technology Select Sector SPDR ETF
+NASDAQ:USXF|iShares ESG Advanced MSCI USA ETF
+AMEX:IWS|iShares Russell Mid-Cap Value ETF
+AMEX:QGRO|American Century U.S. Quality Growth ETF
+NASDAQ:PRFZ|Invesco RAFI US 1500 Small-Mid ETF
+AMEX:SPLV|Invesco S&P 500 Low Volatility ETF
+AMEX:XME|State Street SPDR S&P Metals & Mining ETF
+AMEX:FHLC|Fidelity MSCI Health Care Index ETF
+AMEX:DIA|State Street SPDR Dow Jones Industrial Average ETF Trust
+AMEX:IWF|iShares Russell 1000 Growth ETF
+AMEX:RSP|Invesco S&P 500 Equal Weight ETF
+AMEX:XLI|State Street Industrial Select Sector SPDR ETF
+CBOE:NULG|Nuveen ESG Large-Cap Growth ETF
+AMEX:DFAR|Dimensional US Real Estate ETF
+CBOE:MOAT|VanEck Morningstar Wide Moat ETF
+AMEX:IVE|iShares S&P 500 Value ETF
+AMEX:JMOM|JPMorgan U.S. Momentum Factor ETF
+AMEX:SCHD|Schwab U.S. Dividend Equity ETF
+NYSE:WINN|Harbor Long-Term Growers ETF
+CBOE:PAVE|Global X U.S. Infrastructure Development ETF
+AMEX:MGV|Vanguard Mega Cap Value Index Fund
+AMEX:IGM|iShares Expanded Tech Sector ETF
+AMEX:XOP|State Street SPDR S&P Oil & Gas Exploration & Production ETF
+AMEX:IHI|iShares U.S. Medical Devices ETF
+NASDAQ:BAFE|Brown Advisory Flexible Equity ETF
+NEO:XTOT|iShares Core S&P Total U.S. Stock Market Index ETF
+NASDAQ:FTCS|First Trust Capital Strength ETF
+AMEX:DFUS|Dimensional U.S. Equity Market ETF
+NASDAQ:BDVL|iShares Disciplined Volatility Equity Active ETF
+CBOE:FLQL|Franklin U.S. Large Cap Multifactor Index ETF
+NASDAQ:TQQQ|ProShares UltraPro QQQ
+NASDAQ:FV|First Trust Dorsey Wright Focus 5 ETF
+AMEX:QVML|Invesco S&P 500 QVM Multi-factor ETF
+NEO:ZQQ|BMO Nasdaq 100 Equity Hedged to CAD Index ETF
+AMEX:FNGU|MicroSectors FANG+ 3X Leveraged
+CBOE:ITB|iShares U.S. Home Construction ETF
+TSX:VDY|Vanguard FTSE Canadian High Dividend Yield Index ETF
+AMEX:XSD|State Street SPDR S&P Semiconductor ETF
+NEO:HXT|Global X S&P/TSX 60 Corporate Class ETF
+AMEX:VHT|Vanguard Health Care Index Fund ETF Shares
+AMEX:IJR|iShares Core S&P Small-Cap ETF
+AMEX:IMCB|iShares Morningstar Mid-Cap ETF
+AMEX:VUG|Vanguard Growth Index Fund ETF Shares
+AMEX:VIG|Vanguard Dividend Appreciation Index Fund ETF Shares
+TSX:VEE|Vanguard FTSE Emerging Markets All Cap Index ETF
+AMEX:SPHQ|Invesco S&P 500 Quality ETF
+AMEX:USPX|Franklin U.S. Equity Index ETF
+TSX:QQC|Simplify Nasdaq 100 plus convexity ETF
+NEO:ZSP|BMO S&P 500 Index ETF (CAD)
+NEO:FBAL|Fidelity All-in-One Balanced ETF
+AMEX:KRE|State Street SPDR S&P Regional Banking ETF
+TSX:VEQT|Vanguard All-Equity ETF Portfolio
+NEO:ZSP.U|BMO S&P 500 Index ETF (USD)
+AMEX:QLD|ProShares Ultra QQQ
+CBOE:ESGV|Vanguard ESG U.S. Stock ETF
+AMEX:LCTU|iShares U.S. Carbon Transition Readiness Aware Active ETF
+NASDAQ:VONG|Vanguard Russell 1000 Growth Index Fund ETF Shares
+AMEX:XLG|Invesco S&P 500 Top 50 ETF
+TSX:VGRO|Virtus Silvant Growth Opportunities ETF
+AMEX:LRGF|iShares U.S. Equity Factor ETF
+NASDAQ:SDVY|First Trust SMID Cap Rising Dividend Achievers ETF
+AMEX:SPYM|State Street SPDR Portfolio S&P 500 ETF
+AMEX:XBI|State Street SPDR S&P Biotech ETF
+AMEX:VOX|Vanguard Communication Services Index Fund ETF Shares
+AMEX:ARTY|iShares Future AI & Tech ETF
+AMEX:VNQ|Vanguard Real Estate Index Fund ETF Shares
+CBOE:MTUM|iShares MSCI USA Momentum Factor ETF
+NASDAQ:NVDL|GraniteShares 2x Long NVDA Daily ETF
+AMEX:MDY|State Street SPDR S&P MIDCAP 400 ETF Trust
+NEO:XDIV|Roundhill S&P 500 No Dividend Target ETF
+NEO:XDIV|Roundhill S&P 500 No Dividend Target ETF
+AMEX:VTI|Vanguard Total Stock Market Index Fund ETF Shares
+TSX:XQQ|iShares NASDAQ 100 Index ETF (CAD-Hedged)
+TSX:FCUV.U|Fidelity U.S. Value ETF
+TSX:ZEB|BMO Equal Weight Banks Index ETF
+NASDAQ:VONE|Vanguard Russell 1000 Index Fund ETF Shares
+AMEX:VYM|Vanguard High Dividend Yield Index Fund ETF Shares
+CBOE:NUSC|Nuveen ESG Small-Cap ETF
+AMEX:XLY|State Street Consumer Discretionary Select Sector SPDR ETF
+NASDAQ:QQQ|Invesco QQQ Trust
+TSX:XGRO|iShares Core Growth ETF Portfolio
+NASDAQ:CIBR|First Trust NASDAQ Cybersecurity ETF
+AMEX:MLPX|Global X MLP & Energy Infrastructure ETF
+NASDAQ:QQQM|Invesco NASDAQ 100 ETF
+AMEX:XLP|State Street Consumer Staples Select Sector SPDR ETF
+AMEX:SDOG|ALPS Sector Dividend Dogs ETF
+AMEX:HELO|Jpmorgan Hedged Equity Laddered Overlay ETF
+NEO:ZSP|BMO S&P 500 Index ETF (CAD)
+AMEX:IQLT|iShares MSCI Intl Quality Factor ETF
+NEO:VXC|Vanguard FTSE Global All Cap ex Canada Index ETF
+AMEX:PWB|Invesco Dynamic Large Cap Growth ETF
+AMEX:JQUA|JPMorgan U.S. Quality Factor ETF
+AMEX:AVLV|Avantis US Large Cap Value ETF
+AMEX:VOO|Vanguard S&P 500 ETF
+NASDAQ:PKW|Invesco BuyBack Achievers ETF
+CBOE:BBUS|JPMorgan BetaBuilders U.S. Equity ETF
+AMEX:DFLV|Dimensional US Large Cap Value ETF
+AMEX:DFAW|Dimensional World Equity ETF
+CBOE:NOBL|ProShares S&P 500 Dividend Aristocrats ETF
+NASDAQ:QQQE|Direxion NASDAQ-100 Equal Weighted Index Shares
+CBOE:ESML|iShares ESG Aware MSCI USA Small-Cap ETF
+AMEX:IWD|iShares Russell 1000 Value ETF
+AMEX:RPG|Invesco S&P 500 Pure Growth ETF
+CBOE:ARKQ|ARK Autonomous Technology & Robotics ETF
+AMEX:IVW|iShares S&P 500 Growth ETF
+AMEX:IXC|iShares Global Energy ETF
+NEO:VGG|Vanguard U.S. Dividend Appreciation Index ETF
+NEO:QUU|Mackenzie US Large Cap Equity Index ETF
+AMEX:GRNY|Fundstrat Granny Shots US Large Cap ETF
+NASDAQ:GPIQ|Goldman Sachs Nasdaq-100 Premium Income ETF
+NASDAQ:DGRW|WisdomTree U.S. Quality Dividend Growth Fund
+TSX:VBAL|3212
+AMEX:SPMD|State Street SPDR Portfolio S&P 400 Mid Cap ETF
+NASDAQ:QTEC|First Trust NASDAQ-100-Technology Sector Index Fund
+AMEX:IYE|iShares U.S. Energy ETF
+AMEX:IWM|iShares Russell 2000 ETF
+AMEX:FENY|Fidelity MSCI Energy Index ETF
+NEO:ZUE|BMO S&P 500 Hedged to CAD Index ETF
+NEO:ZUE|BMO S&P 500 Hedged to CAD Index ETF
+AMEX:IWR|iShares Russell Mid-Cap ETF
+NEO:ZSP.U|BMO S&P 500 Index ETF (USD)
+CBOE:GSUS|Goldman Sachs MarketBeta US Equity ETF
+AMEX:SPYD|State Street SPDR Portfolio S&P 500 High Dividend ETF
+AMEX:XHB|State Street SPDR S&P Homebuilders ETF
+AMEX:JHML|John Hancock Multifactor Large Cap ETF
+AMEX:IVV|iShares Core S&P 500 ETF
+AMEX:LGLV|State Street SPDR US Large Cap Low Volatility Index ETF
+NASDAQ:DVY|iShares Select Dividend ETF
+AMEX:AOR|iShares Core 60/40 Balanced Allocation ETF
+AMEX:IJK|iShares S&P Mid-Cap 400 Growth ETF
+AMEX:CRBN|iShares Low Carbon Optimized MSCI ACWI ETF
+NASDAQ:PEY|Invesco High Yield Equity Dividend Achievers ETF
+AMEX:FUTY|Fidelity MSCI Utilities Index ETF
+AMEX:TGRT|T. Rowe Price Growth ETF
+NASDAQ:EUFN|iShares MSCI Europe Financials ETF
+CBOE:HEFA|iShares Currency Hedged MSCI EAFE ETF
+TSX:QCN|Mackenzie Canadian Equity Index ETF
+AMEX:XLF|State Street Financial Select Sector SPDR ETF
+CBOE:ARKK|ARK Innovation ETF
+AMEX:DFAT|Dimensional U.S. Targeted Value ETF
+NASDAQ:KBWB|Invesco KBW Bank ETF
+AMEX:VTV|Vanguard Value Index Fund ETF Shares
+NEO:ZLB|BMO Low Volatility Canadian Equity ETF
+TSX:FCUV|Focus Universal Inc.
+NASDAQ:ESGD|iShares ESG Aware MSCI EAFE ETF
+NASDAQ:ESGU|iShares ESG Aware MSCI USA ETF
+NEO:DMEU|Desjardins American Equity Index ETF
+NEO:DMEU|Desjardins American Equity Index ETF
+AMEX:IWL|iShares Russell Top 200 ETF
+TSX:XEG|iShares S&P/TSX Capped Energy Index ETF
+CBOE:SPYI|Neos S&P 500(R) High Income ETF
+TSX:TTP|TD Canadian Equity Index ETF
+AMEX:IYR|iShares U.S. Real Estate ETF
+AMEX:ITOT|iShares Core S&P Total U.S. Stock Market ETF
+AMEX:VDE|Vanguard Energy Index Fund ETF Shares
+NASDAQ:RDVY|First Trust Rising Dividend Achievers ETF
+NEO:WXM|WF International Limited
+AMEX:SPY|State Street SPDR S&P 500 ETF Trust
+AMEX:JAVA|JPMorgan Active Value ETF
+AMEX:IEUR|iShares Core MSCI Europe ETF
+AMEX:FTEC|Fidelity MSCI Information Technology Index ETF
+TSX:ZLU|BMO Low Volatility US Equity ETF (CAD)
+AMEX:DYNF|iShares U.S. Equity Factor Rotation Active ETF
+AMEX:IWX|iShares Russell Top 200 Value ETF
+CBOE:FLQM|Franklin U.S. Mid Cap Multifactor Index ETF
+AMEX:RPV|Invesco S&P 500 Pure Value ETF
+AMEX:SPYX|State Street SPDR S&P 500 Fossil Fuel Reserves Free ETF
+CBOE:PBUS|Invesco MSCI USA ETF
+AMEX:AVLC|Avantis U.S. Large Cap Equity E
+AMEX:DUHP|Dimensional US High Profitability ETF
+TSX:XEQT|iShares Core Equity ETF Portfolio
+AMEX:THRO|iShares U.S. Thematic Rotation Active ETF
+NASDAQ:PSC|Principal U.S. Small-Cap ETF
+AMEX:VO|Vanguard Mid-Cap Index Fund ETF Shares
+AMEX:VOOG|Vanguard S&P 500 Growth Index Fund ETF Shares
+AMEX:DFUV|Dimensional US Marketwide Value ETF
+AMEX:VBR|Vanguard Small-Cap Value Index Fund ETF Shares
+AMEX:XSMO|Invesco S&P SmallCap Momentum ETF
+AMEX:SCHM|Schwab U.S. Mid-Cap ETF
+NASDAQ:VONV|Vanguard Russell 1000 Value Index Fund ETF Shares
+NASDAQ:AIRR|First Trust RBA American Industrial RenaissanceTM ETF
+TSX:XUS|iShares Core S&P 500 Index ETF
+CBOE:BBCA|JPMorgan BetaBuilders Canada ETF
+AMEX:DLN|WisdomTree U.S. LargeCap Dividend Fund
+NASDAQ:IBB|iShares Biotechnology ETF
+AMEX:DFAC|Dimensional U.S. Core Equity 2 ETF
+AMEX:IWB|iShares Russell 1000 ETF
+TSX:VCE|Vanguard FTSE Canada Index ETF
+TSX:VCE|Vanguard FTSE Canada Index ETF
+AMEX:CGGR|Capital Group Growth ETF
+AMEX:XMHQ|Invesco S&P MidCap Quality ETF
+TSX:DMEC|Desjardins Canadian Equity Index ETF
+NEO:FGRO|Fidelity Fundamental Large Cap Growth ETF
+AMEX:PRF|Invesco RAFI US 1000 ETF
+AMEX:SCHG|Schwab U.S. Large-Cap Growth ETF
+AMEX:FELC|Fidelity Enhanced Large Cap Core ETF
+TSX:VDY|Vanguard FTSE Canadian High Dividend Yield Index ETF
+TSX:XIU|iShares S&P/TSX 60 Index ETF
+AMEX:XLV|State Street Health Care Select Sector SPDR ETF
+NEO:XWD|iShares MSCI World Index ETF
+AMEX:VAW|Vanguard Materials Index Fund ETF Shares
+AMEX:VGK|Vanguard FTSE Europe ETF
+AMEX:FDL|First Trust Morningstar Dividend Leaders Index Fund
+AMEX:VCR|Vanguard Consumer Discretionary Index Fund ETF Shares
+AMEX:JEPI|JPMorgan Equity Premium Income ETF
+AMEX:MDYV|State Street SPDR S&P 400 Mid Cap Value ETF
+NASDAQ:JEPQ|JPMorgan Nasdaq Equity Premium Income ETF
+AMEX:FNDX|Schwab Fundamental U.S. Large Company ETF
+AMEX:ILCV|iShares Morningstar Value ETF
+AMEX:FEZ|State Street SPDR EURO STOXX 50 ETF
+AMEX:DFSV|Dimensional US Small Cap Value ETF
+AMEX:HDEF|Xtrackers MSCI EAFE High Dividend Yield Equity ETF
+CBOE:DRSK|Aptus Defined Risk ETF
+AMEX:SSO|ProShares Ultra S&P500
+AMEX:SPYG|State Street SPDR Portfolio S&P 500 Growth ETF
+AMEX:SPMO|Invesco S&P 500 Momentum ETF
+AMEX:MGC|Vanguard Mega Cap Index Fund
+AMEX:MDYG|State Street SPDR S&P 400 Mid Cap Growth ETF
+NASDAQ:AIA|iShares Asia 50 ETF
+AMEX:IWV|iShares Russell 3000 ETF
+AMEX:RWL|Invesco S&P 500 Revenue ETF
+NASDAQ:FTXL|First Trust Nasdaq Semiconductor ETF
+AMEX:SPXL|Direxion Daily S&P500 Bull 3X Shares
+AMEX:SCHX|Schwab U.S. Large-Cap ETF
+TSX:TQCD|TD Q Canadian Dividend ETF
+AMEX:OUNZ|VanEck Merk Gold Trust
+TSX:TPU|TD U.S. Equity Index ETF
+NASDAQ:VTWO|Vanguard Russell 2000 Index Fund ETF Shares
+AMEX:VOOV|Vanguard S&P 500 Value Index Fund ETF Shares
+TSX:XEI|iShares S&P/TSX Composite High Dividend Index ETF
+AMEX:SCHB|Schwab U.S. Broad Market ETF
+AMEX:IYK|iShares US Consumer Staples ETF
+AMEX:FBT|First Trust NYSE Arca Biotechnology Index Fund
+AMEX:SPYV|State Street SPDR Portfolio S&P 500 Value ETF
+AMEX:DGRO|iShares Core Dividend Growth ETF
+AMEX:AVUV|Avantis US Small Cap Value ETF
+NASDAQ:IJT|iShares S&P Small-Cap 600 Growth ETF
+CBOE:IYT|iShares Transportation Average ETF
+AMEX:DFAU|Dimensional US Core Equity Market ETF
+CBOE:IFRA|iShares U.S. Infrastructure ETF
+AMEX:QGRW|Wisdomtree U.S. Quality Growth Fund
+AMEX:FDN|First Trust Dow Jones Internet Index Fund
+NASDAQ:IUSG|iShares Core S&P U.S. Growth ETF
+AMEX:EWC|iShares MSCI Canada ETF
+AMEX:IMCG|iShares Morningstar Mid-Cap Growth ETF
+CBOE:USMV|iShares MSCI USA Min Vol Factor ETF
+AMEX:VIOO|Vanguard S&P Small-Cap 600 Index Fund ETF Shares
+AMEX:VXF|Vanguard Extended Market Index Fund ETF Shares
+AMEX:XLC|State Street Communication Services Select Sector SPDR ETF
+NASDAQ:SKYY|First Trust Cloud Computing ETF
+AMEX:XLRE|State Street Real Estate Select Sector SPDR ETF
+CBOE:DIVB|iShares Core Dividend ETF
+CBOE:REGL|ProShares S&P MidCap 400 Dividend Aristocrats ETF
+AMEX:TCHP|T. Rowe Price Blue Chip Growth ETF
+NASDAQ:IMCV|iShares Morningstar Mid-Cap Value ETF
+AMEX:SPUS|SP Funds S&P 500 Sharia Industry Exclusions ETF
+AMEX:SPSM|State Street SPDR Portfolio S&P 600 Small Cap ETF
+AMEX:SCHH|Schwab U.S. REIT ETF
+AMEX:IJS|iShares S&P Small-Cap 600 Value ETF
+AMEX:JGRO|JPMorgan Active Growth ETF
+NASDAQ:VFLO|Victoryshares Free Cash Flow ETF
+AMEX:BKLC|BNY Mellon US Large Cap Core Equity ETF
+NEO:FCMO.U|Fidelity U.S. Momentum ETF
+AMEX:EPS|WisdomTree U.S. LargeCap Fund
+TSX:XIC|iShares Core S&P/TSX Capped Composite Index ETF
+CBOE:SEIV|SEI Enhanced US Large Cap Value Factor ETF
+AMEX:SPGP|Invesco S&P 500 GARP ETF
+AMEX:AVSC|Avantis US Small Cap Equity ETF
+AMEX:SNPE|Xtrackers S&P 500 Scored & Screened ETF
+AMEX:SPTM|State Street SPDR Portfolio S&P 1500 Composite Stock Market ETF
+AMEX:UPRO|ProShares UltraPro S&P500
+AMEX:UTES|Virtus Reaves Utilities ETF
+NEO:FCMO|Fidelity U.S. Momentum ETF
+AMEX:CGUS|Capital Group Core Equity ETF
+NEO:HXT|Global X S&P/TSX 60 Corporate Class ETF
+NEO:ZQQ|BMO Nasdaq 100 Equity Hedged to CAD Index ETF
+TSX:VCN|Vanguard FTSE Canada All Cap Index ETF
+AMEX:XAR|State Street SPDR S&P Aerospace & Defense ETF
+CBOE:GARP|iShares Trust - iShares MSCI USA Quality GARP ETF
+AMEX:KOMP|State Street SPDR S&P Kensho New Economies Composite ETF
+NEO:HXCN|Global X S&P/TSX Capped Composite Index Corporate Class ETF
+NEO:HXCN|Global X S&P/TSX Capped Composite Index Corporate Class ETF
+CBOE:BBEU|JPMorgan BetaBuilders Europe ETF
+AMEX:IHE|iShares U.S. Pharmaceuticals ETF
+AMEX:JHMM|John Hancock Multifactor Mid Cap ETF
+NASDAQ:VIGI|Vanguard International Dividend Appreciation Index Fund ETF Shares
+CBOE:IGV|iShares Expanded Tech-Software Sector ETF
+AMEX:VIS|Vanguard Industrials Index Fund ETF Shares
+CBOE:ARKW|ARK Next Generation Internet ETF
+CBOE:VFMO|Vanguard U.S. Momentum Factor ETF ETF Shares
+TSX:XIU|iShares S&P/TSX 60 Index ETF
+TSX:ZCN|BMO S&P/TSX Capped Composite Index ETF
+AMEX:MGK|Vanguard Mega Cap Growth Index Fund
+CBOE:ACWV|iShares MSCI Global Min Vol Factor ETF
+TSX:QQC|Simplify Nasdaq 100 plus convexity ETF
+AMEX:SILJ|Amplify Junior Silver Miners ETF
+NASDAQ:QYLD|Global X NASDAQ 100 Covered Call ETF
+AMEX:FIDU|Fidelity MSCI Industrials Index ETF
+NASDAQ:JGLO|Jpmorgan Global Select Equity ETF
+NEO:ZLB|BMO Low Volatility Canadian Equity ETF
+AMEX:EUSA|iShares MSCI USA Equal Weighted ETF
+AMEX:WTV|WisdomTree U.S. Value Fund
+CBOE:NULV|Nuveen ESG Large-Cap Value ETF
+AMEX:BAI|iShares A.I. Innovation and Tech Active ETF
+AMEX:CGMM|Capital Group U.S. Small and Mid Cap ETF
+AMEX:FELV|Fidelity Enhanced Large Cap Value ETF
+AMEX:OEF|iShares S&P 100 ETF
+AMEX:SCHK|Schwab 1000 ETF
+NASDAQ:USMC|Principal U.S. Mega-Cap ETF
+AMEX:IVOG|Vanguard S&P Mid-Cap 400 Growth Index Fund ETF Shares
+AMEX:SMIG|Bahl & Gaynor Small/Mid Cap Income Growth ETF
+AMEX:FELG|Fidelity Enhanced Large Cap Growth ETF
+AMEX:IEV|iShares Europe ETF
+AMEX:FDVV|Fidelity High Dividend ETF
+CBOE:SEIM|SEI Enhanced US Large Cap Momentum Factor ETF
+AMEX:SCHV|Schwab U.S. Large-Cap Value ETF
+CBOE:SECT|Main Sector Rotation ETF
+AMEX:DIVO|Amplify CWP Enhanced Dividend Income ETF
+AMEX:SCHA|Schwab U.S. Small-Cap ETF
+AMEX:DFAS|Dimensional U.S. Small Cap ETF
+TSX:XEG|iShares S&P/TSX Capped Energy Index ETF
+CBOE:FBCG|Fidelity Blue Chip Growth ETF
+AMEX:EWG|iShares MSCI Germany ETF
+CBOE:BUYW|Main Buywrite ETF
+TSX:ZWC|BMO CA High Dividend Covered Call ETF
+AMEX:FNDB|Schwab Fundamental U.S. Broad Market ETF
+NASDAQ:JTEK|JPMorgan U.S. Tech Leaders ETF
+AMEX:JMEE|JPMorgan Small & Mid Cap Enhanced Equity ETF
+AMEX:OAKM|Oakmark U.S. Large Cap ETF
+CBOE:FFSM|Fidelity Covington Trust - Fidelity Fundamental Small-Mid Cap ETF
+AMEX:APIE|ActivePassive International Equity ETF
+AMEX:TCAF|T. Rowe Price Capital Appreciation Equity ETF
+AMEX:IYH|iShares U.S. Healthcare ETF
+AMEX:XYLD|Global X S&P 500 Covered Call ETF
+AMEX:SMLF|iShares U.S. Small-Cap Equity Factor ETF
+TSX:TQCD|TD Q Canadian Dividend ETF
+AMEX:DES|WisdomTree U.S. SmallCap Dividend Fund
+AMEX:REET|iShares Global REIT ETF
+NEO:ZDM|BMO MSCI EAFE Hedged to CAD Index ETF
+AMEX:MSLC|Morgan Stanley Pathway Large Cap Equity ETF
+AMEX:TNA|Direxion Daily Small Cap Bull 3X Shares
+AMEX:IOO|iShares Global 100 ETF
+NEO:NSCE|NBI Sustainable Canadian Equity ETF
+CBOE:SLVP|iShares MSCI Global Silver and Metals Miners ETF
+TSX:TEC|Harbor Transformative Technologies ETF
+AMEX:CGCV|Capital Group Conservative Equity ETF
+TSX:QCN|Mackenzie Canadian Equity Index ETF
+AMEX:CGDV|Capital Group Dividend Value ETF
+AMEX:QLTY|GMO U.S. Quality ETF
+AMEX:DCOR|Dimensional US Core Equity 1 ETF
+AMEX:TECL|Direxion Daily Technology Bull 3X Shares
+CBOE:BBIN|JPMorgan BetaBuilders International Equity ETF
+AMEX:FPX|First Trust US Equity Opportunities ETF
+NEO:EQL|ALPS Equal Sector Weight ETF
+CBOE:GSEW|Goldman Sachs Equal Weight U.S. Large Cap Equity ETF
+AMEX:DHS|WisdomTree U.S. High Dividend Fund
+AMEX:MISL|First Trust Indxx Aerospace & Defense ETF
+AMEX:CGBL|Capital Group Core Balanced ETF
+TSX:XIN|iShares MSCI EAFE Index ETF (CAD-Hedged)
+TSX:XIN|iShares MSCI EAFE Index ETF (CAD-Hedged)
+AMEX:EQWL|Invesco S&P 100 Equal Weight ETF
+TSX:TEC|Harbor Transformative Technologies ETF
+AMEX:EWW|iShares MSCI Mexico ETF
+TSX:FCUV|Focus Universal Inc.
+AMEX:BULZ|MicroSectors Solactive FANG Innovation 3X Leveraged ETNs
+AMEX:BIZD|VanEck BDC Income ETF
+AMEX:IVOV|Vanguard S&P Mid-Cap 400 Value Index Fund ETF Shares
+AMEX:FVAL|Fidelity Value Factor ETF
+NEO:EQL|ALPS Equal Sector Weight ETF
+NASDAQ:GPIX|Goldman Sachs S&P 500 Premium Income ETF
+NEO:FINN.U|Fidelity Global Innovators ETF
+NASDAQ:XOVR|ERShares Private-Public Crossover ETF
+CBOE:EUAD|Select STOXX Europe Aerospace & Defense ETF
+AMEX:NTSX|WisdomTree U.S. Efficient Core Fund
+AMEX:DLS|WisdomTree International SmallCap Dividend Fund
+AMEX:SOXS|Direxion Daily Semiconductor Bear 3X Shares
+AMEX:HEDJ|WisdomTree Europe Hedged Equity Fund
+NEO:XGD|iShares S&P/TSX Global Gold Index ETF
+AMEX:VT|Vanguard Total World Stock Index Fund ETF Shares
+NEO:ZEA|BMO MSCI EAFE Index ETF
+NEO:ZEA|BMO MSCI EAFE Index ETF
+AMEX:DBC|Invesco DB Commodity Index Tracking Fund
+AMEX:PVAL|Putnam Focused Large Cap Value ETF
+NASDAQ:FTHI|First Trust BuyWrite Income ETF
+AMEX:EFA|iShares MSCI EAFE ETF
+AMEX:BLOK|Amplify Blockchain Technology ETF
+AMEX:KXI|iShares Global Consumer Staples ETF
+NASDAQ:VXUS|Vanguard Total International Stock Index Fund ETF Shares
+AMEX:SHLD|Global X Defense Tech ETF
+CBOE:MAGS|Roundhill Magnificent Seven ETF
+AMEX:AOM|iShares Core 40/60 Moderate Allocation ETF
+AMEX:NFRA|FlexShares STOXX Global Broad Infrastructure Index Fund
+AMEX:AMLP|Alerian MLP ETF
+AMEX:AVDE|Avantis International Equity ETF
+AMEX:FSMD|Fidelity Small-Mid Multifactor ETF
+CBOE:FFLC|Fidelity Covington Trust - Fidelity Fundamental Large Cap Core ETF
+NASDAQ:ACWI|iShares MSCI ACWI ETF
+NEO:WXM|WF International Limited
+AMEX:GDX|VanEck Gold Miners ETF
+CBOE:EZU|iShares MSCI Eurozone ETF
+NEO:ZDM|BMO MSCI EAFE Hedged to CAD Index ETF
+AMEX:IMTM|iShares MSCI Intl Momentum Factor ETF
+AMEX:JIRE|JPMorgan International Research Enhanced Equity ETF
+AMEX:DFGR|Dimensional Global Real Estate ETF
+AMEX:RWK|Invesco S&P MidCap 400 Revenue ETF
+NASDAQ:IXUS|iShares Core MSCI Total International Stock ETF
+AMEX:GNR|State Street SPDR S&P Global Natural Resources ETF
+AMEX:EAGL|Eagle Capital Select Equity ETF
+AMEX:IDEV|iShares Core MSCI International Developed Markets ETF
+AMEX:VEA|Vanguard FTSE Developed Markets Index Fund ETF Shares
+CBOE:BBAX|JPMorgan BetaBuilders Developed Asia Pacific ex-Japan ETF
+CBOE:ISPY|ProShares S&P 500 High Income ETF
+AMEX:INFL|Horizon Kinetics Inflation Beneficiaries ETF
+CBOE:GSWO|Goldman Sachs ETF Trust - Goldman Sachs ActiveBeta World Equity ETF
+AMEX:SPGM|State Street SPDR Portfolio MSCI Global Stock Market ETF
+NEO:XGD|iShares S&P/TSX Global Gold Index ETF
+AMEX:RYLD|Global X Russell 2000 Covered Call ETF
+CBOE:EFAV|iShares MSCI EAFE Min Vol Factor ETF
+AMEX:INCM|Franklin Income Focus ETF
+CBOE:IGRO|iShares International Dividend Growth ETF
+NEO:FINN|Fidelity Global Innovators ETF
+TSX:TGED|TD Active Global Enhanced Dividend ETF
+NASDAQ:IGF|iShares Global Infrastructure ETF
+AMEX:CGDG|Capital Group Dividend Growers ETF
+NASDAQ:PWRD|TCW Transform Systems ETF
+TSX:QDX|Mackenzie International Equity Index ETF
+NASDAQ:SCZ|iShares MSCI EAFE Small-Cap ETF
+AMEX:PXF|Invesco RAFI Developed Markets ex-U.S. ETF
+AMEX:VPL|Vanguard FTSE Pacific Index Fund ETF Shares
+AMEX:VEU|Vanguard FTSE All-World ex-US Index Fund ETF Shares
+CBOE:EFV|iShares MSCI EAFE Value ETF
+NASDAQ:PDBC|Invesco Optimum Yield Diversified Commodity Strategy No K-1 ETF
+CBOE:PICK|iShares MSCI Global Metals & Mining Producers ETF
+AMEX:AVDV|Avantis International Small Cap Value ETF
+NASDAQ:RING|iShares MSCI Global Gold Miners ETF
+CBOE:IEFA|iShares Core MSCI EAFE ETF
+AMEX:EWT|iShares MSCI Taiwan ETF
+AMEX:IDVO|Amplify CWP International Enhanced Dividend Income ETF
+NASDAQ:BDYN|iShares Dynamic Equity Active ETF
+NASDAQ:FTGC|First Trust Global Tactical Commodity Strategy Fund
+NASDAQ:EMXC|iShares MSCI Emerging Markets ex China ETF
+AMEX:EWZ|iShares MSCI Brazil ETF
+AMEX:QDPL|Pacer Metaurus US Large Cap Dividend Multiplier 400 ETF
+AMEX:AVIV|Avantis International Large Cap Value ETF
+AMEX:EXI|iShares Global Industrials ETF
+NASDAQ:AAXJ|iShares MSCI All Country Asia ex Japan ETF
+CBOE:DUSA|Davis Select U.S. Equity ETF
+CBOE:IDV|iShares International Select Dividend ETF
+AMEX:BCI|abrdn Bloomberg All Commodity Strategy K-1 Free ETF
+AMEX:INTF|iShares International Equity Factor ETF
+AMEX:ILF|iShares Latin America 40 ETF
+AMEX:GDXJ|VanEck Junior Gold Miners ETF
+AMEX:NLR|VanEck Uranium and Nuclear ETF
+NASDAQ:ACWX|iShares MSCI ACWI ex U.S. ETF
+AMEX:TAN|Invesco Solar ETF
+AMEX:IDMO|Invesco S&P International Developed Momentum ETF
+CBOE:DIHP|Dimensional International High Profitability ETF
+AMEX:TMSL|T. Rowe Price Small-Mid Cap ETF
+NASDAQ:MCHI|iShares MSCI China ETF
+AMEX:EPP|iShares MSCI Pacific ex Japan ETF
+AMEX:MLPA|Global X MLP ETF
+AMEX:DBEF|Xtrackers MSCI EAFE Hedged Equity ETF
+TSX:TGED|TD Active Global Enhanced Dividend ETF
+AMEX:IVLU|iShares Edge MSCI Intl Value Factor ETF
+AMEX:EIPI|FT Energy Income Partners Enhanced Income ETF
+NASDAQ:DTCR|Global X Data Center & Digital Infrastructure ETF
+NASDAQ:ESGE|iShares ESG Aware MSCI EM ETF
+AMEX:CGGE|Capital Group Global Equity ETF
+AMEX:CGGO|Capital Group Global Growth Equity ETF
+NASDAQ:QTUM|Defiance Quantum ETF
+NASDAQ:EEMA|iShares MSCI Emerging Markets Asia ETF
+CBOE:GCOW|Pacer Global Cash Cows Dividend ETF
+AMEX:RWO|State Street SPDR Dow Jones Global Real Estate ETF
+AMEX:RODM|Hartford Multifactor Developed Markets (ex-US) ETF
+AMEX:IHDG|WisdomTree International Hedged Quality Dividend Growth Fund
+AMEX:EWJ|iShares MSCI Japan ETF
+TSX:HHL|Harvest Healthcare Leaders Income ETF
+NEO:DMEI|Desjardins International Equity Index ETF
+NEO:DMEI|Desjardins International Equity Index ETF
+CBOE:BBJP|JPMorgan BetaBuilders Japan ETF
+CBOE:EEMV|iShares MSCI Emerging Markets Min Vol Factor ETF
+AMEX:EEM|iShares MSCI Emerging Markets ETF
+AMEX:QEFA|State Street SPDR MSCI EAFE StrategicFactors ETF
+CBOE:DFIC|Dimensional International Core Equity 2 ETF
+AMEX:SCHC|Schwab International Small-Cap Equity ETF
+NASDAQ:ICLN|iShares Global Clean Energy ETF
+NASDAQ:VYMI|Vanguard International High Dividend Yield Index Fund ETF Shares
+NASDAQ:GRID|First Trust NASDAQ Clean Edge Smart Grid Infrastructure Index Fund
+AMEX:SDIV|Global X SuperDividend ETF
+AMEX:SPDW|State Street SPDR Portfolio Developed World ex-US ETF
+AMEX:DFAI|Dimensional International Core Equity Market ETF
+AMEX:FWD|AB Disruptors ETF
+AMEX:EWU|iShares MSCI United Kingdom ETF
+AMEX:URNM|Sprott Uranium Miners ETF
+AMEX:CGW|Invesco S&P Global Water Index ETF
+AMEX:IPAC|iShares Core MSCI Pacific ETF
+NYSE:HGER|Harbor Commodity All-Weather Strategy ETF
+AMEX:GSIE|Goldman Sachs ActiveBeta International Equity ETF
+NASDAQ:JIVE|Jpmorgan International Value ETF
+AMEX:TOUS|T. Rowe Price International Equity ETF
+AMEX:CQQQ|Invesco China Technology ETF
+AMEX:BKIE|BNY Mellon International Equity ETF
+AMEX:SIL|Global X Silver Miners ETF
+CBOE:DFIS|Dimensional International Small Cap ETF
+TSX:NREA|NBI Global Real Assets Income Fund ETF
+CBOE:LVHI|Franklin International Low Volatility High Dividend Index ETF
+AMEX:IEMG|iShares Core MSCI Emerging Markets ETF
+AMEX:HAUZ|Xtrackers International Real Estate ETF
+CBOE:DISV|Dimensional International Small Cap Value ETF
+CBOE:VSGX|Vanguard ESG International Stock ETF
+AMEX:FNDC|Schwab Fundamental International Small Equity ETF
+AMEX:DIVI|Franklin International Core Dividend Tilt Index ETF
+NASDAQ:AIQ|Global X Artificial Intelligence & Technology ETF
+AMEX:DFSI|Dimensional International Sustainability Core 1 ETF
+AMEX:DFIV|Dimensional International Value ETF
+AMEX:PXH|Invesco RAFI Emerging Markets ETF
+AMEX:JHMD|John Hancock Multifactor Developed International ETF
+AMEX:VWO|Vanguard Emerging Markets Stock Index Fund
+NYSE:FEGE|First Eagle Global Equity ETF
+AMEX:CGIE|Capital Group International Equity ETF
+AMEX:REMX|VanEck Rare Earth and Strategic Metals ETF
+NASDAQ:VNQI|Vanguard Global ex-U.S. Real Estate Index Fund ETF Shares
+AMEX:GUNR|FlexShares Morningstar Global Upstream Natural Resources Index Fund
+TSX:FCIQ|Fidelity International High Quality ETF
+AMEX:ILOW|AB International Low Volatility Equity ETF
+CBOE:EMGF|iShares Emerging Markets Equity Factor ETF
+AMEX:FENI|Fidelity Enhanced International ETF
+TSX:XEF|iShares Core MSCI EAFE IMI Index ETF
+AMEX:SCHF|Schwab International Equity ETF
+AMEX:VSS|Vanguard FTSE All-World ex-US Small-Cap Index Fund ETF Shares
+AMEX:SCHY|Schwab International Dividend Equity ETF
+CBOE:DDWM|WisdomTree Dynamic International Equity ETF
+AMEX:DVYE|iShares Emerging Markets Dividend ETF
+TSX:FCIQ|Fidelity International High Quality ETF
+AMEX:FXI|iShares China Large-Cap ETF
+AMEX:EWY|iShares MSCI South Korea ETF
+AMEX:FGD|First Trust Dow Jones Global Select Dividend Index Fund
+TSX:XEF|iShares Core MSCI EAFE IMI Index ETF
+TSX:TPE|135932
+NASDAQ:BOTZ|Global X Robotics & Artificial Intelligence ETF
+AMEX:URA|Global X Uranium ETF
+CBOE:JEMA|JPMorgan ActiveBuilders Emerging Markets Equity ETF
+TSX:FCIQ.U|Fidelity International High Quality ETF
+AMEX:CWI|State Street SPDR MSCI ACWI ex-US ETF
+CBOE:INDA|iShares MSCI India ETF
+TSX:ZWC|BMO CA High Dividend Covered Call ETF
+AMEX:FNDF|Schwab Fundamental International Equity ETF
+AMEX:AVEM|Avantis Emerging Markets Equity ETF
+TSX:FCIV|Fidelity International Value ETF
+NEO:CGL|CGL Logistics Holdings Ltd
+NEO:VIU|Vanguard FTSE Developed All Cap ex North Amer Idx ETF
+AMEX:HFXI|NYLI FTSE International Equity Currency Neutral ETF
+AMEX:WCMI|First Trust WCM International Equity ETF
+AMEX:DXJ|WisdomTree Japan Hedged Equity Fund
+AMEX:EMOP|AB Emerging Markets Opportunities ETF
+AMEX:FLJP|Franklin FTSE Japan ETF
+NEO:CGL|CGL Logistics Holdings Ltd
+AMEX:CGIC|Capital Group International Core Equity ETF
+NEO:VIU|Vanguard FTSE Developed All Cap ex North Amer Idx ETF
+TSX:ZGLD|BMO Gold Bullion ETF (CAD Units)
+CBOE:ICOW|Pacer Developed Markets International Cash Cows 100 ETF
+NEO:VIDY|Vanguard FTSE Developed ex North America High Dividend Yield Index ETF
+NEO:VIDY|Vanguard FTSE Developed ex North America High Dividend Yield Index ETF
+TSX:FCIV|Fidelity International Value ETF
+AMEX:CGXU|Capital Group International Focus Equity ETF
+CBOE:AAAU|Goldman Sachs Physical Gold ETF
+AMEX:CHAT|Roundhill Generative AI & Technology ETF
+AMEX:ROBO|Robo Global Robotics and Automation Index ETF
+AMEX:IAU|iShares Gold Trust
+AMEX:GLDM|SPDR Gold MiniShares
+AMEX:CGNG|Capital Group New Geography Equity ETF
+AMEX:SGOL|abrdn Physical Gold Shares ETF
+AMEX:IAUM|iShares Gold Trust Micro
+AMEX:DFAX|Dimensional World ex U.S. Core Equity 2 ETF
+AMEX:LIT|Global X Lithium & Battery Tech ETF
+AMEX:BAR|GraniteShares Gold Trust
+AMEX:GLD|SPDR Gold Shares
+TSX:TPE|135932
+CBOE:PIEQ|Principal International Equity ETF
+NEO:FCIM|Fidelity International Momentum ETF
+AMEX:IQDF|FlexShares International Quality Dividend Index Fund
+TSX:ZGLD|BMO Gold Bullion ETF (CAD Units)
+NEO:XSEM|iShares ESG Aware MSCI Emerging Markets Index ETF
+AMEX:AVES|Avantis Emerging Markets Value ETF
+NASDAQ:FDT|First Trust Developed Markets Ex-US AlphaDEX Fund
+NEO:XSEM|iShares ESG Aware MSCI Emerging Markets Index ETF
+AMEX:DGS|WisdomTree Emerging Markets SmallCap Dividend Fund
+TSX:XEC|iShares Core MSCI Emerging Markets IMI Index ETF
+TSX:XEC|iShares Core MSCI Emerging Markets IMI Index ETF
+AMEX:EDIV|State Street SPDR S&P Emerging Markets Dividend ETF
+AMEX:COPX|Global X Copper Miners ETF
+AMEX:DEM|WisdomTree Emerging Markets High Dividend Fund
+AMEX:ASHR|Xtrackers Harvest CSI 300 China A-Shares ETF
+AMEX:UGL|ProShares Ultra Gold
+TSX:ZEM|BMO MSCI Emerging Markets Index ETF
+CBOE:FRDM|Freedom 100 Emerging Markets ETF
+AMEX:SCHE|Schwab Emerging Markets Equity ETF
+AMEX:EPI|WisdomTree India Earnings Fund
+AMEX:FLIN|Franklin FTSE India ETF
+AMEX:XSOE|WisdomTree Emerging Markets ex-State-Owned Enterprises Fund
+AMEX:KWEB|KraneShares CSI China Internet ETF
+TSX:ZEM|BMO MSCI Emerging Markets Index ETF
+AMEX:FNDE|Schwab Fundamental Emerging Markets Equity ETF
+AMEX:SPEM|State Street SPDR Portfolio Emerging Markets ETF
+AMEX:DFAE|Dimensional Emerging Core Equity Market ETF
+AMEX:DFEM|Dimensional Emerging Markets Core Equity 2 ETF
+AMEX:DFEV|Dimensional Emerging Markets Value ETF
+AMEX:GEM|Goldman Sachs ActiveBeta Emerging Markets Equity ETF
+AMEX:PPLT|abrdn Physical Platinum Shares ETF
+AMEX:PALL|abrdn Physical Palladium Shares ETF
+AMEX:GLTR|abrdn Physical Precious Metals Basket Shares ETF
+AMEX:SIVR|abrdn Physical Silver Shares ETF
+AMEX:AGQ|ProShares Ultra Silver
+AMEX:SLV|iShares Silver Trust

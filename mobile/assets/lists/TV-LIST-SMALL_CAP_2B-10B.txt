@@ -1,0 +1,930 @@
+NASDAQ:AAL|American Airlines Group Inc.
+NASDAQ:AAOI|Applied Optoelectronics, Inc.
+NASDAQ:AAON|AAON, Inc.
+NYSE:AAP|Advance Auto Parts, Inc.
+NYSE:AAUC|Allied Gold Corporation
+NYSE:AB|AllianceBernstein Holding L.P.
+NYSE:ABCB|Ameris Bancorp
+NYSE:ABM|ABM Industries Incorporated
+NASDAQ:ACAD|ACADIA Pharmaceuticals Inc.
+NYSE:ACHR|Archer Aviation Inc.
+NYSE:ACI|Albertsons Companies, Inc.
+NASDAQ:ACIW|ACI Worldwide, Inc.
+NASDAQ:ACLS|Axcelis Technologies, Inc.
+NASDAQ:ACLX|Arcellx Inc
+NASDAQ:ACMR|ACM Research, Inc.
+NASDAQ:ACT|Enact Holdings, Inc.
+NYSE:AD|Array Digital Infrastructure, Inc.
+NYSE:ADC|Agree Realty Corporation
+NASDAQ:ADEA|Adeia Inc.
+NASDAQ:ADMA|ADMA Biologics, Inc.
+NASDAQ:ADPT|Adaptive Biotechnologies Corporation
+NYSE:ADT|ADT Inc.
+NYSE:ADX|Adams Diversified Equity Fund, Inc.
+NYSE:AEO|American Eagle Outfitters, Inc.
+NYSE:AERO|Grupo Aeromexico, S.A.B. de C.V
+NYSE:AGCO|AGCO Corporation
+NYSE:AGX|Argan, Inc.
+NASDAQ:AGYS|Agilysys, Inc.
+NYSE:AHR|American Healthcare REIT, Inc.
+NYSE:AIR|AAR Corp.
+NYSE:AKR|Acadia Realty Trust
+NYSE:AL|Air Lease Corp
+NASDAQ:ALGM|Allegro MicroSystems, Inc.
+NYSE:ALH|Alliance Laundry Holdings Inc.
+NASDAQ:ALHC|Alignment Healthcare, Inc.
+NYSE:ALK|Alaska Air Group, Inc.
+NASDAQ:ALKS|Alkermes plc
+NASDAQ:ALM|Almonty Industries Inc.
+NASDAQ:ALMS|Alumis Inc.
+NASDAQ:ALRM|Alarm.com Holdings, Inc.
+NYSE:ALSN|Allison Transmission Holdings, Inc.
+NYSE:ALV|Autoliv, Inc.
+NASDAQ:AMBA|Ambarella, Inc.
+NYSE:AMBP|Ardagh Metal Packaging S.A.
+NYSE:AMG|Affiliated Managers Group, Inc.
+NASDAQ:AMRX|Amneal Pharmaceuticals, Inc.
+NYSE:AMTM|Amentum Holdings, Inc.
+NYSE:AN|AutoNation, Inc.
+NYSE:ANDG|Andersen Group Inc.
+NYSE:ANF|Abercrombie & Fitch Co.
+NYSE:APAM|Artisan Partners Asset Management Inc.
+NASDAQ:APGE|Apogee Therapeutics, Inc.
+NASDAQ:APLD|Applied Digital Corporation
+NYSE:APLE|Apple Hospitality REIT, Inc.
+NASDAQ:APLS|Apellis Pharmaceuticals, Inc.
+NASDAQ:APPF|AppFolio, Inc.
+NYSE:AQN|Algonquin Power & Utilities Corp.
+NASDAQ:ARCB|ArcBest Corporation
+NYSE:ARE|Alexandria Real Estate Equities, Inc.
+NYSE:ARIS|Aris Mining Corporation
+NASDAQ:ARLP|Alliance Resource Partners, L.P.
+NYSE:AROC|Archrock, Inc.
+NASDAQ:ARQT|Arcutis Biotherapeutics, Inc.
+NYSE:ARR|ARMOUR Residential REIT, Inc.
+NYSE:ARW|Arrow Electronics, Inc.
+NASDAQ:ARWR|Arrowhead Pharmaceuticals, Inc.
+NYSE:ARX|Accelerant Holdings
+NYSE:ASB|Associated Banc-Corp
+NYSE:ASH|Ashland Inc.
+NASDAQ:ASO|Academy Sports and Outdoors, Inc.
+NASDAQ:ATAT|Atour Lifestyle Holdings Limited
+NYSE:ATGE|Adtalem Global Education Inc.
+NYSE:ATHM|Autohome Inc.
+NYSE:ATKR|Atkore Inc.
+NYSE:ATMU|Atmus Filtration Technologies Inc.
+NYSE:ATR|AptarGroup, Inc.
+NASDAQ:ATRO|Astronics Corporation
+NYSE:AUB|Atlantic Union Bankshares Corporation
+NASDAQ:AUGO|Aura Minerals Inc.
+NASDAQ:AUR|Aurora Innovation, Inc.
+NYSE:AVA|Avista Corporation
+NYSE:AVNT|Avient Corporation
+NASDAQ:AVPT|AvePoint, Inc.
+NASDAQ:AVT|Avnet, Inc.
+NYSE:AVTR|Avantor, Inc.
+NYSE:AWI|Armstrong World Industries, Inc.
+NYSE:AX|Axos Financial, Inc.
+NYSE:AXS|AXIS Capital Holdings Limited
+NASDAQ:AXSM|Axsome Therapeutics, Inc.
+NYSE:AXTA|Axalta Coating Systems Ltd.
+NYSE:AYI|Acuity Inc.
+NYSE:BAH|Booz Allen Hamilton Holding Corporation
+NYSE:BANC|Banc of California, Inc.
+NASDAQ:BATRK|Atlanta Braves Holdings, Inc.
+NYSE:BB|BlackBerry Limited
+NYSE:BBAR|Banco BBVA Argentina S.A.
+NYSE:BBT|Beacon Financial Corporation
+NYSE:BBWI|Bath & Body Works, Inc.
+NYSE:BC|Brunswick Corporation
+NYSE:BCC|Boise Cascade Company
+NASDAQ:BEAM|Beam Therapeutics Inc.
+NYSE:BEP|Brookfield Renewable Partners L.P.
+NYSE:BEPC|Brookfield Renewable Corporation
+NYSE:BETA|BETA Technologies, Inc.
+NYSE:BFAM|Bright Horizons Family Solutions Inc.
+NYSE:BFH|Bread Financial Holdings, Inc.
+NASDAQ:BGC|BGC Group, Inc.
+NYSE:BHC|Bausch Health Companies Inc.
+NASDAQ:BHF|Brighthouse Financial, Inc.
+NYSE:BILL|BILL Holdings, Inc.
+NYSE:BIPC|Brookfield Infrastructure Corporation
+NYSE:BIRK|Birkenstock Holding plc
+NYSE:BKD|Brookdale Senior Living Inc.
+NYSE:BKE|The Buckle, Inc.
+NYSE:BKH|Black Hills Corporation
+NYSE:BKU|BankUnited, Inc.
+NYSE:BKV|BKV Corporation
+NASDAQ:BL|BlackLine, Inc.
+NYSE:BLCO|Bausch + Lomb Corporation
+NASDAQ:BLKB|Blackbaud, Inc.
+NYSE:BLSH|Bullish
+NYSE:BMI|Badger Meter, Inc.
+AMEX:BMNR|Bitmine Immersion Technologies, Inc.
+NYSE:BNL|Broadstone Net Lease, Inc.
+NYSE:BOH|Bank of Hawaii Corporation
+NASDAQ:BOKF|BOK Financial Corporation
+NYSE:BOOT|Boot Barn Holdings, Inc.
+NYSE:BOX|Box, Inc.
+NASDAQ:BPOP|Popular, Inc.
+NYSE:BRBR|BellRing Brands, Inc.
+NASDAQ:BRKR|Bruker Corporation
+NYSE:BROS|Dutch Bros Inc.
+NYSE:BRSL|Brightstar Lottery PLC
+NYSE:BRX|Brixmor Property Group Inc.
+NYSE:BSM|Black Stone Minerals, L.P.
+NYSE:BTE|Baytex Energy Corp.
+AMEX:BTG|B2Gold Corp.
+NASDAQ:BTSG|BrightSpring Health Services, Inc.
+NYSE:BTU|Peabody Energy Corporation
+NASDAQ:BULL|Webull Corporation
+NYSE:BUR|Burford Capital Limited
+NASDAQ:BUSE|First Busey Corporation
+NYSE:BVN|Compañía de Minas Buenaventura S.A.A.
+NASDAQ:BWIN|The Baldwin Insurance Group, Inc.
+NYSE:BWLP|BW LPG Limited
+NYSE:BXMT|Blackstone Mortgage Trust, Inc.
+NYSE:BXP|BXP, Inc.
+NYSE:BXSL|Blackstone Secured Lending Fund
+NYSE:BYD|Boyd Gaming Corporation
+NASDAQ:BZ|Kanzhun Limited
+NYSE:CAE|CAE Inc.
+NYSE:CAG|Conagra Brands, Inc.
+NASDAQ:CAI|Caris Life Sciences, Inc.
+NASDAQ:CAKE|The Cheesecake Factory Incorporated
+NASDAQ:CALM|Cal-Maine Foods, Inc.
+NYSE:CALX|Calix, Inc.
+NYSE:CALY|Callaway Golf Company
+NASDAQ:CAMT|Camtek Ltd.
+NASDAQ:CAR|Avis Budget Group, Inc.
+NASDAQ:CARG|CarGurus, Inc.
+NASDAQ:CART|Maplebear Inc.
+NASDAQ:CATY|Cathay General Bancorp
+NYSE:CAVA|CAVA Group, Inc.
+NASDAQ:CBSH|Commerce Bancshares, Inc.
+NYSE:CBT|Cabot Corporation
+NYSE:CC|The Chemours Company
+NASDAQ:CCC|CCC Intelligent Solutions Holdings Inc.
+NYSE:CCS|Century Communities, Inc.
+NYSE:CDP|COPT Defense Properties
+NYSE:CE|Celanese Corporation
+NASDAQ:CELC|Celcuity Inc.
+NASDAQ:CENX|Century Aluminum Company
+NYSE:CEPU|Central Puerto S.A.
+NYSE:CFR|Cullen/Frost Bankers, Inc.
+NYSE:CGAU|Centerra Gold Inc.
+NASDAQ:CGNX|Cognex Corporation
+NASDAQ:CGON|CG Oncology, Inc.
+NASDAQ:CHDN|Churchill Downs Incorporated
+NASDAQ:CHEF|The Chefs' Warehouse, Inc.
+NYSE:CHH|Choice Hotels International, Inc.
+NASDAQ:CHRD|Chord Energy Corporation
+NASDAQ:CHYM|Chime Financial, Inc.
+NASDAQ:CIFR|Cipher Digital Inc.
+NYSE:CIG|Companhia Energética de Minas Gerais - CEMIG
+NASDAQ:CIGI|Colliers International Group Inc.
+NASDAQ:CLBT|Cellebrite DI Ltd.
+NYSE:CLF|Cleveland-Cliffs Inc.
+AMEX:CLM|Cornerstone Strategic Investment Fund, Inc.
+NASDAQ:CLMT|Calumet, Inc.
+NASDAQ:CLSK|CleanSpark, Inc.
+NYSE:CMBT|Cmb.Tech NV
+NYSE:CMC|Commercial Metals Company
+NYSE:CMRE|Costamare Inc.
+NYSE:CNK|Cinemark Holdings, Inc.
+NYSE:CNO|CNO Financial Group, Inc.
+NYSE:CNR|Core Natural Resources, Inc.
+NYSE:CNS|Cohen & Steers, Inc.
+NASDAQ:CNTA|Centessa Pharmaceuticals plc
+NYSE:CNX|CNX Resources Corporation
+NASDAQ:CNXC|Concentrix Corporation
+NASDAQ:COCO|The Vita Coco Company, Inc.
+NASDAQ:COGT|Cogent Biosciences, Inc.
+NASDAQ:COLB|Columbia Banking System, Inc.
+NYSE:COLD|Americold Realty Trust, Inc.
+NASDAQ:COLM|Columbia Sportswear Company
+NYSE:COMP|Compass, Inc.
+NYSE:CON|Concentra Group Holdings Parent, Inc.
+NASDAQ:CORT|Corcept Therapeutics Incorporated
+NASDAQ:CORZ|Core Scientific, Inc.
+NYSE:COTY|Coty Inc.
+NYSE:CPA|Copa Holdings, S.A.
+NASDAQ:CPB|The Campbell's Company
+NYSE:CPRI|Capri Holdings Limited
+NASDAQ:CPRX|Catalyst Pharmaceuticals, Inc.
+NYSE:CRC|California Resources Corporation
+NYSE:CRGY|Crescent Energy Company
+NYSE:CRK|Comstock Resources, Inc.
+NYSE:CRL|Charles River Laboratories International, Inc.
+NASDAQ:CRNX|Crinetics Pharmaceuticals, Inc.
+NASDAQ:CROX|Crocs, Inc.
+NASDAQ:CRSP|CRISPR Therapeutics AG
+NASDAQ:CRUS|Cirrus Logic, Inc.
+NYSE:CSAN|Cosan S.A.
+NASDAQ:CSGS|CSG Systems International, Inc.
+NYSE:CSTM|Constellium SE
+NYSE:CTRE|CareTrust REIT, Inc.
+NYSE:CTRI|Centuri Holdings, Inc.
+NYSE:CUBE|CubeSmart
+NYSE:CUBI|Customers Bancorp, Inc.
+NYSE:CURB|Curbline Properties Corp.
+NYSE:CUZ|Cousins Properties Incorporated
+NASDAQ:CVBF|CVB Financial Corp.
+NYSE:CVI|CVR Energy, Inc.
+NASDAQ:CVLT|Commvault Systems, Inc.
+NYSE:CWAN|Clearwater Analytics Holdings, Inc.
+NYSE:CWEN|Clearway Energy, Inc.
+NYSE:CWK|Cushman & Wakefield Limited
+NASDAQ:CWST|Casella Waste Systems, Inc.
+NYSE:CWT|California Water Service Group
+NYSE:CXT|Crane NXT, Co.
+NASDAQ:CYTK|Cytokinetics, Incorporated
+NASDAQ:CZR|Caesars Entertainment, Inc.
+NYSE:DAN|Dana Incorporated
+NYSE:DAR|Darling Ingredients Inc.
+NASDAQ:DAVE|Dave Inc.
+NYSE:DBRG|DigitalBridge Group, Inc.
+NASDAQ:DBX|Dropbox, Inc.
+NYSE:DHT|DHT Holdings, Inc.
+NYSE:DINO|HF Sinclair Corporation
+NASDAQ:DIOD|Diodes Incorporated
+NASDAQ:DJT|Trump Media & Technology Group Corp.
+NYSE:DK|Delek US Holdings, Inc.
+NYSE:DLB|Dolby Laboratories, Inc.
+NASDAQ:DLO|DLocal Limited
+NASDAQ:DNLI|Denali Therapeutics Inc.
+AMEX:DNN|Denison Mines Corp.
+NYSE:DNOW|DNOW Inc.
+NYSE:DNP|DNP Select Income Fund Inc.
+NASDAQ:DNTH|Dianthus Therapeutics, Inc.
+NYSE:DOCN|DigitalOcean Holdings, Inc.
+NYSE:DOCS|Doximity, Inc.
+NASDAQ:DOCU|DocuSign, Inc.
+NASDAQ:DOX|Amdocs Limited
+NYSE:DRD|DRDGOLD Limited
+NASDAQ:DRH|DiamondRock Hospitality Company
+NASDAQ:DRVN|Driven Brands Holdings Inc.
+NASDAQ:DSGX|The Descartes Systems Group Inc.
+NASDAQ:DUOL|Duolingo, Inc.
+NYSE:DX|Dynex Capital, Inc.
+NYSE:DXC|DXC Technology Company
+NASDAQ:DYN|Dyne Therapeutics, Inc.
+NYSE:EAT|Brinker International, Inc.
+NASDAQ:EBC|Eastern Bankshares, Inc.
+NYSE:ECG|Everus Construction Group, Inc.
+NYSE:EDU|New Oriental Education & Technology Group Inc.
+NYSE:EE|Excelerate Energy, Inc.
+NASDAQ:EEFT|Euronet Worldwide, Inc.
+NYSE:EFXT|Enerflex Ltd.
+NYSE:EGO|Eldorado Gold Corporation
+NYSE:ELF|e.l.f. Beauty, Inc.
+NYSE:EMN|Eastman Chemical Company
+NYSE:ENIC|Enel Chile S.A.
+NASDAQ:ENPH|Enphase Energy, Inc.
+NYSE:ENS|EnerSys
+NYSE:ENVA|Enova International, Inc.
+NASDAQ:EOSE|Eos Energy Enterprises, Inc.
+NYSE:EPAC|Enerpac Tool Group Corp.
+NYSE:EPAM|EPAM Systems, Inc.
+NYSE:EPR|EPR Properties
+NYSE:EPRT|Essential Properties Realty Trust, Inc.
+NASDAQ:ERAS|Erasca, Inc.
+NYSE:ERO|Ero Copper Corp.
+NYSE:ESAB|ESAB Corporation
+NYSE:ESI|Element Solutions Inc
+NYSE:ESNT|Essent Group Ltd.
+NASDAQ:ESTA|Establishment Labs Holdings Inc.
+NYSE:ESTC|Elastic N.V.
+NASDAQ:ETOR|eToro Group Ltd.
+NYSE:ETSY|Etsy, Inc.
+NASDAQ:EWTX|Edgewise Therapeutics, Inc.
+NYSE:EXG|Eaton Vance Tax-Managed Global Diversified Equity Income Fund
+NYSE:EXK|Endeavour Silver Corp.
+NASDAQ:EXLS|ExlService Holdings, Inc.
+NYSE:EXP|Eagle Materials Inc.
+NASDAQ:EXPO|Exponent, Inc.
+NASDAQ:EYE|National Vision Holdings, Inc.
+NYSE:FAF|First American Financial Corporation
+NYSE:FBIN|Fortune Brands Innovations, Inc.
+NYSE:FBP|First BanCorp.
+NYSE:FCPT|Four Corners Property Trust, Inc.
+NYSE:FDS|FactSet Research Systems Inc.
+NASDAQ:FELE|Franklin Electric Co., Inc.
+NASDAQ:FFBC|First Financial Bancorp.
+NASDAQ:FFIN|First Financial Bankshares, Inc.
+NYSE:FG|F&G Annuities & Life, Inc.
+NASDAQ:FHB|First Hawaiian, Inc.
+NYSE:FHI|Federated Hermes, Inc.
+NASDAQ:FIBK|First Interstate BancSystem, Inc.
+NASDAQ:FIGR|Figure Technology Solutions, Inc.
+NYSE:FIHL|Fidelis Insurance Holdings Ltd
+NYSE:FLG|Flagstar Bank, National Association
+NASDAQ:FLNC|Fluence Energy, Inc.
+NYSE:FLO|Flowers Foods, Inc.
+NYSE:FLR|Fluor Corporation
+NASDAQ:FLY|Firefly Aerospace Inc.
+NYSE:FNB|F.N.B. Corporation
+NYSE:FND|Floor & Decor Holdings, Inc.
+NASDAQ:FOLD|Amicus Therapeutics Inc
+NASDAQ:FORM|FormFactor, Inc.
+NYSE:FOUR|Shift4 Payments, Inc.
+NYSE:FR|First Industrial Realty Trust, Inc.
+NASDAQ:FRME|First Merchants Corporation
+NASDAQ:FRMI|Fermi Inc.
+NYSE:FRO|Frontline plc
+NASDAQ:FROG|JFrog Ltd.
+NASDAQ:FRPT|Freshpet, Inc.
+NASDAQ:FRSH|Freshworks Inc.
+NYSE:FRT|Federal Realty Investment Trust
+NYSE:FSK|FS KKR Capital Corp.
+NASDAQ:FSLY|Fastly, Inc.
+NYSE:FSM|Fortuna Mining Corp.
+NYSE:FSS|Federal Signal Corporation
+NASDAQ:FTDR|Frontdoor, Inc.
+NYSE:FUL|H.B. Fuller Company
+NASDAQ:FULT|Fulton Financial Corporation
+NYSE:G|Genpact Limited
+NYSE:GBCI|Glacier Bancorp, Inc.
+NASDAQ:GBDC|Golub Capital BDC, Inc.
+NYSE:GBTG|Global Business Travel Group, Inc.
+NASDAQ:GCMG|GCM Grosvenor Inc.
+NASDAQ:GDS|GDS Holdings Limited
+NYSE:GFF|Griffon Corporation
+NASDAQ:GGAL|Grupo Financiero Galicia S.A.
+NYSE:GGB|Gerdau S.A.
+NYSE:GKOS|Glaukos Corporation
+NASDAQ:GLBE|Global-E Online Ltd.
+NASDAQ:GLNG|Golar LNG Limited
+NYSE:GLOB|Globant S.A.
+NASDAQ:GLXY|Galaxy Digital
+NYSE:GNL|Global Net Lease, Inc.
+NASDAQ:GNTX|Gentex Corporation
+NYSE:GNW|Genworth Financial, Inc.
+NYSE:GOLF|Acushnet Holdings Corp.
+NASDAQ:GPCR|Structure Therapeutics Inc.
+NYSE:GPGI|GPGI, Inc.
+NYSE:GPK|Graphic Packaging Holding Company
+NASDAQ:GRFS|Grifols, S.A.
+NYSE:GRND|Grindr Inc.
+NASDAQ:GSAT|Globalstar, Inc.
+NASDAQ:GT|The Goodyear Tire & Rubber Company
+NYSE:GTES|Gates Industrial Corporation plc
+NASDAQ:GTLB|GitLab Inc.
+NYSE:GTLS|Chart Industries, Inc.
+NASDAQ:GTX|Garrett Motion Inc.
+NYSE:GVA|Granite Construction Incorporated
+NYSE:GXO|GXO Logistics, Inc.
+NYSE:HAE|Haemonetics Corporation
+NYSE:HAFN|Hafnia Limited
+NASDAQ:HALO|Halozyme Therapeutics, Inc.
+NYSE:HASI|HA Sustainable Infrastructure Capital, Inc.
+NYSE:HAYW|Hayward Holdings, Inc.
+NYSE:HBM|Hudbay Minerals Inc.
+NYSE:HCC|Warrior Met Coal, Inc.
+NYSE:HE|Hawaiian Electric Industries, Inc.
+NYSE:HESM|Hess Midstream LP
+NYSE:HG|Hamilton Insurance Group, Ltd.
+NYSE:HGV|Hilton Grand Vacations Inc.
+NYSE:HHH|Howard Hughes Holdings Inc.
+NYSE:HIMS|Hims & Hers Health, Inc.
+NYSE:HIW|Highwoods Properties, Inc.
+NYSE:HLF|Herbalife Ltd.
+NYSE:HLIO|Helios Technologies, Inc.
+NASDAQ:HLNE|Hamilton Lane Incorporated
+NYSE:HNGE|Hinge Health, Inc.
+NYSE:HNI|HNI Corporation
+NYSE:HOG|Harley-Davidson, Inc.
+NYSE:HOMB|Home BancShares, Inc.
+NYSE:HP|Helmerich & Payne, Inc.
+NASDAQ:HQY|HealthEquity, Inc.
+NYSE:HR|Healthcare Realty Trust Incorporated
+NYSE:HRB|H&R Block, Inc.
+NYSE:HRI|Herc Holdings Inc.
+NASDAQ:HSAI|Hesai Group
+NASDAQ:HSIC|Henry Schein, Inc.
+NASDAQ:HTFL|Heartflow, Inc.
+NYSE:HTGC|Hercules Capital, Inc.
+NYSE:HTH|Hilltop Holdings Inc.
+NASDAQ:HUBG|Hub Group, Inc.
+NYSE:HUN|Huntsman Corporation
+NASDAQ:HURN|Huron Consulting Group Inc.
+NASDAQ:HUT|Hut 8 Corp.
+NASDAQ:HWC|Hancock Whitney Corporation
+NYSE:HXL|Hexcel Corporation
+NASDAQ:HYMC|Hycroft Mining Holding Corporation
+NASDAQ:IAC|IAC Inc.
+NYSE:IBP|Installed Building Products, Inc.
+NASDAQ:IBRX|ImmunityBio, Inc.
+NYSE:ICL|ICL Group Ltd
+NASDAQ:ICLR|ICON Public Limited Company
+NYSE:IDA|IDACORP, Inc.
+NASDAQ:IDYA|IDEAYA Biosciences, Inc.
+AMEX:IE|Ivanhoe Electric Inc.
+NASDAQ:IEP|Icahn Enterprises L.P.
+NYSE:IHS|IHS Holding Limited
+NYSE:IMAX|IMAX Corporation
+NASDAQ:IMNM|Immunome, Inc.
+NASDAQ:IMVT|Immunovant, Inc.
+NASDAQ:INDB|Independent Bank Corp.
+NASDAQ:INDV|Indivior Pharmaceuticals, Inc.
+NYSE:INGM|Ingram Micro Holding Corporation
+NYSE:INGR|Ingredion Incorporated
+NYSE:INSW|International Seaways, Inc.
+NASDAQ:INTR|Inter & Co, Inc.
+NASDAQ:IPGP|IPG Photonics Corporation
+NASDAQ:IRDM|Iridium Communications Inc.
+NASDAQ:IRON|Disc Medicine, Inc.
+NYSE:IRT|Independence Realty Trust, Inc.
+NASDAQ:IRTC|iRhythm Holdings, Inc.
+NYSE:ITGR|Integer Holdings Corporation
+NASDAQ:ITRI|Itron, Inc.
+NYSE:IVT|InvenTrust Properties Corp.
+NASDAQ:JBLU|JetBlue Airways Corporation
+NYSE:JBTM|JBT Marel Corporation
+NYSE:JHG|Janus Henderson Group plc
+NYSE:JOBY|Joby Aviation, Inc.
+NASDAQ:JOYY|JOYY Inc.
+NYSE:JPC|Nuveen Preferred & Income Opportunities Fund
+NYSE:JXN|Jackson Financial Inc.
+NYSE:KBH|KB Home
+NYSE:KBR|KBR, Inc.
+NASDAQ:KC|Kingsoft Cloud Holdings Limited
+NYSE:KD|Kyndryl Holdings, Inc.
+NYSE:KEX|Kirby Corporation
+NYSE:KFY|Korn Ferry
+NYSE:KGS|Kodiak Gas Services, Inc.
+NYSE:KLAR|Klarna Group plc
+NASDAQ:KLIC|Kulicke and Soffa Industries, Inc.
+NYSE:KMT|Kennametal Inc.
+NYSE:KMX|CarMax, Inc.
+NYSE:KN|Knowles Corporation
+NYSE:KNF|Knife River Corporation
+NASDAQ:KNSA|Kiniksa Pharmaceuticals International, plc
+NYSE:KNTK|Kinetik Holdings Inc.
+NYSE:KRC|Kilroy Realty Corporation
+NYSE:KRG|Kite Realty Group Trust
+NASDAQ:KRYS|Krystal Biotech, Inc.
+NYSE:KSS|Kohl's Corporation
+NYSE:KTB|Kontoor Brands, Inc.
+NYSE:KVYO|Klaviyo, Inc.
+NASDAQ:KYIV|Kyivstar Group Ltd.
+NASDAQ:KYMR|Kymera Therapeutics, Inc.
+NYSE:KYN|Kayne Anderson Energy Infrastructure Fund, Inc.
+NASDAQ:LASR|nLIGHT, Inc.
+NASDAQ:LAUR|Laureate Education, Inc.
+NYSE:LAZ|Lazard, Inc.
+NYSE:LB|LandBridge Company LLC
+NASDAQ:LBRDK|Liberty Broadband Corporation
+NYSE:LBRT|Liberty Energy Inc.
+NASDAQ:LBTYA|Liberty Global Ltd.
+NASDAQ:LBTYK|Liberty Global Ltd.
+NASDAQ:LCID|Lucid Group, Inc.
+NYSE:LCII|LCI Industries
+NYSE:LEA|Lear Corporation
+NASDAQ:LEGN|Legend Biotech Corporation
+NYSE:LEU|Centrus Energy Corp.
+NYSE:LEVI|Levi Strauss & Co.
+NASDAQ:LFST|LifeStance Health Group, Inc.
+NASDAQ:LGN|Legence Corp.
+NASDAQ:LIF|Life360, Inc.
+NASDAQ:LINE|Lineage, Inc.
+NYSE:LION|Lionsgate Studios Corp.
+NASDAQ:LIVN|LivaNova PLC
+NASDAQ:LKQ|LKQ Corporation
+NASDAQ:LLYVK|Liberty Live Holdings, Inc.
+NYSE:LMND|Lemonade, Inc.
+NYSE:LNC|Lincoln National Corporation
+NASDAQ:LNTH|Lantheus Holdings, Inc.
+NYSE:LOAR|Loar Holdings Inc.
+NASDAQ:LOPE|Grand Canyon Education, Inc.
+NYSE:LPL|LG Display Co., Ltd.
+NYSE:LPX|Louisiana-Pacific Corporation
+NASDAQ:LQDA|Liquidia Corporation
+NYSE:LRN|Stride, Inc.
+NASDAQ:LSTR|Landstar System, Inc.
+NYSE:LTH|Life Time Group Holdings, Inc.
+NYSE:LU|Lufax Holding Ltd
+NYSE:LUMN|Lumen Technologies, Inc.
+NASDAQ:LUNR|Intuitive Machines, Inc.
+NYSE:LW|Lamb Weston Holdings, Inc.
+NYSE:LXP|LXP Industrial Trust
+NASDAQ:LYFT|Lyft, Inc.
+NYSE:M|Macy's, Inc.
+NYSE:MAC|The Macerich Company
+NYSE:MAIN|Main Street Capital Corporation
+NASDAQ:MANH|Manhattan Associates, Inc.
+NYSE:MANU|Manchester United plc
+NASDAQ:MARA|MARA Holdings, Inc.
+NASDAQ:MASI|Masimo Corporation
+NASDAQ:MAT|Mattel, Inc.
+NYSE:MATX|Matson, Inc.
+NASDAQ:MAZE|Maze Therapeutics, Inc.
+NASDAQ:MBIN|Merchants Bancorp
+NASDAQ:MBLY|Mobileye Global Inc.
+NYSE:MC|Moelis & Company
+NASDAQ:MCHB|Mechanics Bancorp
+NASDAQ:MCW|Mister Car Wash, Inc.
+NASDAQ:MDGL|Madrigal Pharmaceuticals, Inc.
+NYSE:MDU|MDU Resources Group, Inc.
+NASDAQ:MEOH|Methanex Corporation
+NYSE:MGM|MGM Resorts International
+NYSE:MGY|Magnolia Oil & Gas Corporation
+NYSE:MH|McGraw Hill, Inc.
+NYSE:MHK|Mohawk Industries, Inc.
+NYSE:MIAX|Miami International Holdings, Inc.
+NASDAQ:MIDD|The Middleby Corporation
+NYSE:MIR|Mirion Technologies, Inc.
+NASDAQ:MIRM|Mirum Pharmaceuticals, Inc.
+NASDAQ:MKTX|MarketAxess Holdings Inc.
+NASDAQ:MLCO|Melco Resorts & Entertainment Limited
+NASDAQ:MLYS|Mineralys Therapeutics, Inc.
+NYSE:MMS|Maximus, Inc.
+NASDAQ:MMSI|Merit Medical Systems, Inc.
+NASDAQ:MMYT|MakeMyTrip Limited
+NASDAQ:MNDY|monday.com Ltd.
+NYSE:MNR|Mach Natural Resources LP
+NYSE:MNSO|MINISO Group Holding Limited
+NYSE:MOH|Molina Healthcare, Inc.
+NASDAQ:MORN|Morningstar, Inc.
+NYSE:MOS|The Mosaic Company
+NYSE:MP|MP Materials Corp.
+NYSE:MPT|Medical Properties Trust, Inc.
+NASDAQ:MRCY|Mercury Systems, Inc.
+NYSE:MRP|Millrose Properties, Inc.
+NASDAQ:MRX|Marex Group plc
+NYSE:MSGE|Madison Square Garden Entertainment Corp.
+NYSE:MSM|MSC Industrial Direct Co., Inc.
+NASDAQ:MTCH|Match Group, Inc.
+NYSE:MTDR|Matador Resources Company
+NYSE:MTG|MGIC Investment Corporation
+NYSE:MTH|Meritage Homes Corporation
+NYSE:MTN|Vail Resorts, Inc.
+NYSE:MUR|Murphy Oil Corporation
+NYSE:MUSA|Murphy USA Inc.
+NYSE:MWA|Mueller Water Products, Inc.
+NYSE:NAD|Nuveen Quality Municipal Income Fund
+NASDAQ:NAMS|NewAmsterdam Pharma Company N.V.
+NYSE:NATL|NCR Atleos Corporation
+NASDAQ:NAVN|Navan, Inc.
+NYSE:NE|Noble Corporation plc
+NYSE:NEA|Nuveen AMT-Free Quality Municipal Income Fund
+NASDAQ:NEOG|Neogen Corporation
+NASDAQ:NESR|National Energy Services Reunited Corp.
+NYSE:NFG|National Fuel Gas Company
+AMEX:NG|NovaGold Resources Inc.
+AMEX:NGD|New Gold Inc.
+NYSE:NGVT|Ingevity Corporation
+NASDAQ:NICE|NICE Ltd.
+NYSE:NIQ|NIQ Global Intelligence plc
+NYSE:NJR|New Jersey Resources Corporation
+NASDAQ:NKTR|Nektar Therapeutics
+NASDAQ:NMIH|NMI Holdings, Inc.
+NASDAQ:NMRK|Newmark Group, Inc.
+NASDAQ:NN|NextNav Inc.
+NYSE:NNN|NNN REIT, Inc.
+NYSE:NOG|Northern Oil and Gas, Inc.
+NYSE:NOV|NOV Inc.
+NASDAQ:NOVT|Novanta Inc.
+NYSE:NP|Neptune Insurance Holdings Inc.
+NYSE:NSA|National Storage Affiliates Trust
+NASDAQ:NSIT|Insight Enterprises, Inc.
+NASDAQ:NTCT|NetScout Systems, Inc.
+NASDAQ:NTSK|Netskope, Inc.
+NYSE:NTST|NETSTREIT Corp.
+NASDAQ:NUVL|Nuvalent, Inc.
+NYSE:NVG|Nuveen AMT-Free Municipal Credit Income Fund
+NYSE:NVST|Envista Holdings Corporation
+NASDAQ:NWE|NorthWestern Energy Group, Inc.
+NASDAQ:NWL|Newell Brands Inc.
+NYSE:NXE|NexGen Energy Ltd.
+NASDAQ:NXST|Nexstar Media Group, Inc.
+NYSE:NZF|Nuveen Municipal Credit Income Fund
+NYSE:OBDC|Blue Owl Capital Corporation
+NYSE:OGE|OGE Energy Corp.
+NYSE:OGN|Organon & Co.
+NYSE:OGS|ONE Gas, Inc.
+NYSE:OI|O-I Glass, Inc.
+NYSE:OII|Oceaneering International, Inc.
+NYSE:OKLO|Oklo Inc.
+NASDAQ:OLED|Universal Display Corporation
+NASDAQ:OLLI|Ollie's Bargain Outlet Holdings, Inc.
+NYSE:OLN|Olin Corporation
+NYSE:OMF|OneMain Holdings, Inc.
+NASDAQ:ONB|Old National Bancorp
+NASDAQ:ONDS|Ondas Inc.
+NASDAQ:OPCH|Option Care Health, Inc.
+NASDAQ:OPEN|Opendoor Technologies Inc.
+NYSE:OPLN|OPENLANE, Inc.
+NYSE:OR|OR Royalties Inc.
+NYSE:ORA|Ormat Technologies, Inc.
+AMEX:ORLA|Orla Mining Ltd.
+NASDAQ:OS|OneStream, Inc.
+NYSE:OSCR|Oscar Health, Inc.
+NASDAQ:OSW|OneSpaWorld Holdings Limited
+NASDAQ:OTEX|Open Text Corporation
+NYSE:OTF|Blue Owl Technology Finance Corp.
+NYSE:OUT|OUTFRONT Media Inc.
+NASDAQ:OZK|Bank OZK
+NYSE:PACS|PACS Group, Inc.
+NASDAQ:PAGP|Plains GP Holdings, L.P.
+NYSE:PAGS|PagSeguro Digital Ltd.
+NYSE:PARR|Par Pacific Holdings, Inc.
+NYSE:PATH|UiPath, Inc.
+NASDAQ:PATK|Patrick Industries, Inc.
+NASDAQ:PAX|Patria Investments Limited
+NYSE:PAY|Paymentus Holdings, Inc.
+NYSE:PAYC|Paycom Software, Inc.
+NYSE:PB|Prosperity Bancshares, Inc.
+NYSE:PBF|PBF Energy Inc.
+NYSE:PBH|Prestige Consumer Healthcare Inc.
+NYSE:PCOR|Procore Technologies, Inc.
+NASDAQ:PCTY|Paylocity Holding Corporation
+NASDAQ:PCVX|Vaxcyte, Inc.
+NYSE:PDI|PIMCO Dynamic Income Fund
+NASDAQ:PECO|Phillips Edison & Company, Inc.
+NASDAQ:PEGA|Pegasystems Inc.
+NYSE:PFS|Provident Financial Services, Inc.
+NYSE:PFSI|PennyMac Financial Services, Inc.
+NYSE:PHIN|PHINIA Inc.
+NASDAQ:PI|Impinj, Inc.
+NYSE:PII|Polaris Inc.
+NYSE:PJT|PJT Partners Inc.
+NYSE:PK|Park Hotels & Resorts Inc.
+NYSE:PL|Planet Labs PBC
+NASDAQ:PLAB|Photronics, Inc.
+NYSE:PLNT|Planet Fitness, Inc.
+NASDAQ:PLUG|Plug Power Inc.
+NASDAQ:PLXS|Plexus Corp.
+NASDAQ:PONY|Pony AI Inc.
+NASDAQ:POOL|Pool Corporation
+NYSE:POR|Portland General Electric Company
+NYSE:POST|Post Holdings, Inc.
+NASDAQ:POWI|Power Integrations, Inc.
+NASDAQ:POWL|Powell Industries, Inc.
+NASDAQ:PPC|Pilgrim's Pride Corporation
+NASDAQ:PPTA|Perpetua Resources Corp.
+NASDAQ:PRAX|Praxis Precision Medicines, Inc.
+NASDAQ:PRDO|Perdoceo Education Corporation
+NYSE:PRGO|Perrigo Company plc
+NYSE:PRIM|Primoris Services Corporation
+NYSE:PRM|Perimeter Solutions, Inc.
+NYSE:PRMB|Primo Brands Corporation
+NASDAQ:PRVA|Privia Health Group, Inc.
+NASDAQ:PSIX|Power Solutions International, Inc.
+NYSE:PSN|Parsons Corporation
+NYSE:PSO|Pearson plc
+NASDAQ:PTCT|PTC Therapeutics, Inc.
+NASDAQ:PTEN|Patterson-UTI Energy, Inc.
+NASDAQ:PTGX|Protagonist Therapeutics, Inc.
+NYSE:PTY|PIMCO Corporate & Income Opportunity Fund
+NYSE:PVH|PVH Corp.
+NYSE:QBTS|D-Wave Quantum Inc.
+NASDAQ:QLYS|Qualys, Inc.
+NASDAQ:QRVO|Qorvo, Inc.
+NASDAQ:QS|QuantumScape Corporation
+NYSE:QTWO|Q2 Holdings, Inc.
+NYSE:R|Ryder System, Inc.
+NYSE:RAL|Ralliant Corporation
+NASDAQ:RARE|Ultragenyx Pharmaceutical Inc.
+NYSE:RCUS|Arcus Biosciences, Inc.
+NYSE:RDN|Radian Group Inc.
+NASDAQ:RDNT|RadNet, Inc.
+NASDAQ:RELY|Remitly Global, Inc.
+NYSE:REXR|Rexford Industrial Realty, Inc.
+NASDAQ:REYN|Reynolds Consumer Products Inc.
+NYSE:REZI|Resideo Technologies, Inc.
+NASDAQ:RGEN|Repligen Corporation
+NASDAQ:RGTI|Rigetti Computing, Inc.
+NYSE:RH|RH
+NYSE:RHI|Robert Half Inc.
+NYSE:RHP|Ryman Hospitality Properties, Inc.
+NYSE:RIG|Transocean Ltd.
+NASDAQ:RIOT|Riot Platforms, Inc.
+NYSE:RITM|Rithm Capital Corp.
+NYSE:RLI|RLI Corp.
+NYSE:RLX|RLX Technology Inc.
+NYSE:RNG|RingCentral, Inc.
+NYSE:RNST|Renasant Corporation
+NASDAQ:ROAD|Construction Partners, Inc.
+NYSE:RRC|Range Resources Corporation
+NASDAQ:RRR|Red Rock Resorts, Inc.
+NYSE:RSI|Rush Street Interactive, Inc.
+NASDAQ:RUM|Rumble Inc.
+NASDAQ:RUN|Sunrun Inc.
+NASDAQ:RUSHA|Rush Enterprises, Inc.
+NYSE:RVT|Royce Small-Cap Trust, Inc.
+NYSE:RXO|RXO, Inc.
+NYSE:RYN|Rayonier Inc.
+NASDAQ:RYTM|Rhythm Pharmaceuticals, Inc.
+NYSE:S|SentinelOne, Inc.
+NYSE:SA|Seabridge Gold Inc.
+NASDAQ:SAIC|Science Applications International Corporation
+NASDAQ:SAIL|SailPoint, Inc.
+NASDAQ:SANM|Sanmina Corporation
+NASDAQ:SBCF|Seacoast Banking Corporation of Florida
+NASDAQ:SBLK|Star Bulk Carriers Corp.
+NASDAQ:SBRA|Sabra Health Care REIT, Inc.
+NYSE:SDRL|Seadrill Limited
+NASDAQ:SEDG|SolarEdge Technologies, Inc.
+NYSE:SEE|Sealed Air Corp
+NYSE:SEI|Solaris Energy Infrastructure, Inc.
+NASDAQ:SEIC|SEI Investments Company
+NASDAQ:SEZL|Sezzle Inc.
+NYSE:SFBS|ServisFirst Bancshares, Inc.
+NASDAQ:SFD|Smithfield Foods, Inc.
+NASDAQ:SFM|Sprouts Farmers Market, Inc.
+NASDAQ:SFNC|Simmons First National Corporation
+NYSE:SGHC|Super Group (SGHC) Limited
+NASDAQ:SGRY|Surgery Partners, Inc.
+NYSE:SHAK|Shake Shack Inc.
+NASDAQ:SHC|Sotera Health Company
+NASDAQ:SHOO|Steven Madden, Ltd.
+NYSE:SID|Companhia Siderúrgica Nacional
+NYSE:SIG|Signet Jewelers Limited
+NASDAQ:SIGI|Selective Insurance Group, Inc.
+NASDAQ:SIMO|Silicon Motion Technology Corporation
+NASDAQ:SIRI|Sirius XM Holdings Inc.
+NYSE:SITE|SiteOne Landscape Supply, Inc.
+NYSE:SKE|Skeena Resources Limited
+NYSE:SKT|Tanger Inc.
+NYSE:SKY|Champion Homes, Inc.
+NASDAQ:SLAB|Silicon Laboratories Inc.
+NASDAQ:SLDE|Slide Insurance Holdings, Inc.
+NYSE:SLG|SL Green Realty Corp.
+NYSE:SLGN|Silgan Holdings Inc.
+NASDAQ:SLM|SLM Corporation
+NASDAQ:SLNO|Soleno Therapeutics, Inc.
+NYSE:SM|SM Energy Company
+NYSE:SMA|SmartStop Self Storage REIT, Inc.
+NYSE:SMG|The Scotts Miracle-Gro Company
+NYSE:SMR|NuScale Power Corporation
+NASDAQ:SMTC|Semtech Corporation
+NYSE:SNAP|Snap Inc.
+NYSE:SNDR|Schneider National, Inc.
+NASDAQ:SNEX|StoneX Group Inc.
+NYSE:SOBO|South Bow Corporation
+NYSE:SON|Sonoco Products Company
+NASDAQ:SOUN|SoundHound AI, Inc.
+NYSE:SPHR|Sphere Entertainment Co.
+NYSE:SPNT|SiriusPoint Ltd.
+NASDAQ:SPSC|SPS Commerce, Inc.
+NYSE:SR|Spire Inc.
+NASDAQ:SRAD|Sportradar Group AG
+NASDAQ:SRRK|Scholar Rock Holding Corporation
+NYSE:SSL|Sasol Limited
+NASDAQ:SSRM|SSR Mining Inc.
+NYSE:ST|Sensata Technologies Holding plc
+NYSE:STAG|STAG Industrial, Inc.
+NASDAQ:STEP|StepStone Group Inc.
+NASDAQ:STNE|StoneCo Ltd.
+NYSE:STNG|Scorpio Tankers Inc.
+NYSE:STUB|StubHub Holdings, Inc.
+NYSE:STVN|Stevanato Group S.p.A.
+NYSE:STWD|Starwood Property Trust, Inc.
+NYSE:SUN|Sunoco LP
+NYSE:SUNC|SunocoCorp LLC
+NASDAQ:SUPN|Supernus Pharmaceuticals, Inc.
+AMEX:SVM|Silvercorp Metals Inc.
+NASDAQ:SWKS|Skyworks Solutions, Inc.
+NYSE:SWX|Southwest Gas Holdings, Inc.
+NYSE:SXT|Sensient Technologies Corporation
+NASDAQ:SYNA|Synaptics Incorporated
+NASDAQ:SYRE|Spyre Therapeutics, Inc.
+NYSE:TAC|TransAlta Corporation
+NYSE:TAL|TAL Education Group
+NYSE:TALO|Talos Energy Inc.
+NYSE:TAP|Molson Coors Beverage Company
+NASDAQ:TARS|Tarsus Pharmaceuticals, Inc.
+NYSE:TBBB|BBB Foods Inc.
+NASDAQ:TBBK|The Bancorp, Inc.
+NASDAQ:TCBI|Texas Capital Bancshares, Inc.
+NYSE:TDC|Teradata Corporation
+NYSE:TDS|Telephone and Data Systems, Inc.
+NYSE:TDW|Tidewater Inc.
+NASDAQ:TECH|Bio-Techne Corporation
+NASDAQ:TENB|Tenable Holdings, Inc.
+NYSE:TEO|Telecom Argentina S.A.
+NASDAQ:TERN|Terns Pharmaceuticals, Inc.
+NYSE:TEX|Terex Corporation
+NYSE:TFII|TFI International Inc.
+NYSE:TFPM|Triple Flag Precious Metals Corp.
+NASDAQ:TFSL|TFS Financial Corporation
+NYSE:TFX|Teleflex Incorporated
+AMEX:TGB|Taseko Mines Limited
+NYSE:TGNA|TEGNA Inc.
+NASDAQ:TGTX|TG Therapeutics, Inc.
+NYSE:THG|The Hanover Insurance Group, Inc.
+NYSE:THO|THOR Industries, Inc.
+NYSE:TIC|TIC Solutions, Inc.
+NYSE:TKC|Turkcell Iletisim Hizmetleri A.S.
+NYSE:TKR|The Timken Company
+NASDAQ:TMC|TMC the metals company Inc.
+NASDAQ:TMDX|TransMedics Group, Inc.
+NYSE:TMHC|Taylor Morrison Home Corporation
+NYSE:TNK|Teekay Tankers Ltd.
+NYSE:TNL|Travel + Leisure Co.
+NASDAQ:TOWN|TowneBank
+NYSE:TPC|Tutor Perini Corporation
+NYSE:TPH|Tri Pointe Homes, Inc.
+NYSE:TREX|Trex Company, Inc.
+NASDAQ:TRMD|TORM plc
+NASDAQ:TRMK|Trustmark Corporation
+NYSE:TRN|Trinity Industries, Inc.
+NYSE:TRNO|Terreno Realty Corporation
+NYSE:TTAM|Titan America SA
+NASDAQ:TTAN|ServiceTitan, Inc.
+NYSE:TTC|The Toro Company
+NASDAQ:TTEK|Tetra Tech, Inc.
+NASDAQ:TVTX|Travere Therapeutics, Inc.
+NASDAQ:TWST|Twist Bioscience Corporation
+NASDAQ:TXG|10x Genomics, Inc.
+NYSE:TXNM|TXNM Energy, Inc.
+NYSE:U|Unity Software Inc.
+NYSE:UA|Under Armour, Inc.
+NYSE:UAA|Under Armour, Inc.
+NASDAQ:UBSI|United Bankshares, Inc.
+NYSE:UCB|United Community Banks, Inc.
+NASDAQ:UCTT|Ultra Clean Holdings, Inc.
+NYSE:UE|Urban Edge Properties
+AMEX:UEC|Uranium Energy Corp.
+NASDAQ:UFPI|UFP Industries, Inc.
+NYSE:UGI|UGI Corporation
+NYSE:UGP|Ultrapar Participações S.A.
+NYSE:UHAL.B|U-Haul Holding Company
+NASDAQ:UMBF|UMB Financial Corporation
+NYSE:UNFI|United Natural Foods, Inc.
+NASDAQ:UNIT|Uniti Group Inc.
+NASDAQ:UPST|Upstart Holdings, Inc.
+NASDAQ:URBN|Urban Outfitters, Inc.
+NASDAQ:USAR|USA Rare Earth, Inc.
+AMEX:USAS|Americas Gold and Silver Corporation
+NYSE:UTF|Cohen & Steers Infrastructure Fund, Inc
+AMEX:UUUU|Energy Fuels Inc.
+NYSE:UWMC|UWM Holdings Corporation
+NYSE:VAC|Marriott Vacations Worldwide Corporation
+NYSE:VAL|Valaris Limited
+NASDAQ:VC|Visteon Corporation
+NASDAQ:VCTR|Victory Capital Holdings, Inc.
+NASDAQ:VCYT|Veracyte, Inc.
+NASDAQ:VERA|Vera Therapeutics, Inc.
+NASDAQ:VERX|Vertex, Inc.
+NYSE:VFC|V.F. Corporation
+NASDAQ:VIAV|Viavi Solutions Inc.
+NASDAQ:VICR|Vicor Corporation
+NYSE:VIPS|Vipshop Holdings Limited
+NYSE:VIRT|Virtu Financial, Inc.
+NASDAQ:VISN|Vistance Networks, Inc.
+NYSE:VIST|Vista Energy, S.A.B. de C.V.
+NASDAQ:VKTX|Viking Therapeutics, Inc.
+NASDAQ:VLY|Valley National Bancorp
+NASDAQ:VNET|VNET Group, Inc.
+NYSE:VNO|Vornado Realty Trust
+NYSE:VNT|Vontier Corporation
+NYSE:VOYA|Voya Financial, Inc.
+NASDAQ:VRDN|Viridian Therapeutics, Inc.
+NASDAQ:VRNS|Varonis Systems, Inc.
+NASDAQ:VRRM|Verra Mobility Corporation
+NASDAQ:VSAT|Viasat, Inc.
+NYSE:VSCO|Victoria's Secret & Co.
+NASDAQ:VSEC|VSE Corporation
+NYSE:VSH|Vishay Intertechnology, Inc.
+NASDAQ:VSNT|Versant Media Group, Inc.
+NYSE:VVV|Valvoline Inc.
+NYSE:VVX|V2X, Inc.
+NASDAQ:WAFD|WaFd, Inc.
+NASDAQ:WAY|Waystar Holding Corp.
+NASDAQ:WB|Weibo Corporation
+NASDAQ:WERN|Werner Enterprises, Inc.
+NYSE:WEX|WEX Inc.
+NASDAQ:WFRD|Weatherford International plc
+NASDAQ:WGS|GeneDx Holdings Corp.
+NYSE:WH|Wyndham Hotels & Resorts, Inc.
+NYSE:WHD|Cactus, Inc.
+NYSE:WHR|Whirlpool Corporation
+NASDAQ:WING|Wingstop Inc.
+NASDAQ:WIX|Wix.com Ltd.
+NYSE:WK|Workiva Inc.
+NYSE:WPP|WPP plc
+NYSE:WRBY|Warby Parker Inc.
+NASDAQ:WRD|WeRide Inc.
+NASDAQ:WSBC|WesBanco, Inc.
+NASDAQ:WSC|WillScot Holdings Corporation
+NASDAQ:WSFS|WSFS Financial Corporation
+NYSE:WT|WisdomTree, Inc.
+NYSE:WU|The Western Union Company
+NASDAQ:WULF|TeraWulf Inc.
+NASDAQ:WVE|Wave Life Sciences Ltd.
+NASDAQ:XENE|Xenon Pharmaceuticals Inc.
+NYSE:XIFR|XPLR Infrastructure, LP
+NASDAQ:XMTR|Xometry, Inc.
+NYSE:XPRO|Expro Group Holdings N.V.
+NASDAQ:XRAY|DENTSPLY SIRONA Inc.
+NYSE:XXI|Twenty One Capital, Inc.
+NYSE:YETI|YETI Holdings, Inc.
+NYSE:YOU|Clear Secure, Inc.
+NYSE:ZETA|Zeta Global Holdings Corp.
+NYSE:ZGN|Ermenegildo Zegna N.V.
+NYSE:ZIM|ZIM Integrated Shipping Services Ltd.
+NASDAQ:ZION|Zions Bancorporation, National Association
+NASDAQ:ZLAB|Zai Lab Limited
+NYSE:ZWS|Zurn Elkay Water Solutions Corporation

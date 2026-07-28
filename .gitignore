@@ -14,3 +14,9 @@ ENV/
 dist/
 build/
 .cache/
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+data/
+*.sqlite
+
