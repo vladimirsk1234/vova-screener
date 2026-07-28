@@ -1,29 +1,19 @@
 #!/usr/bin/env python3
 """
-Build TV-LIST-US-CANADA-FULL.txt — US + Canada common stocks, positive trailing EPS.
+Layer-1 US + Canada symbol universe from exchange directories.
 
-Hard excludes: OTC, ETFs, preferreds, warrants, units, funds.
-Resumable via .cache/us_ca_list_build.json
-
-Usage:
-  python scripts/build_us_canada_list.py              # full build
-  python scripts/build_us_canada_list.py --limit 50   # smoke sample
-  python scripts/build_us_canada_list.py --resume     # continue after interrupt
-  python scripts/build_us_canada_list.py --us-only
+Used by scripts/build_full_us_tsx_ohlc_list.py (no Yahoo .info / EPS filter).
 """
 from __future__ import annotations
 
-import argparse
 import csv
 import io
 import json
 import re
 import ssl
 import sys
-import time
 import urllib.error
 import urllib.request
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,15 +25,9 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import yfinance as yf
-
 from ticker_data import (
-    TV_LIST_US_CANADA_FULL,
-    is_major_us_ca_exchange,
-    is_otc_yahoo_exchange,
     name_suggests_non_common,
     tv_part_to_yahoo,
-    write_list_file,
 )
 
 NASDAQ_TRADED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt"
@@ -54,11 +38,6 @@ ADANOS_LISTINGS_URL = (
 TSX_JSON_URL = "https://www.tsx.com/json/company-directory/search/tsx/%5E/all/%5E/all"
 TSXV_JSON_URL = "https://www.tsx.com/json/company-directory/search/tsxv/%5E/all/%5E/all"
 
-CACHE_PATH = ROOT / ".cache" / "us_ca_list_build.json"
-OUT_PATH = ROOT / TV_LIST_US_CANADA_FULL
-SAMPLE_OUT = ROOT / "TV-LIST-US-CANADA-FULL.sample.txt"
-
-YAHOO_DELAY_SEC = 0.12
 NON_COMMON_SYMBOL_RE = re.compile(
     r"(\$|\.PR|/P[A-Z]?$|-P[A-Z]$|-PA$|-PB$|-PC$|-PD$|-PE$|-PF$|-PG$|-PH$|-PI$|"
     r"-WT$|\.WS$|-W$|-UN$|\.UN$|-U$)",
@@ -418,211 +397,3 @@ def load_layer1_candidates(
     result = list(by_yahoo.values())
     result.sort(key=lambda c: (c.region, c.yahoo))
     return result
-
-
-def _load_cache() -> dict:
-    if not CACHE_PATH.exists():
-        return {"checked": {}, "passed": []}
-    try:
-        with open(CACHE_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {"checked": {}, "passed": []}
-
-
-def _save_cache(cache: dict) -> None:
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CACHE_PATH, "w", encoding="utf-8") as f:
-        json.dump(cache, f, indent=2)
-
-
-def _validate_yahoo(candidate: Candidate) -> tuple[bool, str, str]:
-    """Return (keep, reject_reason, company_name)."""
-    try:
-        info = yf.Ticker(candidate.yahoo).info or {}
-    except Exception:
-        return False, "NO_DATA", candidate.name_hint
-
-    if not info or info.get("regularMarketPrice") is None and info.get("symbol") is None:
-        return False, "NO_DATA", candidate.name_hint
-
-    quote_type = str(info.get("quoteType") or "").upper()
-    if quote_type == "ETF":
-        return False, "ETF", candidate.name_hint
-    if quote_type and quote_type != "EQUITY":
-        return False, "NOT_EQUITY", candidate.name_hint
-
-    exchange = info.get("exchange")
-    if is_otc_yahoo_exchange(exchange):
-        return False, "OTC", candidate.name_hint
-    if exchange and not is_major_us_ca_exchange(exchange):
-        return False, "OTC", candidate.name_hint
-
-    country = str(info.get("country") or "")
-    if country not in ("United States", "Canada"):
-        return False, "NOT_US_CA", candidate.name_hint
-
-    long_name = str(info.get("longName") or info.get("shortName") or candidate.name_hint or "")
-    if name_suggests_non_common(long_name):
-        return False, "NOT_COMMON", candidate.name_hint
-
-    trailing_eps = info.get("trailingEps")
-    try:
-        eps = float(trailing_eps) if trailing_eps is not None else None
-    except (TypeError, ValueError):
-        eps = None
-    if eps is None or eps <= 0:
-        return False, "NEGATIVE_EPS", long_name or candidate.name_hint
-
-    return True, "PASS", long_name or candidate.name_hint
-
-
-def build_list(
-    *,
-    us_only: bool = False,
-    ca_only: bool = False,
-    limit: int = 0,
-    resume: bool = True,
-) -> tuple[list[tuple[str, str, str]], Counter]:
-    """Return (entries for write_list_file, reject_stats)."""
-    candidates: list[Candidate] = []
-    if not ca_only:
-        print("Loading US symbol directories...")
-        candidates.extend(_load_us_candidates_resilient())
-    if not us_only:
-        print("Loading Canadian symbol directories...")
-        candidates.extend(_load_ca_candidates())
-
-    # Dedupe by Yahoo symbol
-    by_yahoo: dict[str, Candidate] = {}
-    for c in candidates:
-        by_yahoo.setdefault(c.yahoo, c)
-    candidates = list(by_yahoo.values())
-    candidates.sort(key=lambda c: (c.region, c.yahoo))
-
-    if limit > 0:
-        candidates = candidates[:limit]
-
-    print(f"Candidates after Layer 1 filters: {len(candidates)}")
-
-    cache = _load_cache() if resume else {"checked": {}, "passed": []}
-    checked: dict = cache.setdefault("checked", {})
-    passed: list[list[str]] = list(cache.get("passed") or [])
-    passed_yahoo = {p[1] for p in passed if len(p) >= 2}
-    rejects: Counter = Counter()
-
-    for i, cand in enumerate(candidates, 1):
-        if cand.yahoo in checked:
-            prev = checked[cand.yahoo]
-            reason = prev.get("reason", "NO_DATA")
-            if reason == "PASS":
-                if cand.yahoo not in passed_yahoo:
-                    passed.append([prev.get("tv_part", cand.tv_part), cand.yahoo, prev.get("name", cand.name_hint)])
-                    passed_yahoo.add(cand.yahoo)
-            else:
-                rejects[reason] += 1
-            continue
-
-        time.sleep(YAHOO_DELAY_SEC)
-        ok, reason, name = _validate_yahoo(cand)
-        checked[cand.yahoo] = {
-            "reason": reason,
-            "tv_part": cand.tv_part,
-            "name": name,
-            "region": cand.region,
-        }
-        if ok:
-            passed.append([cand.tv_part, cand.yahoo, name])
-            passed_yahoo.add(cand.yahoo)
-        else:
-            rejects[reason] += 1
-
-        if i % 25 == 0:
-            _save_cache({"checked": checked, "passed": passed})
-            print(f"  Yahoo validated {i}/{len(candidates)} — passed so far: {len(passed)}")
-
-    _save_cache({"checked": checked, "passed": passed})
-
-    entries: list[tuple[str, str, str]] = []
-    seen_tv: set[str] = set()
-    for tv_part, yahoo, name in passed:
-        if tv_part in seen_tv:
-            continue
-        seen_tv.add(tv_part)
-        entries.append((tv_part, yahoo, name))
-    entries.sort(key=lambda e: e[0])
-    return entries, rejects
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Build TV-LIST-US-CANADA-FULL.txt (common stocks, positive EPS, no OTC/ETF)",
-    )
-    parser.add_argument("--us-only", action="store_true", help="US symbols only")
-    parser.add_argument("--ca-only", action="store_true", help="Canada symbols only")
-    parser.add_argument("--limit", type=int, default=0, help="Max candidates to Yahoo-check (0=all)")
-    parser.add_argument(
-        "--no-resume",
-        action="store_true",
-        help="Ignore .cache/us_ca_list_build.json and re-check all symbols",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help=f"Output list path (default: {TV_LIST_US_CANADA_FULL} or .sample.txt for smoke)",
-    )
-    args = parser.parse_args()
-
-    smoke_run = args.limit > 0 or args.us_only or args.ca_only
-    if args.output is None:
-        args.output = SAMPLE_OUT if smoke_run else OUT_PATH
-    elif smoke_run and args.output.resolve() == OUT_PATH.resolve():
-        print(
-            f"Smoke/partial run (--limit, --us-only, or --ca-only): "
-            f"writing to {SAMPLE_OUT.name} instead of production list.",
-            file=sys.stderr,
-        )
-        args.output = SAMPLE_OUT
-
-    if args.us_only and args.ca_only:
-        print("Choose at most one of --us-only / --ca-only", file=sys.stderr)
-        return 1
-
-    entries, rejects = build_list(
-        us_only=args.us_only,
-        ca_only=args.ca_only,
-        limit=args.limit,
-        resume=not args.no_resume,
-    )
-
-    if not entries:
-        print("No symbols passed all filters.", file=sys.stderr)
-        return 1
-
-    if args.output.resolve() == OUT_PATH.resolve():
-        write_list_file(TV_LIST_US_CANADA_FULL, entries)
-        out_display = OUT_PATH
-    else:
-        lines = []
-        for tv_sym, _yahoo, company_name in entries:
-            name = (company_name or "").strip()
-            lines.append(f"{tv_sym}|{name}" if name else tv_sym)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        out_display = args.output
-
-    us_n = sum(1 for tv, _, _ in entries if tv.startswith(("NASDAQ:", "NYSE:", "AMEX:")))
-    ca_n = len(entries) - us_n
-    print(f"\nWrote {len(entries)} lines to {out_display}")
-    print(f"  US: {us_n}  Canada: {ca_n}")
-    if rejects:
-        print("Reject breakdown (this run + resumed cache misses):")
-        for reason, count in rejects.most_common(12):
-            print(f"  {reason}: {count}")
-    print("\nNext: restart RUN_SCREENER.bat and select US + CANADA FULL as source.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

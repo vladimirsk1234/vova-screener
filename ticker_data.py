@@ -51,11 +51,7 @@ _NAME_RETRY_DELAY_SEC = 0.25
 _info_cache_lock = threading.Lock()
 
 # List files (same folder as this package); format: EXCHANGE:SYMBOL|Company Name (one per line)
-TV_LIST_BIG_CAP = "TV-LIST-BIG_CAP_10B.txt"
-TV_LIST_SMALL_CAP = "TV-LIST-SMALL_CAP_2B-10B.txt"
 TV_LIST_ETF = "TV-LIST-ETF.txt"
-# Phase 2: plug FileListSource(TV_LIST_US_CANADA_FULL) when list file is generated
-TV_LIST_US_CANADA_FULL = "TV-LIST-US-CANADA-FULL.txt"
 TV_LIST_STOCK_TICKERS = "STOCK-TICKERS.txt"
 
 # TradingView exchange prefix -> Yahoo Finance suffix (Canadian listings)

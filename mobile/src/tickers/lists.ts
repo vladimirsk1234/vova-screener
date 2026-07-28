@@ -119,9 +119,6 @@ export function parseManualTickers(text: string): {
 
 const LIST_MODULES: Record<string, number> = {
   'TV-LIST-ETF.txt': require('../../assets/lists/TV-LIST-ETF.txt'),
-  'TV-LIST-BIG_CAP_10B.txt': require('../../assets/lists/TV-LIST-BIG_CAP_10B.txt'),
-  'TV-LIST-SMALL_CAP_2B-10B.txt': require('../../assets/lists/TV-LIST-SMALL_CAP_2B-10B.txt'),
-  'TV-LIST-US-CANADA-FULL.txt': require('../../assets/lists/TV-LIST-US-CANADA-FULL.txt'),
   'STOCK-TICKERS.txt': require('../../assets/lists/STOCK-TICKERS.txt'),
 };
 
@@ -137,28 +134,8 @@ export async function loadMergedStocks(): Promise<{
   tvByYahoo: Record<string, string>;
   nameByYahoo: Record<string, string>;
 }> {
-  const files = [
-    'TV-LIST-BIG_CAP_10B.txt',
-    'TV-LIST-SMALL_CAP_2B-10B.txt',
-    'TV-LIST-US-CANADA-FULL.txt',
-    'STOCK-TICKERS.txt',
-  ];
-  const tickers: string[] = [];
-  const tvByYahoo: Record<string, string> = {};
-  const nameByYahoo: Record<string, string> = {};
-  const seen = new Set<string>();
-  for (const f of files) {
-    const raw = await loadAssetText(LIST_MODULES[f]);
-    const parsed = parseListText(raw);
-    for (const t of parsed.tickers) {
-      if (seen.has(t)) continue;
-      seen.add(t);
-      tickers.push(t);
-      tvByYahoo[t] = parsed.tvByYahoo[t];
-      if (parsed.nameByYahoo[t]) nameByYahoo[t] = parsed.nameByYahoo[t];
-    }
-  }
-  return { tickers, tvByYahoo, nameByYahoo };
+  const raw = await loadAssetText(LIST_MODULES['STOCK-TICKERS.txt']);
+  return parseListText(raw);
 }
 
 export async function loadEtfList() {

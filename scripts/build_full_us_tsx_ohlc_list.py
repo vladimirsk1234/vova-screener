@@ -28,7 +28,7 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPTS))
 
-from build_us_canada_list import load_layer1_candidates
+from layer1_universe import load_layer1_candidates
 from ohlc_yahoo import validate_ohlc_candidates
 from ticker_data import TV_LIST_STOCK_TICKERS, write_list_file
 

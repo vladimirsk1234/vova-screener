@@ -58,11 +58,8 @@ inject_styles()
 # ==========================================
 try:
     from ticker_data import (
-        TV_LIST_BIG_CAP,
         TV_LIST_ETF,
-        TV_LIST_SMALL_CAP,
         TV_LIST_STOCK_TICKERS,
-        TV_LIST_US_CANADA_FULL,
         build_name_cache,
         get_ticker_info_and_filter,
         read_list_file,
@@ -174,11 +171,6 @@ _LEGACY_STOCK_SOURCES = frozenset(
 )
 
 
-def _list_file_available(filename: str) -> bool:
-    base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.isfile(os.path.join(base, filename))
-
-
 def _normalize_source_label(src: str | None) -> str:
     if not src:
         return STOCKS_SRC
@@ -214,25 +206,8 @@ def _st_dataframe(df, **kwargs):
 
 
 def _build_stocks_source():
-    """Merge all individual-company lists; Yahoo ticker uniqueness (first wins)."""
-    # Priority matches scripts/build_stock_tickers_list.py: BIG -> SMALL -> FULL -> STOCK-TICKERS
-    stock_files = (
-        TV_LIST_BIG_CAP,
-        TV_LIST_SMALL_CAP,
-        TV_LIST_US_CANADA_FULL,
-        TV_LIST_STOCK_TICKERS,
-    )
-    parts = [
-        FileListSource(filename, read_list_file)
-        for filename in stock_files
-        if _list_file_available(filename)
-    ]
-    if not parts:
-        # Keep registry key stable even if list files are missing; scan will surface the read error.
-        return FileListSource(TV_LIST_BIG_CAP, read_list_file)
-    if len(parts) == 1:
-        return parts[0]
-    return CombinedListSource(parts, label="Stocks")
+    """Individual-company list: STOCK-TICKERS.txt only."""
+    return FileListSource(TV_LIST_STOCK_TICKERS, read_list_file)
 
 
 def _build_source_registry():
