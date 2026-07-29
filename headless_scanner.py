@@ -1261,27 +1261,58 @@ def run_scan(
                 on_phase_start("download")
             if on_phase_start:
                 on_phase_start("process")
-            for batch_idx, batch in enumerate(batches):
-                if is_cancelled and is_cancelled():
-                    break
-                _, batch, all_data = _download_batch(
-                    batch_idx, batch, fetch_period, inter, auto_adjust=auto_adjust_prices,
-                )
-                if all_data is not None and not all_data.empty and len(all_data.index) > 0:
-                    batch_end = all_data.index[-1]
-                    reference_end_date = (
-                        batch_end if reference_end_date is None else min(reference_end_date, batch_end)
-                    )
-                dl_done[0] += 1
-                if on_phase_progress:
-                    on_phase_progress("download", dl_done[0], n_batches)
-                _process_batch_slice(batch, all_data, pool=ta_pool)
-                del all_data
-                gc.collect()
+            # Pipeline: keep up to workers_dl downloads in flight while TA runs,
+            # so Cloud stays memory-bounded without serializing every Yahoo call.
+            dl_inflight = max(1, workers_dl)
+            with ThreadPoolExecutor(max_workers=dl_inflight) as dl_pool:
+                pending_dl: dict[int, object] = {}
+                next_submit = 0
+
+                def _submit_downloads() -> None:
+                    nonlocal next_submit
+                    while (
+                        next_submit < len(batches)
+                        and len(pending_dl) < dl_inflight
+                        and not (is_cancelled and is_cancelled())
+                    ):
+                        bi = next_submit
+                        next_submit += 1
+                        pending_dl[bi] = dl_pool.submit(
+                            _download_batch,
+                            bi,
+                            batches[bi],
+                            fetch_period,
+                            inter,
+                            auto_adjust=auto_adjust_prices,
+                        )
+
+                _submit_downloads()
+                for batch_idx in range(len(batches)):
+                    if is_cancelled and is_cancelled():
+                        break
+                    _submit_downloads()
+                    fut = pending_dl.pop(batch_idx, None)
+                    if fut is None:
+                        break
+                    _, batch, all_data = fut.result()
+                    if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                        batch_end = all_data.index[-1]
+                        reference_end_date = (
+                            batch_end if reference_end_date is None else min(reference_end_date, batch_end)
+                        )
+                    dl_done[0] += 1
+                    if on_phase_progress:
+                        on_phase_progress("download", dl_done[0], n_batches)
+                    _process_batch_slice(batch, all_data, pool=ta_pool)
+                    del all_data
+                    if batch_idx % 2 == 0:
+                        gc.collect()
+                    _submit_downloads()
             if on_phase_complete and not (is_cancelled and is_cancelled()):
                 on_phase_complete("download")
             if on_phase_complete and not (is_cancelled and is_cancelled()):
                 on_phase_complete("process")
+
         elif lazy_metadata:
             if use_embedded_names:
                 name_cache = dict(company_name_by_ticker or {})

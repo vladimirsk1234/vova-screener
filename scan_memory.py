@@ -14,13 +14,15 @@ _cached_is_low_memory: bool | None = None
 
 
 def is_streamlit_cloud() -> bool:
-    """True on Streamlit Community Cloud (and similar managed hosts)."""
+    """True on Streamlit Community Cloud (and similar managed hosts).
+
+    Do NOT key off STREAMLIT_SERVER_PORT alone — local `streamlit run` sets it too.
+    """
     global _cached_is_streamlit_cloud
     if _cached_is_streamlit_cloud is not None:
         return _cached_is_streamlit_cloud
     _cached_is_streamlit_cloud = bool(
-        os.environ.get("STREAMLIT_SERVER_PORT")
-        or os.path.isdir("/mount/src")
+        os.path.isdir("/mount/src")
         or os.environ.get("HOME", "").startswith("/home/appuser")
     )
     return _cached_is_streamlit_cloud
@@ -77,37 +79,43 @@ def is_low_memory_runtime() -> bool:
 
 
 def scan_chunk_size(scanner_id: str = "sequence_vova") -> int:
+    # 100 keeps peak RAM bounded while cutting Yahoo round-trips vs 50.
     if is_low_memory_runtime():
-        return 50
+        return 100
     return 200
 
 
 def ta_max_workers(scanner_id: str = "sequence_vova", *, default: int) -> int:
     if is_low_memory_runtime():
-        return 4
+        return 8
     return default
 
 
 def download_max_workers(scanner_id: str = "sequence_vova", *, default: int) -> int:
-    if is_low_memory_runtime():
-        return 1
-    return default
-
-
-def yf_download_threads() -> bool:
-    """Parallel symbol fetch inside yf.download — off on Streamlit Cloud."""
-    return not is_low_memory_runtime()
-
-
-def yf_info_max_workers(*, default: int) -> int:
+    # Overlap 2 Yahoo batch downloads; still far below full-universe RAM peak.
     if is_low_memory_runtime():
         return 2
     return default
 
 
+def yf_download_threads() -> bool:
+    """Parallel symbol fetch inside yf.download.
+
+    Safe on Cloud when batch size is modest (scan_chunk_size); the OOM was from
+    holding every batch + hundreds of TA futures, not from yfinance threads.
+    """
+    return True
+
+
+def yf_info_max_workers(*, default: int) -> int:
+    if is_low_memory_runtime():
+        return 4
+    return default
+
+
 def yf_name_cache_rate_per_sec(*, default: float) -> float:
     if is_low_memory_runtime():
-        return 4.0
+        return 8.0
     return default
 
 

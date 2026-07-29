@@ -19,9 +19,9 @@ def _is_streamlit_cloud() -> bool:
 
         return bool(is_streamlit_cloud())
     except Exception:
+        # Hard Cloud signals only (STREAMLIT_SERVER_PORT is also set by local streamlit).
         return bool(
-            os.environ.get("STREAMLIT_SERVER_PORT")
-            or os.path.isdir("/mount/src")
+            os.path.isdir("/mount/src")
             or os.environ.get("HOME", "").startswith("/home/appuser")
         )
 
