@@ -349,7 +349,7 @@ class ScanConfig:
 ATR_LEN = 14
 MIN_BARS = 50  # minimum bars for sequence logic
 CHUNK_SIZE = 200  # batch size for yf.download (smaller chunks = more parallel downloads)
-DOWNLOAD_MAX_WORKERS = 3  # parallel yf.download batches
+DOWNLOAD_MAX_WORKERS = 4  # parallel yf.download batches
 YF_INFO_RETRY_DELAY_SEC = 0.25  # delay before retrying get_ticker_info_and_filter on INFO_ERROR
 YF_DOWNLOAD_MAX_RETRIES = 2  # retry batch download up to this many times on failure
 YF_DOWNLOAD_BACKOFF_SEC = 2.0  # extra delay after failed parallel batch (rate limit)
@@ -1261,23 +1261,25 @@ def run_scan(
                 on_phase_start("download")
             if on_phase_start:
                 on_phase_start("process")
-            # Pipeline: keep up to workers_dl downloads in flight while TA runs,
-            # so Cloud stays memory-bounded without serializing every Yahoo call.
+            # Pipeline: keep N downloads in flight; process batches as they finish
+            # (not strictly ordered) so a slow Yahoo batch does not stall TA.
             dl_inflight = max(1, workers_dl)
             with ThreadPoolExecutor(max_workers=dl_inflight) as dl_pool:
-                pending_dl: dict[int, object] = {}
+                pending_dl: dict[object, int] = {}
                 next_submit = 0
+                processed = 0
+                n_to_process = len(batches)
 
                 def _submit_downloads() -> None:
                     nonlocal next_submit
                     while (
-                        next_submit < len(batches)
+                        next_submit < n_to_process
                         and len(pending_dl) < dl_inflight
                         and not (is_cancelled and is_cancelled())
                     ):
                         bi = next_submit
                         next_submit += 1
-                        pending_dl[bi] = dl_pool.submit(
+                        fut = dl_pool.submit(
                             _download_batch,
                             bi,
                             batches[bi],
@@ -1285,33 +1287,46 @@ def run_scan(
                             inter,
                             auto_adjust=auto_adjust_prices,
                         )
+                        pending_dl[fut] = bi
 
                 _submit_downloads()
-                for batch_idx in range(len(batches)):
+                while pending_dl and processed < n_to_process:
                     if is_cancelled and is_cancelled():
                         break
-                    _submit_downloads()
-                    fut = pending_dl.pop(batch_idx, None)
-                    if fut is None:
-                        break
-                    _, batch, all_data = fut.result()
-                    if all_data is not None and not all_data.empty and len(all_data.index) > 0:
-                        batch_end = all_data.index[-1]
-                        reference_end_date = (
-                            batch_end if reference_end_date is None else min(reference_end_date, batch_end)
-                        )
-                    dl_done[0] += 1
-                    if on_phase_progress:
-                        on_phase_progress("download", dl_done[0], n_batches)
-                    _process_batch_slice(batch, all_data, pool=ta_pool)
-                    del all_data
-                    if batch_idx % 2 == 0:
-                        gc.collect()
-                    _submit_downloads()
+                    done, _ = wait(tuple(pending_dl.keys()), return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        pending_dl.pop(fut, None)
+                        try:
+                            _, batch, all_data = fut.result()
+                        except Exception:
+                            time.sleep(YF_DOWNLOAD_BACKOFF_SEC)
+                            processed += 1
+                            dl_done[0] += 1
+                            if on_phase_progress:
+                                on_phase_progress("download", dl_done[0], n_batches)
+                            _submit_downloads()
+                            continue
+                        if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                            batch_end = all_data.index[-1]
+                            reference_end_date = (
+                                batch_end
+                                if reference_end_date is None
+                                else min(reference_end_date, batch_end)
+                            )
+                        dl_done[0] += 1
+                        if on_phase_progress:
+                            on_phase_progress("download", dl_done[0], n_batches)
+                        _process_batch_slice(batch, all_data, pool=ta_pool)
+                        del all_data
+                        processed += 1
+                        if processed % 4 == 0:
+                            gc.collect()
+                        _submit_downloads()
             if on_phase_complete and not (is_cancelled and is_cancelled()):
                 on_phase_complete("download")
             if on_phase_complete and not (is_cancelled and is_cancelled()):
                 on_phase_complete("process")
+
 
         elif lazy_metadata:
             if use_embedded_names:

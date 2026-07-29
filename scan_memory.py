@@ -79,22 +79,22 @@ def is_low_memory_runtime() -> bool:
 
 
 def scan_chunk_size(scanner_id: str = "sequence_vova") -> int:
-    # 100 keeps peak RAM bounded while cutting Yahoo round-trips vs 50.
+    # Near full-speed batch size; peak RAM still bounded by the download pipeline.
     if is_low_memory_runtime():
-        return 100
+        return 150
     return 200
 
 
 def ta_max_workers(scanner_id: str = "sequence_vova", *, default: int) -> int:
     if is_low_memory_runtime():
-        return 8
+        return 12
     return default
 
 
 def download_max_workers(scanner_id: str = "sequence_vova", *, default: int) -> int:
-    # Overlap 2 Yahoo batch downloads; still far below full-universe RAM peak.
+    # Match local parallel download width; pipeline frees each batch after TA.
     if is_low_memory_runtime():
-        return 2
+        return 3
     return default
 
 
@@ -109,13 +109,13 @@ def yf_download_threads() -> bool:
 
 def yf_info_max_workers(*, default: int) -> int:
     if is_low_memory_runtime():
-        return 4
+        return 6
     return default
 
 
 def yf_name_cache_rate_per_sec(*, default: float) -> float:
     if is_low_memory_runtime():
-        return 8.0
+        return 10.0
     return default
 
 
