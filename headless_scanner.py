@@ -41,6 +41,8 @@ if 'ohlc_cache' not in st.session_state:
     st.session_state.ohlc_cache = {}
 if 'selected_tv_symbol' not in st.session_state:
     st.session_state.selected_tv_symbol = None
+if 'results_token' not in st.session_state:
+    st.session_state.results_token = 0
 # --- CSS STYLING (from ui_styles.py) ---
 from ui_styles import inject_styles
 from chart_preview import (
@@ -297,6 +299,7 @@ if start_btn:
     st.session_state.chart_cache = {}
     st.session_state.ohlc_cache = {}
     st.session_state.selected_tv_symbol = None
+    st.session_state.results_token = int(st.session_state.get("results_token", 0)) + 1
     # FREEZE PARAMS
     st.session_state.run_params = {
         'src': src, 'txt': man_txt, 'risk_per_trade': risk_per_trade, 'rr': min_rr_in,
@@ -485,13 +488,14 @@ def render_scan_results(
         display_df = _display_columns(res_df)
         col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
 
+        results_token = int(st.session_state.get("results_token", 0))
         event = _st_dataframe(
             display_df,
             hide_index=True,
             column_config=col_config,
             on_select="rerun",
             selection_mode="single-row",
-            key="scan_results_table",
+            key=f"scan_results_table_{results_token}",
         )
 
         if summary_row:
@@ -514,10 +518,11 @@ def render_scan_results(
         tv_sym = None
         if has_charts:
             selected = getattr(event, "selection", None)
-            sel_rows = list(selected.rows) if selected and getattr(selected, "rows", None) else []
+            raw_rows = list(selected.rows) if selected and getattr(selected, "rows", None) else []
+            n_rows = len(res_df)
+            sel_rows = [int(i) for i in raw_rows if 0 <= int(i) < n_rows]
             if sel_rows:
-                row_idx = sel_rows[0]
-                tv_sym = str(res_df.iloc[row_idx].get("tv_symbol", "") or "")
+                tv_sym = str(res_df.iloc[sel_rows[0]].get("tv_symbol", "") or "")
                 if tv_sym:
                     st.session_state.selected_tv_symbol = tv_sym
             elif st.session_state.get("selected_tv_symbol"):
