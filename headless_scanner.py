@@ -11,7 +11,7 @@ import yfinance as yf
 import numpy as np
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 
 _log = logging.getLogger(__name__)
@@ -1018,11 +1018,18 @@ def run_scan(
     workers_ta = ta_max_workers(scanner_id, default=TA_MAX_WORKERS)
     workers_dl = download_max_workers(scanner_id, default=DOWNLOAD_MAX_WORKERS)
 
+    # Smaller stacks on constrained hosts so more threads can be created.
+    if stream_batches:
+        try:
+            threading.stack_size(512 * 1024)
+        except (ValueError, RuntimeError, OSError):
+            pass
+
     table_rows = []
     rejected_reasons = []
     ohlc_cache: dict[str, dict] = {}
     reference_end_date = None
-    batches_data: list[tuple[list[str], pd.DataFrame | None]] = []
+    batches_data: list[tuple[list[str], pd.DataFrame | None] | None] = []
 
     lazy_metadata = not is_manual_src
     use_embedded_names = lazy_metadata
@@ -1101,7 +1108,56 @@ def run_scan(
         elif res["kind"] == "reject":
             rejected_reasons.append(res["row"])
 
-    def _process_batch_slice(batch: list[str], all_data: pd.DataFrame | None) -> None:
+    def _process_one_ticker(
+        t: str,
+        ticker_df,
+        nc: dict[str, str] | None,
+    ) -> dict:
+        ent = None
+        if not lazy_metadata:
+            ent = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
+        return _process_ticker_for_scan(
+            t,
+            ticker_df,
+            required_cols,
+            fetch_period,
+            inter,
+            tf,
+            reference_end_date,
+            risk_per_trade,
+            min_rr,
+            use_last_hl_sl,
+            new_only,
+            is_manual_src,
+            lazy_metadata,
+            ent,
+            tv_symbol_by_ticker,
+            nc,
+            scan_direction,
+            scanner_id,
+            no_rr_req,
+        )
+
+    def _finish_ticker_result(t: str, res_or_exc) -> None:
+        try:
+            if isinstance(res_or_exc, Exception):
+                raise res_or_exc
+            _merge_ticker_result(res_or_exc)
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            if len(msg) > 200:
+                msg = msg[:197] + "..."
+            rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
+        proc_done[0] += 1
+        if on_phase_progress:
+            on_phase_progress("process", proc_done[0], n_tickers)
+
+    def _process_batch_slice(
+        batch: list[str],
+        all_data: pd.DataFrame | None,
+        *,
+        pool: ThreadPoolExecutor | None = None,
+    ) -> None:
         slice_data = all_data
         if (
             slice_data is not None
@@ -1115,135 +1171,191 @@ def run_scan(
         ticker_dfs = _split_batch_ohlcv(slice_data, batch, required_cols)
         nc = name_cache if lazy_metadata else None
 
-        use_parallel = workers_ta > 1 and len(batch) > 1
-        if use_parallel:
-            with ThreadPoolExecutor(max_workers=workers_ta) as pool:
-                pairs = []
-                for t in batch:
-                    if is_cancelled and is_cancelled():
-                        break
-                    ent = None
-                    if not lazy_metadata:
-                        ent = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
-                    fut = pool.submit(
-                        _process_ticker_for_scan,
-                        t,
-                        ticker_dfs.get(t),
-                        required_cols,
-                        fetch_period,
-                        inter,
-                        tf,
-                        reference_end_date,
-                        risk_per_trade,
-                        min_rr,
-                        use_last_hl_sl,
-                        new_only,
-                        is_manual_src,
-                        lazy_metadata,
-                        ent,
-                        tv_symbol_by_ticker,
-                        nc,
-                        scan_direction,
-                        scanner_id,
-                        no_rr_req,
-                    )
-                    pairs.append((t, fut))
-                for t, fut in pairs:
-                    if is_cancelled and is_cancelled():
-                        break
-                    try:
-                        _merge_ticker_result(fut.result())
-                    except Exception as e:
-                        msg = f"{type(e).__name__}: {e}"
-                        if len(msg) > 200:
-                            msg = msg[:197] + "..."
-                        rejected_reasons.append({"Symbol": t, "Reason": f"ERROR: {msg}"})
-                    proc_done[0] += 1
-                    if on_phase_progress:
-                        on_phase_progress("process", proc_done[0], n_tickers)
-        else:
-            for t in batch:
+        def _run_serial(symbols: list[str]) -> None:
+            for t in symbols:
                 if is_cancelled and is_cancelled():
                     break
-                ent = None
-                if not lazy_metadata:
-                    ent = info_cache.get(t, (False, "INFO_ERROR", {"company_name": t, "avg_volume": None}))
-                res = _process_ticker_for_scan(
-                    t,
-                    ticker_dfs.get(t),
-                    required_cols,
-                    fetch_period,
-                    inter,
-                    tf,
-                    reference_end_date,
-                    risk_per_trade,
-                    min_rr,
-                    use_last_hl_sl,
-                    new_only,
-                    is_manual_src,
-                    lazy_metadata,
-                    ent,
-                    tv_symbol_by_ticker,
-                    nc,
-                    scan_direction,
-                    scanner_id,
-                    no_rr_req,
-                )
-                _merge_ticker_result(res)
-                proc_done[0] += 1
-                if on_phase_progress:
-                    on_phase_progress("process", proc_done[0], n_tickers)
+                try:
+                    res = _process_one_ticker(t, ticker_dfs.get(t), nc)
+                except Exception as e:
+                    res = e
+                _finish_ticker_result(t, res)
+
+        use_parallel = pool is not None and workers_ta > 1 and len(batch) > 1
+        if use_parallel:
+            window = max(workers_ta * 2, workers_ta)
+            pending: dict = {}
+            tickers_iter = iter(batch)
+            degrade_serial = False
+
+            def _submit_next() -> bool:
+                """Submit one more ticker. False = no more / cancelled / degraded."""
+                nonlocal degrade_serial
+                if is_cancelled and is_cancelled():
+                    return False
+                try:
+                    t = next(tickers_iter)
+                except StopIteration:
+                    return False
+                try:
+                    fut = pool.submit(_process_one_ticker, t, ticker_dfs.get(t), nc)
+                    pending[fut] = t
+                    return True
+                except (RuntimeError, OSError) as exc:
+                    _log.warning(
+                        "Thread pool submit failed (%s); finishing batch serially",
+                        exc,
+                    )
+                    degrade_serial = True
+                    _run_serial([t] + list(tickers_iter))
+                    return False
+
+            while len(pending) < window and _submit_next():
+                pass
+
+            while pending:
+                if is_cancelled and is_cancelled():
+                    break
+                done, _ = wait(tuple(pending.keys()), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    t = pending.pop(fut)
+                    try:
+                        res = fut.result()
+                    except Exception as e:
+                        res = e
+                    _finish_ticker_result(t, res)
+                if not degrade_serial:
+                    while len(pending) < window and _submit_next():
+                        pass
+        else:
+            _run_serial(batch)
         del ticker_dfs
 
+    ta_pool: ThreadPoolExecutor | None = None
+    if workers_ta > 1:
+        try:
+            ta_pool = ThreadPoolExecutor(max_workers=workers_ta)
+        except (RuntimeError, OSError) as exc:
+            _log.warning("Could not create TA thread pool (%s); using serial TA", exc)
+            ta_pool = None
+
     t_names_dl0 = time.perf_counter()
-    if stream_batches:
-        if lazy_metadata:
+    try:
+        if stream_batches:
+            if lazy_metadata:
+                if use_embedded_names:
+                    name_cache = dict(company_name_by_ticker or {})
+                    for t in tickers:
+                        name_cache.setdefault(t, t)
+                else:
+                    if on_phase_start:
+                        on_phase_start("download")
+                    name_cache = build_name_cache(
+                        tickers,
+                        rate_limit_per_sec=yf_name_cache_rate_per_sec(default=YF_INFO_RATE_LIMIT_PER_SEC),
+                        max_workers=yf_info_max_workers(default=YF_INFO_MAX_WORKERS),
+                        is_cancelled=is_cancelled,
+                        on_one_done=None,
+                    )
+            if on_phase_start:
+                on_phase_start("download")
+            if on_phase_start:
+                on_phase_start("process")
+            for batch_idx, batch in enumerate(batches):
+                if is_cancelled and is_cancelled():
+                    break
+                _, batch, all_data = _download_batch(
+                    batch_idx, batch, fetch_period, inter, auto_adjust=auto_adjust_prices,
+                )
+                if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                    batch_end = all_data.index[-1]
+                    reference_end_date = (
+                        batch_end if reference_end_date is None else min(reference_end_date, batch_end)
+                    )
+                dl_done[0] += 1
+                if on_phase_progress:
+                    on_phase_progress("download", dl_done[0], n_batches)
+                _process_batch_slice(batch, all_data, pool=ta_pool)
+                del all_data
+                gc.collect()
+            if on_phase_complete and not (is_cancelled and is_cancelled()):
+                on_phase_complete("download")
+            if on_phase_complete and not (is_cancelled and is_cancelled()):
+                on_phase_complete("process")
+        elif lazy_metadata:
             if use_embedded_names:
                 name_cache = dict(company_name_by_ticker or {})
                 for t in tickers:
                     name_cache.setdefault(t, t)
-            else:
+
+                def _dl_batch_done_embedded():
+                    dl_done[0] += 1
+                    if on_phase_progress:
+                        on_phase_progress("download", dl_done[0], n_batches)
+
                 if on_phase_start:
                     on_phase_start("download")
-                name_cache = build_name_cache(
-                    tickers,
-                    rate_limit_per_sec=yf_name_cache_rate_per_sec(default=YF_INFO_RATE_LIMIT_PER_SEC),
-                    max_workers=yf_info_max_workers(default=YF_INFO_MAX_WORKERS),
-                    is_cancelled=is_cancelled,
-                    on_one_done=None,
+                batches_data, reference_end_date = _parallel_download_batches(
+                    batches,
+                    fetch_period,
+                    inter,
+                    is_cancelled,
+                    _dl_batch_done_embedded,
+                    max_workers=workers_dl,
                 )
-        if on_phase_start:
-            on_phase_start("download")
-        if on_phase_start:
-            on_phase_start("process")
-        for batch_idx, batch in enumerate(batches):
-            if is_cancelled and is_cancelled():
-                break
-            _, batch, all_data = _download_batch(
-                batch_idx, batch, fetch_period, inter, auto_adjust=auto_adjust_prices,
-            )
-            if all_data is not None and not all_data.empty and len(all_data.index) > 0:
-                batch_end = all_data.index[-1]
-                reference_end_date = (
-                    batch_end if reference_end_date is None else min(reference_end_date, batch_end)
-                )
-            dl_done[0] += 1
-            if on_phase_progress:
-                on_phase_progress("download", dl_done[0], n_batches)
-            _process_batch_slice(batch, all_data)
-            del all_data
-            gc.collect()
-        if on_phase_complete and not (is_cancelled and is_cancelled()):
-            on_phase_complete("download")
-        if on_phase_complete and not (is_cancelled and is_cancelled()):
-            on_phase_complete("process")
-    elif lazy_metadata:
-        if use_embedded_names:
-            name_cache = dict(company_name_by_ticker or {})
-            for t in tickers:
-                name_cache.setdefault(t, t)
+                if on_phase_complete and not (is_cancelled and is_cancelled()):
+                    on_phase_complete("download")
+            else:
+                # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
+                if on_phase_start:
+                    on_phase_start("download")
+                _name_rate = yf_name_cache_rate_per_sec(default=YF_INFO_RATE_LIMIT_PER_SEC)
+                _name_workers = yf_info_max_workers(default=YF_INFO_MAX_WORKERS)
+                if is_low_memory_runtime():
+                    name_cache = build_name_cache(
+                        tickers,
+                        rate_limit_per_sec=_name_rate,
+                        max_workers=_name_workers,
+                        is_cancelled=None,
+                        on_one_done=None,
+                    )
+                    batches_data, reference_end_date = _parallel_download_batches(
+                        batches,
+                        fetch_period,
+                        inter,
+                        is_cancelled,
+                        None,
+                        max_workers=workers_dl,
+                    )
+                else:
+                    with ThreadPoolExecutor(max_workers=2) as prep_pool:
+                        name_future = prep_pool.submit(
+                            build_name_cache,
+                            tickers,
+                            rate_limit_per_sec=_name_rate,
+                            max_workers=_name_workers,
+                            is_cancelled=None,
+                            on_one_done=None,
+                        )
+                        dl_future = prep_pool.submit(
+                            _parallel_download_batches,
+                            batches,
+                            fetch_period,
+                            inter,
+                            None,
+                            None,
+                            max_workers=workers_dl,
+                        )
+                        name_cache = name_future.result()
+                        batches_data, reference_end_date = dl_future.result()
 
-            def _dl_batch_done_embedded():
+                if on_phase_progress:
+                    on_phase_progress("download", n_batches, n_batches)
+                if on_phase_complete:
+                    on_phase_complete("download")
+        else:
+
+            def _dl_batch_done_manual():
                 dl_done[0] += 1
                 if on_phase_progress:
                     on_phase_progress("download", dl_done[0], n_batches)
@@ -1255,112 +1367,59 @@ def run_scan(
                 fetch_period,
                 inter,
                 is_cancelled,
-                _dl_batch_done_embedded,
+                _dl_batch_done_manual,
+                max_workers=workers_dl,
             )
             if on_phase_complete and not (is_cancelled and is_cancelled()):
                 on_phase_complete("download")
-        else:
-            # UI callbacks and st.session_state must stay on the main thread (NoSessionContext in workers).
+
+        prefetch_sec = time.perf_counter() - t_names_dl0
+        t_proc0 = time.perf_counter()
+
+        if not stream_batches:
+            if reference_end_date is None and batches_data:
+                for _, all_data in batches_data:
+                    if all_data is not None and not all_data.empty and len(all_data.index) > 0:
+                        reference_end_date = all_data.index[-1]
+                        break
+
             if on_phase_start:
-                on_phase_start("download")
-            _name_rate = yf_name_cache_rate_per_sec(default=YF_INFO_RATE_LIMIT_PER_SEC)
-            _name_workers = yf_info_max_workers(default=YF_INFO_MAX_WORKERS)
-            if is_low_memory_runtime():
-                name_cache = build_name_cache(
-                    tickers,
-                    rate_limit_per_sec=_name_rate,
-                    max_workers=_name_workers,
-                    is_cancelled=None,
-                    on_one_done=None,
-                )
-                batches_data, reference_end_date = _parallel_download_batches(
-                    batches,
-                    fetch_period,
-                    inter,
-                    is_cancelled,
-                    None,
-                )
-            else:
-                with ThreadPoolExecutor(max_workers=2) as prep_pool:
-                    name_future = prep_pool.submit(
-                        build_name_cache,
-                        tickers,
-                        rate_limit_per_sec=_name_rate,
-                        max_workers=_name_workers,
-                        is_cancelled=None,
-                        on_one_done=None,
-                    )
-                    dl_future = prep_pool.submit(
-                        _parallel_download_batches,
-                        batches,
-                        fetch_period,
-                        inter,
-                        None,
-                        None,
-                    )
-                    name_cache = name_future.result()
-                    batches_data, reference_end_date = dl_future.result()
-
-            if on_phase_progress:
-                on_phase_progress("download", n_batches, n_batches)
-            if on_phase_complete:
-                on_phase_complete("download")
-    else:
-
-        def _dl_batch_done_manual():
-            dl_done[0] += 1
-            if on_phase_progress:
-                on_phase_progress("download", dl_done[0], n_batches)
-
-        if on_phase_start:
-            on_phase_start("download")
-        batches_data, reference_end_date = _parallel_download_batches(
-            batches,
-            fetch_period,
-            inter,
-            is_cancelled,
-            _dl_batch_done_manual,
-        )
-        if on_phase_complete and not (is_cancelled and is_cancelled()):
-            on_phase_complete("download")
-
-    prefetch_sec = time.perf_counter() - t_names_dl0
-    t_proc0 = time.perf_counter()
-
-    if not stream_batches:
-        if reference_end_date is None and batches_data:
-            for _, all_data in batches_data:
-                if all_data is not None and not all_data.empty and len(all_data.index) > 0:
-                    reference_end_date = all_data.index[-1]
+                on_phase_start("process")
+            for _batch_idx, item in enumerate(batches_data):
+                if item is None:
+                    continue
+                if is_cancelled and is_cancelled():
                     break
+                batch, all_data = item
+                _process_batch_slice(batch, all_data, pool=ta_pool)
+                batches_data[_batch_idx] = None
+                if _batch_idx % 2 == 0:
+                    gc.collect()
+            if on_phase_complete and not (is_cancelled and is_cancelled()):
+                on_phase_complete("process")
 
-        if on_phase_start:
-            on_phase_start("process")
-        for _batch_idx, (batch, all_data) in enumerate(batches_data):
-            if is_cancelled and is_cancelled():
-                break
-            _process_batch_slice(batch, all_data)
-        if on_phase_complete and not (is_cancelled and is_cancelled()):
-            on_phase_complete("process")
+        proc_sec = time.perf_counter() - t_proc0
 
-    proc_sec = time.perf_counter() - t_proc0
+        if is_cancelled and is_cancelled():
+            if on_scan_cancelled:
+                on_scan_cancelled()
 
-    if is_cancelled and is_cancelled():
-        if on_scan_cancelled:
-            on_scan_cancelled()
+        if table_rows and not use_embedded_names:
+            _patch_symbol_only_company_names(table_rows)
 
-    if table_rows and not use_embedded_names:
-        _patch_symbol_only_company_names(table_rows)
+        total_sec = time.perf_counter() - t_scan0
+        timing_msg = (
+            f"Screener scan timings: symbols={len(tickers)} "
+            f"info={info_sec:.2f}s prefetch={prefetch_sec:.2f}s process={proc_sec:.2f}s total={total_sec:.2f}s"
+        )
+        _log.info(timing_msg)
+        print(timing_msg, flush=True)
 
-    total_sec = time.perf_counter() - t_scan0
-    timing_msg = (
-        f"Screener scan timings: symbols={len(tickers)} "
-        f"info={info_sec:.2f}s prefetch={prefetch_sec:.2f}s process={proc_sec:.2f}s total={total_sec:.2f}s"
-    )
-    _log.info(timing_msg)
-    print(timing_msg, flush=True)
+        return (table_rows, rejected_reasons, reference_end_date, ohlc_cache)
+    finally:
+        if ta_pool is not None:
+            ta_pool.shutdown(wait=True)
 
-    return (table_rows, rejected_reasons, reference_end_date, ohlc_cache)
 
 
 if st.session_state.scanning:

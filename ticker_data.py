@@ -14,11 +14,16 @@ from typing import Callable
 # Streamlit Community Cloud: default user cache dirs are often not writable;
 # yfinance can raise on import / first use if cache init fails.
 def _is_streamlit_cloud() -> bool:
-    return bool(
-        os.environ.get("STREAMLIT_SERVER_PORT")
-        or os.path.isdir("/mount/src")
-        or os.environ.get("HOME", "").startswith("/home/appuser")
-    )
+    try:
+        from scan_memory import is_streamlit_cloud
+
+        return bool(is_streamlit_cloud())
+    except Exception:
+        return bool(
+            os.environ.get("STREAMLIT_SERVER_PORT")
+            or os.path.isdir("/mount/src")
+            or os.environ.get("HOME", "").startswith("/home/appuser")
+        )
 
 
 def _writable_cache_root() -> str:

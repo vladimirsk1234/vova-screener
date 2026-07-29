@@ -30,10 +30,23 @@ except ImportError:
         return _wrap
 
 
+def _is_cloud_runtime() -> bool:
+    try:
+        from scan_memory import is_streamlit_cloud
+
+        return bool(is_streamlit_cloud())
+    except Exception:
+        return bool(
+            os.environ.get("STREAMLIT_SERVER_PORT")
+            or os.path.isdir("/mount/src")
+            or os.environ.get("HOME", "").startswith("/home/appuser")
+        )
+
+
 _PINE_USE_NUMBA = (
     os.environ.get("PINE_USE_NUMBA", "1") != "0"
     and _NUMBA_AVAILABLE
-    and not os.environ.get("STREAMLIT_SERVER_PORT")  # Cloud: avoid native JIT crashes
+    and not _is_cloud_runtime()  # Cloud: avoid native JIT crashes
 )
 
 
