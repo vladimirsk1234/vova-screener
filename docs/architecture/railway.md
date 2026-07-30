@@ -13,10 +13,20 @@ via Dockerfile so Railpack does not treat the repo as Python.
 
 ## API service
 
-- Builder: `Dockerfile` ([`railway.toml`](../../railway.toml))
+- **Git branch must be** `cursor/react-mongo-refactor-design-18b3` (or another branch that
+  contains `Dockerfile` / Nest). `main` is still Streamlit-era and has **no** Dockerfile —
+  Railpack then prints `Detected Python` and fails.
+- Builder: prefer **Dockerfile** in Service Settings → Build (also set in [`railway.toml`](../../railway.toml)).
+- Fallback if Railpack still runs: [`railpack.json`](../../railpack.json) forces `provider: node`
+  and `npm run start -w @vova/api`.
 - Start: `npm run start -w @vova/api` (ts-node; engine is TypeScript source)
 - Healthcheck: `GET /api/health`
 - Public networking: generate a domain on the API service
+
+If logs still say `Detected Python` after a push that includes `Dockerfile`:
+1. Settings → Source → confirm branch + root `/`
+2. Settings → Build → Builder = Dockerfile → Redeploy
+3. Or trigger **Redeploy** from the deployment menu (Git auto-deploys sometimes ignore Dockerfile)
 
 ### Variables
 
