@@ -44,6 +44,7 @@ if 'selected_tv_symbol' not in st.session_state:
 if 'results_token' not in st.session_state:
     st.session_state.results_token = 0
 # --- CSS STYLING (from ui_styles.py) ---
+from vova_api_client import api_enabled, get_api_base_url, run_scan_via_api
 from ui_styles import inject_styles
 from chart_preview import (
     DEFAULT_CHART_HEIGHT,
@@ -228,6 +229,13 @@ SOURCE_REGISTRY = _build_source_registry()
 
 
 st.sidebar.header("⚙️ CONFIGURATION")
+
+_api_base = get_api_base_url()
+if _api_base:
+    st.sidebar.success(f"Mongo API: {_api_base}")
+    st.sidebar.caption("Scans run on NestJS + barSeries cache (same DB as React).")
+else:
+    st.sidebar.caption("Local Yahoo path (set VOVA_API_URL for Mongo/Nest scans).")
 
 # Disable inputs if scanning
 disabled = st.session_state.scanning
@@ -1479,58 +1487,90 @@ if st.session_state.scanning:
 
     info_box = st.empty()
 
-    phases: list[tuple[str, str, str]] = []
-    if cfg.is_manual_src:
-        phases.append(("info", "Fetching ticker info", "📋"))
-    phases.append(("download", "Downloading OHLC", "📥"))
-    phases.append(("process", "Processing symbols", "⚙️"))
+    if api_enabled():
+        progress_bar = st.progress(0)
+        status_line = st.empty()
+        status_line.info("Starting scan on NestJS / Mongo…")
 
-    progress_ui = ScanPhaseProgressUI()
-    progress_ui.setup(phases)
+        def _on_api_progress(run: dict) -> None:
+            counters = run.get("counters") or {}
+            total = int(counters.get("total") or 0)
+            done = int(counters.get("evaluated") or counters.get("downloaded") or 0)
+            signals = int(counters.get("signals") or 0)
+            cached = int(counters.get("fromCache") or 0)
+            pct = int(min(99, (100 * done / total))) if total else 0
+            if str(run.get("status")) == "completed":
+                pct = 100
+            progress_bar.progress(pct)
+            status_line.info(
+                f"API {run.get('status')}: {done}/{total} · {signals} signals · cache {cached}"
+            )
 
-    if p["src"] == MANUAL_SRC:
-        source = ManualSource(lambda: p["txt"])
+        try:
+            table_rows, rejected_reasons, reference_end_date, ohlc_cache = run_scan_via_api(
+                p,
+                is_cancelled=lambda: not st.session_state.scanning,
+                on_progress=_on_api_progress,
+            )
+        except Exception as exc:
+            st.session_state.scanning = False
+            st.error(f"API scan failed: {exc}")
+            st.stop()
+
+        progress_bar.progress(100)
     else:
-        source = SOURCE_REGISTRY[_normalize_source_label(p["src"])]
-    tickers, tv_symbol_by_ticker, company_names, err = source.get_tickers()
-    if err:
-        st.warning(err)
-    if not tickers:
-        st.error("NO TICKERS FOUND")
-        st.session_state.scanning = False
-        st.stop()
+        phases: list[tuple[str, str, str]] = []
+        if cfg.is_manual_src:
+            phases.append(("info", "Fetching ticker info", "📋"))
+        phases.append(("download", "Downloading OHLC", "📥"))
+        phases.append(("process", "Processing symbols", "⚙️"))
 
-    def on_phase_start(phase):
-        progress_ui.on_phase_start(phase)
+        progress_ui = ScanPhaseProgressUI()
+        progress_ui.setup(phases)
 
-    def on_phase_progress(phase, current, total):
-        progress_ui.update(phase, current, total)
+        if p["src"] == MANUAL_SRC:
+            source = ManualSource(lambda: p["txt"])
+        else:
+            source = SOURCE_REGISTRY[_normalize_source_label(p["src"])]
+        tickers, tv_symbol_by_ticker, company_names, err = source.get_tickers()
+        if err:
+            st.warning(err)
+        if not tickers:
+            st.error("NO TICKERS FOUND")
+            st.session_state.scanning = False
+            st.stop()
 
-    def on_phase_complete(phase):
-        progress_ui.complete(phase)
+        def on_phase_start(phase):
+            progress_ui.on_phase_start(phase)
 
-    def on_scan_cancelled():
-        progress_ui.cancel_active()
+        def on_phase_progress(phase, current, total):
+            progress_ui.update(phase, current, total)
 
-    table_rows, rejected_reasons, reference_end_date, ohlc_cache = run_scan(
-        tickers,
-        risk_per_trade=cfg.risk_per_trade,
-        min_rr=cfg.min_rr,
-        use_last_hl_sl=cfg.use_last_hl_sl,
-        tf=cfg.tf,
-        new_only=cfg.new_only,
-        is_manual_src=cfg.is_manual_src,
-        scan_direction=cfg.scan_direction,
-        scanner_id=cfg.scanner_id,
-        no_rr_req=cfg.no_rr_req,
-        tv_symbol_by_ticker=tv_symbol_by_ticker,
-        company_name_by_ticker=company_names,
-        on_phase_progress=on_phase_progress,
-        on_phase_start=on_phase_start,
-        on_phase_complete=on_phase_complete,
-        on_scan_cancelled=on_scan_cancelled,
-        is_cancelled=lambda: not st.session_state.scanning,
-    )
+        def on_phase_complete(phase):
+            progress_ui.complete(phase)
+
+        def on_scan_cancelled():
+            progress_ui.cancel_active()
+
+        table_rows, rejected_reasons, reference_end_date, ohlc_cache = run_scan(
+            tickers,
+            risk_per_trade=cfg.risk_per_trade,
+            min_rr=cfg.min_rr,
+            use_last_hl_sl=cfg.use_last_hl_sl,
+            tf=cfg.tf,
+            new_only=cfg.new_only,
+            is_manual_src=cfg.is_manual_src,
+            scan_direction=cfg.scan_direction,
+            scanner_id=cfg.scanner_id,
+            no_rr_req=cfg.no_rr_req,
+            tv_symbol_by_ticker=tv_symbol_by_ticker,
+            company_name_by_ticker=company_names,
+            on_phase_progress=on_phase_progress,
+            on_phase_start=on_phase_start,
+            on_phase_complete=on_phase_complete,
+            on_scan_cancelled=on_scan_cancelled,
+            is_cancelled=lambda: not st.session_state.scanning,
+        )
 
     st.session_state.results = table_rows
     st.session_state.rejected = rejected_reasons

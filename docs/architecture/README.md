@@ -44,6 +44,7 @@ Until cutover, operators keep using Streamlit. React+Railway is a parallel candi
 - [frontend.md](frontend.md)
 - [engine-parity.md](engine-parity.md)
 - [hosting-and-cost.md](hosting-and-cost.md)
+- [home-server.md](home-server.md) — always-on PC + Cloudflare Tunnel (no Railway)
 - [migration.md](migration.md)
 - [adr/](adr/) — architecture decision records
 

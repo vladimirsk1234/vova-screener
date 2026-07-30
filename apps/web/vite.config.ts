@@ -14,7 +14,14 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // Same-origin /api keeps phone access working over LAN without CORS config.
+    // Same-origin /api keeps phone access working over LAN / Cloudflare Tunnel.
+    proxy: {
+      '/api': { target: apiTarget, changeOrigin: true },
+    },
+  },
+  preview: {
+    port: 4173,
+    host: true,
     proxy: {
       '/api': { target: apiTarget, changeOrigin: true },
     },

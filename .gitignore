@@ -20,6 +20,9 @@ apps/*/.vite/
 packages/*/dist/
 data/
 .data/
+cloudflared/config.yml
+cloudflared/*.json
+scripts/home-server/bin/
 *.sqlite
 *.tsbuildinfo
 apps/web/test-results/

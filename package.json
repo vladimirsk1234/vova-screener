@@ -11,6 +11,10 @@
     "dev:api": "npm run dev -w @vova/api",
     "dev:web": "npm run dev -w @vova/web",
     "build:web": "npm run build -w @vova/web",
+    "home-server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/start-home-server.ps1",
+    "home-server:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/stop-home-server.ps1",
+    "home-server:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/verify-home-server.ps1 -StartScanSmoke",
+    "tunnel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/start-tunnel.ps1 -Quick",
     "parity": "npm run parity -w @vova/engine",
     "typecheck": "npm run typecheck -w @vova/engine && npm run typecheck -w @vova/api && npm run typecheck -w @vova/web",
     "test:e2e": "npm run test:e2e -w @vova/web"

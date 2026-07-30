@@ -7,7 +7,11 @@ apps/
 packages/
   engine/              @vova/engine — pure TS strategy + evaluation (from former mobile/src/engine)
 docs/
-  architecture/        this design set
+  architecture/        this design set (includes home-server.md)
+scripts/
+  home-server/         Windows always-on PC + Cloudflare Tunnel helpers
+cloudflared/
+  config.example.yml   named-tunnel ingress template
 .data/mongo            local MongoDB dbPath (gitignored)
 # Python / Streamlit stay at repo ROOT until cutover (not early legacy/)
 streamlit_app.py

@@ -1,0 +1,19 @@
+# Copy to cloudflared/config.yml (gitignored) after:
+#   cloudflared tunnel login
+#   cloudflared tunnel create vova-home
+#   cloudflared tunnel route dns vova-home screener.example.com
+#
+# Replace TUNNEL_UUID and hostname. Credentials file path is printed by `tunnel create`.
+
+tunnel: TUNNEL_UUID
+credentials-file: C:\Users\YOU\.cloudflared\TUNNEL_UUID.json
+
+ingress:
+  # NestJS already serves under /api — send /api* straight to the API.
+  - hostname: screener.example.com
+    path: /api*
+    service: http://127.0.0.1:3001
+  # React Vite (or preview) — same-origin /api works via the rule above.
+  - hostname: screener.example.com
+    service: http://127.0.0.1:5173
+  - service: http_status:404

@@ -4,15 +4,23 @@ Two apps live in this repo during migration:
 
 | App | Role | Status |
 |-----|------|--------|
-| Streamlit (`streamlit_app.py`, `headless_scanner.py`) | Production screener on Streamlit Community Cloud | Unchanged, still the product |
-| React + NestJS + MongoDB (`apps/`, `packages/`) | Mobile-first candidate, runs locally today | Working: real scans, storage, charts, journal |
+| Streamlit (`streamlit_app.py`, `headless_scanner.py`) | Production screener on Streamlit Community Cloud | Still the product; optional Nest/Mongo via `VOVA_API_URL` |
+| React + NestJS + MongoDB (`apps/`, `packages/`) | Mobile-first candidate on this PC | Working: real scans, storage, charts, journal |
 
 Streamlit stays live until the Railway cutover checklist in [docs/architecture/migration.md](docs/architecture/migration.md) is complete.
+**Alternative to Railway:** keep this PC always on — see [home-server.md](docs/architecture/home-server.md).
 
-## Streamlit (unchanged)
+## Streamlit
 
 ```bash
 streamlit run headless_scanner.py
+```
+
+Optional: point scans at NestJS + Mongo (home server or tunnel):
+
+```toml
+# .streamlit/secrets.toml  (see .streamlit/secrets.toml.example)
+VOVA_API_URL = "http://127.0.0.1:3001/api"
 ```
 
 ## React stack locally
@@ -30,6 +38,20 @@ npm run dev
 Only the web port needs to be reachable from the phone — the browser talks to `/api`,
 which Vite proxies to the API.
 
+## Home PC server + phone from anywhere (no Railway)
+
+```bat
+RUN_HOME_SERVER.bat
+RUN_TUNNEL.bat
+```
+
+1. Leave the PC on; disable Sleep.
+2. `powershell -File scripts\home-server\install-autostart.ps1` — start API/web at logon.
+3. `RUN_TUNNEL.bat` — Cloudflare Quick Tunnel; open the `https://….trycloudflare.com` URL on the phone with **mobile data**.
+4. Verify: `npm run home-server:verify`
+
+Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md).
+
 ### What works locally
 
 - Full scans over the ticker universe imported from `STOCK-TICKERS.txt` / `TV-LIST-ETF.txt`
@@ -44,11 +66,15 @@ which Vite proxies to the API.
 ### Useful commands
 
 ```bash
-npm run dev         # api + web together
-npm run dev:api     # NestJS only
-npm run dev:web     # Vite only
-npm run parity      # TS engine vs Python golden fixture
-npm run typecheck   # engine + api + web
+npm run dev                 # api + web together
+npm run dev:api             # NestJS only
+npm run dev:web             # Vite only
+npm run home-server         # background home-server start (Windows)
+npm run home-server:stop
+npm run home-server:verify  # health + smoke MANUAL scan
+npm run tunnel              # Cloudflare Quick Tunnel to :5173
+npm run parity              # TS engine vs Python golden fixture
+npm run typecheck           # engine + api + web
 ```
 
 ## Docs

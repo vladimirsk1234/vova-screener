@@ -21,7 +21,8 @@ Budget ceiling: **$250/year**.
 
 ## Local (no Railway required)
 
-- `npm run dev:web` on this PC
+- `npm run dev` / `RUN_HOME_SERVER.bat` on this PC (API + Mongo + web)
+- Phone from anywhere: Cloudflare Tunnel — see [home-server.md](home-server.md)
 - Later: Docker Compose for api/worker/mongo/redis (Docker not installed on this machine yet)
 
 ## Guardrails

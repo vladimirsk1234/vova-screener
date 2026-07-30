@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Direction, type ScanParams, type SourceLabel, type Timeframe } from '../lib/api';
 import { useScanProgress } from '../lib/useScanProgress';
 import { Chips, Switch } from '../components/Chips';
@@ -23,6 +23,7 @@ const TERMINAL = ['completed', 'cancelled', 'failed'];
 
 export function ScanPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [params, setParams] = useState<ScanParams>(DEFAULTS);
   const [runId, setRunId] = useState<string | null>(() => localStorage.getItem(ACTIVE_RUN_KEY));
   const [starting, setStarting] = useState(false);
@@ -44,11 +45,21 @@ export function ScanPage() {
     queryKey: ['run', runId],
     queryFn: () => api.run(runId as string),
     enabled: Boolean(runId),
-    refetchInterval: progress && TERMINAL.includes(progress.phase) ? false : 2_000,
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status && TERMINAL.includes(status) ? false : 2_000;
+    },
   });
 
+  useEffect(() => {
+    if (!runId || !progress || !TERMINAL.includes(progress.phase)) return;
+    void queryClient.invalidateQueries({ queryKey: ['run', runId] });
+  }, [progress?.phase, runId, queryClient]);
+
+  const progressDone = Boolean(progress && TERMINAL.includes(progress.phase));
+  const status = progressDone && progress ? progress.phase : (run.data?.status ?? 'queued');
   const isRunning = Boolean(
-    runId && run.data && ['queued', 'running'].includes(run.data.status),
+    runId && !progressDone && ['queued', 'running'].includes(run.data?.status ?? 'queued'),
   );
   const patch = (next: Partial<ScanParams>) => setParams((p) => ({ ...p, ...next }));
 
@@ -73,7 +84,7 @@ export function ScanPage() {
   };
 
   const counters = progress?.counters ?? run.data?.counters;
-  const done = run.data && TERMINAL.includes(run.data.status);
+  const done = progressDone || Boolean(run.data && TERMINAL.includes(run.data.status));
   const universeCount =
     params.source === 'Stocks'
       ? universe.data?.stocks
@@ -196,7 +207,7 @@ export function ScanPage() {
       {runId ? (
         <section className="card">
           <div className="stack-row">
-            <h3>{run.data?.status ?? 'queued'}</h3>
+            <h3>{status}</h3>
             <span className="muted">{progress?.percent ?? 0}%</span>
           </div>
           <div className="bar">
@@ -233,7 +244,7 @@ export function ScanPage() {
               style={{ marginTop: 12 }}
               onClick={() => navigate(`/runs/${runId}`)}
             >
-              View results ({run.data?.counters.signals ?? 0})
+              View results ({counters?.signals ?? run.data?.counters.signals ?? 0})
             </button>
           ) : null}
         </section>
