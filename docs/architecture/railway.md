@@ -32,10 +32,11 @@ If logs still say `Detected Python` after a push that includes `Dockerfile`:
 
 | Name | Value |
 |------|--------|
-| `MONGO_URI` | Reference the Mongo service URL, e.g. `${{Mongo.MONGO_URL}}` or the connection string Railway shows |
+| `MONGO_URI` | **Required.** Reference the Mongo service, e.g. `${{Mongo.MONGO_URL}}` |
 | `PORT` | Set by Railway automatically |
 
-Without `MONGO_URI` the API tries embedded `mongodb-memory-server` (local-only; fails or is ephemeral in the container).
+Without `MONGO_URI` the API **exits on boot** in production (`NODE_ENV=production`). Healthcheck
+`/api/health` will stay `service unavailable` until Mongo is attached and the API restarts.
 
 ## Mongo
 

@@ -28,6 +28,11 @@ async function startEmbedded(): Promise<string> {
 
 export function resolveMongoUri(): Promise<string> {
   if (process.env.MONGO_URI) return Promise.resolve(process.env.MONGO_URI);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'MONGO_URI is required in production (embedded mongodb-memory-server is local-only)',
+    );
+  }
   if (!started) started = startEmbedded();
   return started;
 }
