@@ -34,6 +34,7 @@ export class UniverseService implements OnModuleInit {
     for (const [label, cfg] of Object.entries(SOURCES)) {
       const file = path.join(REPO_ROOT, cfg.file);
       if (!fs.existsSync(file)) {
+        this.log.warn(`Universe file missing: ${file} (${label} will be empty)`);
         out[label] = 0;
         continue;
       }

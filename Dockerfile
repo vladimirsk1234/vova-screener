@@ -28,6 +28,7 @@ RUN npm ci --omit=dev
 
 COPY apps/api apps/api
 COPY packages/engine packages/engine
+COPY STOCK-TICKERS.txt TV-LIST-ETF.txt ./
 COPY --from=web-build /app/apps/web/dist apps/web/dist
 
 ENV NODE_ENV=production
