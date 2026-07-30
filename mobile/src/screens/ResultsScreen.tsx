@@ -19,7 +19,15 @@ export function ResultsScreen({ navigation }: { navigation: any }) {
       <Text style={styles.caption}>
         {isSell ? 'SELL TO CLOSE' : 'BUY TO OPEN'} · {params.tf}
         {asOf ? ` · as of ${asOf}` : ''} · {results.length} rows
+        {params.noRrReq
+          ? ' · no min RR'
+          : ` · min RR ${params.minRr}`}
       </Text>
+      {isSell && (
+        <Text style={styles.hint}>
+          Min RR filters Entry RR only — Close RR is realized R at exit.
+        </Text>
+      )}
       {rejected.length > 0 && (
         <Pressable onPress={() => navigation.navigate('Rejected')} style={styles.rejectLink}>
           <Text style={styles.rejectText}>Rejected / errors: {rejected.length}</Text>
@@ -54,8 +62,11 @@ export function ResultsScreen({ navigation }: { navigation: any }) {
                 </View>
                 <Text style={styles.sub}>{r['Company Name']}</Text>
                 <Text style={styles.meta}>
-                  Entry {r.Entry} → Exit {r.Exit} · Size {r['Position Size (shares)']} · RR{' '}
-                  {r['RR at Entry']}/{r['RR at Close']}
+                  Entry {r.Entry} → Exit {r.Exit} · Size {r['Position Size (shares)']}
+                </Text>
+                <Text style={styles.meta}>
+                  Entry RR (filter) {r['RR at Entry']} · Close RR (realized){' '}
+                  {r['RR at Close']}
                 </Text>
                 {!r._is_summary && (
                   <Pressable onPress={() => Linking.openURL(r.Symbol)}>
@@ -100,6 +111,7 @@ export function ResultsScreen({ navigation }: { navigation: any }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1e222d' },
   caption: { color: '#9aa4b2', padding: 12, fontSize: 12 },
+  hint: { color: '#7a8494', paddingHorizontal: 12, marginBottom: 4, fontSize: 11 },
   rejectLink: { paddingHorizontal: 12, marginBottom: 4 },
   rejectText: { color: '#ffb74d' },
   card: {

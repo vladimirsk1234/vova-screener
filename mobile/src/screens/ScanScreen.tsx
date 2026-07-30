@@ -72,6 +72,10 @@ export function ScanScreen({ navigation }: { navigation: any }) {
           onValueChange={(v) => setParams((p) => ({ ...p, noRrReq: v }))}
         />
       </View>
+      <Text style={styles.fieldHint}>
+        Skips min RR only; still needs positive risk/reward. Expect more rows than
+        with min RR.
+      </Text>
 
       <Text style={styles.label}>MIN RR (&gt;=0.1)</Text>
       <TextInput
@@ -83,6 +87,9 @@ export function ScanScreen({ navigation }: { navigation: any }) {
           setParams((p) => ({ ...p, minRr: Math.max(0.1, Number(t) || 1.5) }))
         }
       />
+      <Text style={styles.fieldHint}>
+        BUY: last-bar RR. SELL: entry RR only (not realized close RR).
+      </Text>
 
       <Text style={styles.label}>SCAN DIRECTION</Text>
       <View style={styles.row}>
@@ -233,5 +240,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   linkText: { color: '#4ea1ff', textAlign: 'center' },
+  fieldHint: { color: '#6b7380', marginTop: 4, fontSize: 11, lineHeight: 16 },
   hint: { color: '#6b7380', marginTop: 24, fontSize: 12, lineHeight: 18 },
 });

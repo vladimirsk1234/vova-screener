@@ -181,7 +181,7 @@ def build_trade_line(full: dict, params: IndicatorParams, bar_index_last: int) -
     reward = (last_peak - close) if last_peak is not None else 0.0
     rr = (reward / risk) if risk > 0 else float("nan")
     if params.no_rr_req:
-        valid = seq_ok and struct_ok
+        valid = seq_ok and struct_ok and risk > 0 and reward > 0
     else:
         valid = seq_ok and struct_ok and rr >= params.min_rr and risk > 0 and reward > 0
 
@@ -204,6 +204,8 @@ def build_trade_line(full: dict, params: IndicatorParams, bar_index_last: int) -
         debug += "Seq❌ "
     if not struct_ok:
         debug += "Struct❌ "
+    if not debug and (risk <= 0 or reward <= 0 or rr != rr):
+        return "NO SETUP: Risk/Reward Invalid"
     if not params.no_rr_req and not debug and rr == rr and rr < params.min_rr:
         return f"❌ R/R too low: {rr:.2f} (need {params.min_rr:.2f})"
     if not debug:

@@ -333,7 +333,9 @@ def _run_sequence_vova_pine_python(
             position_value = position_size * c if not np.isnan(position_size) else np.nan
 
             if no_rr_req:
-                valid_signal = (seq_state == -1) and struct_ok_sell
+                valid_signal = (
+                    (seq_state == -1) and struct_ok_sell and (risk > 0) and (reward > 0)
+                )
             else:
                 valid_signal = (
                     (seq_state == -1)
@@ -380,7 +382,7 @@ def _run_sequence_vova_pine_python(
             position_value = position_size * c if not np.isnan(position_size) else np.nan
 
             if no_rr_req:
-                valid_signal = (seq_state == 1) and struct_ok
+                valid_signal = (seq_state == 1) and struct_ok and (risk > 0) and (reward > 0)
             else:
                 valid_signal = (
                     (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
@@ -578,7 +580,9 @@ if _NUMBA_AVAILABLE:
                     position_value = np.nan
 
                 if no_rr_req:
-                    valid_signal = seq_state == -1 and struct_ok_sell
+                    valid_signal = (
+                        seq_state == -1 and struct_ok_sell and risk > 0 and reward > 0
+                    )
                 else:
                     valid_signal = (
                         seq_state == -1
@@ -637,7 +641,7 @@ if _NUMBA_AVAILABLE:
                     position_value = np.nan
 
                 if no_rr_req:
-                    valid_signal = seq_state == 1 and struct_ok
+                    valid_signal = seq_state == 1 and struct_ok and risk > 0 and reward > 0
                 else:
                     valid_signal = (
                         seq_state == 1 and struct_ok and rr >= min_rr and risk > 0 and reward > 0
@@ -864,7 +868,7 @@ def _run_sequence_vova_close_python(
         rr = (reward / risk) if risk > 0 else np.nan
 
         if no_rr_req:
-            valid_signal = (seq_state == 1) and struct_ok
+            valid_signal = (seq_state == 1) and struct_ok and (risk > 0) and (reward > 0)
         else:
             valid_signal = (
                 (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
@@ -1216,7 +1220,7 @@ def run_sequence_vova_full(
         position_value = position_size * c if not np.isnan(position_size) else np.nan
 
         if no_rr_req:
-            valid_signal = (seq_state == 1) and struct_ok
+            valid_signal = (seq_state == 1) and struct_ok and (risk > 0) and (reward > 0)
         else:
             valid_signal = (
                 (seq_state == 1) and struct_ok and (rr >= min_rr) and (risk > 0) and (reward > 0)
@@ -1377,12 +1381,12 @@ def explain_invalid_buy(full: dict | None, *, min_rr: float = 1.5, no_rr_req: bo
         return "NO_STRUCT_HH"
     if struct_invalid:
         return "STRUCT_INVALID"
-    if no_rr_req:
-        return "NO_VALID_SIGNAL"
     if not reward_ok:
         return "NO_REWARD"
     if not risk_ok:
         return "NO_RISK"
+    if no_rr_req:
+        return "NO_VALID_SIGNAL"
     if rr_f < float(min_rr):
         return f"RR_TOO_LOW:{rr_f:.2f}"
     return "NO_VALID_SIGNAL"

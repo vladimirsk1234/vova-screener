@@ -176,7 +176,7 @@ function pinePython(
       position_value = !isNaN_(position_size) ? position_size * c : NaN_;
 
       valid_signal = no_rr_req
-        ? seq_state === -1 && struct_ok_sell
+        ? seq_state === -1 && struct_ok_sell && risk > 0 && reward > 0
         : seq_state === -1 && struct_ok_sell && rr >= min_rr && risk > 0 && reward > 0;
       new_signal = valid_signal && is_bullish_break;
       strong_signal =
@@ -211,7 +211,7 @@ function pinePython(
       position_value = !isNaN_(position_size) ? position_size * c : NaN_;
 
       valid_signal = no_rr_req
-        ? seq_state === 1 && struct_ok
+        ? seq_state === 1 && struct_ok && risk > 0 && reward > 0
         : seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
       new_signal = valid_signal && is_bearish_break;
       strong_signal =
@@ -397,7 +397,7 @@ function closePython(
     const rr = risk > 0 ? reward / risk : NaN_;
 
     const valid_signal = no_rr_req
-      ? seq_state === 1 && struct_ok
+      ? seq_state === 1 && struct_ok && risk > 0 && reward > 0
       : seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
     const new_signal = valid_signal && is_bearish_break;
 

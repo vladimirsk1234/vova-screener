@@ -260,12 +260,20 @@ no_rr_req = st.sidebar.checkbox(
     False,
     disabled=disabled,
 )
+st.sidebar.caption(
+    "Skips the min RR threshold only. Still needs positive risk and reward. "
+    "More rows than min RR; BUY RR≥min still match both modes."
+)
 min_rr_in = st.sidebar.number_input(
     "MIN RR (>=0.1)",
     value=1.5,
     min_value=0.1,
     step=0.1,
     disabled=disabled or no_rr_req,
+)
+st.sidebar.caption(
+    "BUY: filters last-bar RR. SELL TO CLOSE: filters RR at entry only "
+    "(not realized RR at close)."
 )
 st.sidebar.subheader("FILTERS")
 SCAN_DIRECTION_OPTIONS = ["BUY TO OPEN", "SELL TO CLOSE"]
@@ -422,6 +430,25 @@ def _display_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df[cols] if cols else df
 
 
+def _safe_rr_floats(rows: list[dict], key: str) -> list[float]:
+    """Collect numeric RR values; skip None / NaN / 'N/A' / non-numeric."""
+    out: list[float] = []
+    for r in rows:
+        val = r.get(key)
+        if val is None:
+            continue
+        if isinstance(val, str) and val.strip().upper() in ("N/A", "", "—", "-"):
+            continue
+        try:
+            f = float(val)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(f, float) and np.isnan(f):
+            continue
+        out.append(f)
+    return out
+
+
 def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
     """Aggregate SELL close-scan rows into a TOTAL summary line."""
     data_rows = [r for r in table_rows if not r.get("_is_summary")]
@@ -439,8 +466,8 @@ def _build_sell_summary_row(table_rows: list[dict]) -> dict | None:
     winrate = (wins / len(data_rows)) * 100.0
     total_pnl_pct = (total_pnl / total_invested * 100.0) if total_invested > 0 else 0.0
 
-    entry_rr_vals = [float(r["RR at Entry"]) for r in data_rows if r.get("RR at Entry") is not None]
-    close_rr_vals = [float(r["RR at Close"]) for r in data_rows if r.get("RR at Close") is not None]
+    entry_rr_vals = _safe_rr_floats(data_rows, "RR at Entry")
+    close_rr_vals = _safe_rr_floats(data_rows, "RR at Close")
     avg_entry_rr = sum(entry_rr_vals) / len(entry_rr_vals) if entry_rr_vals else 0.0
     avg_close_rr = sum(close_rr_vals) / len(close_rr_vals) if close_rr_vals else 0.0
 
@@ -486,7 +513,18 @@ def render_scan_results(
 
         res_df = pd.DataFrame(table_rows)
         display_df = _display_columns(res_df)
-        col_config = {"Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)")}
+        col_config = {
+            "Symbol": st.column_config.LinkColumn("Symbol", display_text=r"symbol=([^&]+)"),
+        }
+        if scan_direction == "sell":
+            col_config["RR at Entry"] = st.column_config.Column(
+                "Entry RR (filter)",
+                help="Reward/risk at open. Min RR filters this value.",
+            )
+            col_config["RR at Close"] = st.column_config.Column(
+                "Close RR (realized)",
+                help="Realized R-multiple at exit. Not used by min RR filter.",
+            )
 
         results_token = int(st.session_state.get("results_token", 0))
         event = _st_dataframe(
@@ -504,14 +542,24 @@ def render_scan_results(
             _st_dataframe(
                 pd.DataFrame([summary_display]),
                 hide_index=True,
+                column_config={
+                    "RR at Entry": st.column_config.Column("Entry RR (filter)"),
+                    "RR at Close": st.column_config.Column("Close RR (realized)"),
+                },
             )
 
         if has_charts:
             dir_label = _scan_direction_label(scan_direction)
             if scan_direction == "sell":
-                st.caption(f"Close signals. Click a row for chart preview ({dir_label} · {tf}).")
+                st.caption(
+                    f"Close signals. Min RR filters Entry RR only "
+                    f"(not Close RR). Click a row for chart ({dir_label} · {tf})."
+                )
             else:
-                st.caption(f"Click a row for chart preview ({dir_label} · {tf}).")
+                st.caption(
+                    f"Click a row for chart preview ({dir_label} · {tf}). "
+                    f"Min RR filters last-bar RR; NO RR REQ skips that threshold only."
+                )
         else:
             st.caption("Run a scan to enable chart previews.")
 

@@ -44,10 +44,16 @@ function buildSellSummary(rows: SellRow[]): SellRow | null {
   const totalPnl = pnls.reduce((a, b) => a + b, 0);
   const invested = data.reduce((a, r) => a + r['Invested ($)'], 0);
   const totalPnlPct = invested > 0 ? (totalPnl / invested) * 100 : 0;
+  const entryRrs = data
+    .map((r) => r['RR at Entry'])
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const closeRrs = data
+    .map((r) => r['RR at Close'])
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   const avgEntryRr =
-    data.reduce((a, r) => a + r['RR at Entry'], 0) / data.length;
+    entryRrs.length > 0 ? entryRrs.reduce((a, b) => a + b, 0) / entryRrs.length : 0;
   const avgCloseRr =
-    data.reduce((a, r) => a + r['RR at Close'], 0) / data.length;
+    closeRrs.length > 0 ? closeRrs.reduce((a, b) => a + b, 0) / closeRrs.length : 0;
   return {
     Symbol: 'TOTAL',
     tv_symbol: 'TOTAL',

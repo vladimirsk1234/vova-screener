@@ -225,8 +225,8 @@ float pe_final = not na(pe_ttm) ? pe_ttm : (not na(eps_ttm) and eps_ttm != 0 ? c
 // ==================================================================================
 // SIGNAL DEFINITIONS
 // ==================================================================================
-bool valid_buy = noRrReq ? ((seqState == 1) and struct_ok) : ((seqState == 1) and struct_ok and (rr_buy >= minRR) and (risk_buy > 0) and (reward_buy > 0))
-bool valid_sell = noRrReq ? ((seqState == -1) and struct_ok_sell) : ((seqState == -1) and struct_ok_sell and (rr_sell >= minRR) and (risk_sell > 0) and (reward_sell > 0))
+bool valid_buy = noRrReq ? ((seqState == 1) and struct_ok and (risk_buy > 0) and (reward_buy > 0)) : ((seqState == 1) and struct_ok and (rr_buy >= minRR) and (risk_buy > 0) and (reward_buy > 0))
+bool valid_sell = noRrReq ? ((seqState == -1) and struct_ok_sell and (risk_sell > 0) and (reward_sell > 0)) : ((seqState == -1) and struct_ok_sell and (rr_sell >= minRR) and (risk_sell > 0) and (reward_sell > 0))
 bool new_buy = valid_buy and isBearishBreak
 bool new_sell = valid_sell and isBullishBreak
 bool strong_buy = new_buy and not na(seqLow[1]) and (low <= seqLow[1])
