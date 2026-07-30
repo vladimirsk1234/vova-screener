@@ -1,15 +1,15 @@
 # Railway (NestJS API candidate)
 
-Streamlit stays on Community Cloud until cutover. This deploys **only** the Nest API
-via Dockerfile so Railpack does not treat the repo as Python.
+Streamlit stays on Community Cloud until cutover. The Dockerfile builds the React UI
+and runs the Nest API, which serves `/api/*` plus the SPA on `/` so Railpack does not
+treat the repo as Python.
 
 ## Services
 
 | Service | Role |
 |---------|------|
-| `api` | Dockerfile at repo root → Nest on `PORT` |
+| `api` | Dockerfile at repo root → Nest on `PORT` (API + static web UI) |
 | `mongo` | Railway MongoDB plugin / template |
-| Web | Local or Cloudflare Pages later — **not** this service |
 
 ## API service
 
@@ -20,8 +20,9 @@ via Dockerfile so Railpack does not treat the repo as Python.
 - Fallback if Railpack still runs: [`railpack.json`](../../railpack.json) forces `provider: node`
   and `npm run start -w @vova/api`.
 - Start: `npm run start -w @vova/api` (ts-node; engine is TypeScript source)
+- UI: Vite build copied into the image; Nest serves `apps/web/dist` at `/`
 - Healthcheck: `GET /api/health`
-- Public networking: generate a domain on the API service
+- Public networking: generate a domain on the API service — open `https://<host>/` for the UI
 
 If logs still say `Detected Python` after a push that includes `Dockerfile`:
 1. Settings → Source → confirm branch + root `/`
