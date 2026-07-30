@@ -11,6 +11,7 @@
     "dev:api": "npm run dev -w @vova/api",
     "dev:web": "npm run dev -w @vova/web",
     "build:web": "npm run build -w @vova/web",
+    "start": "npm run start -w @vova/api",
     "home-server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/start-home-server.ps1",
     "home-server:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/stop-home-server.ps1",
     "home-server:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/verify-home-server.ps1 -StartScanSmoke",

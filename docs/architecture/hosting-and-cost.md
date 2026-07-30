@@ -19,6 +19,8 @@ Budget ceiling: **$250/year**.
 
 ≈ **$9–10/mo (~$115/yr)** + optional domain ~$12/yr. Domain is **optional** — phone works on `*.pages.dev`.
 
+Deploy steps (API Dockerfile + Mongo + `MONGO_URI`): [railway.md](railway.md).
+
 ## Local (no Railway required)
 
 - `npm run dev` / `RUN_HOME_SERVER.bat` on this PC (API + Mongo + web)
