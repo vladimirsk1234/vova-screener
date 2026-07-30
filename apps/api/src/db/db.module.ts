@@ -1,0 +1,41 @@
+import { Global, Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { resolveMongoUri } from './local-mongo';
+import {
+  BAR_SERIES,
+  BarSeriesSchema,
+  INSTRUMENT,
+  InstrumentSchema,
+  PRESET,
+  PresetSchema,
+  REJECTION,
+  RejectionSchema,
+  SCAN_RUN,
+  ScanRunSchema,
+  SIGNAL,
+  SignalSchema,
+  TRADE,
+  TradeSchema,
+} from './schemas';
+
+const models = MongooseModule.forFeature([
+  { name: INSTRUMENT, schema: InstrumentSchema },
+  { name: BAR_SERIES, schema: BarSeriesSchema },
+  { name: SCAN_RUN, schema: ScanRunSchema },
+  { name: SIGNAL, schema: SignalSchema },
+  { name: REJECTION, schema: RejectionSchema },
+  { name: TRADE, schema: TradeSchema },
+  { name: PRESET, schema: PresetSchema },
+]);
+
+@Global()
+@Module({
+  imports: [
+    MongooseModule.forRootAsync({
+      useFactory: async () => ({ uri: await resolveMongoUri() }),
+    }),
+    models,
+  ],
+  exports: [models],
+})
+export class DbModule {}

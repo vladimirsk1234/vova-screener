@@ -1,0 +1,24 @@
+{
+  "name": "vova-screener",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @vova/api",
+    "dev:web": "npm run dev -w @vova/web",
+    "build:web": "npm run build -w @vova/web",
+    "parity": "npm run parity -w @vova/engine",
+    "typecheck": "npm run typecheck -w @vova/engine && npm run typecheck -w @vova/api && npm run typecheck -w @vova/web",
+    "test:e2e": "npm run test:e2e -w @vova/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

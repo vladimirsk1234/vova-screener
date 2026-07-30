@@ -14,9 +14,15 @@ ENV/
 dist/
 build/
 .cache/
-mobile/node_modules/
-mobile/.expo/
-mobile/dist/
+node_modules/
+apps/*/dist/
+apps/*/.vite/
+packages/*/dist/
 data/
+.data/
 *.sqlite
+*.tsbuildinfo
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/e2e/__snapshots__/
 
