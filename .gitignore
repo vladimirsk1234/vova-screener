@@ -18,5 +18,6 @@ mobile/node_modules/
 mobile/.expo/
 mobile/dist/
 data/
+.data/
 *.sqlite
 
