@@ -99,6 +99,14 @@ export function ChartPage() {
     };
   }, [chart.data, settings, drawings]);
 
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) e.preventDefault();
+    };
+    document.addEventListener('wheel', onWheel, { passive: false });
+    return () => document.removeEventListener('wheel', onWheel);
+  }, []);
+
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
 
@@ -147,7 +155,11 @@ export function ChartPage() {
 
       <div className="chart-stage">
         <div className="chart-host" ref={containerRef} />
-        {crosshair ? <p className="chart-legend muted small">{crosshair}</p> : null}
+        {crosshair ? (
+          <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
+            {crosshair}
+          </p>
+        ) : null}
         {settings.show_watermark && wm?.lines?.length ? (
           <div
             className="chart-watermark"
