@@ -116,12 +116,27 @@ def _is_common_stock_name(name: str) -> bool:
     n = name.lower()
     if name_suggests_non_common(name):
         return False
-    if any(m in n for m in ("preferred", "warrant", " unit", "units", " etf", " fund", "debenture")):
+    # Hard rejects even when the name also mentions "common shares" (e.g. ADS).
+    hard_reject = (
+        "preferred",
+        "warrant",
+        " unit",
+        "units",
+        " etf",
+        " fund",
+        "debenture",
+        " rights",
+        " right,",
+        "depositary",
+        "depository",
+        " american depositary",
+    )
+    if any(m in n for m in hard_reject):
         return False
     if any(m in n for m in COMMON_STOCK_MARKERS):
         return True
     # NYSE/Nasdaq rows without explicit "Common Stock" but also no red flags
-    bad = ("note", "bond", "trust unit", "lp ", " l.p.", "reit", " depositary")
+    bad = ("note", "bond", "trust unit", "lp ", " l.p.", "reit", "ordinary share")
     return not any(b in n for b in bad)
 
 

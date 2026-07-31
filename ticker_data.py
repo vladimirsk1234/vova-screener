@@ -91,10 +91,19 @@ _NON_EQUITY_NAME_MARKERS = (
     " TRUST UNIT",
     " PREFERRED",
     " WARRANT",
+    " WARRANTS",
     " UNIT",
+    " UNITS",
     " DEBENTURE",
     " NOTES DUE",
     " SUBORDINATED",
+    " RIGHTS",
+    " RIGHT ",
+    " DEPOSITARY",
+    " DEPOSITORY",
+    " AMERICAN DEPOSITARY",
+    " ADS ",
+    " ADR ",
 )
 
 
