@@ -9,7 +9,9 @@ import pandas as pd
 
 from sequence_vova import run_sequence_vova_close_scan, run_sequence_vova_pine
 
-OUT = Path(__file__).resolve().parents[1] / "mobile" / "fixtures" / "parity_sample.json"
+OUT = (
+    Path(__file__).resolve().parents[1] / "packages" / "engine" / "fixtures" / "parity_sample.json"
+)
 
 
 def _synthetic(n: int = 120, seed: int = 42) -> pd.DataFrame:
