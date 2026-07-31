@@ -1,0 +1,12 @@
+---
+description: Always reply in Russian in every chat
+alwaysApply: true
+---
+
+# Language
+
+Always answer the user in Russian in every chat and every response.
+
+- Write all explanations, plans, questions, and status updates in Russian.
+- Keep code, file paths, commands, commit messages, API identifiers, and quoted English UI labels unchanged when they must stay in English.
+- If the user writes in English, still reply in Russian unless they explicitly ask for another language.
