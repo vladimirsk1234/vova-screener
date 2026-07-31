@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 
 /** Vite build output: apps/web/dist (from apps/api/src → ../../web/dist). */
@@ -16,7 +17,7 @@ async function bootstrap() {
 
   if (existsSync(WEB_DIST)) {
     app.useStaticAssets(WEB_DIST, { index: false });
-    app.use((req, res, next) => {
+    app.use((req: Request, res: Response, next: NextFunction) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') return next();
       if (req.path.startsWith('/api')) return next();
       res.sendFile(join(WEB_DIST, 'index.html'));
