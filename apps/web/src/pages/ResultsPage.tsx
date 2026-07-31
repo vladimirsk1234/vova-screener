@@ -148,7 +148,31 @@ export function ResultsPage() {
   });
 
   if (isLoading) return <p className="empty">Loading results…</p>;
-  if (error) return <p className="error">{(error as Error).message}</p>;
+  if (error) {
+    const msg = (error as Error).message;
+    const gone = /404|not found/i.test(msg);
+    if (gone) {
+      try {
+        localStorage.removeItem('vova.activeRunId');
+      } catch {
+        /* ignore */
+      }
+    }
+    return (
+      <div className="card">
+        <p className="error">{gone ? 'This scan was deleted or never existed (history was reset).' : msg}</p>
+        <p className="muted">Start a new scan from the Scan tab, or open a run from History.</p>
+        <div className="card-actions">
+          <Link className="btn-sm" to="/">
+            Scan
+          </Link>
+          <Link className="btn-sm ghost" to="/history">
+            History
+          </Link>
+        </div>
+      </div>
+    );
+  }
   if (!data) return <p className="empty">No data</p>;
 
   const { run, rows, count, newSymbols } = data;

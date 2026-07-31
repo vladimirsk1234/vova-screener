@@ -45,11 +45,20 @@ export function ScanPage() {
     queryKey: ['run', runId],
     queryFn: () => api.run(runId as string),
     enabled: Boolean(runId),
+    retry: false,
     refetchInterval: (q) => {
       const status = q.state.data?.status;
       return status && TERMINAL.includes(status) ? false : 2_000;
     },
   });
+
+  useEffect(() => {
+    if (!runId || !run.isError) return;
+    const msg = (run.error as Error)?.message ?? '';
+    if (!/404|not found/i.test(msg)) return;
+    localStorage.removeItem(ACTIVE_RUN_KEY);
+    setRunId(null);
+  }, [runId, run.isError, run.error]);
 
   useEffect(() => {
     if (!runId || !progress || !TERMINAL.includes(progress.phase)) return;
