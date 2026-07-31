@@ -32,11 +32,15 @@ function Num({
   value,
   onChange,
   step = 1,
+  min,
+  max,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   step?: number;
+  min?: number;
+  max?: number;
 }) {
   return (
     <label className="chart-field">
@@ -45,6 +49,8 @@ function Num({
         type="number"
         value={value}
         step={step}
+        min={min}
+        max={max}
         onChange={(e) => onChange(Number(e.target.value))}
       />
     </label>
@@ -136,11 +142,52 @@ export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onR
             onChange={(v) => set('crit_stop_color_down', v)}
           />
           <Color label="Fibonacci" value={value.fib_color} onChange={(v) => set('fib_color', v)} />
+          <Num
+            label="Fib width"
+            value={value.fib_width}
+            min={1}
+            max={5}
+            onChange={(v) => set('fib_width', v)}
+          />
           <Color label="Short EMA" value={value.short_ema_color} onChange={(v) => set('short_ema_color', v)} />
           <Color
             label="Center EMA"
             value={value.center_ema_color}
             onChange={(v) => set('center_ema_color', v)}
+          />
+          <Color
+            label="Major SMA"
+            value={value.sma_major_color}
+            onChange={(v) => set('sma_major_color', v)}
+          />
+          <Color label="BB basis" value={value.bb_basis_color} onChange={(v) => set('bb_basis_color', v)} />
+          <Color label="BB upper" value={value.bb_upper_color} onChange={(v) => set('bb_upper_color', v)} />
+          <Color label="BB lower" value={value.bb_lower_color} onChange={(v) => set('bb_lower_color', v)} />
+          <Color
+            label="Envelope upper"
+            value={value.env_upper_color}
+            onChange={(v) => set('env_upper_color', v)}
+          />
+          <Color
+            label="Envelope lower"
+            value={value.env_lower_color}
+            onChange={(v) => set('env_lower_color', v)}
+          />
+        </section>
+
+        <section>
+          <h4>Watermark</h4>
+          <Color
+            label="Text color"
+            value={value.wm_text_color}
+            onChange={(v) => set('wm_text_color', v)}
+          />
+          <Num
+            label="Text size"
+            value={value.wm_font_size}
+            min={8}
+            max={32}
+            onChange={(v) => set('wm_font_size', v)}
           />
         </section>
       </div>

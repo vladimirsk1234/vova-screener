@@ -213,7 +213,10 @@ export type ChartSettings = {
   bb_upper_color: string;
   bb_lower_color: string;
   bb_fill_color: string;
+  env_upper_color: string;
+  env_lower_color: string;
   wm_text_color: string;
+  wm_font_size: number;
   show_crit_level: boolean;
   show_hhll: boolean;
   show_extension_lines: boolean;

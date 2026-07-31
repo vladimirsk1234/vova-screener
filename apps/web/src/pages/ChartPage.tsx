@@ -256,7 +256,10 @@ export function ChartPage() {
           onClick={onChartClick}
         />
         {settings.show_watermark && wm?.lines?.length ? (
-          <div className="chart-watermark" style={{ color: settings.wm_text_color }}>
+          <div
+            className="chart-watermark"
+            style={{ color: settings.wm_text_color, fontSize: settings.wm_font_size }}
+          >
             {wm.lines.map((line) => (
               <div key={line}>{line}</div>
             ))}

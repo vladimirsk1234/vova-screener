@@ -1,6 +1,7 @@
 import {
   CandlestickSeries,
   LineSeries,
+  LineType,
   createChart,
   createSeriesMarkers,
   type IChartApi,
@@ -10,7 +11,7 @@ import {
 } from 'lightweight-charts';
 import type { ChartDrawing, ChartPayload, ChartSettings } from '../lib/api';
 
-type LinePoint = { time: Time; value: number };
+type LinePoint = { time: Time; value: number; color?: string };
 
 function toLine(
   bars: ChartPayload['bars'],
@@ -26,19 +27,23 @@ function toLine(
   return out;
 }
 
-/** Split critical into up/down stepped-ish series by seqState. */
-function criticalSeries(
+/** Continuous critical trail with per-bar color (Pine plot.style_stepline). */
+function criticalStepline(
   bars: ChartPayload['bars'],
   critical: (number | null)[],
   seqState: number[],
-  want: 1 | -1,
+  colorUp: string,
+  colorDown: string,
 ): LinePoint[] {
   const out: LinePoint[] = [];
   for (let i = 0; i < bars.length; i++) {
-    if (seqState[i] !== want) continue;
     const v = critical[i];
     if (v == null || !Number.isFinite(v)) continue;
-    out.push({ time: bars[i].date as Time, value: v });
+    out.push({
+      time: bars[i].date as Time,
+      value: v,
+      color: seqState[i] === 1 ? colorUp : colorDown,
+    });
   }
   return out;
 }
@@ -119,11 +124,17 @@ export function mountSequenceChart(
   );
 
   const lines: ISeriesApi<'Line'>[] = [];
-  const addLine = (color: string, width = 2, style: 0 | 1 | 2 = 0) => {
+  const addLine = (
+    color: string,
+    width = 2,
+    style: 0 | 1 | 2 = 0,
+    lineType: LineType = LineType.Simple,
+  ) => {
     const s = chart.addSeries(LineSeries, {
       color,
       lineWidth: width as 1 | 2 | 3 | 4,
       lineStyle: style,
+      lineType,
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
@@ -135,10 +146,21 @@ export function mountSequenceChart(
   const ov = payload.overlay;
 
   if (settings.show_crit_level && ov) {
-    const up = addLine(settings.crit_stop_color_up, 2, 1);
-    const down = addLine(settings.crit_stop_color_down, 2, 1);
-    up.setData(criticalSeries(payload.bars, ov.critical, ov.seqState, 1));
-    down.setData(criticalSeries(payload.bars, ov.critical, ov.seqState, -1));
+    const crit = addLine(
+      settings.crit_stop_color_up,
+      2,
+      1,
+      LineType.WithSteps,
+    );
+    crit.setData(
+      criticalStepline(
+        payload.bars,
+        ov.critical,
+        ov.seqState,
+        settings.crit_stop_color_up,
+        settings.crit_stop_color_down,
+      ),
+    );
     if (ov.criticalLevel != null) {
       candle.createPriceLine({
         price: ov.criticalLevel,
@@ -158,22 +180,22 @@ export function mountSequenceChart(
     addLine(settings.center_ema_color, 2).setData(toLine(payload.bars, ov.overlays.emaSlow));
   }
   if (settings.show_sma_major && ov) {
-    addLine(settings.sma_major_color, 2).setData(toLine(payload.bars, ov.overlays.smaMajor));
+    addLine(settings.sma_major_color, 3).setData(toLine(payload.bars, ov.overlays.smaMajor));
   }
   if (settings.show_elder_envelope && ov) {
-    addLine('rgba(128,128,128,0.7)', 1).setData(toLine(payload.bars, ov.overlays.envUpper));
-    addLine('rgba(128,128,128,0.7)', 1).setData(toLine(payload.bars, ov.overlays.envLower));
+    addLine(settings.env_upper_color, 2).setData(toLine(payload.bars, ov.overlays.envUpper));
+    addLine(settings.env_lower_color, 2).setData(toLine(payload.bars, ov.overlays.envLower));
   }
   if (settings.show_bb && ov) {
-    addLine(settings.bb_upper_color, 1).setData(toLine(payload.bars, ov.overlays.bbUpper));
-    addLine(settings.bb_lower_color, 1).setData(toLine(payload.bars, ov.overlays.bbLower));
-    addLine(settings.bb_basis_color, 1).setData(toLine(payload.bars, ov.overlays.bbBasis));
+    addLine(settings.bb_upper_color, 2).setData(toLine(payload.bars, ov.overlays.bbUpper));
+    addLine(settings.bb_lower_color, 2).setData(toLine(payload.bars, ov.overlays.bbLower));
+    addLine(settings.bb_basis_color, 2).setData(toLine(payload.bars, ov.overlays.bbBasis));
   }
 
   if (settings.show_extension_lines && ov) {
     for (const ln of ov.extensionLines) {
       const pts = extendLine(payload.bars, ln.rawX0Idx, ln.y0, ln.rawX1Idx, ln.y1);
-      addLine(settings.hhll_color, 1, 2).setData(pts);
+      addLine(settings.hhll_color, 2, 0).setData(pts);
     }
   }
 
@@ -252,7 +274,6 @@ export function mountSequenceChart(
           position: 'belowBar',
           color: '#000000',
           shape: 'arrowUp',
-          text: 'Bull',
         });
       }
       if (ov.bullishBreak[i]) {
@@ -261,7 +282,6 @@ export function mountSequenceChart(
           position: 'aboveBar',
           color: '#000000',
           shape: 'arrowDown',
-          text: 'Bear',
         });
       }
     }
