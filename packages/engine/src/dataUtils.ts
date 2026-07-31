@@ -2,12 +2,20 @@
 import type { OhlcBar, OhlcSeries, Timeframe } from './types';
 
 /**
- * Yahoo interval + history range.
- * Weekly/Monthly use 5y to match Streamlit Cloud low-mem (`data_utils.interval_and_period`).
+ * Yahoo interval + history range, matching `data_utils.interval_and_period`
+ * (non low-memory branch: 10y for Weekly/Monthly).
+ *
+ * History length is part of engine parity, not a perf knob: the sequence walk is
+ * path-dependent, so a shorter window can keep a stale confirmed trough/peak and
+ * change SL, RR and reject reasons (YMM Monthly: 5y -> SL 4.12 / RR 0.80,
+ * 10y -> SL 6.66 / RR 1.51).
+ *
+ * `range=max` is not usable here: Yahoo returns an irregular grid for `1mo&range=max`,
+ * and `period1=0` requests drop the in-progress bar the scan needs.
  */
 export function intervalAndPeriod(tf: Timeframe): { interval: string; range: string } {
-  if (tf === 'Weekly') return { interval: '1wk', range: '5y' };
-  if (tf === 'Monthly') return { interval: '1mo', range: '5y' };
+  if (tf === 'Weekly') return { interval: '1wk', range: '10y' };
+  if (tf === 'Monthly') return { interval: '1mo', range: '10y' };
   return { interval: '1d', range: '2y' };
 }
 
