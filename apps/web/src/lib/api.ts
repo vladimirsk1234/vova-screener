@@ -422,6 +422,11 @@ export const api = {
   },
   createTrade: (body: Record<string, unknown>) =>
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
+  updateTradeRisk: (id: string, riskUsd: number) =>
+    request<Trade>(`/trades/${id}/risk`, {
+      method: 'PATCH',
+      body: JSON.stringify({ riskUsd }),
+    }),
   closeTrade: (id: string, body: { exitPrice: number; exitReason?: string }) =>
     request<Trade>(`/trades/${id}/close`, { method: 'POST', body: JSON.stringify(body) }),
   dismissTrade: (id: string) =>

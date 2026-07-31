@@ -1,5 +1,5 @@
 /** Trade journal with mark-to-market, TP/SL, sell-to-close, and interest → open at period end. */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type Timeframe } from '@vova/engine';
@@ -28,6 +28,13 @@ export type CreateTradeDto = {
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
+}
+
+function sharesFromRisk(entry: number, sl: number | null | undefined, riskUsd: number) {
+  if (sl == null || !Number.isFinite(sl) || !Number.isFinite(entry)) return 0;
+  const risk = entry - sl;
+  if (risk <= 0 || riskUsd <= 0) return 0;
+  return Math.max(0, Math.round(riskUsd / risk));
 }
 
 @Injectable()
@@ -182,6 +189,26 @@ export class TradesService {
     trade.status = 'dismissed';
     await trade.save();
     return trade.toObject();
+  }
+
+  async updateRisk(id: string, riskUsd: number) {
+    if (!Number.isFinite(riskUsd) || riskUsd <= 0) {
+      throw new BadRequestException('riskUsd must be a positive number');
+    }
+    const trade = await this.trades.findById(id).exec();
+    if (!trade) throw new NotFoundException('trade not found');
+    if (!['interested', 'not_interested', 'open'].includes(trade.status)) {
+      throw new BadRequestException('risk can only be updated for interested/open trades');
+    }
+    const shares = sharesFromRisk(trade.entry, trade.sl, riskUsd);
+    trade.riskUsd = round2(riskUsd);
+    trade.shares = shares;
+    await trade.save();
+    const obj = trade.toObject();
+    return {
+      ...obj,
+      investedUsd: round2((obj.entry ?? 0) * (obj.shares || 0)),
+    };
   }
 
   /**

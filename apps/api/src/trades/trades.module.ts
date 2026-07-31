@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Module, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Module, Param, Patch, Post, Query } from '@nestjs/common';
 import { MarketModule } from '../market/market.module';
 import { TradesService, type CreateTradeDto, type TradeStatus } from './trades.service';
 
@@ -22,6 +22,11 @@ class TradesController {
   @Post('refresh')
   refresh(@Query('tf') tf?: 'Daily' | 'Weekly' | 'Monthly') {
     return this.trades.refresh(tf ? { tf } : {});
+  }
+
+  @Patch(':id/risk')
+  updateRisk(@Param('id') id: string, @Body() body: { riskUsd: number }) {
+    return this.trades.updateRisk(id, body.riskUsd);
   }
 
   @Post(':id/close')

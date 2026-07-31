@@ -59,6 +59,12 @@ a {
   padding-bottom: calc(var(--nav-h) + var(--safe-bottom));
 }
 
+.app-shell--chart {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 .app-header {
   padding: calc(12px + var(--safe-top)) var(--gutter) 8px;
   border-bottom: 1px solid #12151c;
@@ -291,6 +297,33 @@ a {
   font-size: 0.9rem;
 }
 
+.signal-card.clickable {
+  cursor: pointer;
+}
+
+.signal-card.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.trade-risk-input {
+  width: 100%;
+  max-width: 110px;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #333948;
+  background: #12151c;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.trade-risk-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .meta-grid span {
   color: var(--muted);
   display: block;
@@ -300,6 +333,17 @@ a {
 .app-main-flush {
   padding-left: 8px;
   padding-right: 8px;
+}
+
+.app-main--chart {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: none;
 }
 
 .field-label {
@@ -467,6 +511,17 @@ a {
   color: var(--text);
 }
 
+.btn-sm.danger {
+  background: var(--down);
+  border-color: var(--down);
+  color: #fff;
+}
+
+.btn-sm.selected {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  font-weight: 700;
+}
+
 .link-row {
   display: flex;
   align-items: center;
@@ -504,7 +559,16 @@ a {
 .chart-page {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
+}
+
+.chart-status-line {
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .chart-head {
@@ -591,6 +655,7 @@ a {
   flex-wrap: wrap;
   margin-top: 4px;
   padding: 0 4px 8px;
+  flex: 0 0 auto;
 }
 
 .chart-actions .btn-sm {
@@ -601,12 +666,16 @@ a {
 
 .chart-stage {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .chart-host {
-  /* One text line shorter so trading data fits without page scroll */
-  height: calc(52vh - 1.25em);
-  min-height: calc(300px - 1.25em);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid #262b38;

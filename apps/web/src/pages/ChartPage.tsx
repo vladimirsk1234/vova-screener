@@ -16,6 +16,9 @@ import {
   mergeChartSettings,
   numericChartParams,
 } from '../lib/chartSettings';
+import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
+
+type MarkStatus = 'interested' | 'not_interested';
 
 type ChartNavState = {
   signal?: BuySignal;
@@ -23,13 +26,11 @@ type ChartNavState = {
   riskUsd?: number;
   tf?: Timeframe;
   periodKey?: string;
+  markStatus?: MarkStatus | null;
 };
 
-function sharesFromRisk(entry: number, sl: number | null | undefined, riskUsd: number) {
-  if (sl == null || !Number.isFinite(sl) || !Number.isFinite(entry)) return 0;
-  const risk = entry - sl;
-  if (risk <= 0 || riskUsd <= 0) return 0;
-  return Math.max(0, Math.floor(riskUsd / risk));
+function money(n: number) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function ChartPage() {
@@ -45,6 +46,7 @@ export function ChartPage() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [crosshair, setCrosshair] = useState<string>('');
+  const [markStatus, setMarkStatus] = useState<MarkStatus | null>(navState.markStatus ?? null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
@@ -91,7 +93,7 @@ export function ChartPage() {
   });
 
   const markInterest = useMutation({
-    mutationFn: (status: 'interested' | 'not_interested') => {
+    mutationFn: (status: MarkStatus) => {
       const signal = navState.signal;
       const pine = chart.data?.pine;
       const entry = signal?.entry ?? pine?.close;
@@ -102,11 +104,14 @@ export function ChartPage() {
       const sl = signal?.sl ?? pine?.sl ?? undefined;
       const riskUsd = navState.riskUsd ?? settings.risk_dollars ?? 100;
       const shares =
-        signal?.shares ??
-        sharesFromRisk(entry, sl ?? null, riskUsd);
+        signal?.shares != null &&
+        navState.riskUsd != null &&
+        Number.isFinite(signal.shares)
+          ? signal.shares
+          : sharesFromRisk(entry, sl ?? null, riskUsd);
       const periodKey = navState.periodKey;
       if (!periodKey) {
-        throw new Error('Missing period — open chart from a scan result');
+        throw new Error('Missing period — open chart from a scan result or trade');
       }
 
       return api.createTrade({
@@ -127,7 +132,8 @@ export function ChartPage() {
         source: 'manual',
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, status) => {
+      setMarkStatus(status);
       queryClient.invalidateQueries({ queryKey: ['trades'] });
       queryClient.invalidateQueries({ queryKey: ['signals'] });
     },
@@ -178,9 +184,33 @@ export function ChartPage() {
 
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
+  const signal = navState.signal;
+  const riskUsd = navState.riskUsd ?? settings.risk_dollars ?? 100;
+
+  const tradeMetrics = useMemo(() => {
+    const entry = signal?.entry ?? pine?.close ?? null;
+    const tp = signal?.tp ?? pine?.tp ?? null;
+    const sl = signal?.sl ?? pine?.sl ?? null;
+    const rr = signal?.rr ?? pine?.rr ?? null;
+    const shares =
+      signal?.shares != null && Number.isFinite(signal.shares)
+        ? signal.shares
+        : entry != null
+          ? sharesFromRisk(entry, sl, riskUsd)
+          : 0;
+    const dollars =
+      signal?.positionValue != null && Number.isFinite(signal.positionValue)
+        ? signal.positionValue
+        : entry != null
+          ? investedFromShares(entry, shares)
+          : 0;
+    return { tp, sl, rr, shares, dollars };
+  }, [signal, pine, riskUsd]);
+
+  const showMetrics = Boolean(pine || signal);
   const canMark =
     Boolean(navState.periodKey) &&
-    (navState.signal?.entry != null || (pine?.close != null && Number.isFinite(pine.close)));
+    (signal?.entry != null || (pine?.close != null && Number.isFinite(pine.close)));
   const marking = markInterest.isPending;
 
   const fitChart = () => fitRef.current?.();
@@ -224,21 +254,36 @@ export function ChartPage() {
         </button>
       </div>
 
-      {pine ? (
+      {showMetrics ? (
         <div className="chart-pine-row">
-          <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
-            {pine.valid ? 'VALID' : 'NO SIGNAL'}
-          </span>
-          {pine.isNew ? <span className="badge up">NEW</span> : null}
-          {pine.strong ? <span className="badge">STRONG</span> : null}
+          {pine ? (
+            <>
+              <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
+                {pine.valid ? 'VALID' : 'NO SIGNAL'}
+              </span>
+              {pine.isNew ? <span className="badge up">NEW</span> : null}
+              {pine.strong ? <span className="badge">STRONG</span> : null}
+            </>
+          ) : null}
           <span className="chart-pine-metric">
-            <span>RR</span> {pine.rr != null ? pine.rr.toFixed(2) : 'n/a'}
+            <span>RR</span>{' '}
+            {tradeMetrics.rr != null && Number.isFinite(tradeMetrics.rr)
+              ? tradeMetrics.rr.toFixed(2)
+              : 'n/a'}
           </span>
           <span className="chart-pine-metric">
-            <span>TP</span> {pine.tp != null ? pine.tp.toFixed(2) : 'n/a'}
+            <span>TP</span>{' '}
+            {tradeMetrics.tp != null ? money(tradeMetrics.tp) : 'n/a'}
           </span>
           <span className="chart-pine-metric">
-            <span>SL</span> {pine.sl != null ? pine.sl.toFixed(2) : 'n/a'}
+            <span>SL</span>{' '}
+            {tradeMetrics.sl != null ? money(tradeMetrics.sl) : 'n/a'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>Sh</span> {tradeMetrics.shares}
+          </span>
+          <span className="chart-pine-metric">
+            <span>$</span> {money(tradeMetrics.dollars)}
           </span>
         </div>
       ) : null}
@@ -268,16 +313,18 @@ export function ChartPage() {
         ) : null}
       </div>
 
-      {chart.isLoading ? <p className="muted small">Loading bars…</p> : null}
-      {chart.error ? <p className="error">{(chart.error as Error).message}</p> : null}
+      {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
+      {chart.error ? (
+        <p className="error chart-status-line">{(chart.error as Error).message}</p>
+      ) : null}
       {markInterest.error ? (
-        <p className="error">{(markInterest.error as Error).message}</p>
+        <p className="error chart-status-line">{(markInterest.error as Error).message}</p>
       ) : null}
 
       <div className="card-actions chart-actions">
         <button
           type="button"
-          className="btn-sm"
+          className={`btn-sm${markStatus === 'interested' ? ' selected' : ''}`}
           disabled={!canMark || marking}
           onClick={() => markInterest.mutate('interested')}
         >
@@ -285,7 +332,9 @@ export function ChartPage() {
         </button>
         <button
           type="button"
-          className="btn-sm ghost"
+          className={`btn-sm${
+            markStatus === 'not_interested' ? ' danger selected' : ' ghost'
+          }`}
           disabled={!canMark || marking}
           onClick={() => markInterest.mutate('not_interested')}
         >
@@ -319,13 +368,6 @@ export function ChartPage() {
         onSave={() => savePreset.mutate()}
         onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
       />
-
-      {wm?.description ? (
-        <section className="card">
-          <h3>About</h3>
-          <p className="muted small">{wm.description}</p>
-        </section>
-      ) : null}
     </div>
   );
 }

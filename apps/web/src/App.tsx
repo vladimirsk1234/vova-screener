@@ -19,7 +19,7 @@ export function App() {
   const isChart = pathname.startsWith('/chart/');
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isChart ? ' app-shell--chart' : ''}`}>
       {!isChart && (
         <header className="app-header">
           <h1>Sequence Vova</h1>
@@ -27,7 +27,7 @@ export function App() {
         </header>
       )}
 
-      <main className={`app-main${isChart ? ' app-main-flush' : ''}`}>
+      <main className={`app-main${isChart ? ' app-main-flush app-main--chart' : ''}`}>
         <Routes>
           <Route path="/" element={<ScanPage />} />
           <Route path="/history" element={<HistoryPage />} />

@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Timeframe, type Trade, type TradeStatus } from '../lib/api';
+import { api, type BuySignal, type Timeframe, type Trade, type TradeStatus } from '../lib/api';
 import { Chips } from '../components/Chips';
+import { investedFromShares } from '../lib/positionSize';
 
 function money(n: number | null | undefined) {
   if (n == null) return '—';
@@ -63,7 +65,83 @@ function tabLabel(v: Tab) {
   return v.toUpperCase();
 }
 
+function tradeToSignal(trade: Trade): BuySignal {
+  const shares = trade.shares || 0;
+  return {
+    kind: 'buy',
+    symbol: trade.symbol,
+    tvSymbol: trade.symbol,
+    yahooTicker: trade.yahooTicker,
+    companyName: trade.companyName ?? trade.yahooTicker,
+    tvUrl: '',
+    entry: trade.entry,
+    tp: trade.tp ?? trade.entry,
+    sl: trade.sl ?? trade.entry,
+    rr: trade.rrAtEntry ?? null,
+    shares,
+    positionValue: trade.investedUsd ?? investedFromShares(trade.entry, shares),
+    isNew: false,
+    isStrong: false,
+    atr: 0,
+    asOf: trade.asOf ?? '',
+  };
+}
+
+function RiskInput({
+  tradeId,
+  value,
+  disabled,
+  onCommit,
+}: {
+  tradeId: string;
+  value: number;
+  disabled?: boolean;
+  onCommit: (id: string, riskUsd: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [prev, setPrev] = useState(value);
+  if (value !== prev) {
+    setPrev(value);
+    setDraft(String(value));
+  }
+
+  const commit = () => {
+    const next = Number(draft);
+    if (!Number.isFinite(next) || next <= 0) {
+      setDraft(String(value));
+      return;
+    }
+    if (next === value) return;
+    onCommit(tradeId, next);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <input
+      className="trade-risk-input"
+      type="number"
+      inputMode="decimal"
+      min={1}
+      step="1"
+      disabled={disabled}
+      value={draft}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={onKeyDown}
+      aria-label="Risk dollars"
+    />
+  );
+}
+
 export function TradesPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tf, setTf] = useState<Timeframe>('Daily');
   const [tab, setTab] = useState<Tab>('interested');
@@ -90,6 +168,11 @@ export function TradesPage() {
   const removeTrade = useMutation({ mutationFn: api.deleteTrade, onSuccess: invalidate });
   const refresh = useMutation({
     mutationFn: () => api.refreshTrades(),
+    onSuccess: invalidate,
+  });
+  const updateRisk = useMutation({
+    mutationFn: ({ id, riskUsd }: { id: string; riskUsd: number }) =>
+      api.updateTradeRisk(id, riskUsd),
     onSuccess: invalidate,
   });
 
@@ -128,6 +211,20 @@ export function TradesPage() {
     const exitPrice = Number(input);
     if (!Number.isFinite(exitPrice)) return;
     closeTrade.mutate({ id: trade._id, exitPrice });
+  };
+
+  const openChart = (trade: Trade) => {
+    const isInterest = trade.status === 'interested' || trade.status === 'not_interested';
+    navigate(`/chart/${encodeURIComponent(trade.yahooTicker)}`, {
+      state: {
+        signal: tradeToSignal(trade),
+        runId: undefined,
+        riskUsd: trade.riskUsd || 100,
+        tf: trade.tf,
+        periodKey: trade.periodKey,
+        markStatus: isInterest ? trade.status : null,
+      },
+    });
   };
 
   return (
@@ -215,10 +312,25 @@ export function TradesPage() {
       {trades.data?.map((trade) => {
         const invested = trade.investedUsd ?? trade.entry * (trade.shares || 0);
         const isInterest = trade.status === 'interested' || trade.status === 'not_interested';
+        const canOpenChart = isInterest || trade.status === 'open';
         const pnl = trade.status === 'open' ? trade.unrealizedUsd : trade.pnlUsd;
         const positive = (pnl ?? 0) >= 0;
+        const stopBubble = (e: MouseEvent) => e.stopPropagation();
         return (
-          <article className="card signal-card" key={trade._id}>
+          <article
+            className={`card signal-card${canOpenChart ? ' clickable' : ''}`}
+            key={trade._id}
+            role={canOpenChart ? 'button' : undefined}
+            tabIndex={canOpenChart ? 0 : undefined}
+            onClick={canOpenChart ? () => openChart(trade) : undefined}
+            onKeyDown={
+              canOpenChart
+                ? (e) => {
+                    if (e.key === 'Enter') openChart(trade);
+                  }
+                : undefined
+            }
+          >
             <div className="stack-row">
               <strong>{trade.symbol}</strong>
               <span
@@ -268,7 +380,18 @@ export function TradesPage() {
               </div>
               <div>
                 <span>{trade.status === 'open' ? 'Open P&L' : isInterest ? 'Risk $' : 'P&L'}</span>
-                {isInterest ? money(trade.riskUsd) : pnl == null ? '—' : money(pnl)}
+                {isInterest ? (
+                  <RiskInput
+                    tradeId={trade._id}
+                    value={trade.riskUsd || 0}
+                    disabled={updateRisk.isPending}
+                    onCommit={(id, riskUsd) => updateRisk.mutate({ id, riskUsd })}
+                  />
+                ) : pnl == null ? (
+                  '—'
+                ) : (
+                  money(pnl)
+                )}
               </div>
               <div>
                 <span>TP / SL</span>
@@ -314,7 +437,7 @@ export function TradesPage() {
               </div>
             </div>
 
-            <div className="card-actions">
+            <div className="card-actions" onClick={stopBubble}>
               {trade.status === 'open' ? (
                 <>
                   <button type="button" className="btn-sm" onClick={() => onClose(trade)}>
