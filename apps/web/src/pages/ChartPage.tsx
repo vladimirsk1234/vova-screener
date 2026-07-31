@@ -49,6 +49,7 @@ export function ChartPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
   const fitRef = useRef<(() => void) | null>(null);
+  const lastTapRef = useRef(0);
 
   const presetQ = useQuery({
     queryKey: ['preset', 'chart'],
@@ -182,11 +183,28 @@ export function ChartPage() {
     (navState.signal?.entry != null || (pine?.close != null && Number.isFinite(pine.close)));
   const marking = markInterest.isPending;
 
+  const fitChart = () => fitRef.current?.();
+
+  const onChartDoubleTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      fitChart();
+      lastTapRef.current = 0;
+      return;
+    }
+    lastTapRef.current = now;
+  };
+
   return (
     <div className="chart-page">
       <div className="chart-head">
-        <button type="button" className="btn-sm ghost" onClick={() => navigate(-1)}>
-          Back
+        <button
+          type="button"
+          className="chart-icon-btn ghost"
+          aria-label="Back"
+          onClick={() => navigate(-1)}
+        >
+          ←
         </button>
         <div className="chart-head-title">
           <div className="chart-head-name ellipsis">
@@ -195,38 +213,43 @@ export function ChartPage() {
               <span className="muted small">{chart.data.companyName}</span>
             ) : null}
           </div>
-          {pine ? (
-            <div className="chart-pine-row">
-              <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
-                {pine.valid ? 'VALID' : 'NO SIGNAL'}
-              </span>
-              {pine.isNew ? <span className="badge up">NEW</span> : null}
-              {pine.strong ? <span className="badge">STRONG</span> : null}
-              <span className="chart-pine-metric">
-                <span>RR</span> {pine.rr != null ? pine.rr.toFixed(2) : 'n/a'}
-              </span>
-              <span className="chart-pine-metric">
-                <span>TP</span> {pine.tp != null ? pine.tp.toFixed(2) : 'n/a'}
-              </span>
-              <span className="chart-pine-metric">
-                <span>SL</span> {pine.sl != null ? pine.sl.toFixed(2) : 'n/a'}
-              </span>
-            </div>
-          ) : null}
         </div>
-        <div className="chart-head-actions">
-          <button type="button" className="btn-sm" onClick={() => fitRef.current?.()}>
-            Fit
-          </button>
-          <button type="button" className="btn-sm" onClick={() => setSettingsOpen(true)}>
-            Settings
-          </button>
-        </div>
+        <button
+          type="button"
+          className="chart-icon-btn"
+          aria-label="Settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          ⚙
+        </button>
       </div>
+
+      {pine ? (
+        <div className="chart-pine-row">
+          <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
+            {pine.valid ? 'VALID' : 'NO SIGNAL'}
+          </span>
+          {pine.isNew ? <span className="badge up">NEW</span> : null}
+          {pine.strong ? <span className="badge">STRONG</span> : null}
+          <span className="chart-pine-metric">
+            <span>RR</span> {pine.rr != null ? pine.rr.toFixed(2) : 'n/a'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>TP</span> {pine.tp != null ? pine.tp.toFixed(2) : 'n/a'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>SL</span> {pine.sl != null ? pine.sl.toFixed(2) : 'n/a'}
+          </span>
+        </div>
+      ) : null}
 
       <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
 
-      <div className="chart-stage">
+      <div
+        className="chart-stage"
+        onDoubleClick={fitChart}
+        onTouchEnd={onChartDoubleTap}
+      >
         <div className="chart-host" ref={containerRef} />
         {crosshair ? (
           <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
