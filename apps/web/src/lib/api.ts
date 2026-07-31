@@ -24,6 +24,9 @@ export type ScanRun = {
   params: ScanParams;
   status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
   asOf: string | null;
+  periodKey?: string;
+  periodTf?: Timeframe;
+  trigger?: 'manual' | 'scheduled';
   counters: {
     total: number;
     downloaded: number;
@@ -106,7 +109,9 @@ export type Trade = {
   rrAtEntry?: number;
   shares: number;
   riskUsd: number;
-  status: 'open' | 'closed';
+  status: 'open' | 'closed' | 'dismissed';
+  source?: 'auto' | 'manual';
+  periodKey?: string;
   exitPrice?: number;
   exitDate?: string;
   exitReason?: string;
@@ -301,7 +306,15 @@ export const api = {
       body: JSON.stringify(params),
     }),
   cancelScan: (runId: string) => request<{ ok: boolean }>(`/scans/${runId}/cancel`, { method: 'POST' }),
-  runs: (limit = 30) => request<ScanRun[]>(`/scans?limit=${limit}`),
+  runs: (opts: { limit?: number; tf?: Timeframe } | number = 30) => {
+    const limit = typeof opts === 'number' ? opts : (opts.limit ?? 30);
+    const tf = typeof opts === 'number' ? undefined : opts.tf;
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (tf) q.set('tf', tf);
+    return request<ScanRun[]>(`/scans?${q.toString()}`);
+  },
+  resetHistory: () =>
+    request<{ ok: boolean; deletedRuns: number }>('/scans/history', { method: 'DELETE' }),
   run: (runId: string) => request<ScanRun>(`/scans/${runId}`),
   signals: (runId: string, opts: { onlyNew?: boolean; onlyStrong?: boolean; limit?: number } = {}) => {
     const q = new URLSearchParams();
@@ -358,14 +371,17 @@ export const api = {
         }
       >;
     }>(`/instruments/${encodeURIComponent(ticker)}/status`),
-  trades: (status?: 'open' | 'closed') =>
+  trades: (status?: 'open' | 'closed' | 'dismissed') =>
     request<Trade[]>(`/trades${status ? `?status=${status}` : ''}`),
   createTrade: (body: Record<string, unknown>) =>
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
   closeTrade: (id: string, body: { exitPrice: number; exitReason?: string }) =>
     request<Trade>(`/trades/${id}/close`, { method: 'POST', body: JSON.stringify(body) }),
+  dismissTrade: (id: string) =>
+    request<Trade>(`/trades/${id}/dismiss`, { method: 'POST' }),
   deleteTrade: (id: string) => request<{ ok: boolean }>(`/trades/${id}`, { method: 'DELETE' }),
-  refreshTrades: () => request<{ checked: number; closed: number }>('/trades/refresh', { method: 'POST' }),
+  refreshTrades: () =>
+    request<{ checked: number; closed: number }>('/trades/refresh', { method: 'POST' }),
   monthly: () => request<MonthlyReport>('/reports/monthly'),
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),

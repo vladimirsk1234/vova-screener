@@ -10,7 +10,7 @@ function money(n: number | null | undefined) {
 
 export function TradesPage() {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<'open' | 'closed'>('open');
+  const [tab, setTab] = useState<'open' | 'closed' | 'dismissed'>('open');
   const trades = useQuery({ queryKey: ['trades', tab], queryFn: () => api.trades(tab) });
 
   const invalidate = () => {
@@ -21,6 +21,10 @@ export function TradesPage() {
   const closeTrade = useMutation({
     mutationFn: ({ id, exitPrice }: { id: string; exitPrice: number }) =>
       api.closeTrade(id, { exitPrice, exitReason: 'manual' }),
+    onSuccess: invalidate,
+  });
+  const dismissTrade = useMutation({
+    mutationFn: api.dismissTrade,
     onSuccess: invalidate,
   });
   const removeTrade = useMutation({ mutationFn: api.deleteTrade, onSuccess: invalidate });
@@ -41,7 +45,7 @@ export function TradesPage() {
         <h2>Trade journal</h2>
         <Chips
           value={tab}
-          options={['open', 'closed'] as const}
+          options={['open', 'closed', 'dismissed'] as const}
           onChange={setTab}
           format={(v) => v.toUpperCase()}
         />
@@ -51,7 +55,7 @@ export function TradesPage() {
           disabled={refresh.isPending}
           onClick={() => refresh.mutate()}
         >
-          {refresh.isPending ? 'Checking…' : 'Check TP/SL hits'}
+          {refresh.isPending ? 'Checking…' : 'Check TP/SL / sell-to-close'}
         </button>
         {refresh.data ? (
           <p className="muted small" style={{ marginBottom: 0 }}>
@@ -63,7 +67,8 @@ export function TradesPage() {
       {trades.isLoading ? <p className="empty">Loading…</p> : null}
       {trades.data?.length === 0 ? (
         <p className="empty">
-          No {tab} trades. Add one from a scan result card.
+          No {tab} trades.
+          {tab === 'open' ? ' Auto trades open after end-of-period scans, or add from a result card.' : ''}
         </p>
       ) : null}
 
@@ -75,11 +80,16 @@ export function TradesPage() {
             <div className="stack-row">
               <strong>{trade.symbol}</strong>
               <span className={`badge ${positive ? 'up' : 'down'}`}>
-                {pnl == null ? '—' : `${positive ? '+' : ''}${money(pnl)}`}
+                {trade.status === 'dismissed'
+                  ? 'dismissed'
+                  : pnl == null
+                    ? '—'
+                    : `${positive ? '+' : ''}${money(pnl)}`}
               </span>
             </div>
             <p className="muted small ellipsis">
               {trade.companyName ?? trade.yahooTicker} · {trade.tf}
+              {trade.source ? ` · ${trade.source}` : ''}
             </p>
 
             <div className="meta-grid">
@@ -100,22 +110,41 @@ export function TradesPage() {
                 {trade.shares}
               </div>
               <div>
-                <span>{trade.status === 'open' ? 'Unrealized R' : 'Realized R'}</span>
-                {trade.status === 'open' ? (trade.unrealizedR ?? '—') : (trade.pnlR ?? '—')}
+                <span>
+                  {trade.status === 'open'
+                    ? 'Unrealized R'
+                    : trade.status === 'closed'
+                      ? 'Realized R'
+                      : 'Period'}
+                </span>
+                {trade.status === 'open'
+                  ? (trade.unrealizedR ?? '—')
+                  : trade.status === 'closed'
+                    ? (trade.pnlR ?? '—')
+                    : (trade.periodKey ?? '—')}
               </div>
               <div>
-                <span>{trade.status === 'open' ? 'Opened' : 'Closed'}</span>
-                {trade.status === 'open'
-                  ? new Date(trade.openedAt).toLocaleDateString()
-                  : `${trade.exitDate ?? '—'} (${trade.exitReason ?? '—'})`}
+                <span>{trade.status === 'open' ? 'Opened' : trade.status === 'closed' ? 'Closed' : 'Dismissed'}</span>
+                {trade.status === 'closed'
+                  ? `${trade.exitDate ?? '—'} (${trade.exitReason ?? '—'})`
+                  : new Date(trade.openedAt).toLocaleDateString()}
               </div>
             </div>
 
             <div className="card-actions">
               {trade.status === 'open' ? (
-                <button type="button" className="btn-sm" onClick={() => onClose(trade)}>
-                  Close
-                </button>
+                <>
+                  <button type="button" className="btn-sm" onClick={() => onClose(trade)}>
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-sm ghost"
+                    onClick={() => dismissTrade.mutate(trade._id)}
+                  >
+                    Dismiss
+                  </button>
+                </>
               ) : null}
               <button
                 type="button"

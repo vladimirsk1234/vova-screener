@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Sse } from '@nestjs/common';
 import { concat, map, of, type Observable } from 'rxjs';
+import type { Timeframe } from '@vova/engine';
 import { ProgressBus } from './progress.bus';
 import { ScansService } from './scans.service';
 import type { ScanParamsApi } from './scan-runner.service';
@@ -16,14 +17,22 @@ export class ScansController {
     return this.scans.defaults();
   }
 
+  @Delete('history')
+  resetHistory() {
+    return this.scans.resetHistory();
+  }
+
   @Post()
   start(@Body() body: Partial<ScanParamsApi>) {
-    return this.scans.start(body ?? {});
+    return this.scans.start(body ?? {}, { trigger: 'manual' });
   }
 
   @Get()
-  list(@Query('limit') limit?: string) {
-    return this.scans.list(limit ? Number(limit) : undefined);
+  list(@Query('limit') limit?: string, @Query('tf') tf?: Timeframe) {
+    return this.scans.list({
+      limit: limit ? Number(limit) : undefined,
+      tf,
+    });
   }
 
   @Get(':id')

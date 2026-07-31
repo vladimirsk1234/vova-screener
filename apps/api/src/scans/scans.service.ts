@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
+import type { Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL } from '../db/schemas';
+import { periodKey } from './period';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
 const DEFAULTS: ScanParamsApi = {
@@ -13,7 +15,22 @@ const DEFAULTS: ScanParamsApi = {
   riskPerTrade: 100,
   noRrReq: false,
   useLastHlSl: true,
-  newOnly: false,
+  newOnly: true,
+};
+
+export type StartOpts = {
+  trigger?: 'manual' | 'scheduled';
+  wait?: boolean;
+};
+
+const EMPTY_COUNTERS = {
+  total: 0,
+  downloaded: 0,
+  evaluated: 0,
+  signals: 0,
+  rejected: 0,
+  skipped: 0,
+  fromCache: 0,
 };
 
 @Injectable()
@@ -25,21 +42,85 @@ export class ScansService {
     private readonly runner: ScanRunnerService,
   ) {}
 
-  async start(input: Partial<ScanParamsApi>) {
+  async start(input: Partial<ScanParamsApi>, opts: StartOpts = {}) {
     const params: ScanParamsApi = { ...DEFAULTS, ...input };
-    const run = await this.runs.create({ params, status: 'queued' });
+    const trigger = opts.trigger ?? 'manual';
+    const key = periodKey(params.tf);
+    const periodTf = params.tf;
+
+    let run = await this.runs
+      .findOne({ periodKey: key, periodTf, 'params.source': params.source })
+      .exec();
+
+    if (run) {
+      const runId = String(run._id);
+      if (this.runner.isRunning(runId)) {
+        this.runner.cancel(runId);
+        for (let i = 0; i < 50; i++) {
+          if (!this.runner.isRunning(runId)) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      }
+      await this.signals.deleteMany({ runId: run._id }).exec();
+      await this.rejections.deleteMany({ runId: run._id }).exec();
+      run.params = params;
+      run.status = 'queued';
+      run.trigger = trigger;
+      run.periodKey = key;
+      run.periodTf = periodTf;
+      run.counters = { ...EMPTY_COUNTERS };
+      run.reasonCounts = {};
+      run.newSymbols = [];
+      run.summary = null;
+      run.error = undefined;
+      run.cancelRequested = false;
+      run.asOf = undefined;
+      run.startedAt = undefined;
+      run.finishedAt = undefined;
+      run.timings = { downloadMs: 0, processMs: 0, totalMs: 0 };
+      await run.save();
+    } else {
+      run = await this.runs.create({
+        params,
+        status: 'queued',
+        periodKey: key,
+        periodTf,
+        trigger,
+      });
+    }
+
     const runId = String(run._id);
-    void this.runner.execute(runId);
+    if (opts.wait) {
+      await this.runner.execute(runId);
+    } else {
+      void this.runner.execute(runId);
+    }
     return { runId, params };
   }
 
-  async list(limit = 30) {
+  async list(opts: { limit?: number; tf?: Timeframe } = {}) {
+    const filter: Record<string, unknown> = {};
+    if (opts.tf) {
+      filter.$or = [
+        { periodTf: opts.tf },
+        { periodTf: { $exists: false }, 'params.tf': opts.tf },
+      ];
+    }
     return this.runs
-      .find()
-      .sort({ createdAt: -1 })
-      .limit(Math.min(limit, 100))
+      .find(filter)
+      .sort({ periodKey: -1, createdAt: -1 })
+      .limit(Math.min(opts.limit ?? 30, 100))
       .lean()
       .exec();
+  }
+
+  async resetHistory() {
+    await Promise.all([
+      this.signals.deleteMany({}).exec(),
+      this.rejections.deleteMany({}).exec(),
+    ]);
+    const result = await this.runs.deleteMany({}).exec();
+    return { ok: true, deletedRuns: result.deletedCount ?? 0 };
   }
 
   async get(id: string) {

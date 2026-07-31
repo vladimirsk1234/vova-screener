@@ -50,6 +50,10 @@ export const ScanRunSchema = new Schema(
       default: 'queued',
       index: true,
     },
+    /** Calendar slot: YYYY-MM-DD | YYYY-Www | YYYY-MM */
+    periodKey: { type: String, index: true },
+    periodTf: { type: String, index: true },
+    trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
     asOf: String,
     counters: {
       total: { type: Number, default: 0 },
@@ -76,6 +80,7 @@ export const ScanRunSchema = new Schema(
   { timestamps: true },
 );
 ScanRunSchema.index({ createdAt: -1 });
+ScanRunSchema.index({ periodKey: 1, periodTf: 1, 'params.source': 1 });
 
 export const SignalSchema = new Schema(
   {
@@ -119,7 +124,14 @@ export const TradeSchema = new Schema(
     rrAtEntry: Number,
     shares: { type: Number, default: 0 },
     riskUsd: { type: Number, default: 0 },
-    status: { type: String, enum: ['open', 'closed'], default: 'open', index: true },
+    status: {
+      type: String,
+      enum: ['open', 'closed', 'dismissed'],
+      default: 'open',
+      index: true,
+    },
+    source: { type: String, enum: ['auto', 'manual'], default: 'manual' },
+    periodKey: String,
     exitPrice: Number,
     exitDate: String,
     exitReason: String,
@@ -130,6 +142,7 @@ export const TradeSchema = new Schema(
   { timestamps: true },
 );
 TradeSchema.index({ status: 1, symbol: 1 });
+TradeSchema.index({ symbol: 1, tf: 1, status: 1 });
 
 export const PresetSchema = new Schema(
   {

@@ -14,7 +14,7 @@ const DEFAULTS: ScanParams = {
   riskPerTrade: 100,
   noRrReq: false,
   useLastHlSl: true,
-  newOnly: false,
+  newOnly: true,
   forceRefresh: false,
 };
 

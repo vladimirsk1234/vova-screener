@@ -7,18 +7,18 @@ class TradesController {
   constructor(private readonly trades: TradesService) {}
 
   @Get()
-  list(@Query('status') status?: 'open' | 'closed') {
+  list(@Query('status') status?: 'open' | 'closed' | 'dismissed') {
     return this.trades.list(status);
   }
 
   @Post()
   create(@Body() body: CreateTradeDto) {
-    return this.trades.create(body);
+    return this.trades.create({ ...body, source: body.source ?? 'manual' });
   }
 
   @Post('refresh')
-  refresh() {
-    return this.trades.refresh();
+  refresh(@Query('tf') tf?: 'Daily' | 'Weekly' | 'Monthly') {
+    return this.trades.refresh(tf ? { tf } : {});
   }
 
   @Post(':id/close')
@@ -27,6 +27,11 @@ class TradesController {
     @Body() body: { exitPrice: number; exitDate?: string; exitReason?: string },
   ) {
     return this.trades.close(id, body);
+  }
+
+  @Post(':id/dismiss')
+  dismiss(@Param('id') id: string) {
+    return this.trades.dismiss(id);
   }
 
   @Delete(':id')
