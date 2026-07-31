@@ -35,17 +35,14 @@ function tvToYahooSymbol(ex: string, rawSym: string): string {
   const upper = rawSym.trim().toUpperCase();
   if (exU in TV_TO_YAHOO_SUFFIX) {
     const suffix = TV_TO_YAHOO_SUFFIX[exU];
+    // Only treat as already-suffixed when the exchange dot-suffix is present
+    // (SHOP.TO). Bare endings like BTO / SSV must still get .TO / .V.
     if (upper.endsWith(suffix.toUpperCase())) return normalizeYahooTicker(upper);
     if (YAHOO_CANADIAN_SUFFIXES.some((s) => s !== suffix && upper.endsWith(s.toUpperCase()))) {
       return normalizeYahooTicker(upper);
     }
-    const base =
-      upper.includes('.') && !upper.endsWith(suffix.toUpperCase())
-        ? upper.replace(/\./g, '-')
-        : upper;
-    const bare = suffix.toUpperCase().replace('.', '');
-    if (base.endsWith(bare)) return normalizeYahooTicker(base);
-    return normalizeYahooTicker(`${base.split('.')[0]}${suffix}`);
+    const base = upper.includes('.') ? upper.replace(/\./g, '-') : upper;
+    return normalizeYahooTicker(`${base}${suffix}`);
   }
   return normalizeYahooTicker(rawSym);
 }

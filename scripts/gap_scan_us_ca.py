@@ -43,8 +43,8 @@ OHLC_CACHE_PATH = ROOT / ".cache" / "gap_scan_ohlc.json"
 PE_CACHE_PATH = ROOT / ".cache" / "gap_scan_pe.json"
 REPORT_PATH = ROOT / ".cache" / "gap_scan_report.json"
 
-PE_RATE_LIMIT_PER_SEC = 8.0
-PE_RETRY_DELAY_SEC = 0.35
+PE_RATE_LIMIT_PER_SEC = 4.0
+PE_RETRY_DELAY_SEC = 1.0
 
 
 def _load_json(path: Path) -> dict:
