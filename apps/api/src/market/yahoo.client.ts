@@ -1,6 +1,7 @@
 /** Yahoo Finance chart API client (same endpoints yfinance uses). */
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  collapseInProgressPeriodBars,
   dropIncompleteBars,
   fillLastBarOhlc,
   intervalAndPeriod,
@@ -86,6 +87,7 @@ export class YahooClient {
         );
         bars = fillLastBarOhlc(bars);
         bars = dropIncompleteBars(bars);
+        bars = collapseInProgressPeriodBars(bars, tf);
         return {
           bars: bars.length ? bars : null,
           meta: {

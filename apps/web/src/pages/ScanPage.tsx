@@ -240,6 +240,10 @@ export function ScanPage() {
                 {counters.rejected ?? 0}
               </div>
               <div>
+                <span>Skipped</span>
+                {counters.skipped ?? 0}
+              </div>
+              <div>
                 <span>From cache</span>
                 {counters.fromCache ?? 0}
               </div>

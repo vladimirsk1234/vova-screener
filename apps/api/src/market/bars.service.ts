@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import {
+  collapseInProgressPeriodBars,
   decodeSeries,
   encodeSeries,
   intervalAndPeriod,
@@ -36,7 +37,7 @@ export class BarsService {
       .lean<any>()
       .exec();
     if (!doc || !doc.barCount) return null;
-    return this.decode(doc);
+    return this.decode(doc, tf);
   }
 
   async getBars(
@@ -50,14 +51,14 @@ export class BarsService {
     if (!opts.force) {
       const doc = await this.barSeries.findOne({ yahooTicker, interval }).lean<any>().exec();
       if (doc?.barCount && Date.now() - new Date(doc.updatedAt).getTime() < maxAgeMs) {
-        return { bars: this.decode(doc), fromCache: true };
+        return { bars: this.decode(doc, tf), fromCache: true };
       }
     }
 
     const { bars, meta } = await this.yahoo.fetchOhlc(yahooTicker, tf, { signal: opts.signal });
     if (!bars) {
       const stale = await this.barSeries.findOne({ yahooTicker, interval }).lean<any>().exec();
-      if (stale?.barCount) return { bars: this.decode(stale), fromCache: true };
+      if (stale?.barCount) return { bars: this.decode(stale, tf), fromCache: true };
       return { bars: null, fromCache: false };
     }
 
@@ -65,8 +66,8 @@ export class BarsService {
     return { bars, fromCache: false, companyName: meta?.companyName, exchange: meta?.exchange };
   }
 
-  private decode(doc: any): OhlcSeries {
-    return decodeSeries({
+  private decode(doc: any, tf: Timeframe): OhlcSeries {
+    const bars = decodeSeries({
       barCount: doc.barCount,
       dates: new Uint8Array(doc.dates.buffer ?? doc.dates),
       open: new Uint8Array(doc.open.buffer ?? doc.open),
@@ -75,6 +76,7 @@ export class BarsService {
       close: new Uint8Array(doc.close.buffer ?? doc.close),
       volume: new Uint8Array(doc.volume.buffer ?? doc.volume),
     });
+    return collapseInProgressPeriodBars(bars, tf);
   }
 
   private async save(yahooTicker: string, interval: string, bars: OhlcSeries) {

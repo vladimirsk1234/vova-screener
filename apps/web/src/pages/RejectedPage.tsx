@@ -28,6 +28,9 @@ export function RejectedPage() {
 
       <section className="card">
         <h3>Reason breakdown</h3>
+        <p className="muted small">
+          Includes skipped reasons (e.g. NOT_NEW). Rejected rows below are rejects only.
+        </p>
         {reasons.length === 0 ? (
           <p className="muted">Nothing rejected.</p>
         ) : (

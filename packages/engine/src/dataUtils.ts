@@ -1,6 +1,10 @@
 /** OHLC helpers — port of data_utils.py (native Yahoo TF bars, no daily resample). */
 import type { OhlcBar, OhlcSeries, Timeframe } from './types';
 
+/**
+ * Yahoo interval + history range.
+ * Weekly/Monthly use 5y to match Streamlit Cloud low-mem (`data_utils.interval_and_period`).
+ */
 export function intervalAndPeriod(tf: Timeframe): { interval: string; range: string } {
   if (tf === 'Weekly') return { interval: '1wk', range: '5y' };
   if (tf === 'Monthly') return { interval: '1mo', range: '5y' };
@@ -29,6 +33,48 @@ export function dropIncompleteBars(bars: OhlcSeries): OhlcSeries {
       Number.isFinite(b.low) &&
       Number.isFinite(b.close),
   );
+}
+
+/** Monday (UTC) YYYY-MM-DD for the week containing `dateStr`. */
+export function weekStartMonday(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = dt.getUTCDay(); // 0=Sun … 6=Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setUTCDate(dt.getUTCDate() + diff);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function periodKey(dateStr: string, tf: Timeframe): string {
+  if (tf === 'Weekly') return weekStartMonday(dateStr);
+  if (tf === 'Monthly') return dateStr.slice(0, 7);
+  return dateStr;
+}
+
+/**
+ * Yahoo chart API often appends an extra mid-period stamp (e.g. Thursday)
+ * on top of the native Weekly/Monthly candle (Monday / month-start).
+ * yfinance keeps a single bar per period — without this collapse, `New` flips
+ * false because the break already happened on the previous (real) period bar.
+ */
+export function collapseInProgressPeriodBars(bars: OhlcSeries, tf: Timeframe): OhlcSeries {
+  if (tf === 'Daily' || bars.length < 2) return bars;
+  const out = bars.map((b) => ({ ...b }));
+  while (
+    out.length >= 2 &&
+    periodKey(out[out.length - 1].date, tf) === periodKey(out[out.length - 2].date, tf)
+  ) {
+    const last = out.pop()!;
+    const prev = out[out.length - 1];
+    prev.high = Math.max(prev.high, last.high);
+    prev.low = Math.min(prev.low, last.low);
+    if (Number.isFinite(last.close)) prev.close = last.close;
+    prev.volume = (Number.isFinite(prev.volume) ? prev.volume : 0) + (Number.isFinite(last.volume) ? last.volume : 0);
+  }
+  return out;
 }
 
 export function maxBarsForTf(tf: Timeframe): number {

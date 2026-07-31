@@ -200,7 +200,7 @@ export function ResultsPage() {
           <Switch label="Strong only" checked={onlyStrong} onChange={setOnlyStrong} />
         ) : null}
         <Link className="link-row" to={`/runs/${runId}/rejected`}>
-          Rejected / skipped ({run.counters.rejected})
+          Rejected ({run.counters.rejected}) · Skipped ({run.counters.skipped ?? 0})
         </Link>
       </section>
 

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "parity": "tsx scripts/check_parity.ts"
+    "parity": "tsx scripts/check_parity.ts && tsx scripts/check_weekly_hits_parity.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.1",
