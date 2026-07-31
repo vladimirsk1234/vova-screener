@@ -258,10 +258,13 @@ export function ChartPage() {
         <div className="chart-pine-row">
           {pine ? (
             <>
-              <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
-                {pine.valid ? 'VALID' : 'NO SIGNAL'}
-              </span>
-              {pine.isNew ? <span className="badge up">NEW</span> : null}
+              {pine.isNew ? (
+                <span className="badge up">NEW</span>
+              ) : (
+                <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
+                  {pine.valid ? 'VALID' : 'NO SIGNAL'}
+                </span>
+              )}
               {pine.strong ? <span className="badge">STRONG</span> : null}
             </>
           ) : null}
