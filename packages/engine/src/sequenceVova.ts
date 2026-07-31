@@ -72,6 +72,11 @@ function pinePython(
   let last_rr = NaN_;
   let last_pos_size = NaN_;
   let last_pos_value = NaN_;
+  let last_seq_state = 0;
+  let last_struct_invalid = false;
+  let last_crit = NaN_;
+  let last_risk = NaN_;
+  let last_reward = NaN_;
   let prev_bar_seq_low = l_a[0];
   let prev_bar_seq_high = h_a[0];
 
@@ -146,6 +151,9 @@ function pinePython(
     let valid_signal: boolean;
     let new_signal: boolean;
     let strong_signal: boolean;
+    let struct_invalid: boolean;
+    let risk: number;
+    let reward: number;
 
     if (direction_sell) {
       const struct_invalid_seq_up =
@@ -169,8 +177,9 @@ function pinePython(
       ) {
         sl = Math.max(sl, last_confirmed_peak);
       }
-      const risk = sl - c;
-      const reward = !isNaN_(last_confirmed_trough) ? c - last_confirmed_trough : 0.0;
+      struct_invalid = struct_invalid_seq_up;
+      risk = sl - c;
+      reward = !isNaN_(last_confirmed_trough) ? c - last_confirmed_trough : 0.0;
       rr = risk > 0 ? reward / risk : NaN_;
       position_size = risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_;
       position_value = !isNaN_(position_size) ? position_size * c : NaN_;
@@ -204,8 +213,9 @@ function pinePython(
       ) {
         sl = Math.min(sl, last_confirmed_trough);
       }
-      const risk = c - sl;
-      const reward = !isNaN_(last_confirmed_peak) ? last_confirmed_peak - c : 0.0;
+      struct_invalid = struct_invalid_seq_down;
+      risk = c - sl;
+      reward = !isNaN_(last_confirmed_peak) ? last_confirmed_peak - c : 0.0;
       rr = risk > 0 ? reward / risk : NaN_;
       position_size = risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_;
       position_value = !isNaN_(position_size) ? position_size * c : NaN_;
@@ -221,6 +231,11 @@ function pinePython(
 
     prev_bar_seq_low = seq_low;
     prev_bar_seq_high = seq_high;
+    last_seq_state = seq_state;
+    last_struct_invalid = struct_invalid;
+    last_crit = critical_level;
+    last_risk = risk;
+    last_reward = reward;
     last_valid = valid_signal;
     last_new = new_signal;
     last_strong = strong_signal;
@@ -243,6 +258,11 @@ function pinePython(
     ATR: atr_a[n - 1],
     last_peak_was_hh,
     last_trough_was_hl,
+    seq_state: last_seq_state,
+    struct_invalid: last_struct_invalid,
+    critical_level: last_crit,
+    risk: last_risk,
+    reward: last_reward,
   };
 }
 
@@ -484,19 +504,28 @@ export function runSequenceVovaCloseScan(
   );
 }
 
+/**
+ * Reject reason for an invalid BUY setup, in the same order as the Python oracle
+ * `sequence_vova.explain_invalid_buy`: the sequence state is checked first, so a
+ * down sequence reports NO_SEQ_UP instead of an RR computed off stale structure.
+ *
+ * The `RR_TOO_LOW` code carries the run threshold as a ` (min x.xx)` suffix;
+ * everything before that suffix matches the Python string byte for byte.
+ */
 export function explainInvalidBuy(
   pine: PineResult | null,
   min_rr = 1.5,
   no_rr_req = false,
 ): string {
   if (!pine) return 'NO_VALID_SIGNAL';
-  if (!pine.Valid) {
-    if (!pine.last_trough_was_hl) return 'NO_STRUCT_HL';
-    if (!pine.last_peak_was_hh) return 'NO_STRUCT_HH';
-    if (!no_rr_req && Number.isFinite(pine.RR) && pine.RR < min_rr) {
-      return `RR_TOO_LOW:${pine.RR.toFixed(2)}`;
-    }
-    return 'NO_VALID_SIGNAL';
-  }
+  if (pine.seq_state !== 1) return 'NO_SEQ_UP';
+  if (!pine.last_trough_was_hl) return 'NO_STRUCT_HL';
+  if (!pine.last_peak_was_hh) return 'NO_STRUCT_HH';
+  if (pine.struct_invalid) return 'STRUCT_INVALID';
+  if (no_rr_req) return 'NO_VALID_SIGNAL';
+  if (!(pine.reward > 0)) return 'NO_REWARD';
+  if (!(pine.risk > 0)) return 'NO_RISK';
+  const rr = Number.isFinite(pine.RR) ? pine.RR : 0;
+  if (rr < min_rr) return `RR_TOO_LOW:${rr.toFixed(2)} (min ${min_rr.toFixed(2)})`;
   return 'NO_VALID_SIGNAL';
 }
