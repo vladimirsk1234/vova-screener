@@ -8,6 +8,11 @@ function money(n: number | null | undefined) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function num(n: number | null | undefined) {
+  if (n == null) return '—';
+  return String(n);
+}
+
 function periodLabel(periodKey: string, tf: Timeframe) {
   if (!periodKey || periodKey === 'unknown') return periodKey || '—';
   if (tf === 'Daily') {
@@ -27,6 +32,12 @@ function periodLabel(periodKey: string, tf: Timeframe) {
     });
   }
   return periodKey;
+}
+
+function holdLabel(tf: Timeframe) {
+  if (tf === 'Daily') return 'Avg days in trade';
+  if (tf === 'Weekly') return 'Avg weeks in trade';
+  return 'Avg months in trade';
 }
 
 function Sparkline({ points }: { points: Array<{ equity: number }> }) {
@@ -52,10 +63,22 @@ function Sparkline({ points }: { points: Array<{ equity: number }> }) {
 
 export function PnlPage() {
   const [tf, setTf] = useState<Timeframe>('Daily');
+  const [downloading, setDownloading] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['performance', tf],
     queryFn: () => api.performance(tf),
   });
+
+  const onDownload = async () => {
+    setDownloading(true);
+    try {
+      await api.downloadPerformanceReport(tf);
+    } catch (e) {
+      window.alert((e as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (isLoading) return <p className="empty">Loading…</p>;
   if (!data) return <p className="empty">No data</p>;
@@ -63,7 +86,12 @@ export function PnlPage() {
   return (
     <div>
       <section className="card">
-        <h2>Performance</h2>
+        <div className="stack-row">
+          <h2 style={{ margin: 0 }}>Performance</h2>
+          <button type="button" className="btn-sm" disabled={downloading} onClick={onDownload}>
+            {downloading ? 'Downloading…' : 'Download report'}
+          </button>
+        </div>
         <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
         <div className="meta-grid">
           <div>
@@ -75,8 +103,16 @@ export function PnlPage() {
             {money(data.totals.pnlUsd)}
           </div>
           <div>
-            <span>Avg R</span>
-            {data.totals.avgR ?? '—'}
+            <span>Avg RR entry</span>
+            {num(data.totals.avgRrEntry)}
+          </div>
+          <div>
+            <span>Avg RR exit</span>
+            {num(data.totals.avgRrExit)}
+          </div>
+          <div>
+            <span>{holdLabel(tf)}</span>
+            {num(data.totals.avgHold)}
           </div>
           <div>
             <span>Closed / open</span>
@@ -98,7 +134,8 @@ export function PnlPage() {
                 <span className={p.pnlUsd >= 0 ? 'up-text' : 'down-text'}>{money(p.pnlUsd)}</span>
                 <span className="muted small">
                   {' '}
-                  · {p.trades} trades · {p.winRatePct}% · avgR {p.avgR ?? '—'}
+                  · {p.trades} trades · {p.winRatePct}% · RR in {num(p.avgRrEntry)} / out{' '}
+                  {num(p.avgRrExit)} · hold {num(p.avgHold)} {data.holdUnit}
                 </span>
               </span>
             </div>

@@ -124,6 +124,7 @@ export type Trade = {
 
 export type PerformanceReport = {
   tf: Timeframe;
+  holdUnit: 'days' | 'weeks' | 'months';
   periods: Array<{
     periodKey: string;
     trades: number;
@@ -131,6 +132,9 @@ export type PerformanceReport = {
     winRatePct: number;
     pnlUsd: number;
     avgR: number | null;
+    avgRrEntry: number | null;
+    avgRrExit: number | null;
+    avgHold: number | null;
   }>;
   equity: Array<{ date: string; equity: number }>;
   totals: {
@@ -140,6 +144,9 @@ export type PerformanceReport = {
     winRatePct: number;
     pnlUsd: number;
     avgR: number | null;
+    avgRrEntry: number | null;
+    avgRrExit: number | null;
+    avgHold: number | null;
   };
 };
 
@@ -406,6 +413,25 @@ export const api = {
   monthly: () => request<MonthlyReport>('/reports/monthly'),
   performance: (tf: Timeframe = 'Daily') =>
     request<PerformanceReport>(`/reports/performance?tf=${encodeURIComponent(tf)}`),
+  downloadPerformanceReport: async (tf: Timeframe = 'Daily') => {
+    const res = await fetch(`/api/reports/export?tf=${encodeURIComponent(tf)}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="([^"]+)"/.exec(disposition);
+    const filename = match?.[1] ?? `vova-pnl-${tf.toLowerCase()}.csv`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>
