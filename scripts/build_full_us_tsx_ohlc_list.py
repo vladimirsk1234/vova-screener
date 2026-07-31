@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build STOCK-TICKERS.txt from full US (NYSE/NASDAQ/AMEX) + TSX universe.
+Build STOCK-TICKERS.txt from full US (NYSE/NASDAQ/AMEX) + TSX/TSXV universe.
 
 Layer 1: exchange symbol directories (no Yahoo .info, no EPS filter).
 Layer 2: Yahoo OHLC validation for Daily / Weekly / Monthly (>=50 bars).
@@ -14,6 +14,7 @@ Usage:
   python scripts/build_full_us_tsx_ohlc_list.py --retry-no-data
   python scripts/build_full_us_tsx_ohlc_list.py --us-only
   python scripts/build_full_us_tsx_ohlc_list.py --ca-only
+  python scripts/build_full_us_tsx_ohlc_list.py --tsx-only
 """
 from __future__ import annotations
 
@@ -43,15 +44,19 @@ def build_list(
     *,
     us_only: bool = False,
     ca_only: bool = False,
+    tsx_only: bool = False,
     limit: int = 0,
     resume: bool = True,
     retry_no_data: bool = False,
 ) -> tuple[list[tuple[str, str, str]], Counter]:
     t0 = time.perf_counter()
-    layer1 = load_layer1_candidates(us_only=us_only, ca_only=ca_only, tsx_only=True)
+    # Default includes TSX + TSXV so a full rebuild does not drop venture names
+    # already present in STOCK-TICKERS.txt.
+    layer1 = load_layer1_candidates(us_only=us_only, ca_only=ca_only, tsx_only=tsx_only)
     us_n = sum(1 for c in layer1 if c.region == "US")
     ca_n = sum(1 for c in layer1 if c.region == "CA")
-    print(f"Layer-1 candidates: {len(layer1)} (US={us_n}, TSX={ca_n})")
+    ca_label = "TSX" if tsx_only else "TSX+TSXV"
+    print(f"Layer-1 candidates: {len(layer1)} (US={us_n}, {ca_label}={ca_n})")
 
     entries_in = _candidates_to_entries(layer1)
     if limit > 0:
@@ -75,7 +80,12 @@ def main() -> int:
     )
     parser.add_argument("--limit", type=int, default=0, help="Smoke: first N tickers")
     parser.add_argument("--us-only", action="store_true", help="US exchanges only")
-    parser.add_argument("--ca-only", action="store_true", help="TSX only")
+    parser.add_argument("--ca-only", action="store_true", help="Canada only (TSX+TSXV unless --tsx-only)")
+    parser.add_argument(
+        "--tsx-only",
+        action="store_true",
+        help="Canada = TSX main board only (exclude TSXV)",
+    )
     parser.add_argument("--resume", action="store_true", default=True)
     parser.add_argument("--no-resume", action="store_true", help="Ignore OHLC cache")
     parser.add_argument(
@@ -92,6 +102,7 @@ def main() -> int:
     entries, rejects = build_list(
         us_only=args.us_only,
         ca_only=args.ca_only,
+        tsx_only=args.tsx_only,
         limit=args.limit,
         resume=not args.no_resume,
         retry_no_data=args.retry_no_data,

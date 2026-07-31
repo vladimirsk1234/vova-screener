@@ -91,10 +91,19 @@ _NON_EQUITY_NAME_MARKERS = (
     " TRUST UNIT",
     " PREFERRED",
     " WARRANT",
+    " WARRANTS",
     " UNIT",
+    " UNITS",
     " DEBENTURE",
     " NOTES DUE",
     " SUBORDINATED",
+    " RIGHTS",
+    " RIGHT ",
+    " DEPOSITARY",
+    " DEPOSITORY",
+    " AMERICAN DEPOSITARY",
+    " ADS ",
+    " ADR ",
 )
 
 
@@ -105,14 +114,14 @@ def _tv_to_yahoo_symbol(ex: str, raw_sym: str) -> str:
     upper = sym.upper()
     if ex in _TV_TO_YAHOO_SUFFIX:
         suffix = _TV_TO_YAHOO_SUFFIX[ex]
+        # Only treat as already-suffixed when the exchange dot-suffix is present
+        # (SHOP.TO). Bare endings like BTO / SSV must still get .TO / .V.
         if upper.endswith(suffix.upper()):
             return _normalize_yahoo_ticker(upper)
         if any(upper.endswith(s.upper()) for s in _YAHOO_CANADIAN_SUFFIXES if s != suffix):
             return _normalize_yahoo_ticker(upper)
-        base = upper.replace(".", "-") if "." in upper and not upper.endswith(suffix.upper()) else upper
-        if base.endswith(suffix.upper().replace(".", "")):
-            return _normalize_yahoo_ticker(base)
-        return _normalize_yahoo_ticker(f"{base.split('.')[0]}{suffix}")
+        base = upper.replace(".", "-") if "." in upper else upper
+        return _normalize_yahoo_ticker(f"{base}{suffix}")
     return _normalize_yahoo_ticker(sym)
 
 

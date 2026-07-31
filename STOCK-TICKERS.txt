@@ -13,25 +13,65 @@ AMEX:BTG|B2Gold Corp.
 AMEX:BUDA|Buda Juice, Inc.
 AMEX:CEF|Sprott Physical Gold and Silver Trust
 AMEX:CET|Central Securities Corporation
+AMEX:CEV|Eaton Vance California Municipal Income Trust Shares of Beneficial Interest
 AMEX:CIX|CompX International Inc.
 AMEX:CKX|CKX Lands, Inc.
 AMEX:CLM|Cornerstone Strategic Investment Fund, Inc.
+AMEX:CMCL|Caledonia Mining Corporation Plc Common Shares
 AMEX:CMT|Core Molding Technologies, Inc.
 AMEX:COHN|Cohen & Company Inc.
+AMEX:CVU|CPI Aerostructures, Inc. Common Stock
+AMEX:DIT|AMCON Distributing Company Common Stock
 AMEX:DNN|Denison Mines Corp.
+AMEX:ELA|Envela Corporation Common Stock
+AMEX:ELMD|Electromed, Inc. Common Stock
 AMEX:EQX|Equinox Gold Corp.
+AMEX:ESP|Espey Mfg. & Electronics Corp. Common Stock
+AMEX:EVI|EVI Industries, Inc.  Common Stock
+AMEX:FSI|Flexible Solutions International Inc. Common Stock (CDA)
+AMEX:FTF|Franklin Limited Duration Income Trust Common Shares of Beneficial Interest
+AMEX:FURY|Fury Gold Mines Limited Common Shares
+AMEX:GAU|Galiano Gold Inc.
+AMEX:GENC|Gencor Industries, Inc. Common Stock
+AMEX:GGN|GAMCO Global Gold, Natural Resources & Income Trust
+AMEX:GLU|Gabelli Global Utility Common Shares of Beneficial Ownership
+AMEX:GPUS|Hyperscale Data, Inc. Common Stock
+AMEX:IDR|Idaho Strategic Resources, Inc. Common Stock
 AMEX:IE|Ivanhoe Electric Inc.
 AMEX:IMO|Imperial Oil Limited
+AMEX:INFU|InfuSystems Holdings, Inc. Common Stock
+AMEX:INTT|inTest Corporation Common Stock
+AMEX:IOR|Income Opportunity Realty Investors, Inc. Common Stock
+AMEX:ITRG|Integra Resources Corp. Common Shares
+AMEX:LGL|LGL Group, Inc. (The) Common Stock
+AMEX:MHH|Mastech Digital, Inc Common Stock
+AMEX:MXC|Mexco Energy Corporation Common Stock
 AMEX:NG|NovaGold Resources Inc.
 AMEX:NGD|New Gold Inc.
+AMEX:NHC|National HealthCare Corporation Common Stock
+AMEX:OBE|Obsidian Energy Ltd. Common Shares
+AMEX:OPHC|OptimumBank Holdings, Inc. Common Stock
 AMEX:ORLA|Orla Mining Ltd.
 AMEX:PHYS|Sprott Physical Gold Trust
+AMEX:PLX|Protalix BioTherapeutics, Inc. (DE) Common Stock
+AMEX:PRK|Park National Corporation Common Stock
 AMEX:PSLV|Sprott Physical Silver Trust
+AMEX:REPX|Riley Exploration Permian, Inc. Common Stock
+AMEX:RLGT|Radiant Logistics, Inc. Common Stock
+AMEX:SEB|Seaboard Corporation Common Stock
+AMEX:SIF|SIFCO Industries, Inc. Common Stock
 AMEX:SVM|Silvercorp Metals Inc.
 AMEX:TGB|Taseko Mines Limited
+AMEX:TMP|Tompkins Financial Corporation Common Stock
+AMEX:TOPS|TOP Ships, Inc. Common Stock
+AMEX:TRT|Trio-Tech International Common Stock
 AMEX:UEC|Uranium Energy Corp.
 AMEX:USAS|Americas Gold and Silver Corporation
 AMEX:UUUU|Energy Fuels Inc.
+AMEX:VKI|Invesco Advantage Municipal Income Trust II Common Shares of Beneficial Interest (DE)
+AMEX:WRN|Western Copper and Gold Corporation Common Stock
+AMEX:XTNT|Xtant Medical Holdings, Inc. Common Stock
+AMEX:YCBD|cbdMD, Inc. Common Stock
 CBOE:CBOE|Cboe Global Markets, Inc.
 NASDAQ:AACB|Artius II Acquisition Inc.
 NASDAQ:AAL|American Airlines Group Inc.
@@ -41,6 +81,7 @@ NASDAQ:AAOI|Applied Optoelectronics, Inc.
 NASDAQ:AAON|AAON, Inc.
 NASDAQ:AAPL|Apple Inc.
 NASDAQ:AAT|American Assets Trust, Inc.
+NASDAQ:ABEO|Abeona Therapeutics Inc. - Common Stock
 NASDAQ:ABG|Asbury Automotive Group, Inc.
 NASDAQ:ABNB|Airbnb, Inc.
 NASDAQ:ABR|Arbor Realty Trust, Inc.
@@ -51,11 +92,14 @@ NASDAQ:ACA|Arcosa, Inc.
 NASDAQ:ACAD|ACADIA Pharmaceuticals Inc.
 NASDAQ:ACCO|ACCO Brands Corporation
 NASDAQ:ACEL|Accel Entertainment, Inc.
+NASDAQ:ACFN|Acorn Energy, Inc. - Common Stock
 NASDAQ:ACGL|Arch Capital Group Ltd.
+NASDAQ:ACIC|American Coastal Insurance Corporation - Common Stock
 NASDAQ:ACIW|ACI Worldwide, Inc.
 NASDAQ:ACLS|Axcelis Technologies, Inc.
 NASDAQ:ACLX|Arcellx Inc
 NASDAQ:ACMR|ACM Research, Inc.
+NASDAQ:ACNB|ACNB Corporation - Common Stock
 NASDAQ:ACR|ACRES Commercial Realty Corp.
 NASDAQ:ACT|Enact Holdings, Inc.
 NASDAQ:ADAM|Adamas Trust, Inc.
@@ -63,22 +107,33 @@ NASDAQ:ADBE|Adobe Inc.
 NASDAQ:ADEA|Adeia Inc.
 NASDAQ:ADI|Analog Devices, Inc.
 NASDAQ:ADMA|ADMA Biologics, Inc.
+NASDAQ:ADNT|Adient plc Ordinary Shares
 NASDAQ:ADP|Automatic Data Processing, Inc.
 NASDAQ:ADPT|Adaptive Biotechnologies Corporation
 NASDAQ:ADSK|Autodesk, Inc.
 NASDAQ:ADUS|Addus HomeCare Corporation
 NASDAQ:AEIS|Advanced Energy Industries, Inc.
+NASDAQ:AENT|Alliance Entertainment Holding Corporation - common stock
 NASDAQ:AEP|American Electric Power Company, Inc.
+NASDAQ:AFBI|Affinity Bancshares, Inc. - Common Stock
 NASDAQ:AFJK|Aimei Health Technology Co., Ltd
 NASDAQ:AFRM|Affirm Holdings, Inc.
+NASDAQ:AFYA|Afya Limited - Class A Common Shares
+NASDAQ:AGEN|Agenus Inc. - Common Stock
 NASDAQ:AGM|Federal Agricultural Mortgage Corporation
 NASDAQ:AGM.A|Federal Agricultural Mortgage Corporation
+NASDAQ:AGMH|AGM Group Holdings Inc. - Class A Ordinary Shares
 NASDAQ:AGNC|AGNC Investment Corp.
+NASDAQ:AGO|Assured Guaranty Ltd. Common Stock
+NASDAQ:AGRO|Adecoagro S.A. Common Shares
 NASDAQ:AGYS|Agilysys, Inc.
 NASDAQ:AII|American Integrity Insurance Group, Inc.
+NASDAQ:AIRT|Air T, Inc. - Common Stock
 NASDAQ:AISP|Airship AI Holdings, Inc.
 NASDAQ:AIV|Apartment Investment and Management Company
 NASDAQ:AKAM|Akamai Technologies, Inc.
+NASDAQ:AKO.A|Embotelladora Andina S.A. Common Stock
+NASDAQ:AKO.B|Embotelladora Andina S.A. Common Stock
 NASDAQ:ALAB|Astera Labs, Inc.
 NASDAQ:ALDF|Aldel Financial II Inc.
 NASDAQ:ALF|Centurion Acquisition Corp.
@@ -88,11 +143,14 @@ NASDAQ:ALGN|Align Technology, Inc.
 NASDAQ:ALHC|Alignment Healthcare, Inc.
 NASDAQ:ALIS|Calisa Acquisition Corp
 NASDAQ:ALKS|Alkermes plc
+NASDAQ:ALLT|Allot Ltd. - Ordinary Shares
 NASDAQ:ALM|Almonty Industries Inc.
 NASDAQ:ALMS|Alumis Inc.
 NASDAQ:ALNT|Allient Inc.
 NASDAQ:ALNY|Alnylam Pharmaceuticals, Inc.
 NASDAQ:ALRM|Alarm.com Holdings, Inc.
+NASDAQ:ALRS|Alerus Financial Corporation - Common Stock
+NASDAQ:ALTO|Alto Ingredients, Inc. - Common Stock
 NASDAQ:ALX|Alexander's, Inc.
 NASDAQ:AMAL|Amalgamated Financial Corp.
 NASDAQ:AMAT|Applied Materials, Inc.
@@ -112,6 +170,7 @@ NASDAQ:AMZN|Amazon.com, Inc.
 NASDAQ:ANDE|The Andersons, Inc.
 NASDAQ:ANGI|Angi Inc.
 NASDAQ:ANIP|ANI Pharmaceuticals, Inc.
+NASDAQ:ANNA|AleAnna, Inc. - Class A Common Stock
 NASDAQ:ANSC|Agriculture & Natural Solutions Acquisition Corporation
 NASDAQ:AOMR|Angel Oak Mortgage REIT, Inc.
 NASDAQ:AORT|Artivion, Inc.
@@ -125,12 +184,16 @@ NASDAQ:APOG|Apogee Enterprises, Inc.
 NASDAQ:APP|AppLovin Corporation
 NASDAQ:APPF|AppFolio, Inc.
 NASDAQ:APPN|Appian Corporation
+NASDAQ:APVO|Aptevo Therapeutics Inc. - Common Stock
+NASDAQ:APWC|Asia Pacific Wire & Cable Corporation Limited  - Common shares, Par value .01 per share
 NASDAQ:ARCB|ArcBest Corporation
 NASDAQ:ARCC|Ares Capital Corporation
+NASDAQ:ARCO|Arcos Dorados Holdings Inc. Class A Shares
 NASDAQ:ARDT|Ardent Health, Inc.
 NASDAQ:ARGX|argenx SE
 NASDAQ:ARHS|Arhaus, Inc.
 NASDAQ:ARI|Apollo Commercial Real Estate Finance, Inc.
+NASDAQ:ARKO|ARKO Corp. - Common Stock
 NASDAQ:ARL|American Realty Investors, Inc.
 NASDAQ:ARLO|Arlo Technologies, Inc.
 NASDAQ:ARLP|Alliance Resource Partners, L.P.
@@ -141,23 +204,31 @@ NASDAQ:ARTNA|Artesian Resources Corporation
 NASDAQ:ARWR|Arrowhead Pharmaceuticals, Inc.
 NASDAQ:ARXS|Arxis, Inc.
 NASDAQ:ASA|ASA Gold and Precious Metals Limited
+NASDAQ:ASC|Ardmore Shipping Corporation Common Stock
 NASDAQ:ASIC|Ategrity Specialty Insurance Company Holdings
 NASDAQ:ASIX|AdvanSix Inc.
+NASDAQ:ASLE|AerSale Corporation - Common Stock
 NASDAQ:ASMB|Assembly Biosciences, Inc.
 NASDAQ:ASML|ASML Holding N.V.
 NASDAQ:ASND|Ascendis Pharma A/S
 NASDAQ:ASO|Academy Sports and Outdoors, Inc.
+NASDAQ:ASR|Grupo Aeroportuario del Sureste, S.A. de C.V. Common Stock
 NASDAQ:ASRV|AmeriServ Financial, Inc.
 NASDAQ:ASTE|Astec Industries, Inc.
+NASDAQ:ASTH|Astrana Health Inc. - Common Stock
 NASDAQ:ASTS|AST SpaceMobile, Inc.
 NASDAQ:ASYS|Amtech Systems, Inc.
 NASDAQ:ATAT|Atour Lifestyle Holdings Limited
 NASDAQ:ATEN|A10 Networks, Inc.
+NASDAQ:ATEX|Anterix Inc. - Common Stock
 NASDAQ:ATII|Archimedes Tech SPAC Partners II Co.
 NASDAQ:ATLC|Atlanticus Holdings Corporation
+NASDAQ:ATLO|Ames National Corporation - Common Stock
+NASDAQ:ATRC|AtriCure, Inc. - Common Stock
 NASDAQ:ATRO|Astronics Corporation
 NASDAQ:ATS|ATS Corporation
 NASDAQ:AUBN|Auburn National Bancorporation, Inc.
+NASDAQ:AUDC|AudioCodes Ltd. - Ordinary Shares
 NASDAQ:AUGO|Aura Minerals Inc.
 NASDAQ:AUPH|Aurinia Pharmaceuticals Inc.
 NASDAQ:AUR|Aurora Innovation, Inc.
@@ -180,11 +251,13 @@ NASDAQ:AZZ|AZZ Inc.
 NASDAQ:BANF|BancFirst Corporation
 NASDAQ:BANR|Banner Corporation
 NASDAQ:BATRK|Atlanta Braves Holdings, Inc.
+NASDAQ:BBCP|Concrete Pumping Holdings, Inc.  - Common Stock
 NASDAQ:BBDC|Barings BDC, Inc.
 NASDAQ:BBIO|BridgeBio Pharma, Inc.
 NASDAQ:BBN|BlackRock Taxable Municipal Bond Trust
 NASDAQ:BBSI|Barrett Business Services, Inc.
 NASDAQ:BBW|Build-A-Bear Workshop, Inc.
+NASDAQ:BCAL|California BanCorp - Common Stock
 NASDAQ:BCAT|BlackRock Capital Allocation Term Trust
 NASDAQ:BCG|Binah Capital Group, Inc.
 NASDAQ:BCML|BayCom Corp
@@ -200,15 +273,18 @@ NASDAQ:BEAM|Beam Therapeutics Inc.
 NASDAQ:BELFA|Bel Fuse Inc.
 NASDAQ:BELFB|Bel Fuse Inc.
 NASDAQ:BF.A|Brown-Forman Corporation
+NASDAQ:BFC|Bank First Corporation - Common Stock
 NASDAQ:BFS|Saul Centers, Inc.
 NASDAQ:BFST|Business First Bancshares, Inc.
 NASDAQ:BGC|BGC Group, Inc.
+NASDAQ:BGMS|Bio Green Med Solution, Inc. - Common Stock
 NASDAQ:BGR|BlackRock Energy and Resources Trust
 NASDAQ:BGSI|Boyd Group Services Inc.
 NASDAQ:BGT|BlackRock Floating Rate Income Trust
 NASDAQ:BGY|BlackRock Enhanced International Dividend Trust
 NASDAQ:BHE|Benchmark Electronics, Inc.
 NASDAQ:BHF|Brighthouse Financial, Inc.
+NASDAQ:BHRB|Burke & Herbert Financial Services Corp. - Common Stock
 NASDAQ:BIDU|Baidu, Inc.
 NASDAQ:BIIB|Biogen Inc.
 NASDAQ:BILI|Bilibili Inc.
@@ -225,23 +301,34 @@ NASDAQ:BLBD|Blue Bird Corporation
 NASDAQ:BLKB|Blackbaud, Inc.
 NASDAQ:BLLN|BillionToOne, Inc.
 NASDAQ:BLMN|Bloomin' Brands, Inc.
+NASDAQ:BLNE|Beeline Holdings, Inc. - Common Stock
 NASDAQ:BLUW|Blue Water Acquisition Corp. III
 NASDAQ:BLW|BlackRock Limited Duration Income Trust
+NASDAQ:BLX|Bladex, Inc. Class E Common Stock
 NASDAQ:BME|BlackRock Health Sciences Trust
 NASDAQ:BMEZ|BlackRock Health Sciences Term Trust
 NASDAQ:BMN|Blackrock 2037 Municipal Target Term Trust
 NASDAQ:BMRN|BioMarin Pharmaceutical Inc.
+NASDAQ:BNC|CEA Industries Inc. - Common Stock
+NASDAQ:BNED|Barnes & Noble Education, Inc Common Stock
+NASDAQ:BNT|Brookfield Wealth Solutions Ltd. Class A Exchangeable Limited Voting Shares
 NASDAQ:BNTX|BioNTech SE
 NASDAQ:BNY|The Bank of New York Mellon Cor
+NASDAQ:BNZI|Banzai International, Inc. - Class A Common Stock
 NASDAQ:BOBS|Bob's Discount Furniture, Inc.
+NASDAQ:BODI|The Beachbody Company, Inc. - Class A Common Stock
 NASDAQ:BOE|BlackRock Enhanced Global Dividend Trust
 NASDAQ:BOKF|BOK Financial Corporation
+NASDAQ:BORR|Borr Drilling Limited Common Shares
+NASDAQ:BOSC|B.O.S. Better Online Solutions - Ordinary Shares
+NASDAQ:BOTJ|Bank of the James Financial Group, Inc. - Common Stock
 NASDAQ:BOW|Bowhead Specialty Holdings Inc.
 NASDAQ:BPOP|Popular, Inc.
 NASDAQ:BPRN|Princeton Bancorp, Inc.
 NASDAQ:BRC|Brady Corporation
 NASDAQ:BRK.A|Berkshire Hathaway Inc.
 NASDAQ:BRKR|Bruker Corporation
+NASDAQ:BSBK|Bogota Financial Corp. - Common Stock
 NASDAQ:BSET|Bassett Furniture Industries, Incorporated
 NASDAQ:BSRR|Sierra Bancorp
 NASDAQ:BST|BlackRock Science and Technology Trust
@@ -257,12 +344,17 @@ NASDAQ:BUI|BlackRock Utilities, Infrastructure & Power Opportunities Trust
 NASDAQ:BULL|Webull Corporation
 NASDAQ:BUSE|First Busey Corporation
 NASDAQ:BV|BrightView Holdings, Inc.
+NASDAQ:BVFL|BV Financial, Inc. - Common Stock
 NASDAQ:BVS|Bioventus Inc.
+NASDAQ:BWB|Bridgewater Bancshares, Inc. - Common Stock
+NASDAQ:BWEN|Broadwind, Inc. - Common Stock
 NASDAQ:BWFG|Bankwell Financial Group, Inc.
 NASDAQ:BWIN|The Baldwin Insurance Group, Inc.
 NASDAQ:BWMN|Bowman Consulting Group Ltd.
+NASDAQ:BWMX|Betterware de Mexico, S.A.P.I. de C.V. Ordinary Shares
 NASDAQ:BY|Byline Bancorp, Inc.
 NASDAQ:BZ|Kanzhun Limited
+NASDAQ:CAAP|Corporacion America Airports SA Common Shares
 NASDAQ:CAC|Camden National Corporation
 NASDAQ:CACC|Credit Acceptance Corporation
 NASDAQ:CAI|Caris Life Sciences, Inc.
@@ -285,6 +377,7 @@ NASDAQ:CBFV|CB Financial Services, Inc.
 NASDAQ:CBL|CBL & Associates Properties, Inc.
 NASDAQ:CBNA|Chain Bridge Bancorp, Inc.
 NASDAQ:CBNK|Capital Bancorp, Inc.
+NASDAQ:CBRL|Cracker Barrel Old Country Store, Inc. - Common Stock
 NASDAQ:CBRS|Cerebras Systems Inc.
 NASDAQ:CBSH|Commerce Bancshares, Inc.
 NASDAQ:CBU|Community Financial System, Inc.
@@ -294,15 +387,19 @@ NASDAQ:CCAQ|Collective Acquisition Corp.
 NASDAQ:CCB|Coastal Financial Corporation
 NASDAQ:CCBG|Capital City Bank Group, Inc.
 NASDAQ:CCC|CCC Intelligent Solutions Holdings Inc.
+NASDAQ:CCEC|Capital Clean Energy Carriers Corp. - Common Share
 NASDAQ:CCEP|Coca-Cola Europacific Partners PLC
 NASDAQ:CCII|Cohen Circle Acquisition Corp. II
 NASDAQ:CCIX|Churchill Capital Corp IX
 NASDAQ:CCLD|CareCloud, Inc.
 NASDAQ:CCNE|CNB Financial Corporation
 NASDAQ:CCSI|Consensus Cloud Solutions, Inc.
+NASDAQ:CCU|Compania Cervecerias Unidas, S.A. Common Stock
+NASDAQ:CCZ|Comcast Holdings ZONES
 NASDAQ:CDNL|Cardinal Infrastructure Group Inc.
 NASDAQ:CDNS|Cadence Design Systems, Inc.
 NASDAQ:CDRE|Cadre Holdings, Inc.
+NASDAQ:CDRO|Codere Online Luxembourg, S.A. - Ordinary Shares
 NASDAQ:CDW|CDW Corporation
 NASDAQ:CECO|CECO Environmental Corp.
 NASDAQ:CEG|Constellation Energy Corporation
@@ -315,13 +412,17 @@ NASDAQ:CEPF|Cantor Equity Partners IV, Inc.
 NASDAQ:CEPS|Cantor Equity Partners VI, Inc.
 NASDAQ:CEPT|Cantor Equity Partners II, Inc.
 NASDAQ:CEPV|Cantor Equity Partners V, Inc.
+NASDAQ:CETX|Cemtrex Inc. - Common Stock
+NASDAQ:CFBK|CF Bankshares Inc. - Common Stock
 NASDAQ:CFFI|C&F Financial Corporation
 NASDAQ:CFFN|Capitol Federal Financial, Inc.
 NASDAQ:CG|The Carlyle Group Inc.
 NASDAQ:CGCT|Cartesian Growth Corporation III
+NASDAQ:CGEN|Compugen Ltd. - Ordinary Shares
 NASDAQ:CGNX|Cognex Corporation
 NASDAQ:CGON|CG Oncology, Inc.
 NASDAQ:CHAR|Charlton Aria Acquisition Corporation
+NASDAQ:CHCI|Comstock Holding Companies, Inc. - Class A Common Stock
 NASDAQ:CHCO|City Holding Company
 NASDAQ:CHCT|Community Healthcare Trust Incorporated
 NASDAQ:CHDN|Churchill Downs Incorporated
@@ -333,12 +434,16 @@ NASDAQ:CHMI|Cherry Hill Mortgage Investment Corporation
 NASDAQ:CHPG|ChampionsGate Acquisition Corporation
 NASDAQ:CHRD|Chord Energy Corporation
 NASDAQ:CHRW|C.H. Robinson Worldwide, Inc.
+NASDAQ:CHT|Chunghwa Telecom Co., Ltd.
 NASDAQ:CHTR|Charter Communications, Inc.
 NASDAQ:CHYM|Chime Financial, Inc.
 NASDAQ:CIA|Citizens, Inc.
 NASDAQ:CIFR|Cipher Digital Inc.
 NASDAQ:CIGI|Colliers International Group Inc.
 NASDAQ:CINF|Cincinnati Financial Corporation
+NASDAQ:CINT|CI&T Inc Class A Common Shares
+NASDAQ:CISO|CISO Global, Inc. - Common Stock
+NASDAQ:CIVB|Civista Bancshares, Inc.  - Common Stock
 NASDAQ:CLB|Core Laboratories Inc.
 NASDAQ:CLBK|Columbia Financial, Inc.
 NASDAQ:CLBT|Cellebrite DI Ltd.
@@ -347,15 +452,21 @@ NASDAQ:CLFD|Clearfield, Inc.
 NASDAQ:CLMB|Climb Global Solutions, Inc.
 NASDAQ:CLMT|Calumet, Inc.
 NASDAQ:CLSK|CleanSpark, Inc.
+NASDAQ:CLST|Catalyst Bancorp, Inc. - common stock
+NASDAQ:CLWT|Euro Tech Holdings Company Limited - Ordinary Shares
 NASDAQ:CMCSA|Comcast Corporation
 NASDAQ:CME|CME Group Inc.
 NASDAQ:CMP|Compass Minerals International, Inc.
+NASDAQ:CMPR|Cimpress plc - Ordinary Shares
+NASDAQ:CMTV|Community Bancorp.  - Common stock
 NASDAQ:CNMD|CONMED Corporation
 NASDAQ:CNOB|ConnectOne Bancorp, Inc.
 NASDAQ:CNTA|Centessa Pharmaceuticals plc
 NASDAQ:CNXC|Concentrix Corporation
 NASDAQ:CNXN|PC Connection, Inc.
 NASDAQ:COCO|The Vita Coco Company, Inc.
+NASDAQ:CODA|Coda Octopus Group, Inc. - Common stock
+NASDAQ:COFS|ChoiceOne Financial Services, Inc. - Common Stock
 NASDAQ:COGT|Cogent Biosciences, Inc.
 NASDAQ:COIN|Coinbase Global, Inc.
 NASDAQ:COKE|Coca-Cola Consolidated, Inc.
@@ -380,58 +491,162 @@ NASDAQ:CRD.A|Crawford & Company
 NASDAQ:CRD.B|Crawford & Company
 NASDAQ:CRDO|Credo Technology Group Holding Ltd
 NASDAQ:CRI|Carter's, Inc.
+NASDAQ:CRMD|CorMedix Inc. - Common Stock
 NASDAQ:CRNX|Crinetics Pharmaceuticals, Inc.
 NASDAQ:CROX|Crocs, Inc.
 NASDAQ:CRSP|CRISPR Therapeutics AG
+NASDAQ:CRSR|Corsair Gaming, Inc. - Common Stock
+NASDAQ:CRT|Cross Timbers Royalty Trust Common Stock
+NASDAQ:CRTO|Criteo S.A. - Ordinary Shares
 NASDAQ:CRUS|Cirrus Logic, Inc.
+NASDAQ:CRVL|CorVel Corp. - Common Stock
 NASDAQ:CRWD|CrowdStrike Holdings, Inc.
+NASDAQ:CRWS|Crown Crafts, Inc. - Common Stock
 NASDAQ:CRWV|CoreWeave, Inc.
 NASDAQ:CSCO|Cisco Systems, Inc.
 NASDAQ:CSGP|CoStar Group, Inc.
 NASDAQ:CSGS|CSG Systems International, Inc.
+NASDAQ:CSR|D/B/A Centerspace Common Stock
+NASDAQ:CSV|Carriage Services, Inc. Common Stock
+NASDAQ:CSW|CSW Industrials, Inc. Common Stock
+NASDAQ:CSWC|Capital Southwest Corporation - Common Stock
 NASDAQ:CSX|CSX Corporation
 NASDAQ:CTAS|Cintas Corporation
+NASDAQ:CTBI|Community Trust Bancorp, Inc. - Common Stock
+NASDAQ:CTO|CTO Realty Growth, Inc. Common Stock
+NASDAQ:CTRM|Castor Maritime Inc. - Common Shares
+NASDAQ:CTRN|Citi Trends, Inc. - Common Stock
+NASDAQ:CTS|CTS Corporation Common Stock
 NASDAQ:CTSH|Cognizant Technology Solutions Corporation
 NASDAQ:CVBF|CVB Financial Corp.
+NASDAQ:CVCO|Cavco Industries, Inc. - Common Stock
+NASDAQ:CVLG|Covenant Logistics Group, Inc. Class A Common Stock
 NASDAQ:CVLT|Commvault Systems, Inc.
+NASDAQ:CVSA|Covista Inc. Common Shares
+NASDAQ:CW|Curtiss-Wright Corporation Common Stock
+NASDAQ:CWBC|Community West Bancshares - Common Stock
+NASDAQ:CWCO|Consolidated Water Co. Ltd. - Ordinary Shares
 NASDAQ:CWST|Casella Waste Systems, Inc.
+NASDAQ:CXDO|Crexendo, Inc. - Common Stock
+NASDAQ:CXM|Sprinklr, Inc. Class A Common Stock
+NASDAQ:CXW|CoreCivic, Inc. Common Stock
+NASDAQ:CYD|China Yuchai International Limited Common Stock
+NASDAQ:CYH|Community Health Systems, Inc. Common Stock
 NASDAQ:CYTK|Cytokinetics, Incorporated
+NASDAQ:CZFS|Citizens Financial Services, Inc. - Common Stock
+NASDAQ:CZNC|Citizens & Northern Corp - Common Stock
 NASDAQ:CZR|Caesars Entertainment, Inc.
+NASDAQ:CZWI|Citizens Community Bancorp, Inc. - Common Stock
+NASDAQ:DAC|Danaos Corporation Common Stock
+NASDAQ:DAKT|Daktronics, Inc. - Common Stock
 NASDAQ:DASH|DoorDash, Inc.
 NASDAQ:DAVE|Dave Inc.
+NASDAQ:DBI|Designer Brands Inc. Class A Common Stock
 NASDAQ:DBX|Dropbox, Inc.
+NASDAQ:DCBO|Docebo Inc. - Common Shares
+NASDAQ:DCOM|Dime Commercial Bancshares, Inc. Common Stock
+NASDAQ:DCOY|Decoy Therapeutics Inc. - Common Stock
+NASDAQ:DCTH|Delcath Systems, Inc. - Common Stock
+NASDAQ:DCX|Digital Currency X Technology Inc. - Class A Ordinary Shares
+NASDAQ:DDD|3D Systems Corporation Common Stock
 NASDAQ:DDOG|Datadog, Inc.
+NASDAQ:DDS|Dillard's, Inc. Common Stock
+NASDAQ:DEA|Easterly Government Properties, Inc. Common Stock
+NASDAQ:DEC|Diversified Energy Company Common Stock
+NASDAQ:DFH|Dream Finders Homes, Inc. Class A Common Stock
+NASDAQ:DFIN|Donnelley Financial Solutions, Inc. Common Stock
+NASDAQ:DGICA|Donegal Group, Inc. - Class A Common Stock
+NASDAQ:DGICB|Donegal Group, Inc. - Class B Common Stock
+NASDAQ:DGII|Digi International Inc. - Common Stock
+NASDAQ:DIN|Dine Brands Global, Inc. Common Stock
 NASDAQ:DIOD|Diodes Incorporated
+NASDAQ:DJCO|Daily Journal Corp. (S.C.) - Common Stock
 NASDAQ:DJT|Trump Media & Technology Group Corp.
 NASDAQ:DKNG|DraftKings Inc.
 NASDAQ:DLO|DLocal Limited
 NASDAQ:DLTR|Dollar Tree, Inc.
+NASDAQ:DLX|Deluxe Corporation Common Stock
+NASDAQ:DMC|Del Monte Corporation Ordinary Shares
 NASDAQ:DNLI|Denali Therapeutics Inc.
 NASDAQ:DNTH|Dianthus Therapeutics, Inc.
 NASDAQ:DOCU|DocuSign, Inc.
+NASDAQ:DOLE|Dole plc Ordinary Shares
+NASDAQ:DOO|BRP Inc. - Common Subordinate Voting Shares
+NASDAQ:DORM|Dorman Products, Inc. - Common Stock
+NASDAQ:DOUG|Douglas Elliman Inc. Common Stock
 NASDAQ:DOX|Amdocs Limited
 NASDAQ:DPZ|Domino's Pizza, Inc.
 NASDAQ:DRH|DiamondRock Hospitality Company
 NASDAQ:DRS|Leonardo DRS, Inc.
 NASDAQ:DRVN|Driven Brands Holdings Inc.
+NASDAQ:DSGR|Distribution Solutions Group, Inc. - Common Stock
 NASDAQ:DSGX|The Descartes Systems Group Inc.
+NASDAQ:DSP|Viant Technology Inc. - common stock
+NASDAQ:DSWL|Deswell Industries, Inc. - Common Shares
+NASDAQ:DSX|Diana Shipping inc. common stock
 NASDAQ:DUOL|Duolingo, Inc.
+NASDAQ:DV|DoubleVerify Holdings, Inc. Common Stock
+NASDAQ:DWSN|Dawson Geophysical Company - Common Stock
+NASDAQ:DWTX|Dogwood Therapeutics, Inc.  - Common Stock
 NASDAQ:DXCM|DexCom, Inc.
+NASDAQ:DXPE|DXP Enterprises, Inc. - Common Stock
 NASDAQ:DYN|Dyne Therapeutics, Inc.
+NASDAQ:E|ENI S.p.A. Common Stock
 NASDAQ:EA|Electronic Arts Inc.
+NASDAQ:EARN|Ellington Credit Company Common Shares of Beneficial Interest
 NASDAQ:EBAY|eBay Inc.
 NASDAQ:EBC|Eastern Bankshares, Inc.
+NASDAQ:EBF|Ennis, Inc. Common Stock
+NASDAQ:EBMT|Eagle Bancorp Montana, Inc. - Common Stock
+NASDAQ:ECAT|BlackRock ESG Capital Allocation Term Trust Common Shares of Beneficial Interest
+NASDAQ:ECPG|Encore Capital Group Inc - Common Stock
+NASDAQ:ECVT|Ecovyst Inc. Common Stock
+NASDAQ:EDUC|Educational Development Corporation - Common Stock
 NASDAQ:EEFT|Euronet Worldwide, Inc.
+NASDAQ:EFC|Ellington Financial Inc. Common Stock
+NASDAQ:EFOR|Everforth, Inc. Common Stock
+NASDAQ:EFSC|Enterprise Financial Services Corporation - Common Stock
+NASDAQ:EFSI|Eagle Financial Services Inc - Common Stock
+NASDAQ:EFT|Eaton Vance Floating Rate Income Trust Common Shares of Beneficial Interest
+NASDAQ:EGAN|eGain Corporation - Common Stock
+NASDAQ:EGHT|8x8 Inc - Common stock
+NASDAQ:EIG|Employers Holdings Inc Common Stock
+NASDAQ:EJH|E-Home Household Service Holdings Limited - Ordinary shares
+NASDAQ:ELSE|Electro-Sensors, Inc. - Common Stock
+NASDAQ:ELVA|Electrovaya Inc. - Common Shares
+NASDAQ:EMBC|Embecta Corp. - Common Stock
+NASDAQ:EML|Eastern Company (The) - Common Stock
+NASDAQ:ENLV|Enlivex Ltd. - Ordinary Shares
 NASDAQ:ENPH|Enphase Energy, Inc.
+NASDAQ:ENR|Energizer Holdings, Inc. Common Stock
 NASDAQ:ENSG|The Ensign Group, Inc.
 NASDAQ:ENTG|Entegris, Inc.
 NASDAQ:EOSE|Eos Energy Enterprises, Inc.
+NASDAQ:EOT|Eaton Vance Municipal Income Trust EATON VANCE NATIONAL MUNICIPAL OPPORTUNITIES TRUST
+NASDAQ:EQBK|Equity Bancshares, Inc. Class A Common Stock
 NASDAQ:EQIX|Equinix, Inc.
 NASDAQ:ERAS|Erasca, Inc.
 NASDAQ:ERIC|Telefonaktiebolaget LM Ericsson (publ)
+NASDAQ:ERIE|Erie Indemnity Company - Class A Common Stock
+NASDAQ:ERII|Energy Recovery, Inc. - Common Stock
+NASDAQ:ESCA|Escalade, Incorporated - Common Stock
+NASDAQ:ESE|ESCO Technologies Inc. Common Stock
+NASDAQ:ESEA|Euroseas Ltd. - Common Stock
+NASDAQ:ESLT|Elbit Systems Ltd. - Ordinary Shares
+NASDAQ:ESOA|Energy Services of America Corporation - Common Stock
+NASDAQ:ESQ|Esquire Financial Holdings, Inc. - Common Stock
+NASDAQ:ESRT|Empire State Realty Trust, Inc. Class A Common Stock
 NASDAQ:ESTA|Establishment Labs Holdings Inc.
+NASDAQ:ETD|Ethan Allen Interiors Inc. Common Stock
+NASDAQ:ETO|Eaton Vance Tax-Advantage Global Dividend Opp Common Stock
 NASDAQ:ETOR|eToro Group Ltd.
+NASDAQ:ETX|Eaton Vance Municipal Income 2028 Term Trust Common Shares of Beneficial Interest
+NASDAQ:EVCM|EverCommerce Inc. - Common Stock
+NASDAQ:EVER|EverQuote, Inc. - Class A Common Stock
+NASDAQ:EVF|Eaton Vance Senior Income Trust Common Stock
+NASDAQ:EVN|Eaton Vance Municipal Income Trust Common Stock
 NASDAQ:EVRG|Evergy, Inc.
+NASDAQ:EVTC|Evertec, Inc. Common Stock
 NASDAQ:EWBC|East West Bancorp, Inc.
 NASDAQ:EWTX|Edgewise Therapeutics, Inc.
 NASDAQ:EXC|Exelon Corporation
@@ -440,471 +655,1219 @@ NASDAQ:EXEL|Exelixis, Inc.
 NASDAQ:EXLS|ExlService Holdings, Inc.
 NASDAQ:EXPE|Expedia Group, Inc.
 NASDAQ:EXPO|Exponent, Inc.
+NASDAQ:EXTR|Extreme Networks, Inc. - Common Stock
 NASDAQ:EYE|National Vision Holdings, Inc.
+NASDAQ:EZPW|EZCORP, Inc. - Class A Non-Voting Common Stock
+NASDAQ:FA|First Advantage Corporation - Common Stock
 NASDAQ:FANG|Diamondback Energy, Inc.
 NASDAQ:FAST|Fastenal Company
+NASDAQ:FBIO|Fortress Biotech, Inc. - Common Stock
+NASDAQ:FBIZ|First Business Financial Services, Inc. - Common Stock
+NASDAQ:FBK|FB Financial Corporation Common Stock
+NASDAQ:FBNC|First Bancorp - Common Stock
+NASDAQ:FBRT|Franklin BSP Realty Trust, Inc. Common Stock
+NASDAQ:FC|Franklin Covey Company Common Stock
+NASDAQ:FCAP|First Capital, Inc. - Common Stock
+NASDAQ:FCBC|First Community Bankshares, Inc. - Common Stock
+NASDAQ:FCCO|First Community Corporation - Common Stock
+NASDAQ:FCF|First Commonwealth Financial Corporation Common Stock
+NASDAQ:FCFS|FirstCash Holdings, Inc. - Common Stock
+NASDAQ:FCN|FTI Consulting, Inc. Common Stock
+NASDAQ:FCNCA|First Citizens BancShares, Inc. - Class A Common Stock
+NASDAQ:FDBC|Fidelity D & D Bancorp, Inc. - Common Stock
 NASDAQ:FELE|Franklin Electric Co., Inc.
 NASDAQ:FER|Ferrovial N.V.
 NASDAQ:FFBC|First Financial Bancorp.
 NASDAQ:FFIN|First Financial Bankshares, Inc.
 NASDAQ:FFIV|F5, Inc.
+NASDAQ:FGNX|FG Nexus Inc. - Common Stock
 NASDAQ:FHB|First Hawaiian, Inc.
 NASDAQ:FIBK|First Interstate BancSystem, Inc.
+NASDAQ:FIEE|FiEE, Inc - Common Stock
 NASDAQ:FIGR|Figure Technology Solutions, Inc.
+NASDAQ:FIGS|FIGS, Inc. Class A Common Stock
+NASDAQ:FINS|Angel Oak Financial Strategies Income Term Trust Common Shares of Beneficial Interest
+NASDAQ:FINW|FinWise Bancorp - Common Stock
+NASDAQ:FISI|Financial Institutions, Inc. - Common Stock
 NASDAQ:FISV|Fiserv, Inc.
 NASDAQ:FITB|Fifth Third Bancorp
 NASDAQ:FIVE|Five Below, Inc.
+NASDAQ:FIVN|Five9, Inc. - Common Stock
+NASDAQ:FIZZ|National Beverage Corp. - Common Stock
 NASDAQ:FLEX|Flex Ltd.
 NASDAQ:FLNC|Fluence Energy, Inc.
+NASDAQ:FLNG|FLEX LNG Ltd. Ordinary Shares
+NASDAQ:FLXS|Flexsteel Industries, Inc. - Common Stock
 NASDAQ:FLY|Firefly Aerospace Inc.
+NASDAQ:FLYW|Flywire Corporation - Voting Common Stock
+NASDAQ:FMAO|Farmers & Merchants Bancorp, Inc. - Common Stock
+NASDAQ:FMBH|First Mid Bancshares, Inc. - Common Stock
+NASDAQ:FMNB|Farmers National Banc Corp. - Common Stock
+NASDAQ:FNLC|First Bancorp, Inc (ME) - Common Stock
+NASDAQ:FNRN|First Northern Community Bancorp - Common stock
+NASDAQ:FNWB|First Northwest Bancorp - Common Stock
+NASDAQ:FNWD|Finward Bancorp - common stock
+NASDAQ:FOA|Finance of America Companies Inc. Class A Common Stock
 NASDAQ:FOLD|Amicus Therapeutics Inc
+NASDAQ:FOR|Forestar Group Inc Common Stock
 NASDAQ:FORM|FormFactor, Inc.
 NASDAQ:FOX|Fox Corporation
 NASDAQ:FOXA|Fox Corporation
+NASDAQ:FPH|Five Point Holdings, LLC Class A Common Shares
+NASDAQ:FPI|Farmland Partners Inc. Common Stock
+NASDAQ:FRAF|Franklin Financial Services Corporation - Common Stock
+NASDAQ:FRBA|First Bank  - Common Stock
+NASDAQ:FRD|Friedman Industries Inc. - Common Stock
+NASDAQ:FRHC|Freedom Holding Corp. - Common Stock
 NASDAQ:FRME|First Merchants Corporation
 NASDAQ:FRMI|Fermi Inc.
 NASDAQ:FROG|JFrog Ltd.
+NASDAQ:FRPH|FRP Holdings, Inc. - Common Stock
 NASDAQ:FRPT|Freshpet, Inc.
 NASDAQ:FRSH|Freshworks Inc.
+NASDAQ:FRST|Primis Financial Corp. - Common Stock
+NASDAQ:FSBC|Five Star Bancorp - Common Stock
+NASDAQ:FSBW|FS Bancorp, Inc. - Common Stock
 NASDAQ:FSLR|First Solar, Inc.
 NASDAQ:FSLY|Fastly, Inc.
+NASDAQ:FSTR|L.B. Foster Company - Common Stock
+NASDAQ:FSV|FirstService Corporation - Common Shares
+NASDAQ:FT|Franklin Universal Trust Common Stock
 NASDAQ:FTAI|FTAI Aviation Ltd.
 NASDAQ:FTDR|Frontdoor, Inc.
+NASDAQ:FTFT|Future FinTech Group Inc. - Common Stock
+NASDAQ:FTK|Flotek Industries, Inc. Common Stock
+NASDAQ:FTLF|FitLife Brands, Inc. - Common Stock
 NASDAQ:FTNT|Fortinet, Inc.
+NASDAQ:FUBO|FuboTV Inc. Class A Common Stock
 NASDAQ:FULT|Fulton Financial Corporation
+NASDAQ:FUSB|First US Bancshares, Inc. - Common Stock
 NASDAQ:FUTU|Futu Holdings Limited
+NASDAQ:FVCB|FVCBankcorp, Inc. - Common Stock
+NASDAQ:FVRR|Fiverr International Ltd. Ordinary Shares, no par value
+NASDAQ:FWONA|Liberty Media Corporation - Series A Liberty Formula One Common Stock
 NASDAQ:FWONK|Formula One Group
+NASDAQ:FWRG|First Watch Restaurant Group, Inc. - Common Stock
+NASDAQ:FXNC|First National Corporation - Common Stock
+NASDAQ:GAB|Gabelli Equity Trust, Inc. (The) Common Stock
+NASDAQ:GABC|German American Bancorp, Inc. - Common Stock
+NASDAQ:GAIN|Gladstone Investment Corporation - Business Development Company
+NASDAQ:GAM|General American Investors, Inc. Common Stock
+NASDAQ:GASS|StealthGas, Inc. - common stock
+NASDAQ:GATX|GATX Corporation Common Stock
+NASDAQ:GBAB|Guggenheim Taxable Municipal Bond & Investment Grade Debt Trust Common Shares of Beneficial Interest
 NASDAQ:GBDC|Golub Capital BDC, Inc.
+NASDAQ:GBLI|Global Indemnity Group, LLC - Class A Common Shares
+NASDAQ:GBX|Greenbrier Companies, Inc. (The) Common Stock
+NASDAQ:GCBC|Greene County Bancorp, Inc. - Common Stock
+NASDAQ:GCL|GCL Global Holdings Ltd - Ordinary Shares
 NASDAQ:GCMG|GCM Grosvenor Inc.
+NASDAQ:GCO|Genesco Inc. Common Stock
+NASDAQ:GCTK|GlucoTrack, Inc. - Common Stock
+NASDAQ:GDEV|GDEV Inc. - Ordinary Shares
+NASDAQ:GDRX|GoodRx Holdings, Inc. - Class A Common Stock
 NASDAQ:GDS|GDS Holdings Limited
+NASDAQ:GDV|Gabelli Dividend & Income Trust Common Shares of Beneficial Interest
+NASDAQ:GDYN|Grid Dynamics Holdings, Inc. - Class A Common Stock
+NASDAQ:GEF|Greif Inc. Class A Common Stock
+NASDAQ:GEF.B|Greif, Inc. Corporation Class B Common Stock
 NASDAQ:GEHC|GE HealthCare Technologies Inc.
 NASDAQ:GEN|Gen Digital Inc.
 NASDAQ:GFS|GLOBALFOUNDRIES Inc.
 NASDAQ:GGAL|Grupo Financiero Galicia S.A.
+NASDAQ:GGT|Gabelli Multi-Media Trust, Inc. (The) Common Stock
+NASDAQ:GGZ|Gabelli Global Small and Mid Cap Value Trust (The) Common Shares of Beneficial Interest
 NASDAQ:GH|Guardant Health, Inc.
+NASDAQ:GHC|Graham Holdings Company Common Stock
+NASDAQ:GHM|Graham Corporation Common Stock
+NASDAQ:GIC|Global Industrial Company Common Stock
+NASDAQ:GIII|G-III Apparel Group, LTD. - Common Stock
 NASDAQ:GILD|Gilead Sciences, Inc.
+NASDAQ:GILT|Gilat Satellite Networks Ltd. - Ordinary Shares
 NASDAQ:GLBE|Global-E Online Ltd.
 NASDAQ:GLNG|Golar LNG Limited
 NASDAQ:GLPI|Gaming and Leisure Properties, Inc.
+NASDAQ:GLRE|Greenlight Reinsurance, Ltd. - Class A Ordinary Shares
 NASDAQ:GLXY|Galaxy Digital
 NASDAQ:GMAB|Genmab A/S
+NASDAQ:GNE|Genie Energy Ltd. Class B Common Stock Stock
+NASDAQ:GNK|Genco Shipping & Trading Limited Ordinary Shares New (Marshall Islands)
+NASDAQ:GNT|GAMCO Natural Resources, Gold & Income Trust
 NASDAQ:GNTX|Gentex Corporation
+NASDAQ:GOGO|Gogo Inc. - Common Stock
+NASDAQ:GOLD|Gold.com, Inc. Common Stock
+NASDAQ:GOOD|Gladstone Commercial Corporation - Real Estate Investment Trust
 NASDAQ:GOOG|Alphabet Inc.
 NASDAQ:GOOGL|Alphabet Inc.
+NASDAQ:GOOS|Canada Goose Holdings Inc. Subordinate Voting Shares
 NASDAQ:GPCR|Structure Therapeutics Inc.
+NASDAQ:GPI|Group 1 Automotive, Inc. Common Stock
+NASDAQ:GPOR|Gulfport Energy Corporation Common Shares
+NASDAQ:GPRK|Geopark Ltd Common Shares
 NASDAQ:GRAB|Grab Holdings Limited
+NASDAQ:GRBK|Green Brick Partners, Inc. Common Stock
+NASDAQ:GRC|Gorman-Rupp Company (The) Common Stock
 NASDAQ:GRFS|Grifols, S.A.
+NASDAQ:GRI|GRI Bio, Inc. - Common Stock
+NASDAQ:GROW|U.S. Global Investors, Inc. - Class A Common Stock
+NASDAQ:GRX|The Gabelli Healthcare & Wellness Trust Common Shares of Beneficial Interest
 NASDAQ:GSAT|Globalstar, Inc.
+NASDAQ:GSBC|Great Southern Bancorp, Inc. - Common Stock
+NASDAQ:GSBD|Goldman Sachs BDC, Inc. Common Stock
+NASDAQ:GSHD|Goosehead Insurance, Inc. - Class A Common Stock
+NASDAQ:GSL|Global Ship Lease Inc New Class A Common Shares
 NASDAQ:GT|The Goodyear Tire & Rubber Company
+NASDAQ:GTEC|Greenland Technologies Holding Corporation - Class A Ordinary Shares
+NASDAQ:GTIM|Good Times Restaurants Inc. - Common Stock
 NASDAQ:GTLB|GitLab Inc.
+NASDAQ:GTM|ZoomInfo Technologies Inc. - Common Stock
 NASDAQ:GTX|Garrett Motion Inc.
+NASDAQ:GTY|Getty Realty Corporation Common Stock
+NASDAQ:GUT|Gabelli Utility Trust (The) Common Stock
+NASDAQ:GWRS|Global Water Resources, Inc. - common stock
+NASDAQ:GYRO|Gyrodyne , LLC - Common Stock
+NASDAQ:HAFC|Hanmi Financial Corporation - Common Stock
 NASDAQ:HALO|Halozyme Therapeutics, Inc.
+NASDAQ:HAPN|Happen, Inc. - Common Stock
 NASDAQ:HAS|Hasbro, Inc.
 NASDAQ:HBAN|Huntington Bancshares Incorporated
+NASDAQ:HBB|Hamilton Beach Brands Holding Company Class A Common Stock
+NASDAQ:HBCP|Home Bancorp, Inc. - Common Stock
+NASDAQ:HBT|HBT Financial, Inc. - Common Stock
+NASDAQ:HCI|HCI Group, Inc. Common Stock
+NASDAQ:HCKT|The Hackett Group, Inc. - Common Stock
+NASDAQ:HCSG|Healthcare Services Group, Inc. - Common Stock
+NASDAQ:HCTI|Healthcare Triangle, Inc. - Common Stock
+NASDAQ:HDSN|Hudson Technologies, Inc. - Common Stock
+NASDAQ:HEI.A|Heico Corporation Common Stock
+NASDAQ:HFBL|Home Federal Bancorp, Inc. of Louisiana - Common Stock
+NASDAQ:HFWA|Heritage Financial Corporation - Common Stock
+NASDAQ:HGBL|Heritage Global Inc. - Common Stock
+NASDAQ:HGTY|Hagerty, Inc. Class A Common Stock
+NASDAQ:HIFS|Hingham Institution for Savings - Common Stock
+NASDAQ:HIPO|Hippo Holdings Inc. Common Stock
+NASDAQ:HLIT|Harmonic Inc. - Common Stock
+NASDAQ:HLLY|Holley Inc. Common Stock
+NASDAQ:HLMN|Hillman Solutions Corp. - Common Stock
 NASDAQ:HLNE|Hamilton Lane Incorporated
+NASDAQ:HLX|Helix Energy Solutions Group, Inc. Common Stock
+NASDAQ:HMN|Horace Mann Educators Corporation Common Stock
+NASDAQ:HNNA|Hennessy Advisors, Inc. - Common Stock
+NASDAQ:HNRG|Hallador Energy Company - Common Stock
+NASDAQ:HNVR|Hanover Bancorp, Inc. - Common Stock
 NASDAQ:HON|Honeywell International Inc.
 NASDAQ:HOOD|Robinhood Markets, Inc.
+NASDAQ:HOPE|Hope Bancorp, Inc. - Common Stock
+NASDAQ:HOUR|Hour Loop, Inc. - common stock
+NASDAQ:HOV|Hovnanian Enterprises, Inc. Class A Common Stock
+NASDAQ:HQH|abrdn Healthcare Investors Shares of Beneficial Interest
+NASDAQ:HQI|HireQuest, Inc. - Common Stock
+NASDAQ:HQL|abrdn Life Sciences Investors Shares of Beneficial Interest
 NASDAQ:HQY|HealthEquity, Inc.
+NASDAQ:HRMY|Harmony Biosciences Holdings, Inc. - Common Stock
+NASDAQ:HRTG|Heritage Insurance Holdings, Inc. Common Stock
 NASDAQ:HSAI|Hesai Group
+NASDAQ:HSDT|Solana Company - Class A Common Stock
 NASDAQ:HSIC|Henry Schein, Inc.
 NASDAQ:HST|Host Hotels & Resorts, Inc.
+NASDAQ:HSTM|HealthStream, Inc. - Common Stock
+NASDAQ:HTB|HomeTrust Bancshares, Inc. Common Stock
 NASDAQ:HTFL|Heartflow, Inc.
 NASDAQ:HTHT|H World Group Limited
+NASDAQ:HTO|H2O America  - Common Stock
 NASDAQ:HUBG|Hub Group, Inc.
 NASDAQ:HURN|Huron Consulting Group Inc.
 NASDAQ:HUT|Hut 8 Corp.
+NASDAQ:HVT|Haverty Furniture Companies, Inc. Common Stock
+NASDAQ:HVT.A|Haverty Furniture Companies, Inc. Common Stock
+NASDAQ:HWBK|Hawthorn Bancshares, Inc. - Common Stock
 NASDAQ:HWC|Hancock Whitney Corporation
+NASDAQ:HWKN|Hawkins, Inc. - Common Stock
 NASDAQ:HYMC|Hycroft Mining Holding Corporation
+NASDAQ:HZO|MarineMax, Inc.  (FL) Common Stock
 NASDAQ:IAC|IAC Inc.
+NASDAQ:IBCP|Independent Bank Corporation - Common Stock
+NASDAQ:IBEX|IBEX Limited - Common Share
 NASDAQ:IBKR|Interactive Brokers Group, Inc.
+NASDAQ:IBOC|International Bancshares Corporation - Common Stock
 NASDAQ:IBRX|ImmunityBio, Inc.
+NASDAQ:ICFI|ICF International, Inc. - Common Stock
 NASDAQ:ICLR|ICON Public Limited Company
+NASDAQ:ICUI|ICU Medical, Inc. - Common Stock
+NASDAQ:IDCC|InterDigital, Inc. - Common Stock
+NASDAQ:IDN|Intellicheck, Inc. - Common Stock
+NASDAQ:IDT|IDT Corporation Class B Common Stock
 NASDAQ:IDXX|IDEXX Laboratories, Inc.
 NASDAQ:IDYA|IDEAYA Biosciences, Inc.
 NASDAQ:IEP|Icahn Enterprises L.P.
+NASDAQ:IESC|IES Holdings, Inc. - Common Stock
+NASDAQ:IFS|Intercorp Financial Services Inc. Common Shares
+NASDAQ:IGI|Western Asset Investment Grade Opportunity Trust Inc. Common Stock
+NASDAQ:IGIC|International General Insurance Holdings Ltd. - Ordinary Shares
+NASDAQ:III|Information Services Group, Inc. - Common Stock
+NASDAQ:IIIN|Insteel Industries, Inc. Common Stock
+NASDAQ:IIIV|i3 Verticals, Inc. - Common Stock
+NASDAQ:IIM|Invesco Value Municipal Income Trust Common Stock
+NASDAQ:IIPR|Innovative Industrial Properties, Inc. Common Stock
 NASDAQ:ILMN|Illumina, Inc.
+NASDAQ:IMKTA|Ingles Markets, Incorporated - Class A Common Stock
+NASDAQ:IMMR|Immersion Corporation - Common Stock
 NASDAQ:IMNM|Immunome, Inc.
+NASDAQ:IMPP|Imperial Petroleum Inc. - Common Shares
 NASDAQ:IMVT|Immunovant, Inc.
+NASDAQ:IMXI|International Money Express, Inc. - Common Stock
 NASDAQ:INCY|Incyte Corporation
 NASDAQ:INDB|Independent Bank Corp.
 NASDAQ:INDV|Indivior Pharmaceuticals, Inc.
+NASDAQ:INMD|InMode Ltd.  - Ordinary Shares
+NASDAQ:INOD|Innodata Inc. - Common Stock
+NASDAQ:INSG|Inseego Corp. - Common Stock
 NASDAQ:INSM|Insmed Incorporated
+NASDAQ:INSP|Inspire Medical Systems, Inc. Common Stock
 NASDAQ:INTC|Intel Corporation
 NASDAQ:INTR|Inter & Co, Inc.
 NASDAQ:INTU|Intuit Inc.
+NASDAQ:INVA|Innoviva, Inc. - Common Stock
+NASDAQ:INVX|Innovex International, Inc. Common Stock
 NASDAQ:IONS|Ionis Pharmaceuticals, Inc.
+NASDAQ:IOSP|Innospec Inc. - Common Stock
+NASDAQ:IPAR|Interparfums, Inc. - Common Stock
 NASDAQ:IPGP|IPG Photonics Corporation
+NASDAQ:IPI|Intrepid Potash, Inc Common Stock
+NASDAQ:IQI|Invesco Quality Municipal Income Trust Common Stock
 NASDAQ:IRDM|Iridium Communications Inc.
 NASDAQ:IREN|IREN Limited
+NASDAQ:IRMD|iRadimed Corporation - Common Stock
 NASDAQ:IRON|Disc Medicine, Inc.
 NASDAQ:IRTC|iRhythm Holdings, Inc.
+NASDAQ:IRWD|Ironwood Pharmaceuticals, Inc. - Class A Common Stock
+NASDAQ:ISBA|Isabella Bank Corporation - Common stock
 NASDAQ:ISRG|Intuitive Surgical, Inc.
+NASDAQ:ISSC|Innovative Solutions and Support, Inc. - Common Stock
+NASDAQ:ISTR|Investar Holding Corporation - Common Stock
+NASDAQ:ITIC|Investors Title Company - Common Stock
 NASDAQ:ITRI|Itron, Inc.
+NASDAQ:ITRN|Ituran Location and Control Ltd. - Ordinary Shares
+NASDAQ:IVF|INVO Fertility, Inc. - Common Stock
+NASDAQ:IVR|INVESCO MORTGAGE CAPITAL INC Common Stock
+NASDAQ:JAKK|JAKKS Pacific, Inc. - Common Stock
 NASDAQ:JAZZ|Jazz Pharmaceuticals plc
 NASDAQ:JBHT|J.B. Hunt Transport Services, Inc.
+NASDAQ:JBI|Janus International Group, Inc. Common Stock
 NASDAQ:JBLU|JetBlue Airways Corporation
+NASDAQ:JBSS|John B. Sanfilippo & Son, Inc. - Common Stock
+NASDAQ:JCSE|JE Cleantech Holdings Limited - Ordinary Shares
 NASDAQ:JD|JD.com, Inc.
+NASDAQ:JHI|John Hancock Investors Trust Common Stock
+NASDAQ:JHS|John Hancock Income Securities Trust Common Stock
+NASDAQ:JILL|J. Jill, Inc. Common Stock
+NASDAQ:JJSF|J & J Snack Foods Corp. - Common Stock
 NASDAQ:JKHY|Jack Henry & Associates, Inc.
+NASDAQ:JMSB|John Marshall Bancorp, Inc. - Common Stock
+NASDAQ:JOE|St. Joe Company (The) Common Stock
 NASDAQ:JOYY|JOYY Inc.
+NASDAQ:JRSH|Jerash Holdings (US), Inc. - Common Stock
+NASDAQ:JRVR|James River Group Holdings, Inc. - Common Stock
+NASDAQ:JTAI|Jet.AI Inc. - Common Stock
+NASDAQ:JVA|Coffee Holding Co., Inc. - Common Stock
+NASDAQ:JYNT|The Joint Corp. - Common Stock
+NASDAQ:KAI|Kadant Inc Common Stock
+NASDAQ:KALU|Kaiser Aluminum Corporation - Common Stock
+NASDAQ:KARO|Karooooo Ltd. - Ordinary shares
+NASDAQ:KB|KB Financial Group Inc
+NASDAQ:KBSX|FST Corp. - Ordinary Shares
 NASDAQ:KC|Kingsoft Cloud Holdings Limited
 NASDAQ:KDP|Keurig Dr Pepper Inc.
+NASDAQ:KE|Kimball Electronics, Inc. - Common Stock
+NASDAQ:KEN|Kenon Holdings Ltd. Ordinary Shares
+NASDAQ:KEQU|Kewaunee Scientific Corporation - Common Stock
+NASDAQ:KFFB|Kentucky First Federal Bancorp - Common Stock
+NASDAQ:KFRC|Kforce, Inc. Common Stock
+NASDAQ:KG|Kestrel Group, Ltd. - Common Stock
+NASDAQ:KGEI|Kolibri Global Energy Inc. - Common stock
 NASDAQ:KHC|The Kraft Heinz Company
+NASDAQ:KINS|Kingstone Companies, Inc - Common Stock
 NASDAQ:KLAC|KLA Corporation
 NASDAQ:KLIC|Kulicke and Soffa Industries, Inc.
 NASDAQ:KMB|Kimberly-Clark Corporation
+NASDAQ:KMDA|Kamada Ltd. - Ordinary Shares
+NASDAQ:KMPR|Kemper Corporation
 NASDAQ:KNSA|Kiniksa Pharmaceuticals International, plc
+NASDAQ:KNSL|Kinsale Capital Group, Inc. Common Stock
+NASDAQ:KOP|Koppers Holdings Inc. Common Stock
+NASDAQ:KOPN|Kopin Corporation - Common Stock
+NASDAQ:KPLT|Katapult Holdings, Inc. - Common Stock
+NASDAQ:KRNY|Kearny Financial - Common Stock
+NASDAQ:KRT|Karat Packaging Inc. - Common Stock
 NASDAQ:KRYS|Krystal Biotech, Inc.
 NASDAQ:KSPI|Joint Stock Company Kaspi.kz
 NASDAQ:KTOS|Kratos Defense & Security Solutions, Inc.
+NASDAQ:KWR|Quaker Houghton Common Stock
 NASDAQ:KYIV|Kyivstar Group Ltd.
 NASDAQ:KYMR|Kymera Therapeutics, Inc.
+NASDAQ:LAD|Lithia Motors, Inc. Common Stock
+NASDAQ:LADR|Ladder Capital Corp Class A Common Stock
 NASDAQ:LAMR|Lamar Advertising Company
+NASDAQ:LARK|Landmark Bancorp Inc. - Common Stock
 NASDAQ:LASR|nLIGHT, Inc.
 NASDAQ:LAUR|Laureate Education, Inc.
 NASDAQ:LBRDK|Liberty Broadband Corporation
 NASDAQ:LBTYA|Liberty Global Ltd.
 NASDAQ:LBTYK|Liberty Global Ltd.
 NASDAQ:LCID|Lucid Group, Inc.
+NASDAQ:LCNB|LCNB Corporation - Common Stock
+NASDAQ:LE|Lands' End, Inc. - Common Stock
 NASDAQ:LECO|Lincoln Electric Holdings, Inc.
+NASDAQ:LEG|Leggett & Platt, Incorporated Common Stock
+NASDAQ:LEGH|Legacy Housing Corporation - Common Stock
 NASDAQ:LEGN|Legend Biotech Corporation
+NASDAQ:LEN.B|Lennar Corporation Class B
+NASDAQ:LEO|BNY Mellon Strategic Municipals, Inc. Common Stock
 NASDAQ:LFST|LifeStance Health Group, Inc.
+NASDAQ:LFVN|Lifevantage Corporation - Common Stock
+NASDAQ:LGIH|LGI Homes, Inc. - Common Stock
 NASDAQ:LGN|Legence Corp.
+NASDAQ:LGND|Ligand Pharmaceuticals Incorporated - Common Stock
 NASDAQ:LI|Li Auto Inc.
+NASDAQ:LIEN|Chicago Atlantic BDC, Inc. - Common Stock
 NASDAQ:LIF|Life360, Inc.
 NASDAQ:LIN|Linde plc
+NASDAQ:LINC|Lincoln Educational Services Corporation - Common Stock
 NASDAQ:LINE|Lineage, Inc.
 NASDAQ:LITE|Lumentum Holdings Inc.
 NASDAQ:LIVN|LivaNova PLC
+NASDAQ:LKFN|Lakeland Financial Corporation - Common Stock
 NASDAQ:LKQ|LKQ Corporation
 NASDAQ:LLYVK|Liberty Live Holdings, Inc.
+NASDAQ:LMAT|LeMaitre Vascular, Inc. - Common Stock
+NASDAQ:LMB|Limbach Holdings, Inc. - Common Stock
+NASDAQ:LNN|Lindsay Corporation Common Stock
 NASDAQ:LNT|Alliant Energy Corporation
 NASDAQ:LNTH|Lantheus Holdings, Inc.
+NASDAQ:LOAN|Manhattan Bridge Capital, Inc - Common Stock
+NASDAQ:LOB|Live Oak Bancshares, Inc. Common Stock
+NASDAQ:LOCO|El Pollo Loco Holdings, Inc. - Common Stock
 NASDAQ:LOGI|Logitech International S.A.
 NASDAQ:LOPE|Grand Canyon Education, Inc.
+NASDAQ:LOVE|The Lovesac Company - Common Stock
+NASDAQ:LPG|Dorian LPG Ltd. Common Stock
 NASDAQ:LPLA|LPL Financial Holdings Inc.
 NASDAQ:LQDA|Liquidia Corporation
+NASDAQ:LQDT|Liquidity Services, Inc. - Common Stock
 NASDAQ:LRCX|Lam Research Corporation
+NASDAQ:LSBK|Lake Shore Bancorp, Inc. - Common Stock
 NASDAQ:LSCC|Lattice Semiconductor Corporation
 NASDAQ:LSTR|Landstar System, Inc.
+NASDAQ:LTC|LTC Properties, Inc. Common Stock
 NASDAQ:LULU|lululemon athletica inc.
 NASDAQ:LUNR|Intuitive Machines, Inc.
+NASDAQ:LWAY|Lifeway Foods, Inc. - Common Stock
+NASDAQ:LXFR|Luxfer Holdings PLC Ordinary Shares
+NASDAQ:LXU|LSB Industries, Inc. Common Stock
 NASDAQ:LYFT|Lyft, Inc.
+NASDAQ:LYTS|LSI Industries Inc. - Common Stock
+NASDAQ:LZ|LegalZoom.com, Inc. - Common Stock
+NASDAQ:LZB|La-Z-Boy Incorporated Common Stock
+NASDAQ:MAKO|Mako Mining Corp - Common Stock
+NASDAQ:MAMA|Mama's Creations, Inc. - Common Stock
+NASDAQ:MAN|ManpowerGroup Common Stock
 NASDAQ:MANH|Manhattan Associates, Inc.
 NASDAQ:MAR|Marriott International, Inc.
 NASDAQ:MARA|MARA Holdings, Inc.
 NASDAQ:MASI|Masimo Corporation
 NASDAQ:MAT|Mattel, Inc.
+NASDAQ:MATH|Metalpha Technology Holding Limited - Ordinary Shares
+NASDAQ:MATV|Mativ Holdings, Inc. Common Stock
+NASDAQ:MATW|Matthews International Corporation - Class A Common Stock
+NASDAQ:MAX|MediaAlpha, Inc. Class A Common Stock
 NASDAQ:MAZE|Maze Therapeutics, Inc.
+NASDAQ:MBBC|Marathon Bancorp, Inc. - Common Stock
 NASDAQ:MBIN|Merchants Bancorp
 NASDAQ:MBLY|Mobileye Global Inc.
+NASDAQ:MBWM|Mercantile Bank Corporation - Common Stock
+NASDAQ:MCB|Metropolitan Bank Holding Corp. Common Stock
+NASDAQ:MCBS|MetroCity Bankshares, Inc. - Common Stock
+NASDAQ:MCFT|MasterCraft Boat Holdings, Inc. - Common Stock
 NASDAQ:MCHB|Mechanics Bancorp
 NASDAQ:MCHP|Microchip Technology Incorporated
 NASDAQ:MCHPP|Microchip Technology Incorporated
+NASDAQ:MCI|Barings Corporate Investors Common Stock
+NASDAQ:MCRI|Monarch Casino & Resort, Inc. - Common Stock
+NASDAQ:MCS|Marcus Corporation (The) Common Stock
 NASDAQ:MCW|Mister Car Wash, Inc.
+NASDAQ:MCY|Mercury General Corporation Common Stock
+NASDAQ:MD|Pediatrix Medical Group, Inc. Common Stock
 NASDAQ:MDB|MongoDB, Inc.
 NASDAQ:MDGL|Madrigal Pharmaceuticals, Inc.
 NASDAQ:MDLN|Medline Inc.
 NASDAQ:MDLZ|Mondelez International, Inc.
+NASDAQ:MDRR|Medalist Diversified, Inc. - Common Stock
+NASDAQ:MDXG|MiMedx Group, Inc - Common Stock
 NASDAQ:MEDP|Medpace Holdings, Inc.
 NASDAQ:MELI|MercadoLibre, Inc.
 NASDAQ:MEOH|Methanex Corporation
 NASDAQ:META|Meta Platforms, Inc.
+NASDAQ:MFA|MFA Financial, Inc.
+NASDAQ:MFIN|Medallion Financial Corp. - Common Stock
+NASDAQ:MG|Mistras Group Inc Common Stock
+NASDAQ:MGEE|MGE Energy Inc. - Common Stock
+NASDAQ:MGNI|Magnite, Inc. - Common Stock
+NASDAQ:MGRC|McGrath RentCorp - Common Stock
+NASDAQ:MGYR|Magyar Bancorp, Inc. - Common Stock
+NASDAQ:MHO|M/I Homes, Inc. Common Stock
 NASDAQ:MIDD|The Middleby Corporation
+NASDAQ:MIND|MIND Technology, Inc. - Common Stock
 NASDAQ:MIRM|Mirum Pharmaceuticals, Inc.
+NASDAQ:MITK|Mitek Systems, Inc. - Common Stock
+NASDAQ:MITT|TPG Mortgage Investment Trust, Inc. Common Stock
+NASDAQ:MKL|Markel Group Inc. Common Stock
 NASDAQ:MKSI|MKS Inc.
+NASDAQ:MKTW|MarketWise, Inc. - Class A Common Stock
 NASDAQ:MKTX|MarketAxess Holdings Inc.
+NASDAQ:MLAB|Mesa Laboratories, Inc. - Common Stock
 NASDAQ:MLCO|Melco Resorts & Entertainment Limited
+NASDAQ:MLGO|MicroAlgo, Inc. - Ordinary Shares
+NASDAQ:MLKN|MillerKnoll, Inc. - Common Stock
+NASDAQ:MLR|Miller Industries, Inc. Common Stock
 NASDAQ:MLYS|Mineralys Therapeutics, Inc.
 NASDAQ:MMSI|Merit Medical Systems, Inc.
 NASDAQ:MMYT|MakeMyTrip Limited
+NASDAQ:MNDO|MIND C.T.I. Ltd. - Ordinary Shares
 NASDAQ:MNDY|monday.com Ltd.
+NASDAQ:MNRO|Monro, Inc.  - Common Stock
+NASDAQ:MNSB|MainStreet Bancshares, Inc. - Common Stock
 NASDAQ:MNST|Monster Beverage Corporation
+NASDAQ:MNTK|Montauk Renewables, Inc. - Common Stock
+NASDAQ:MOG.A|Moog Inc. Class A Common Stock
+NASDAQ:MOG.B|Moog Inc. Class B Common Stock
 NASDAQ:MORN|Morningstar, Inc.
+NASDAQ:MOV|Movado Group Inc. Common Stock
+NASDAQ:MPAA|Motorcar Parts of America, Inc. - Common Stock
+NASDAQ:MPB|Mid Penn Bancorp - Common Stock
+NASDAQ:MPV|Barings Participation Investors Common Stock
 NASDAQ:MPWR|Monolithic Power Systems, Inc.
+NASDAQ:MQ|Marqeta, Inc. - Class A Common Stock
+NASDAQ:MRAM|Everspin Technologies, Inc. - Common Stock
+NASDAQ:MRBK|Meridian Corporation - Common Stock
 NASDAQ:MRCY|Mercury Systems, Inc.
 NASDAQ:MRNA|Moderna, Inc.
+NASDAQ:MRTN|Marten Transport, Ltd. - Common Stock
 NASDAQ:MRVL|Marvell Technology, Inc.
 NASDAQ:MRX|Marex Group plc
+NASDAQ:MSA|MSA Safety Incorporated Common Stock
+NASDAQ:MSB|Mesabi Trust Common Stock
+NASDAQ:MSBI|Midland States Bancorp, Inc. - Common Stock
+NASDAQ:MSEX|Middlesex Water Company - Common Stock
 NASDAQ:MSFT|Microsoft Corporation
+NASDAQ:MSGM|Motorsport Games Inc. - Class A Common Stock
 NASDAQ:MSTR|Strategy Inc
 NASDAQ:MTCH|Match Group, Inc.
+NASDAQ:MTD|Mettler-Toledo International, Inc. Common Stock
+NASDAQ:MTR|Mesa Royalty Trust Common Stock
+NASDAQ:MTRN|Materion Corporation
 NASDAQ:MTSI|MACOM Technology Solutions Holdings, Inc.
+NASDAQ:MTUS|Metallus Inc. Common Shares
+NASDAQ:MTW|Manitowoc Company, Inc. (The) Common Stock
+NASDAQ:MTX|Minerals Technologies Inc. Common Stock
 NASDAQ:MU|Micron Technology, Inc.
+NASDAQ:MUX|McEwen Inc. Common Stock
+NASDAQ:MVBF|MVB Financial Corp. - Common Stock
+NASDAQ:MYE|Myers Industries, Inc. Common Stock
+NASDAQ:MYFW|First Western Financial, Inc. - Common Stock
+NASDAQ:MYRG|MYR Group, Inc. - Common Stock
+NASDAQ:MZTI|The Marzetti Company - Common Stock
+NASDAQ:NAGE|Niagen Bioscience, Inc. - Common Stock
 NASDAQ:NAMS|NewAmsterdam Pharma Company N.V.
+NASDAQ:NAT|Nordic American Tankers Limited Common Stock
+NASDAQ:NATH|Nathan's Famous, Inc. - Common Stock
+NASDAQ:NATR|Nature's Sunshine Products, Inc. - Common Stock
 NASDAQ:NAVN|Navan, Inc.
+NASDAQ:NBHC|National Bank Holdings Corporation Common Stock
 NASDAQ:NBIS|Nebius Group N.V.
 NASDAQ:NBIX|Neurocrine Biosciences, Inc.
+NASDAQ:NBN|Northeast Bank - Common Stock
+NASDAQ:NBR|Nabors Industries Ltd.
+NASDAQ:NBTB|NBT Bancorp Inc. - Common Stock
+NASDAQ:NC|NACCO Industries, Inc. Common Stock
+NASDAQ:NCNO|nCino, Inc. - Common Stock
+NASDAQ:NCSM|NCS Multistage Holdings, Inc. - Common Stock
 NASDAQ:NDAQ|Nasdaq, Inc.
 NASDAQ:NDSN|Nordson Corporation
+NASDAQ:NECB|NorthEast Community Bancorp, Inc. - Common Stock
+NASDAQ:NEGG|Newegg Commerce, Inc. - Common Shares
 NASDAQ:NEOG|Neogen Corporation
+NASDAQ:NEON|Neonode Inc. - Common Stock
+NASDAQ:NEPH|Nephros, Inc. - Common Stock
 NASDAQ:NESR|National Energy Services Reunited Corp.
+NASDAQ:NEU|NewMarket Corp Common Stock
+NASDAQ:NEWT|NewtekOne, Inc. - Common Stock
+NASDAQ:NEXA|Nexa Resources S.A. Common Shares
+NASDAQ:NEXN|Nexxen International Ltd. - Ordinary Shares
 NASDAQ:NFLX|Netflix, Inc.
+NASDAQ:NGS|Natural Gas Services Group, Inc. Common Stock
+NASDAQ:NGVC|Natural Grocers by Vitamin Cottage, Inc. Common Stock
+NASDAQ:NHI|National Health Investors, Inc. Common Stock
+NASDAQ:NIC|Nicolet Bankshares Inc. Common Stock
 NASDAQ:NICE|NICE Ltd.
+NASDAQ:NIVF|NewGenIvf Group Limited - Class A Ordinary Shares
+NASDAQ:NKSH|National Bankshares, Inc. - Common Stock
 NASDAQ:NKTR|Nektar Therapeutics
 NASDAQ:NMIH|NMI Holdings, Inc.
 NASDAQ:NMRK|Newmark Group, Inc.
 NASDAQ:NN|NextNav Inc.
+NASDAQ:NNI|Nelnet, Inc. Common Stock
+NASDAQ:NOA|North American Construction Group Ltd. Common Shares (no par)
+NASDAQ:NOMD|Nomad Foods Limited Ordinary Shares
 NASDAQ:NOVT|Novanta Inc.
+NASDAQ:NPK|National Presto Industries, Inc. Common Stock
+NASDAQ:NPKI|NPK International Inc. Common Stock
+NASDAQ:NPO|Enpro Inc. Common Stock
+NASDAQ:NRC|NRC Health - Common Stock
+NASDAQ:NRDS|NerdWallet, Inc. - Class A Common Stock
+NASDAQ:NREF|NexPoint Real Estate Finance, Inc. Common Stock
+NASDAQ:NRIM|Northrim BanCorp Inc - Common Stock
+NASDAQ:NRT|North European Oil Royality Trust Common Stock
 NASDAQ:NSIT|Insight Enterprises, Inc.
+NASDAQ:NSSC|NAPCO Security Technologies, Inc. - Common Stock
+NASDAQ:NSYS|Nortech Systems Incorporated - Common Stock
 NASDAQ:NTAP|NetApp, Inc.
+NASDAQ:NTB|Bank of N.T. Butterfield & Son Limited (The) Voting Ordinary Shares
 NASDAQ:NTCT|NetScout Systems, Inc.
 NASDAQ:NTES|NetEase, Inc.
 NASDAQ:NTNX|Nutanix, Inc.
 NASDAQ:NTRA|Natera, Inc.
 NASDAQ:NTRS|Northern Trust Corporation
 NASDAQ:NTSK|Netskope, Inc.
+NASDAQ:NTWK|NETSOL Technologies Inc. - Common Stock
+NASDAQ:NUS|Nu Skin Enterprises, Inc. Common Stock
+NASDAQ:NUTX|Nutex Health Inc. - Common Stock
 NASDAQ:NUVL|Nuvalent, Inc.
+NASDAQ:NUWE|Nuwellis, Inc. - Common Stock
 NASDAQ:NVDA|NVIDIA Corporation
+NASDAQ:NVEC|NVE Corporation - Common Stock
+NASDAQ:NVGS|Navigator Holdings Ltd. Ordinary Shares (Marshall Islands)
 NASDAQ:NVMI|Nova Ltd.
+NASDAQ:NVR|NVR, Inc. Common Stock
+NASDAQ:NWBI|Northwest Bancshares, Inc. - Common Stock
 NASDAQ:NWE|NorthWestern Energy Group, Inc.
+NASDAQ:NWFL|Norwood Financial Corp. - Common Stock
 NASDAQ:NWL|Newell Brands Inc.
+NASDAQ:NWN|Northwest Natural Holding Company Common Stock
+NASDAQ:NWPX|NWPX Infrastructure, Inc. - Common Stock
 NASDAQ:NWS|News Corporation
 NASDAQ:NWSA|News Corporation
+NASDAQ:NXP|Nuveen Select Tax Free Income Portfolio Common Stock
 NASDAQ:NXPI|NXP Semiconductors N.V.
 NASDAQ:NXST|Nexstar Media Group, Inc.
 NASDAQ:NXT|Nextpower Inc.
+NASDAQ:NXXT|NextNRG, Inc. - Common Stock
+NASDAQ:OBK|Origin Bancorp, Inc. Common Stock
+NASDAQ:OBT|Orange County Bancorp, Inc. - Common Stock
+NASDAQ:OCC|Optical Cable Corporation - Common Stock
+NASDAQ:OCFC|OceanFirst Financial Corp. - Common Stock
+NASDAQ:ODC|Oil-Dri Corporation Of America Common Stock
 NASDAQ:ODFL|Old Dominion Freight Line, Inc.
+NASDAQ:OFG|OFG Bancorp Common Stock
+NASDAQ:OFLX|Omega Flex, Inc. - Common Stock
+NASDAQ:OGC|OceanaGold Corporation Common Shares
+NASDAQ:OIA|Invesco Municipal Income Opportunities Trust Common Stock
 NASDAQ:OKTA|Okta, Inc.
 NASDAQ:OLED|Universal Display Corporation
 NASDAQ:OLLI|Ollie's Bargain Outlet Holdings, Inc.
+NASDAQ:OLP|One Liberty Properties, Inc. Common Stock
+NASDAQ:OMCL|Omnicell, Inc. - Common Stock
+NASDAQ:OMER|Omeros Corporation - Common Stock
 NASDAQ:ON|ON Semiconductor Corporation
 NASDAQ:ONB|Old National Bancorp
+NASDAQ:ONCO|Onconetix, Inc.  - Common Stock
 NASDAQ:ONDS|Ondas Inc.
+NASDAQ:ONIT|Onity Group Inc. Common Stock
+NASDAQ:ONT|Onterris, Inc. Common Stock
+NASDAQ:OOMA|Ooma, Inc. Common Stock
+NASDAQ:OPAL|OPAL Fuels Inc. - Class A Common Stock
+NASDAQ:OPBK|OP Bancorp - Common Stock
 NASDAQ:OPCH|Option Care Health, Inc.
 NASDAQ:OPEN|Opendoor Technologies Inc.
+NASDAQ:OPFI|OppFi Inc. Class A Common Stock
+NASDAQ:OPRT|Oportun Financial Corporation - common stock
+NASDAQ:OPRX|OptimizeRx Corporation - Common Stock
+NASDAQ:OPXS|Optex Systems Holdings, Inc. - Common Stock
+NASDAQ:OPY|Oppenheimer Holdings, Inc. Class A Common Stock (DE)
+NASDAQ:ORC|Orchid Island Capital, Inc. Common Stock
 NASDAQ:ORLY|O'Reilly Automotive, Inc.
+NASDAQ:ORMP|Oramed Pharmaceuticals Inc. - Common Stock
+NASDAQ:ORN|Orion Group Holdings, Inc. Common
+NASDAQ:ORRF|Orrstown Financial Services, Inc. - Common Stock
 NASDAQ:OS|OneStream, Inc.
+NASDAQ:OSBC|Old Second Bancorp, Inc. - Common Stock
+NASDAQ:OSIS|OSI Systems, Inc. - Common Stock
+NASDAQ:OSPN|OneSpan Inc. - Common Stock
 NASDAQ:OSW|OneSpaWorld Holdings Limited
 NASDAQ:OTEX|Open Text Corporation
+NASDAQ:OTTR|Otter Tail Corporation - Common Stock
+NASDAQ:OVBC|Ohio Valley Banc Corp. - Common Stock
+NASDAQ:OVLY|Oak Valley Bancorp (CA) - Common Stock
 NASDAQ:OZK|Bank OZK
+NASDAQ:P|Everpure, Inc. Class A common stock
 NASDAQ:PAA|Plains All American Pipeline, L.P.
+NASDAQ:PAC|Grupo Aeroportuario Del Pacifico, S.A. B. de C.V. Grupo Aeroportuario Del Pacifico, S.A. de C.V. (each representing 10 Series B shares)
+NASDAQ:PAG|Penske Automotive Group, Inc. Common Stock
 NASDAQ:PAGP|Plains GP Holdings, L.P.
+NASDAQ:PAHC|Phibro Animal Health Corporation - Class A Common Stock
+NASDAQ:PALI|Palisade Bio, Inc. - Common Stock
+NASDAQ:PAM|Pampa Energia S.A.
+NASDAQ:PANL|Pangaea Logistics Solutions Ltd. - Common Stock
 NASDAQ:PANW|Palo Alto Networks, Inc.
 NASDAQ:PATK|Patrick Industries, Inc.
 NASDAQ:PAX|Patria Investments Limited
+NASDAQ:PAYO|Payoneer Global Inc. - Common Stock
+NASDAQ:PAYS|Paysign, Inc. - Common Stock
 NASDAQ:PAYX|Paychex, Inc.
+NASDAQ:PBAM|Private Bancorp of America, Inc. - Common Stock
+NASDAQ:PBFS|Pioneer Bancorp, Inc. - Common Stock
+NASDAQ:PBI|Pitney Bowes Inc. Common Stock
+NASDAQ:PBT|Permian Basin Royalty Trust Common Stock
+NASDAQ:PBYI|Puma Biotechnology Inc - Common Stock
 NASDAQ:PCAR|PACCAR Inc
+NASDAQ:PCB|PCB Bancorp - Common Stock
+NASDAQ:PCRX|Pacira BioSciences, Inc. - Common Stock
 NASDAQ:PCTY|Paylocity Holding Corporation
 NASDAQ:PCVX|Vaxcyte, Inc.
+NASDAQ:PCYO|Pure Cycle Corporation - Common Stock
+NASDAQ:PD|PagerDuty, Inc. Common Stock
 NASDAQ:PDD|PDD Holdings Inc.
+NASDAQ:PDEX|Pro-Dex, Inc. - Common Stock
+NASDAQ:PDFS|PDF Solutions, Inc. - Common Stock
+NASDAQ:PDLB|Ponce Financial Group, Inc. - Common Stock
+NASDAQ:PEBK|Peoples Bancorp of North Carolina, Inc. - Common Stock
+NASDAQ:PEBO|Peoples Bancorp Inc. - Common Stock
 NASDAQ:PECO|Phillips Edison & Company, Inc.
 NASDAQ:PEGA|Pegasystems Inc.
+NASDAQ:PENG|Penguin Solutions, Inc. - Common Stock
 NASDAQ:PEP|PepsiCo, Inc.
+NASDAQ:PETZ|TDH Holdings, Inc. - Common Shares
 NASDAQ:PFG|Principal Financial Group, Inc.
+NASDAQ:PFIS|Peoples Financial Services Corp.  - Common Stock
+NASDAQ:PFLT|PennantPark Floating Rate Capital Ltd. Common Stock
+NASDAQ:PGC|Peapack-Gladstone Financial Corporation - Common Stock
+NASDAQ:PGNY|Progyny, Inc. - Common Stock
+NASDAQ:PGY|Pagaya Technologies Ltd. - Class A Ordinary Shares
+NASDAQ:PHAR|Pharming Group N.V. - ADS, each representing 10 ordinary shares
+NASDAQ:PHR|Phreesia, Inc. Common Stock
 NASDAQ:PI|Impinj, Inc.
+NASDAQ:PIM|Franklin Master Intermediate Income Trust Shares of Beneficial Interest
+NASDAQ:PINE|Alpine Income Property Trust, Inc. Common Stock
+NASDAQ:PIPR|Piper Sandler Companies Common Stock
+NASDAQ:PKBK|Parke Bancorp, Inc. - Common Stock
+NASDAQ:PKE|Park Aerospace Corp. Common Stock
+NASDAQ:PKOH|Park-Ohio Holdings Corp. - Common Stock
 NASDAQ:PLAB|Photronics, Inc.
+NASDAQ:PLBC|Plumas Bancorp - Common Stock
+NASDAQ:PLMR|Palomar Holdings, Inc. - Common stock
+NASDAQ:PLOW|Douglas Dynamics, Inc. Common Stock
+NASDAQ:PLPC|Preformed Line Products Company - Common Stock
 NASDAQ:PLTR|Palantir Technologies Inc.
 NASDAQ:PLUG|Plug Power Inc.
+NASDAQ:PLUS|ePlus inc. - Common Stock
 NASDAQ:PLXS|Plexus Corp.
+NASDAQ:PMM|Franklin Managed Municipal Income Trust Shares of Beneficial Interest
+NASDAQ:PMO|Franklin Municipal Opportunities Trust Shares of Beneficial Interest
+NASDAQ:PMT|PennyMac Mortgage Investment Trust Common Shares of Beneficial Interest
+NASDAQ:PMTS|CPI Card Group Inc. - Common Stock
+NASDAQ:PNBK|Patriot National Bancorp Inc. - Common Stock
+NASDAQ:PNNT|PennantPark Investment Corporation Common Stock
+NASDAQ:PNRG|PrimeEnergy Resources Corporation - Common Stock
+NASDAQ:PNTG|The Pennant Group, Inc. - Common Stock
 NASDAQ:PODD|Insulet Corporation
 NASDAQ:PONY|Pony AI Inc.
 NASDAQ:POOL|Pool Corporation
 NASDAQ:POWI|Power Integrations, Inc.
 NASDAQ:POWL|Powell Industries, Inc.
 NASDAQ:PPC|Pilgrim's Pride Corporation
+NASDAQ:PPCB|Propanc Biopharma, Inc. - Common Stock
+NASDAQ:PPIH|Perma-Pipe International Holdings, Inc. - Common Stock
+NASDAQ:PPLI|People Incorporated - Common Stock
+NASDAQ:PPT|Franklin Premier Income Trust Shares of Beneficial Interest
 NASDAQ:PPTA|Perpetua Resources Corp.
 NASDAQ:PRAX|Praxis Precision Medicines, Inc.
 NASDAQ:PRDO|Perdoceo Education Corporation
+NASDAQ:PRG|PROG Holdings, Inc. Common Stock
+NASDAQ:PRGS|Progress Software Corporation - Common Stock
+NASDAQ:PRI|Primerica, Inc. Common Stock
+NASDAQ:PRLB|Proto Labs, Inc. Common stock
+NASDAQ:PROV|Provident Financial Holdings, Inc. - Common Stock
+NASDAQ:PRSU|Pursuit Attractions and Hospitality, Inc. Common Stock
+NASDAQ:PRTH|Priority Technology Holdings, Inc. - Common Stock
 NASDAQ:PRVA|Privia Health Group, Inc.
+NASDAQ:PSHG|Performance Shipping Inc. - Common Shares
 NASDAQ:PSIX|Power Solutions International, Inc.
 NASDAQ:PSKY|Paramount Skydance Corporation
+NASDAQ:PSMT|PriceSmart, Inc. - Common Stock
+NASDAQ:PSTL|Postal Realty Trust, Inc. Class A Common Stock
+NASDAQ:PSTV|PLUS THERAPEUTICS, Inc. - Common Stock
 NASDAQ:PTC|PTC Inc.
 NASDAQ:PTCT|PTC Therapeutics, Inc.
 NASDAQ:PTEN|Patterson-UTI Energy, Inc.
 NASDAQ:PTGX|Protagonist Therapeutics, Inc.
+NASDAQ:PTLO|Portillo's Inc. - Class A Common Stock
+NASDAQ:PTN|Palatin Technologies, Inc. - Common Stock
+NASDAQ:PTON|Peloton Interactive, Inc. - Common Stock
+NASDAQ:PWP|Perella Weinberg Partners - Class A Common Stock
+NASDAQ:PXS|Pyxis Tankers Inc. - Common Stock
 NASDAQ:PYPL|PayPal Holdings, Inc.
+NASDAQ:PZZA|Papa John's International, Inc. - Common Stock
 NASDAQ:QCOM|QUALCOMM Incorporated
+NASDAQ:QCRH|QCR Holdings, Inc. - Common Stock
 NASDAQ:QLYS|Qualys, Inc.
+NASDAQ:QNST|QuinStreet, Inc. - Common Stock
 NASDAQ:QRVO|Qorvo, Inc.
 NASDAQ:QS|QuantumScape Corporation
+NASDAQ:QTTB|Q32 Bio Inc. - Common Stock
+NASDAQ:QUAD|Quad Graphics, Inc Class A Common Stock
+NASDAQ:RAIL|Freightcar America, Inc. - Common Stock
+NASDAQ:RAMP|LiveRamp Holdings, Inc. Common Stock
 NASDAQ:RARE|Ultragenyx Pharmaceutical Inc.
+NASDAQ:RAVE|Rave Restaurant Group, Inc. - Common Stock
+NASDAQ:RBB|RBB Bancorp - Common Stock
+NASDAQ:RBBN|Ribbon Communications Inc.  - Common Stock
+NASDAQ:RBC|RBC Bearings Incorporated Common Stock
+NASDAQ:RBCAA|Republic Bancorp, Inc. - Class A Common Stock
+NASDAQ:RBKB|Rhinebeck Bancorp, Inc. - Common Stock
+NASDAQ:RCKY|Rocky Brands, Inc. - Common Stock
+NASDAQ:RCMT|RCM Technologies, Inc. - Common Stock
+NASDAQ:RDCM|Radcom Ltd. - Ordinary Shares
 NASDAQ:RDNT|RadNet, Inc.
+NASDAQ:RDVT|Red Violet, Inc. - Common Stock
+NASDAQ:RDWR|Radware Ltd. - Ordinary Shares
+NASDAQ:RDZN|Roadzen, Inc. - Ordinary Shares
+NASDAQ:REFI|Chicago Atlantic Real Estate Finance, Inc. - Common Stock
 NASDAQ:REG|Regency Centers Corporation
 NASDAQ:REGN|Regeneron Pharmaceuticals, Inc.
+NASDAQ:RELL|Richardson Electronics, Ltd. - Common Stock
 NASDAQ:RELY|Remitly Global, Inc.
+NASDAQ:RENT|Rent the Runway, Inc. - Class A Common Stock
+NASDAQ:RES|RPC, Inc. Common Stock
+NASDAQ:REX|REX American Resources Corporation
 NASDAQ:REYN|Reynolds Consumer Products Inc.
+NASDAQ:RFIL|RF Industries, Ltd. - Common Stock
 NASDAQ:RGC|Regencell Bioscience Holdings Limited
+NASDAQ:RGCO|RGC Resources Inc. - Common Stock
 NASDAQ:RGEN|Repligen Corporation
 NASDAQ:RGLD|Royal Gold, Inc.
+NASDAQ:RGS|Regis Corporation - Common Stock
+NASDAQ:RGT|Royce Global Trust, Inc. Common Stock
 NASDAQ:RGTI|Rigetti Computing, Inc.
+NASDAQ:RIGL|Rigel Pharmaceuticals, Inc. - Common Stock
+NASDAQ:RILY|BRC Group Holdings, Inc. - Common Stock
 NASDAQ:RIOT|Riot Platforms, Inc.
 NASDAQ:RIVN|Rivian Automotive, Inc.
+NASDAQ:RJET|Republic Airways Holdings Inc. - Common Stock
 NASDAQ:RKLB|Rocket Lab Corporation
+NASDAQ:RM|Regional Management Corp. Common Stock
+NASDAQ:RMAX|RE/MAX Holdings, Inc. Class A Common Stock
+NASDAQ:RMBI|Richmond Mutual Bancorporation, Inc. - Common Stock
 NASDAQ:RMBS|Rambus Inc.
+NASDAQ:RMNI|Rimini Street, Inc. - Common Stock
+NASDAQ:RMR|The RMR Group Inc. - Class A Common Stock
+NASDAQ:RMT|Royce Micro-Cap Trust, Inc. Common Stock
 NASDAQ:RNA|Atrium Therapeutics, Inc.
+NASDAQ:RNGR|Ranger Energy Services, Inc. Class A Common Stock
+NASDAQ:RNW|ReNew Energy Global plc - Class A Shares
 NASDAQ:ROAD|Construction Partners, Inc.
+NASDAQ:ROCK|Gibraltar Industries, Inc. - Common Stock
+NASDAQ:ROG|Rogers Corporation Common Stock
 NASDAQ:ROIV|Roivant Sciences Ltd.
 NASDAQ:ROKU|Roku, Inc.
+NASDAQ:ROOT|Root, Inc. - Common Stock
 NASDAQ:ROP|Roper Technologies, Inc.
 NASDAQ:ROST|Ross Stores, Inc.
+NASDAQ:RPC|Ridgepost Capital, Inc. Class A Common Stock
+NASDAQ:RPD|Rapid7, Inc. - Common Stock
 NASDAQ:RPRX|Royalty Pharma plc
+NASDAQ:RRBI|Red River Bancshares, Inc. - Common Stock
 NASDAQ:RRR|Red Rock Resorts, Inc.
+NASDAQ:RSSS|Research Solutions, Inc - Common Stock
+NASDAQ:RSVR|Reservoir Media, Inc.. - Common Stock
 NASDAQ:RUM|Rumble Inc.
 NASDAQ:RUN|Sunrun Inc.
 NASDAQ:RUSHA|Rush Enterprises, Inc.
+NASDAQ:RUSHB|Rush Enterprises, Inc. - Class B Common Stock
+NASDAQ:RVLV|Revolve Group, Inc. Class A Common Stock
 NASDAQ:RVMD|Revolution Medicines, Inc.
 NASDAQ:RYAAY|Ryanair Holdings plc
 NASDAQ:RYTM|Rhythm Pharmaceuticals, Inc.
+NASDAQ:SAFE|Safehold Inc. New Common Stock
+NASDAQ:SAFT|Safety Insurance Group, Inc. - Common Stock
+NASDAQ:SAH|Sonic Automotive, Inc. Common Stock
 NASDAQ:SAIA|Saia, Inc.
 NASDAQ:SAIC|Science Applications International Corporation
 NASDAQ:SAIL|SailPoint, Inc.
+NASDAQ:SAMG|Silvercrest Asset Management Group Inc. - Common Stock
 NASDAQ:SANM|Sanmina Corporation
+NASDAQ:SAR|Saratoga Investment Corp New
+NASDAQ:SB|Safe Bulkers, Inc Common Stock ($0.001 par value)
 NASDAQ:SBAC|SBA Communications Corporation
 NASDAQ:SBCF|Seacoast Banking Corporation of Florida
+NASDAQ:SBFG|SB Financial Group, Inc. - Common Stock
+NASDAQ:SBGI|Sinclair, Inc. - Class A Common Stock
+NASDAQ:SBH|Sally Beauty Holdings, Inc. (Name to be changed from Sally Holdings, Inc.) Common Stock
 NASDAQ:SBLK|Star Bulk Carriers Corp.
+NASDAQ:SBR|Sabine Royalty Trust Common Stock
 NASDAQ:SBRA|Sabra Health Care REIT, Inc.
+NASDAQ:SBSI|Southside Bancshares, Inc. Common Stock
 NASDAQ:SBUX|Starbucks Corporation
+NASDAQ:SCHL|Scholastic Corporation - Common Stock
+NASDAQ:SCM|Stellus Capital Investment Corporation Common Stock
+NASDAQ:SCOR|comScore, Inc. - Common Stock
+NASDAQ:SCSC|ScanSource, Inc. - Common Stock
+NASDAQ:SCZM|Santacruz Silver Mining Ltd. - Common Shares
+NASDAQ:SD|SandRidge Energy, Inc. Common Stock
 NASDAQ:SEDG|SolarEdge Technologies, Inc.
 NASDAQ:SEIC|SEI Investments Company
+NASDAQ:SELF|Global Self Storage, Inc. - Common Stock
+NASDAQ:SENEA|Seneca Foods Corp. - Class A Common Stock
+NASDAQ:SENEB|Seneca Foods Corp. - Class B Common Stock
+NASDAQ:SEVN|Seven Hills Realty Trust  - Common Stock
 NASDAQ:SEZL|Sezzle Inc.
+NASDAQ:SFBC|Sound Financial Bancorp, Inc. - Common Stock
 NASDAQ:SFD|Smithfield Foods, Inc.
+NASDAQ:SFL|SFL Corporation Ltd
 NASDAQ:SFM|Sprouts Farmers Market, Inc.
 NASDAQ:SFNC|Simmons First National Corporation
+NASDAQ:SFST|Southern First Bancshares, Inc. - Common Stock
+NASDAQ:SG|Sweetgreen, Inc. Class A Common Stock
+NASDAQ:SGC|Superior Group of Companies, Inc. - Common Stock
 NASDAQ:SGRY|Surgery Partners, Inc.
+NASDAQ:SGU|Star Group L.P. Common Stock
+NASDAQ:SHBI|Shore Bancshares, Inc. - Common Stock
 NASDAQ:SHC|Sotera Health Company
+NASDAQ:SHIP|Seanergy Maritime Holdings Corp. - Common Stock
+NASDAQ:SHLS|Shoals Technologies Group, Inc. - Class A Common Stock
+NASDAQ:SHO|Sunstone Hotel Investors, Inc. Sunstone Hotel Investors, Inc. Common Shares
+NASDAQ:SHOE|Shoe Station Group, Inc. - Common Stock
 NASDAQ:SHOO|Steven Madden, Ltd.
 NASDAQ:SHOP|Shopify Inc.
+NASDAQ:SIGA|SIGA Technologies Inc. - Common Stock
 NASDAQ:SIGI|Selective Insurance Group, Inc.
+NASDAQ:SII|Sprott Inc. Common Shares
 NASDAQ:SIMO|Silicon Motion Technology Corporation
 NASDAQ:SIRI|Sirius XM Holdings Inc.
+NASDAQ:SITC|SITE Centers Corp. Common Stock
 NASDAQ:SITM|SiTime Corporation
+NASDAQ:SKYH|Sky Harbour Group Corporation Class A Common Stock
+NASDAQ:SKYT|SkyWater Technology, Inc. - Common Stock
+NASDAQ:SKYW|SkyWest, Inc. - Common Stock
 NASDAQ:SLAB|Silicon Laboratories Inc.
 NASDAQ:SLDE|Slide Insurance Holdings, Inc.
+NASDAQ:SLE|Super League Enterprise, Inc. - Common Stock
 NASDAQ:SLM|SLM Corporation
 NASDAQ:SLNO|Soleno Therapeutics, Inc.
+NASDAQ:SLP|Simulations Plus, Inc. - Common Stock
+NASDAQ:SLSN|Solesence, Inc. - Common stock
+NASDAQ:SLVM|Sylvamo Corporation Common Stock
+NASDAQ:SMBC|Southern Missouri Bancorp, Inc. - Common Stock
+NASDAQ:SMBK|SmartFinancial, Inc. Common Stock
 NASDAQ:SMCI|Super Micro Computer, Inc.
+NASDAQ:SMID|Smith-Midland Corporation - Common Stock
 NASDAQ:SMMT|Summit Therapeutics Inc.
+NASDAQ:SMP|Standard Motor Products, Inc. Common Stock
 NASDAQ:SMTC|Semtech Corporation
+NASDAQ:SMTI|Sanara MedTech Inc. - Common Stock
+NASDAQ:SND|Smart Sand, Inc. - Common Stock
 NASDAQ:SNDK|Sandisk Corporation
 NASDAQ:SNEX|StoneX Group Inc.
+NASDAQ:SNFCA|Security National Financial Corporation - Class A Common Stock
 NASDAQ:SNPS|Synopsys, Inc.
+NASDAQ:SNT|Senstar Technologies Corporation - Common Shares
 NASDAQ:SNY|Sanofi
 NASDAQ:SOFI|SoFi Technologies, Inc.
 NASDAQ:SOLS|Solstice Advanced Materials, Inc.
+NASDAQ:SONO|Sonos, Inc. - Common Stock
+NASDAQ:SOR|Source Capital, Inc. Cmn Shs of BI
+NASDAQ:SOTK|Sono-Tek Corporation - Common Stock
 NASDAQ:SOUN|SoundHound AI, Inc.
+NASDAQ:SPB|Spectrum Brands Holdings, Inc. Common Stock
+NASDAQ:SPCB|SuperCom, Ltd. - Ordinary Shares
+NASDAQ:SPFI|South Plains Financial, Inc. - Common Stock
+NASDAQ:SPH|Suburban Propane Partners, L.P. Common Stock
+NASDAQ:SPIR|Spire Global, Inc. Class A Common Stock
+NASDAQ:SPOK|Spok Holdings, Inc. - Common Stock
+NASDAQ:SPRC|SciSparc Ltd. - Ordinary Shares
+NASDAQ:SPRO|Spero Therapeutics, Inc. - Common Stock
 NASDAQ:SPSC|SPS Commerce, Inc.
 NASDAQ:SRAD|Sportradar Group AG
+NASDAQ:SRCE|1st Source Corporation - Common Stock
+NASDAQ:SRPT|Sarepta Therapeutics, Inc. - Common Stock
 NASDAQ:SRRK|Scholar Rock Holding Corporation
+NASDAQ:SSBI|Summit State Bank - Common Stock
+NASDAQ:SSD|Simpson Manufacturing Company, Inc. Common Stock
 NASDAQ:SSNC|SS&C Technologies Holdings, Inc.
 NASDAQ:SSRM|SSR Mining Inc.
+NASDAQ:STBA|S&T Bancorp, Inc. - Common Stock
+NASDAQ:STC|Stewart Information Services Corporation Common Stock
 NASDAQ:STEP|StepStone Group Inc.
+NASDAQ:STGW|Stagwell Inc. - Class A Common Stock
 NASDAQ:STLD|Steel Dynamics, Inc.
+NASDAQ:STN|Stantec Inc Common Stock
 NASDAQ:STNE|StoneCo Ltd.
+NASDAQ:STRA|Strategic Education, Inc. - Common Stock
 NASDAQ:STRC|Strategy Inc
 NASDAQ:STRL|Sterling Infrastructure, Inc.
+NASDAQ:STRS|Stratus Properties Inc. - Common Stock
+NASDAQ:STRT|STRATTEC SECURITY CORPORATION - Common Stock
 NASDAQ:STX|Seagate Technology Holdings plc
+NASDAQ:SUNE|SUNation Energy, Inc. - Common Stock
 NASDAQ:SUPN|Supernus Pharmaceuticals, Inc.
+NASDAQ:SWAG|Stran & Company, Inc. - Common Stock
+NASDAQ:SWBI|Smith & Wesson Brands, Inc. - Common Stock
+NASDAQ:SWIM|Latham Group, Inc. - Common Stock
 NASDAQ:SWKS|Skyworks Solutions, Inc.
+NASDAQ:SWVL|Swvl Holdings Corp - Ordinary Shares
+NASDAQ:SXI|Standex International Corporation Common Stock
+NASDAQ:SYBT|Stock Yards Bancorp, Inc. - Common Stock
 NASDAQ:SYM|Symbotic Inc.
 NASDAQ:SYNA|Synaptics Incorporated
 NASDAQ:SYRE|Spyre Therapeutics, Inc.
 NASDAQ:TARS|Tarsus Pharmaceuticals, Inc.
+NASDAQ:TASK|TaskUs, Inc. - Class A Common Stock
+NASDAQ:TATT|TAT Technologies Ltd. - Ordinary Shares
+NASDAQ:TAYD|Taylor Devices, Inc. - Common Stock
 NASDAQ:TBBK|The Bancorp, Inc.
+NASDAQ:TBCH|Turtle Beach Corporation - Common Stock
+NASDAQ:TBLA|Taboola.com Ltd. - Ordinary Shares
+NASDAQ:TBPH|Theravance Biopharma, Inc. - Ordinary Shares
 NASDAQ:TCBI|Texas Capital Bancshares, Inc.
+NASDAQ:TCBK|TriCo Bancshares - Common Stock
+NASDAQ:TCBS|Texas Community Bancshares, Inc. - Common Stock
+NASDAQ:TCBX|Third Coast Bancshares, Inc. Common Stock
+NASDAQ:TCI|Transcontinental Realty Investors, Inc. Common Stock
+NASDAQ:TCMD|Tactile Systems Technology, Inc. - Common Stock
 NASDAQ:TCOM|Trip.com Group Limited
+NASDAQ:TDAY|USA TODAY Co., Inc. Common Stock
 NASDAQ:TEAM|Atlassian Corporation
 NASDAQ:TECH|Bio-Techne Corporation
 NASDAQ:TEM|Tempus AI, Inc.
+NASDAQ:TEN|Tsakos Energy Navigation Ltd Common Shares
 NASDAQ:TENB|Tenable Holdings, Inc.
 NASDAQ:TER|Teradyne, Inc.
 NASDAQ:TERN|Terns Pharmaceuticals, Inc.
+NASDAQ:TFIN|Triumph Financial, Inc. Common Stock
 NASDAQ:TFSL|TFS Financial Corporation
+NASDAQ:TG|Tredegar Corporation Common Stock
+NASDAQ:TGLS|Tecnoglass Inc. Common Stock
+NASDAQ:TGS|Transportadora de Gas del Sur SA TGS Common Stock
 NASDAQ:TGTX|TG Therapeutics, Inc.
+NASDAQ:THFF|First Financial Corporation  - Common Stock
+NASDAQ:THRM|Gentherm Inc - Common Stock
+NASDAQ:THRY|Thryv Holdings, Inc. - Common Stock
 NASDAQ:TIGO|Millicom International Cellular S.A.
+NASDAQ:TILE|Interface, Inc. - Common Stock
+NASDAQ:TK|Teekay Corporation Ltd. Common Stock
 NASDAQ:TLN|Talen Energy Corporation
 NASDAQ:TMC|TMC the metals company Inc.
 NASDAQ:TMDX|TransMedics Group, Inc.
 NASDAQ:TMUS|T-Mobile US, Inc.
+NASDAQ:TNC|Tennant Company Common Stock
+NASDAQ:TNET|TriNet Group, Inc. Common Stock
 NASDAQ:TOWN|TowneBank
+NASDAQ:TOYO|TOYO Co., Ltd - Ordinary Shares
+NASDAQ:TPB|Turning Point Brands, Inc. Common Stock
 NASDAQ:TPG|TPG Inc.
+NASDAQ:TPVG|TriplePoint Venture Growth BDC Corp. Common Stock
+NASDAQ:TR|Tootsie Roll Industries, Inc. Common Stock
+NASDAQ:TRAK|ReposiTrak, Inc. Common Stock
+NASDAQ:TRC|Tejon Ranch Co Common Stock
+NASDAQ:TREE|LendingTree, Inc. - Common Stock
 NASDAQ:TRI|Thomson Reuters Corporation
+NASDAQ:TRIN|Trinity Capital Inc. Common Stock
+NASDAQ:TRIP|TripAdvisor, Inc. - Common Stock
 NASDAQ:TRMB|Trimble Inc.
 NASDAQ:TRMD|TORM plc
 NASDAQ:TRMK|Trustmark Corporation
+NASDAQ:TRNS|Transcat, Inc. - Common Stock
 NASDAQ:TROW|T. Rowe Price Group, Inc.
+NASDAQ:TRS|TriMas Corporation - Common Stock
+NASDAQ:TRST|TrustCo Bank Corp NY - Common Stock
+NASDAQ:TRTX|TPG RE Finance Trust, Inc. Common Stock
+NASDAQ:TRUP|Trupanion, Inc. - Common Stock
+NASDAQ:TSBK|Timberland Bancorp, Inc. - Common Stock
 NASDAQ:TSCO|Tractor Supply Company
 NASDAQ:TSEM|Tower Semiconductor Ltd.
 NASDAQ:TSLA|Tesla, Inc.
+NASDAQ:TSLX|Sixth Street Specialty Lending, Inc. Common Stock
+NASDAQ:TSSI|TSS, Inc. - Common Stock
 NASDAQ:TTAN|ServiceTitan, Inc.
 NASDAQ:TTD|The Trade Desk, Inc.
 NASDAQ:TTEK|Tetra Tech, Inc.
+NASDAQ:TTI|Tetra Technologies, Inc. Common Stock
 NASDAQ:TTMI|TTM Technologies, Inc.
 NASDAQ:TTWO|Take-Two Interactive Software, Inc.
 NASDAQ:TVTX|Travere Therapeutics, Inc.
 NASDAQ:TW|Tradeweb Markets Inc.
+NASDAQ:TWIN|Twin Disc, Incorporated - Common Stock
 NASDAQ:TWST|Twist Bioscience Corporation
 NASDAQ:TXG|10x Genomics, Inc.
+NASDAQ:TXMD|TherapeuticsMD, Inc. - Common Stock
 NASDAQ:TXN|Texas Instruments Incorporated
 NASDAQ:TXRH|Texas Roadhouse, Inc.
+NASDAQ:TY|Tri Continental Corporation Common Stock
+NASDAQ:TYGO|Tigo Energy, Inc. - Common Stock
+NASDAQ:TZOO|Travelzoo - Common Stock
 NASDAQ:UAL|United Airlines Holdings, Inc.
 NASDAQ:UBSI|United Bankshares, Inc.
 NASDAQ:UCTT|Ultra Clean Holdings, Inc.
 NASDAQ:UFPI|UFP Industries, Inc.
+NASDAQ:UFPT|UFP Technologies, Inc. - Common Stock
+NASDAQ:UHAL|U-Haul Holding Company Common Stock
+NASDAQ:UHT|Universal Health Realty Income Trust Common Stock
+NASDAQ:UI|Ubiquiti Inc. Common Stock
 NASDAQ:ULTA|Ulta Beauty, Inc.
 NASDAQ:UMBF|UMB Financial Corporation
+NASDAQ:UMH|UMH Properties, Inc. Common Stock
+NASDAQ:UNB|Union Bankshares, Inc. - Common Stock
+NASDAQ:UNF|Unifirst Corporation Common Stock
 NASDAQ:UNIT|Uniti Group Inc.
+NASDAQ:UPBD|Upbound Group, Inc. - Common Stock
 NASDAQ:UPST|Upstart Holdings, Inc.
+NASDAQ:UPWK|Upwork Inc. - Common Stock
+NASDAQ:UPXI|Upexi, Inc. - Common Stock
 NASDAQ:URBN|Urban Outfitters, Inc.
+NASDAQ:UROY|Uranium Royalty Corp. - Common Stock
 NASDAQ:USAR|USA Rare Earth, Inc.
+NASDAQ:USCB|USCB Financial Holdings, Inc.  - Class A Common Stock
+NASDAQ:USNA|USANA Health Sciences, Inc. Common Stock
+NASDAQ:USPH|U.S. Physical Therapy, Inc. Common Stock
 NASDAQ:UTHR|United Therapeutics Corporation
+NASDAQ:UTI|Universal Technical Institute Inc Common Stock
+NASDAQ:UTMD|Utah Medical Products, Inc. - Common Stock
+NASDAQ:UVE|UNIVERSAL INSURANCE HOLDINGS INC Common Stock
+NASDAQ:UVSP|Univest Financial Corporation - Common Stock
+NASDAQ:UVV|Universal Corporation Common Stock
+NASDAQ:VABK|Virginia National Bankshares Corporation - Common Stock
+NASDAQ:VALU|Value Line, Inc. - Common Stock
+NASDAQ:VBNK|VersaBank - Common Shares
 NASDAQ:VC|Visteon Corporation
+NASDAQ:VCEL|Vericel Corporation - Common Stock
 NASDAQ:VCTR|Victory Capital Holdings, Inc.
+NASDAQ:VCV|Invesco California Value Municipal Income Trust Common Stock
 NASDAQ:VCYT|Veracyte, Inc.
+NASDAQ:VECO|Veeco Instruments Inc. - Common Stock
+NASDAQ:VEL|Velocity Financial, Inc. Common Stock
 NASDAQ:VERA|Vera Therapeutics, Inc.
 NASDAQ:VERX|Vertex, Inc.
+NASDAQ:VFF|Village Farms International, Inc. - Common Shares
+NASDAQ:VGM|Invesco Trust for Investment Grade Municipals Common Stock (DE)
 NASDAQ:VIAV|Viavi Solutions Inc.
 NASDAQ:VICR|Vicor Corporation
+NASDAQ:VINP|Vinci Compass Investments Ltd. - Class A Common Shares
+NASDAQ:VIP|Vulcan Infrastructure and Power Inc. - Class A Common Stock
 NASDAQ:VISN|Vistance Networks, Inc.
+NASDAQ:VITL|Vital Farms, Inc. - Common Stock
+NASDAQ:VKQ|Invesco Municipal Trust Common Stock
 NASDAQ:VKTX|Viking Therapeutics, Inc.
+NASDAQ:VLGEA|Village Super Market, Inc. - Class A Common Stock
+NASDAQ:VLT|Invesco High Income Trust II
 NASDAQ:VLY|Valley National Bancorp
+NASDAQ:VMD|Viemed Healthcare, Inc. - Common Shares
+NASDAQ:VMI|Valmont Industries, Inc. Common Stock
+NASDAQ:VMO|Invesco Municipal Opportunity Trust Common Stock
+NASDAQ:VNCE|Vince Holding Corp. - Common Stock
 NASDAQ:VNET|VNET Group, Inc.
 NASDAQ:VNOM|Viper Energy, Inc.
 NASDAQ:VOD|Vodafone Group Public Limited Company
+NASDAQ:VOXR|Vox Royalty Corp. - common stock
+NASDAQ:VPG|Vishay Precision Group, Inc. Common Stock
+NASDAQ:VPV|Invesco Pennsylvania Value Municipal Income Trust Common Stock (DE)
 NASDAQ:VRDN|Viridian Therapeutics, Inc.
 NASDAQ:VRNS|Varonis Systems, Inc.
 NASDAQ:VRRM|Verra Mobility Corporation
 NASDAQ:VRSK|Verisk Analytics, Inc.
 NASDAQ:VRSN|VeriSign, Inc.
+NASDAQ:VRTS|Virtus Investment Partners, Inc. Common Stock
 NASDAQ:VRTX|Vertex Pharmaceuticals Incorporated
 NASDAQ:VSAT|Viasat, Inc.
 NASDAQ:VSEC|VSE Corporation
 NASDAQ:VSNT|Versant Media Group, Inc.
+NASDAQ:VSXY|Victorias Secret & Co. Common Stock
+NASDAQ:VTEX|VTEX Class A Common Shares
+NASDAQ:VTN|Invesco Trust for Investment Grade New York Municipals Common Stock
+NASDAQ:VTOL|Bristow Group, Inc. Common Stock
 NASDAQ:VTRS|Viatris Inc.
+NASDAQ:VVR|Invesco Senior Income Trust Common Stock (DE)
+NASDAQ:VYX|NCR Voyix Corporation Common Stock
+NASDAQ:WABC|Westamerica Bancorporation - Common Stock
 NASDAQ:WAFD|WaFd, Inc.
+NASDAQ:WASH|Washington Trust Bancorp, Inc. - Common Stock
 NASDAQ:WAY|Waystar Holding Corp.
 NASDAQ:WB|Weibo Corporation
 NASDAQ:WBD|Warner Bros. Discovery, Inc.
+NASDAQ:WD|Walker & Dunlop, Inc Common Stock
 NASDAQ:WDAY|Workday, Inc.
 NASDAQ:WDC|Western Digital Corporation
+NASDAQ:WDFC|WD-40 Company - Common Stock
+NASDAQ:WEN|Wendy's Company (The) - Common Stock
 NASDAQ:WERN|Werner Enterprises, Inc.
+NASDAQ:WEYS|Weyco Group, Inc. - Common Stock
+NASDAQ:WFCF|Where Food Comes From, Inc. - Common Stock
 NASDAQ:WFRD|Weatherford International plc
+NASDAQ:WGO|Winnebago Industries, Inc. Common Stock
 NASDAQ:WGS|GeneDx Holdings Corp.
+NASDAQ:WHG|Westwood Holdings Group Inc Common Stock
+NASDAQ:WILC|G. Willi-Food International,  Ltd. - Ordinary Shares
+NASDAQ:WIMI|WiMi Hologram Cloud Inc. - Class B Ordinary Shares
+NASDAQ:WINA|Winmark Corporation - Common Stock
 NASDAQ:WING|Wingstop Inc.
 NASDAQ:WIX|Wix.com Ltd.
+NASDAQ:WLDN|Willdan Group, Inc. - Common Stock
+NASDAQ:WLFC|Willis Lease Finance Corporation - Common Stock
+NASDAQ:WLY|John Wiley & Sons, Inc. Common Stock
+NASDAQ:WLYB|John Wiley & Sons, Inc. Common Stock
 NASDAQ:WMG|Warner Music Group Corp.
+NASDAQ:WMK|Weis Markets, Inc. Common Stock
 NASDAQ:WMT|Walmart Inc.
+NASDAQ:WNEB|Western New England Bancorp, Inc. - Common Stock
+NASDAQ:WOOF|Petco Health and Wellness Company, Inc. - Class A Common Stock
+NASDAQ:WOR|Worthington Enterprises, Inc. Common Shares
 NASDAQ:WRD|WeRide Inc.
+NASDAQ:WRLD|World Acceptance Corporation - Common Stock
 NASDAQ:WSBC|WesBanco, Inc.
+NASDAQ:WSBF|Waterstone Financial, Inc. - Common Stock
 NASDAQ:WSC|WillScot Holdings Corporation
 NASDAQ:WSFS|WSFS Financial Corporation
+NASDAQ:WSO.B|Watsco, Inc. Class B Common Stock
+NASDAQ:WTBA|West Bancorporation - Common Stock
 NASDAQ:WTFC|Wintrust Financial Corporation
+NASDAQ:WTM|White Mountains Insurance Group, Ltd. Common Stock
+NASDAQ:WTS|Watts Water Technologies, Inc. Class A Common Stock
+NASDAQ:WTTR|Select Water Solutions, Inc. Class A common stock
 NASDAQ:WTW|Willis Towers Watson Public Limited Company
 NASDAQ:WULF|TeraWulf Inc.
 NASDAQ:WVE|Wave Life Sciences Ltd.
 NASDAQ:WWD|Woodward, Inc.
+NASDAQ:WWW|Wolverine World Wide, Inc. Common Stock
 NASDAQ:WYNN|Wynn Resorts, Limited
 NASDAQ:XEL|Xcel Energy Inc.
 NASDAQ:XENE|Xenon Pharmaceuticals Inc.
+NASDAQ:XERS|Xeris Biopharma Holdings, Inc. - Common Stock
+NASDAQ:XHR|Xenia Hotels & Resorts, Inc. Common Stock
 NASDAQ:XMTR|Xometry, Inc.
 NASDAQ:XP|XP Inc.
+NASDAQ:XPEL|XPEL, Inc. - Common Stock
 NASDAQ:XRAY|DENTSPLY SIRONA Inc.
+NASDAQ:YELP|Yelp Inc. Common Stock
+NASDAQ:YEXT|Yext, Inc. Common Stock
+NASDAQ:YORW|The York Water Company - Common Stock
+NASDAQ:YYAI|AiRWA Inc. - Common Stock
 NASDAQ:Z|Zillow Group, Inc.
 NASDAQ:ZBRA|Zebra Technologies Corporation
+NASDAQ:ZD|Ziff Davis, Inc. - Common Stock
 NASDAQ:ZG|Zillow Group, Inc.
 NASDAQ:ZION|Zions Bancorporation, National Association
 NASDAQ:ZLAB|Zai Lab Limited
 NASDAQ:ZM|Zoom Communications, Inc.
 NASDAQ:ZS|Zscaler, Inc.
+NASDAQ:ZUMZ|Zumiez Inc. - Common Stock
+NASDAQ:ZVRA|Zevra Therapeutics, Inc.  - Common Stock
 NYSE:A|Agilent Technologies, Inc.
 NYSE:AA|Alcoa Corporation
 NYSE:AAP|Advance Auto Parts, Inc.
@@ -2052,6 +3015,7 @@ TSX:ACQ|AutoCanada Inc.
 TSX:ADN|Acadian Timber Corp.
 TSX:ADW-A|Andrew Peller Limited
 TSX:ADW-B|Andrew Peller Limited
+TSX:AKT|Akita Drilling Ltd.
 TSX:AKT-A|AKITA Drilling Ltd.
 TSX:ALA|AltaGas Ltd.
 TSX:ALS|Altius Minerals Corporation
@@ -2069,6 +3033,7 @@ TSX:BDI|Black Diamond Group Limited
 TSX:BEK-B|The Becker Milk Company Limited
 TSX:BIR|Birchcliff Energy Ltd.
 TSX:BRY|Bri-Chem Corp.
+TSX:BTO|B2Gold Corp.
 TSX:CCA|Cogeco Communications Inc.
 TSX:CCL-A|CCL Industries Inc.
 TSX:CCL-B|CCL Industries Inc.
@@ -2145,6 +3110,7 @@ TSX:KXS|Kinaxis Inc.
 TSX:LAS-A|Lassonde Industries Inc.
 TSX:LBS|Life & Banc Split Corp.
 TSX:LCFS|Tidewater Renewables Ltd.
+TSX:LCS|Brompton Lifeco Split Corp.
 TSX:LFE|Canadian Life Companies Split Corp.
 TSX:LNF|Leon's Furniture Limited
 TSX:LNR|Linamar Corporation
@@ -2168,9 +3134,11 @@ TSX:OLA|Orla Mining Ltd.
 TSX:ONEX|Onex Corporation
 TSX:ORE|Orezone Gold Corporation
 TSX:PDV|Prime Dividend Corp.
+TSX:PGIC|Premium Global Income Split Corp.
 TSX:PHX|PHX Energy Services Corp.
 TSX:PIC-A|Premium Income Corporation
 TSX:PIF|Polaris Renewable Energy Inc.
+TSX:PME|Sentry Select Primary Metals Corp.
 TSX:POU|Paramount Resources Ltd.
 TSX:PRL|Propel Holdings Inc.
 TSX:PSD|Pulse Seismic Inc.
@@ -2185,11 +3153,13 @@ TSX:RGSI|ROCKPOINT GAS STORAGE INC
 TSX:RIC|Richards Group Inc.
 TSX:RUS|Russel Metals Inc.
 TSX:SDE|Spartan Delta Corp.
+TSX:SFI|Solution Financial Inc.
 TSX:SGY|Surge Energy Inc.
 TSX:SHLE|Source Energy Services Ltd.
 TSX:SIA|Sienna Senior Living Inc.
 TSX:SOY|SunOpta Inc
 TSX:STCK|Stack Capital Group Inc.
+TSX:STGO|Steppe Gold Ltd.
 TSX:SXP|Supremex Inc.
 TSX:TCL-A|Transcontinental Inc.
 TSX:TCL-B|Transcontinental Inc.
@@ -2219,15 +3189,18 @@ TSX:WJX|Wajax Corporation
 TSX:WN|George Weston Limited
 TSX:WPK|Winpak Ltd.
 TSX:X|TMX Group Limited
+TSX:XAU|GoldMoney Inc.
 TSX:XMF-A|M Split Corp.
 TSX:XTC|Exco Technologies Limited
 TSX:XTD|TDb Split Corp.
 TSX:Y|Yellow Pages Limited
+TSX:YCM|Commerce Split Corp.
 TSX:YGR|Yangarra Resources Ltd.
 TSXV:ARTG|Artemis Gold Inc.
 TSXV:AZM|Azimut Exploration Inc.
 TSXV:BCF|Builders Capital Mortgage Corp.
 TSXV:BEW|BeWhere Holdings Inc.
+TSXV:BLDS|Badlands Resources Inc.
 TSXV:BQE|BQE Water Inc.
 TSXV:CCCM|C3 Metals Inc.
 TSXV:CCDS|Carrier Connect Data Solutions Inc.
@@ -2251,7 +3224,9 @@ TSXV:FNR|49 North Resources Inc.
 TSXV:FW|Flow Capital Corp
 TSXV:GCOM|Green Shift Commodities Ltd.
 TSXV:GG|Golconda Gold Ltd.
+TSXV:GGX|GGX Gold Corp.
 TSXV:HAM|Highwood Asset Management Ltd.
+TSXV:HAPB|Hapbee Technologies, Inc.
 TSXV:HASH|SIMPLY SOLVENTLESS CONCENTRATES
 TSXV:HME|Hemisphere Energy Corporation
 TSXV:HMT|Halmont Properties Corporation
@@ -2264,23 +3239,29 @@ TSXV:MCM-A|Matachewan Consolidated Mines, Limited
 TSXV:MJS|Majestic Gold Corp.
 TSXV:MKO|Mako Mining Corp.
 TSXV:MMY|Monument Mining Limited
+TSXV:MQM|Metalquest Mining Inc.
 TSXV:MT|M3 Metals Corp.
 TSXV:MTT|Magna Terra Minerals Inc.
 TSXV:NAM|New Age Metals Inc.
 TSXV:NFD-A|Northfield Capital Corporation
+TSXV:NKL|Nickel 28 Capital Corp.
 TSXV:NOAL|NOA Lithium Brines Inc.
 TSXV:NURS|Hydreight Technologies Inc.
 TSXV:NVI|Novra Technologies Inc.
+TSXV:NXLV|NexLiving Communities Inc.
 TSXV:PKT|Parkit Enterprise Inc.
 TSXV:PRH|Pearl River Holdings Limited
 TSXV:PTFY|Plantify Foods, Inc.
+TSXV:QPT|Quest Pharmatech Inc.
 TSXV:REKO|Reko International Group Inc.
+TSXV:RET-A|Reitmans (Canada) Limited
 TSXV:RMB|Rumbu Holdings Ltd.
 TSXV:RRI|Riverside Resources Inc.
 TSXV:RX|BioSyent Inc.
 TSXV:SAE|Sable Resources Ltd.
 TSXV:SQG|Spackman Equities Group Inc.
 TSXV:SRR|Source Rock Royalties Ltd.
+TSXV:STUV|Stuve Gold Corp.
 TSXV:SUGR|Sucro Limited
 TSXV:SUM|Summit Royalties Ltd.
 TSXV:TIE|Coloured Ties Capital Inc.
@@ -2297,6 +3278,7 @@ TSXV:VGD|Visible Gold Mines Inc.
 TSXV:VXL|Vaxil Bio Ltd.
 TSXV:VZZ|Val-d'Or Mining Corporation
 TSXV:WBE|WestBond Enterprises Corporation
+TSXV:WCSB|Decimus Oil Corp.
 TSXV:WI|The Western Investment Company of Canada Limited
 TSXV:WRLG|West Red Lake Gold Mines Ltd.
 TSXV:WSK|Wildsky Resources Inc.
