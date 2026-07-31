@@ -12,6 +12,7 @@
   --radius: 10px;
   --tap: 44px;
   --nav-h: 64px;
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --gutter: 16px;
   font-family: "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
@@ -54,7 +55,7 @@ a {
 }
 
 .app-header {
-  padding: 12px var(--gutter) 8px;
+  padding: calc(12px + var(--safe-top)) var(--gutter) 8px;
   border-bottom: 1px solid #12151c;
   background: linear-gradient(180deg, #0c0e12 0%, var(--bg) 100%);
   position: sticky;
@@ -505,7 +506,7 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 4px;
+  padding: calc(8px + var(--safe-top)) 4px 8px;
 }
 
 .chart-head .btn-sm {
