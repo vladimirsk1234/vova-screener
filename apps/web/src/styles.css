@@ -368,6 +368,73 @@ a {
   cursor: pointer;
 }
 
+.signal-card.compact {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.signal-card-line1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.signal-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.signal-card-title .ellipsis {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.signal-card-title .badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+}
+
+.signal-card-date {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.signal-card-metrics {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.signal-card-metrics .lbl {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.signal-card-metrics .sep {
+  color: var(--muted);
+  margin: 0 5px;
+  flex-shrink: 0;
+}
+
+.signal-card.compact .card-actions {
+  margin-top: 6px;
+}
+
+.signal-card.compact .btn-sm {
+  min-height: 36px;
+  font-size: 0.85rem;
+}
+
 .card-actions {
   display: flex;
   gap: 8px;

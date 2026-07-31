@@ -21,7 +21,7 @@ function BuyCard({
 }) {
   const navigate = useNavigate();
   return (
-    <article className="card signal-card">
+    <article className="card signal-card compact">
       <div
         role="button"
         tabIndex={0}
@@ -30,35 +30,41 @@ function BuyCard({
           if (e.key === 'Enter') navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`);
         }}
       >
-        <div className="stack-row">
-          <strong>{signal.symbol}</strong>
-          <span className="badge up">RR {signal.rr ?? 'n/a'}</span>
-        </div>
-        <p className="muted ellipsis">{signal.companyName}</p>
-
-        <div className="meta-grid">
-          <div>
-            <span>Entry</span>
-            {money(signal.entry)}
+        <div className="signal-card-line1">
+          <div className="signal-card-title">
+            <strong>{signal.symbol}</strong>
+            <span className="muted ellipsis">({signal.companyName})</span>
+            {signal.isStrong ? <span className="badge">STRONG</span> : null}
+            {signal.isNew ? <span className="badge up">NEW</span> : null}
+            {isNewSinceLast ? <span className="badge">NEW SINCE LAST</span> : null}
           </div>
-          <div>
-            <span>TP</span>
-            {money(signal.tp)}
-          </div>
-          <div>
-            <span>SL</span>
-            {money(signal.sl)}
-          </div>
-          <div>
-            <span>Shares</span>
-            {signal.shares}
-          </div>
+          <span className="muted signal-card-date">{signal.asOf}</span>
         </div>
 
-        <div className="chip-row" style={{ marginTop: 10 }}>
-          {signal.isStrong ? <span className="badge">STRONG</span> : null}
-          {signal.isNew ? <span className="badge up">NEW</span> : null}
-          {isNewSinceLast ? <span className="badge">NEW SINCE LAST</span> : null}
+        <div className="signal-card-metrics">
+          <span>
+            <span className="lbl">E</span> {money(signal.entry)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">TP</span> {money(signal.tp)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">SL</span> {money(signal.sl)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">Sh</span> {signal.shares}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">$</span> {money(signal.positionValue)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">RR</span> {signal.rr ?? 'n/a'}
+          </span>
         </div>
       </div>
 
