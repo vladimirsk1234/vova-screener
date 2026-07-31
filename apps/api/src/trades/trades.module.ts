@@ -7,8 +7,11 @@ class TradesController {
   constructor(private readonly trades: TradesService) {}
 
   @Get()
-  list(@Query('status') status?: 'open' | 'closed' | 'dismissed') {
-    return this.trades.list(status);
+  list(
+    @Query('status') status?: 'open' | 'closed' | 'dismissed',
+    @Query('tf') tf?: 'Daily' | 'Weekly' | 'Monthly',
+  ) {
+    return this.trades.list(status, tf);
   }
 
   @Post()

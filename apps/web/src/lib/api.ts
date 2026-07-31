@@ -120,6 +120,8 @@ export type Trade = {
   currentPrice?: number | null;
   unrealizedUsd?: number | null;
   unrealizedR?: number | null;
+  unrealizedPct?: number | null;
+  investedUsd?: number | null;
 };
 
 export type PerformanceReport = {
@@ -399,8 +401,15 @@ export const api = {
         }
       >;
     }>(`/instruments/${encodeURIComponent(ticker)}/status`),
-  trades: (status?: 'open' | 'closed' | 'dismissed') =>
-    request<Trade[]>(`/trades${status ? `?status=${status}` : ''}`),
+  trades: (opts?: { status?: 'open' | 'closed' | 'dismissed'; tf?: Timeframe } | 'open' | 'closed' | 'dismissed') => {
+    const status = typeof opts === 'string' ? opts : opts?.status;
+    const tf = typeof opts === 'string' ? undefined : opts?.tf;
+    const q = new URLSearchParams();
+    if (status) q.set('status', status);
+    if (tf) q.set('tf', tf);
+    const qs = q.toString();
+    return request<Trade[]>(`/trades${qs ? `?${qs}` : ''}`);
+  },
   createTrade: (body: Record<string, unknown>) =>
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
   closeTrade: (id: string, body: { exitPrice: number; exitReason?: string }) =>

@@ -49,21 +49,43 @@ export class TradesService {
     });
   }
 
-  async list(status?: 'open' | 'closed' | 'dismissed') {
-    const filter = status ? { status } : { status: { $in: ['open', 'closed'] } };
+  async list(status?: 'open' | 'closed' | 'dismissed', tf?: Timeframe) {
+    const filter: Record<string, unknown> = status
+      ? { status }
+      : { status: { $in: ['open', 'closed'] } };
+    if (tf) filter.tf = tf;
+
     const rows = await this.trades.find(filter).sort({ openedAt: -1 }).lean().exec();
     const marked = await Promise.all(
       rows.map(async (t: any) => {
-        if (t.status !== 'open') return t;
-        const price = await this.bars.lastClose(t.yahooTicker, (t.tf as Timeframe) ?? 'Daily');
-        if (price == null) return { ...t, currentPrice: null, unrealizedUsd: null };
+        const tradeTf = (t.tf as Timeframe) ?? 'Daily';
+        const investedUsd = round2((t.entry ?? 0) * (t.shares || 0));
+        if (t.status !== 'open') {
+          return { ...t, investedUsd };
+        }
+
+        const result = await this.bars.getBars(t.yahooTicker, tradeTf, { maxAgeHours: 6 });
+        const price = result.bars?.length ? result.bars[result.bars.length - 1].close : null;
+        if (price == null) {
+          return {
+            ...t,
+            investedUsd,
+            currentPrice: null,
+            unrealizedUsd: null,
+            unrealizedR: null,
+            unrealizedPct: null,
+          };
+        }
         const unrealizedUsd = round2((price - t.entry) * (t.shares || 0));
         const risk = t.entry - (t.sl ?? t.entry);
         return {
           ...t,
+          investedUsd,
           currentPrice: round2(price),
           unrealizedUsd,
           unrealizedR: risk > 0 ? round2((price - t.entry) / risk) : null,
+          unrealizedPct:
+            investedUsd > 0 ? round2((unrealizedUsd / investedUsd) * 100) : null,
         };
       }),
     );
