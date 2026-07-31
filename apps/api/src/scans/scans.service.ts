@@ -109,8 +109,8 @@ export class ScansService {
   }
 
   /**
-   * After a completed buy scan: journal new signals when scheduled OR period is already closed
-   * (after-hours / weekend / end of week / end of month), then refresh open trades for that TF.
+   * After a completed buy scan at period end: promote interested → open with updated prices,
+   * dismiss invalid interested, then refresh open trades for that TF.
    */
   async afterScanComplete(runId: string, tf: Timeframe) {
     const run = await this.runs.findById(runId).lean<any>().exec();
@@ -120,14 +120,14 @@ export class ScansService {
     const runTf = (run.periodTf ?? run.params.tf ?? tf) as Timeframe;
     const eligible = run.trigger === 'scheduled' || isPeriodClosed(runTf);
     if (!eligible) {
-      this.log.debug(`Skip auto-journal for ${runId} — mid-period manual scan`);
+      this.log.debug(`Skip promote for ${runId} — mid-period manual scan`);
       return;
     }
 
-    const journaled = await this.trades.journalNewBuySignals(runId);
+    const promoted = await this.trades.promoteInterested(runId);
     const closed = await this.trades.refresh({ tf: runTf });
     this.log.log(
-      `afterScan ${runId}: trades +${journaled.created}, closed ${closed.closed} (trigger=${run.trigger})`,
+      `afterScan ${runId}: promoted ${promoted.promoted}, dismissed ${promoted.dismissed}, closed ${closed.closed} (trigger=${run.trigger})`,
     );
   }
 
@@ -171,21 +171,39 @@ export class ScansService {
     const filter: Record<string, unknown> = { runId: new Types.ObjectId(id) };
     if (opts.onlyNew) filter.isNew = true;
     if (opts.onlyStrong) filter.isStrong = true;
-    const [rows, count] = await Promise.all([
-      this.signals
-        .find(filter)
-        .sort({ isStrong: -1, rr: -1 })
-        .skip(opts.offset ?? 0)
-        .limit(Math.min(opts.limit ?? 200, 500))
-        .lean()
-        .exec(),
-      this.signals.countDocuments(filter).exec(),
-    ]);
+    const rows = await this.signals
+      .find(filter)
+      .sort({ isStrong: -1, rr: -1 })
+      .skip(opts.offset ?? 0)
+      .limit(Math.min(opts.limit ?? 200, 500))
+      .lean()
+      .exec();
+
+    const tf = (run.periodTf ?? run.params?.tf ?? 'Daily') as Timeframe;
+    const periodKeyVal = run.periodKey as string | undefined;
+    const marks = periodKeyVal
+      ? await this.trades.interestMarks(tf, periodKeyVal)
+      : { interested: [] as string[], notInterested: [] as string[] };
+    const notSet = new Set(marks.notInterested);
+    const interestedSet = new Set(marks.interested);
+
+    const isMarked = (p: any, set: Set<string>) =>
+      Boolean((p?.yahooTicker && set.has(p.yahooTicker)) || (p?.symbol && set.has(p.symbol)));
+
+    const payloads = rows
+      .map((r: any) => r.payload)
+      .filter((p: any) => !isMarked(p, notSet))
+      .map((p: any) => ({
+        ...p,
+        interestMark: isMarked(p, interestedSet) ? ('interested' as const) : null,
+      }));
+
     return {
       run,
-      count,
-      rows: rows.map((r: any) => r.payload),
+      count: payloads.length,
+      rows: payloads,
       newSymbols: run.newSymbols ?? [],
+      interestMarks: marks,
     };
   }
 

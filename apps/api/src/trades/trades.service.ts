@@ -1,10 +1,12 @@
-/** Trade journal with mark-to-market, TP/SL, sell-to-close, and auto-journal from scheduled scans. */
+/** Trade journal with mark-to-market, TP/SL, sell-to-close, and interest → open at period end. */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type Timeframe } from '@vova/engine';
 import { SCAN_RUN, SIGNAL, TRADE } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
+
+export type TradeStatus = 'interested' | 'not_interested' | 'open' | 'closed' | 'dismissed';
 
 export type CreateTradeDto = {
   symbol: string;
@@ -21,6 +23,7 @@ export type CreateTradeDto = {
   runId?: string;
   source?: 'auto' | 'manual';
   periodKey?: string;
+  status?: TradeStatus;
 };
 
 function round2(n: number) {
@@ -37,19 +40,57 @@ export class TradesService {
   ) {}
 
   async create(dto: CreateTradeDto) {
+    const tf = dto.tf ?? 'Daily';
+    const status: TradeStatus = dto.status ?? 'open';
+    const runId =
+      dto.runId && Types.ObjectId.isValid(dto.runId) ? new Types.ObjectId(dto.runId) : undefined;
+
+    // Upsert interest marks for the same ticker + tf + period.
+    if (
+      (status === 'interested' || status === 'not_interested') &&
+      dto.periodKey &&
+      dto.yahooTicker
+    ) {
+      const existing = await this.trades
+        .findOne({
+          yahooTicker: dto.yahooTicker,
+          tf,
+          periodKey: dto.periodKey,
+          status: { $in: ['interested', 'not_interested'] },
+        })
+        .exec();
+      if (existing) {
+        existing.symbol = dto.symbol;
+        existing.companyName = dto.companyName ?? existing.companyName;
+        existing.entry = dto.entry;
+        existing.tp = dto.tp;
+        existing.sl = dto.sl;
+        existing.rrAtEntry = dto.rrAtEntry;
+        existing.shares = dto.shares ?? 0;
+        existing.riskUsd = dto.riskUsd ?? 0;
+        existing.asOf = dto.asOf;
+        existing.status = status;
+        existing.source = dto.source ?? 'manual';
+        existing.runId = runId ?? existing.runId;
+        existing.openedAt = new Date();
+        await existing.save();
+        return existing.toObject();
+      }
+    }
+
     return this.trades.create({
       ...dto,
-      tf: dto.tf ?? 'Daily',
+      tf,
       shares: dto.shares ?? 0,
       riskUsd: dto.riskUsd ?? 0,
-      status: 'open',
+      status,
       source: dto.source ?? 'manual',
       openedAt: new Date(),
-      runId: dto.runId && Types.ObjectId.isValid(dto.runId) ? new Types.ObjectId(dto.runId) : undefined,
+      runId,
     });
   }
 
-  async list(status?: 'open' | 'closed' | 'dismissed', tf?: Timeframe) {
+  async list(status?: TradeStatus, tf?: Timeframe) {
     const filter: Record<string, unknown> = status
       ? { status }
       : { status: { $in: ['open', 'closed'] } };
@@ -92,6 +133,30 @@ export class TradesService {
     return marked;
   }
 
+  /** Interest marks for a calendar period (Results filtering / badges). */
+  async interestMarks(tf: Timeframe, periodKey: string) {
+    if (!periodKey) return { interested: [] as string[], notInterested: [] as string[] };
+    const rows = await this.trades
+      .find({
+        tf,
+        periodKey,
+        status: { $in: ['interested', 'not_interested'] },
+      })
+      .lean<any>()
+      .exec();
+    const interested: string[] = [];
+    const notInterested: string[] = [];
+    const pushKeys = (arr: string[], row: any) => {
+      if (row.yahooTicker) arr.push(row.yahooTicker);
+      if (row.symbol && row.symbol !== row.yahooTicker) arr.push(row.symbol);
+    };
+    for (const row of rows) {
+      if (row.status === 'interested') pushKeys(interested, row);
+      else pushKeys(notInterested, row);
+    }
+    return { interested, notInterested };
+  }
+
   async close(
     id: string,
     dto: { exitPrice: number; exitDate?: string; exitReason?: string },
@@ -120,67 +185,83 @@ export class TradesService {
   }
 
   /**
-   * Auto-open journal rows from New buy signals.
-   * Caller must only invoke when scheduled OR period is already closed (after hours).
-   * Skips symbols that already have an open trade or any trade for this periodKey.
+   * At period end: promote interested marks that still have a valid buy signal → open
+   * with updated prices; dismiss interested that no longer qualify.
    */
-  async journalNewBuySignals(runId: string) {
-    if (!Types.ObjectId.isValid(runId)) return { created: 0 };
+  async promoteInterested(runId: string) {
+    if (!Types.ObjectId.isValid(runId)) return { promoted: 0, dismissed: 0 };
     const run = await this.runs.findById(runId).lean<any>().exec();
-    if (!run) return { created: 0 };
-    if (run.params?.direction !== 'buy') return { created: 0 };
-    if (run.status !== 'completed') return { created: 0 };
+    if (!run) return { promoted: 0, dismissed: 0 };
+    if (run.params?.direction !== 'buy') return { promoted: 0, dismissed: 0 };
+    if (run.status !== 'completed') return { promoted: 0, dismissed: 0 };
 
     const tf = (run.params.tf as Timeframe) ?? 'Daily';
     const periodKeyVal = run.periodKey as string | undefined;
-    const rows = await this.signals
-      .find({ runId: new Types.ObjectId(runId), kind: 'buy', isNew: true })
-      .lean<any>()
+    if (!periodKeyVal) return { promoted: 0, dismissed: 0 };
+
+    const interested = await this.trades
+      .find({ tf, periodKey: periodKeyVal, status: 'interested' })
       .exec();
 
-    let created = 0;
-    for (const row of rows) {
-      const signal = row.payload;
-      if (!signal?.symbol) continue;
+    const buySignals = await this.signals
+      .find({ runId: new Types.ObjectId(runId), kind: 'buy' })
+      .lean<any>()
+      .exec();
+    const byTicker = new Map<string, any>();
+    for (const row of buySignals) {
+      const payload = row.payload;
+      const keys = [
+        payload?.yahooTicker,
+        row.yahooTicker,
+        payload?.symbol,
+        row.symbol,
+      ].filter(Boolean);
+      for (const k of keys) byTicker.set(k, payload ?? row);
+    }
+
+    let promoted = 0;
+    let dismissed = 0;
+
+    for (const trade of interested) {
+      const signal =
+        byTicker.get(trade.yahooTicker) || byTicker.get(trade.symbol);
 
       const open = await this.trades
-        .findOne({ symbol: signal.symbol, tf, status: 'open' })
+        .findOne({ symbol: trade.symbol, tf, status: 'open' })
         .lean()
         .exec();
-      if (open) continue;
-
-      if (periodKeyVal) {
-        const alreadyInPeriod = await this.trades
-          .findOne({
-            symbol: signal.symbol,
-            tf,
-            periodKey: periodKeyVal,
-            status: { $in: ['open', 'closed', 'dismissed'] },
-          })
-          .lean()
-          .exec();
-        if (alreadyInPeriod) continue;
+      if (open) {
+        trade.status = 'dismissed';
+        trade.exitReason = 'already_open';
+        await trade.save();
+        dismissed += 1;
+        continue;
       }
 
-      await this.create({
-        symbol: signal.symbol,
-        yahooTicker: signal.yahooTicker,
-        companyName: signal.companyName,
-        tf,
-        entry: signal.entry,
-        tp: signal.tp,
-        sl: signal.sl,
-        rrAtEntry: signal.rr ?? undefined,
-        shares: signal.shares,
-        riskUsd: run.params.riskPerTrade ?? 100,
-        asOf: signal.asOf,
-        runId,
-        source: 'auto',
-        periodKey: periodKeyVal,
-      });
-      created += 1;
+      if (signal?.entry != null && Number.isFinite(signal.entry)) {
+        trade.entry = signal.entry;
+        trade.tp = signal.tp;
+        trade.sl = signal.sl;
+        trade.rrAtEntry = signal.rr ?? undefined;
+        trade.shares = signal.shares ?? trade.shares;
+        trade.riskUsd = run.params.riskPerTrade ?? trade.riskUsd;
+        trade.asOf = signal.asOf ?? trade.asOf;
+        trade.companyName = signal.companyName ?? trade.companyName;
+        trade.status = 'open';
+        trade.source = 'auto';
+        trade.runId = new Types.ObjectId(runId);
+        trade.openedAt = new Date();
+        await trade.save();
+        promoted += 1;
+      } else {
+        trade.status = 'dismissed';
+        trade.exitReason = 'signal_invalid';
+        await trade.save();
+        dismissed += 1;
+      }
     }
-    return { created };
+
+    return { promoted, dismissed };
   }
 
   /** Auto-close open trades: TP/SL first, then Sequence Vova sell-to-close (bullish break). */

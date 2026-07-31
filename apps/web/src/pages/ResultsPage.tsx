@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api, type BuySignal, type SellSignal, type Signal } from '../lib/api';
 import { Switch } from '../components/Chips';
 
@@ -10,71 +10,67 @@ function money(n: number) {
 
 function BuyCard({
   signal,
-  isNewSinceLast,
-  onAdd,
-  adding,
+  runId,
+  riskUsd,
+  tf,
+  periodKey,
 }: {
   signal: BuySignal;
-  isNewSinceLast: boolean;
-  onAdd: () => void;
-  adding: boolean;
+  runId: string;
+  riskUsd: number;
+  tf: string;
+  periodKey?: string;
 }) {
   const navigate = useNavigate();
-  return (
-    <article className="card signal-card compact">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`);
-        }}
-      >
-        <div className="signal-card-line1">
-          <div className="signal-card-title">
-            <strong>{signal.symbol}</strong>
-            <span className="muted ellipsis">({signal.companyName})</span>
-            {signal.isStrong ? <span className="badge">STRONG</span> : null}
-            {signal.isNew ? <span className="badge up">NEW</span> : null}
-            {isNewSinceLast ? <span className="badge">NEW SINCE LAST</span> : null}
-          </div>
-          <span className="muted signal-card-date">{signal.asOf}</span>
-        </div>
+  const openChart = () =>
+    navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`, {
+      state: { signal, runId, riskUsd, tf, periodKey },
+    });
 
-        <div className="signal-card-metrics">
-          <span>
-            <span className="lbl">E</span> {money(signal.entry)}
-          </span>
-          <span className="sep">·</span>
-          <span>
-            <span className="lbl">TP</span> {money(signal.tp)}
-          </span>
-          <span className="sep">·</span>
-          <span>
-            <span className="lbl">SL</span> {money(signal.sl)}
-          </span>
-          <span className="sep">·</span>
-          <span>
-            <span className="lbl">Sh</span> {signal.shares}
-          </span>
-          <span className="sep">·</span>
-          <span>
-            <span className="lbl">$</span> {money(signal.positionValue)}
-          </span>
-          <span className="sep">·</span>
-          <span>
-            <span className="lbl">RR</span> {signal.rr ?? 'n/a'}
-          </span>
+  return (
+    <article
+      className="card signal-card compact"
+      role="button"
+      tabIndex={0}
+      onClick={openChart}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') openChart();
+      }}
+    >
+      <div className="signal-card-line1">
+        <div className="signal-card-title">
+          <strong>{signal.symbol}</strong>
+          <span className="muted ellipsis">({signal.companyName})</span>
+          {signal.interestMark === 'interested' ? (
+            <span className="badge up">INTERESTED</span>
+          ) : null}
         </div>
       </div>
 
-      <div className="card-actions">
-        <button type="button" className="btn-sm" disabled={adding} onClick={onAdd}>
-          {adding ? 'Adding…' : 'Add to journal'}
-        </button>
-        <a className="btn-sm ghost" href={signal.tvUrl} target="_blank" rel="noreferrer">
-          TradingView
-        </a>
+      <div className="signal-card-metrics">
+        <span>
+          <span className="lbl">E</span> {money(signal.entry)}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">TP</span> {money(signal.tp)}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">SL</span> {money(signal.sl)}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">Sh</span> {signal.shares}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">$</span> {money(signal.positionValue)}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">RR</span> {signal.rr ?? 'n/a'}
+        </span>
       </div>
     </article>
   );
@@ -125,32 +121,12 @@ function SellCard({ signal }: { signal: SellSignal }) {
 
 export function ResultsPage() {
   const { runId = '' } = useParams();
-  const queryClient = useQueryClient();
   const [onlyNew, setOnlyNew] = useState(false);
   const [onlyStrong, setOnlyStrong] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['signals', runId, onlyNew, onlyStrong],
     queryFn: () => api.signals(runId, { onlyNew, onlyStrong }),
-  });
-
-  const addTrade = useMutation({
-    mutationFn: (signal: BuySignal) =>
-      api.createTrade({
-        symbol: signal.symbol,
-        yahooTicker: signal.yahooTicker,
-        companyName: signal.companyName,
-        tf: data?.run.params.tf ?? 'Daily',
-        entry: signal.entry,
-        tp: signal.tp,
-        sl: signal.sl,
-        rrAtEntry: signal.rr,
-        shares: signal.shares,
-        riskUsd: data?.run.params.riskPerTrade ?? 0,
-        asOf: signal.asOf,
-        runId,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trades'] }),
   });
 
   if (isLoading) return <p className="empty">Loading results…</p>;
@@ -181,8 +157,7 @@ export function ResultsPage() {
   }
   if (!data) return <p className="empty">No data</p>;
 
-  const { run, rows, count, newSymbols } = data;
-  const newSet = new Set(newSymbols);
+  const { run, rows, count } = data;
 
   return (
     <div>
@@ -236,9 +211,10 @@ export function ResultsPage() {
             <BuyCard
               key={signal.yahooTicker}
               signal={signal}
-              isNewSinceLast={newSet.has(signal.symbol)}
-              adding={addTrade.isPending}
-              onAdd={() => addTrade.mutate(signal)}
+              runId={runId}
+              riskUsd={run.params.riskPerTrade ?? 0}
+              tf={run.params.tf}
+              periodKey={run.periodKey}
             />
           ) : (
             <SellCard key={signal.yahooTicker} signal={signal} />

@@ -126,7 +126,7 @@ export const TradeSchema = new Schema(
     riskUsd: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ['open', 'closed', 'dismissed'],
+      enum: ['interested', 'not_interested', 'open', 'closed', 'dismissed'],
       default: 'open',
       index: true,
     },
@@ -143,6 +143,7 @@ export const TradeSchema = new Schema(
 );
 TradeSchema.index({ status: 1, symbol: 1 });
 TradeSchema.index({ symbol: 1, tf: 1, status: 1 });
+TradeSchema.index({ yahooTicker: 1, tf: 1, periodKey: 1, status: 1 });
 
 export const PresetSchema = new Schema(
   {

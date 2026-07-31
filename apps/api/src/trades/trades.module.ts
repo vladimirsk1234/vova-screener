@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Module, Param, Post, Query } from '@nestjs/common';
 import { MarketModule } from '../market/market.module';
-import { TradesService, type CreateTradeDto } from './trades.service';
+import { TradesService, type CreateTradeDto, type TradeStatus } from './trades.service';
 
 @Controller('trades')
 class TradesController {
@@ -8,7 +8,7 @@ class TradesController {
 
   @Get()
   list(
-    @Query('status') status?: 'open' | 'closed' | 'dismissed',
+    @Query('status') status?: TradeStatus,
     @Query('tf') tf?: 'Daily' | 'Weekly' | 'Monthly',
   ) {
     return this.trades.list(status, tf);

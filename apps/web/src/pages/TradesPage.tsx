@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Timeframe, type Trade } from '../lib/api';
+import { api, type Timeframe, type Trade, type TradeStatus } from '../lib/api';
 import { Chips } from '../components/Chips';
 
 function money(n: number | null | undefined) {
@@ -55,13 +55,21 @@ function summarizeByPeriod(trades: Trade[], tf: Timeframe): PeriodSummary[] {
   return [...map.values()].sort((a, b) => b.periodKey.localeCompare(a.periodKey));
 }
 
+const TAB_OPTIONS = ['interested', 'open', 'closed', 'not_interested', 'dismissed'] as const;
+type Tab = (typeof TAB_OPTIONS)[number];
+
+function tabLabel(v: Tab) {
+  if (v === 'not_interested') return 'NO INTEREST';
+  return v.toUpperCase();
+}
+
 export function TradesPage() {
   const queryClient = useQueryClient();
   const [tf, setTf] = useState<Timeframe>('Daily');
-  const [tab, setTab] = useState<'open' | 'closed' | 'dismissed'>('open');
+  const [tab, setTab] = useState<Tab>('interested');
   const trades = useQuery({
     queryKey: ['trades', tab, tf],
-    queryFn: () => api.trades({ status: tab, tf }),
+    queryFn: () => api.trades({ status: tab as TradeStatus, tf }),
   });
 
   const invalidate = () => {
@@ -87,6 +95,7 @@ export function TradesPage() {
 
   const rows = trades.data ?? [];
   const periods = useMemo(() => summarizeByPeriod(rows, tf), [rows, tf]);
+  const showPnlSummary = tab === 'open' || tab === 'closed';
 
   const totals = useMemo(() => {
     let investedUsd = 0;
@@ -126,28 +135,25 @@ export function TradesPage() {
       <section className="card">
         <h2>Trade journal</h2>
         <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
-        <Chips
-          value={tab}
-          options={['open', 'closed', 'dismissed'] as const}
-          onChange={setTab}
-          format={(v) => v.toUpperCase()}
-        />
-        <button
-          type="button"
-          className="btn btn-accent"
-          disabled={refresh.isPending}
-          onClick={() => refresh.mutate()}
-        >
-          {refresh.isPending ? 'Checking…' : 'Check TP/SL / sell-to-close'}
-        </button>
-        {refresh.data ? (
+        <Chips value={tab} options={TAB_OPTIONS} onChange={setTab} format={tabLabel} />
+        {tab === 'open' ? (
+          <button
+            type="button"
+            className="btn btn-accent"
+            disabled={refresh.isPending}
+            onClick={() => refresh.mutate()}
+          >
+            {refresh.isPending ? 'Checking…' : 'Check TP/SL / sell-to-close'}
+          </button>
+        ) : null}
+        {refresh.data && tab === 'open' ? (
           <p className="muted small" style={{ marginBottom: 0 }}>
             Checked {refresh.data.checked}, auto-closed {refresh.data.closed}.
           </p>
         ) : null}
       </section>
 
-      {tab !== 'dismissed' && !trades.isLoading ? (
+      {showPnlSummary && !trades.isLoading ? (
         <section className="card">
           <h3>
             {tf} · {tab} summary
@@ -195,25 +201,46 @@ export function TradesPage() {
       {trades.isLoading ? <p className="empty">Loading…</p> : null}
       {trades.data?.length === 0 ? (
         <p className="empty">
-          No {tab} {tf} trades.
-          {tab === 'open' ? ' Auto trades open after end-of-period scans, or add from a result card.' : ''}
+          No {tabLabel(tab).toLowerCase()} {tf} items.
+          {tab === 'interested'
+            ? ' Mark symbols Interested from the chart view.'
+            : tab === 'not_interested'
+              ? ' Mark symbols Not Interested from the chart view.'
+              : tab === 'open'
+                ? ' Interested symbols become open trades after end-of-period scans.'
+                : ''}
         </p>
       ) : null}
 
       {trades.data?.map((trade) => {
         const invested = trade.investedUsd ?? trade.entry * (trade.shares || 0);
+        const isInterest = trade.status === 'interested' || trade.status === 'not_interested';
         const pnl = trade.status === 'open' ? trade.unrealizedUsd : trade.pnlUsd;
         const positive = (pnl ?? 0) >= 0;
         return (
           <article className="card signal-card" key={trade._id}>
             <div className="stack-row">
               <strong>{trade.symbol}</strong>
-              <span className={`badge ${positive ? 'up' : 'down'}`}>
-                {trade.status === 'dismissed'
-                  ? 'dismissed'
-                  : pnl == null
-                    ? '—'
-                    : `${positive ? '+' : ''}${money(pnl)}`}
+              <span
+                className={`badge ${
+                  trade.status === 'interested'
+                    ? 'up'
+                    : trade.status === 'not_interested'
+                      ? 'down'
+                      : positive
+                        ? 'up'
+                        : 'down'
+                }`}
+              >
+                {isInterest
+                  ? trade.status === 'interested'
+                    ? 'interested'
+                    : 'no interest'
+                  : trade.status === 'dismissed'
+                    ? 'dismissed'
+                    : pnl == null
+                      ? '—'
+                      : `${positive ? '+' : ''}${money(pnl)}`}
               </span>
             </div>
             <p className="muted small ellipsis">
@@ -228,16 +255,20 @@ export function TradesPage() {
                 {money(trade.entry)}
               </div>
               <div>
-                <span>{trade.status === 'open' ? 'Now' : 'Exit'}</span>
-                {money(trade.status === 'open' ? trade.currentPrice : trade.exitPrice)}
+                <span>{trade.status === 'open' ? 'Now' : isInterest ? 'RR' : 'Exit'}</span>
+                {trade.status === 'open'
+                  ? money(trade.currentPrice)
+                  : isInterest
+                    ? (trade.rrAtEntry ?? '—')
+                    : money(trade.exitPrice)}
               </div>
               <div>
                 <span>Invested</span>
                 {money(invested)}
               </div>
               <div>
-                <span>{trade.status === 'open' ? 'Open P&L' : 'P&L'}</span>
-                {pnl == null ? '—' : money(pnl)}
+                <span>{trade.status === 'open' ? 'Open P&L' : isInterest ? 'Risk $' : 'P&L'}</span>
+                {isInterest ? money(trade.riskUsd) : pnl == null ? '—' : money(pnl)}
               </div>
               <div>
                 <span>TP / SL</span>
@@ -267,7 +298,9 @@ export function TradesPage() {
                     ? 'Open %'
                     : trade.status === 'closed'
                       ? 'Closed'
-                      : 'Dismissed'}
+                      : isInterest
+                        ? 'As of'
+                        : 'Dismissed'}
                 </span>
                 {trade.status === 'open'
                   ? trade.unrealizedPct != null
@@ -275,7 +308,9 @@ export function TradesPage() {
                     : '—'
                   : trade.status === 'closed'
                     ? `${trade.exitDate ?? '—'} (${trade.exitReason ?? '—'})`
-                    : new Date(trade.openedAt).toLocaleDateString()}
+                    : isInterest
+                      ? (trade.asOf ?? new Date(trade.openedAt).toLocaleDateString())
+                      : new Date(trade.openedAt).toLocaleDateString()}
               </div>
             </div>
 

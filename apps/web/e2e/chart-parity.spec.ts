@@ -19,7 +19,10 @@ test.describe('chart parity UI', () => {
     await page.goto('/chart/AAPL');
     await page.getByRole('button', { name: 'Weekly' }).click();
     await page.getByRole('button', { name: 'Fit' }).click();
-    await expect(page.getByRole('link', { name: 'Open in TradingView' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'TradingView' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'FastGraph' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Interested' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Not Interested' })).toBeVisible();
   });
 
   test('drawing tool selection + undo idle state', async ({ page }) => {

@@ -61,6 +61,7 @@ export type BuySignal = {
   isStrong: boolean;
   atr: number;
   asOf: string;
+  interestMark?: 'interested' | null;
 };
 
 export type SellSignal = {
@@ -95,6 +96,8 @@ export type SellSummary = {
   pnlPct: number;
 };
 
+export type TradeStatus = 'interested' | 'not_interested' | 'open' | 'closed' | 'dismissed';
+
 export type Trade = {
   _id: string;
   symbol: string;
@@ -109,7 +112,7 @@ export type Trade = {
   rrAtEntry?: number;
   shares: number;
   riskUsd: number;
-  status: 'open' | 'closed' | 'dismissed';
+  status: TradeStatus;
   source?: 'auto' | 'manual';
   periodKey?: string;
   exitPrice?: number;
@@ -354,9 +357,13 @@ export const api = {
     if (opts.onlyNew) q.set('onlyNew', 'true');
     if (opts.onlyStrong) q.set('onlyStrong', 'true');
     q.set('limit', String(opts.limit ?? 300));
-    return request<{ run: ScanRun; count: number; rows: Signal[]; newSymbols: string[] }>(
-      `/scans/${runId}/signals?${q.toString()}`,
-    );
+    return request<{
+      run: ScanRun;
+      count: number;
+      rows: Signal[];
+      newSymbols: string[];
+      interestMarks?: { interested: string[]; notInterested: string[] };
+    }>(`/scans/${runId}/signals?${q.toString()}`);
   },
   rejections: (runId: string, limit = 500) =>
     request<{
@@ -404,7 +411,7 @@ export const api = {
         }
       >;
     }>(`/instruments/${encodeURIComponent(ticker)}/status`),
-  trades: (opts?: { status?: 'open' | 'closed' | 'dismissed'; tf?: Timeframe } | 'open' | 'closed' | 'dismissed') => {
+  trades: (opts?: { status?: TradeStatus; tf?: Timeframe } | TradeStatus) => {
     const status = typeof opts === 'string' ? opts : opts?.status;
     const tf = typeof opts === 'string' ? undefined : opts?.tf;
     const q = new URLSearchParams();

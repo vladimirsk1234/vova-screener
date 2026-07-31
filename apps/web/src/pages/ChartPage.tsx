@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { api, type ChartDrawing, type ChartSettings, type Timeframe } from '../lib/api';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  api,
+  type BuySignal,
+  type ChartDrawing,
+  type ChartSettings,
+  type Timeframe,
+} from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
 import { mountSequenceChart } from '../components/mountSequenceChart';
@@ -11,10 +17,29 @@ import {
   numericChartParams,
 } from '../lib/chartSettings';
 
+type ChartNavState = {
+  signal?: BuySignal;
+  runId?: string;
+  riskUsd?: number;
+  tf?: Timeframe;
+  periodKey?: string;
+};
+
+function sharesFromRisk(entry: number, sl: number | null | undefined, riskUsd: number) {
+  if (sl == null || !Number.isFinite(sl) || !Number.isFinite(entry)) return 0;
+  const risk = entry - sl;
+  if (risk <= 0 || riskUsd <= 0) return 0;
+  return Math.max(0, Math.floor(riskUsd / risk));
+}
+
 export function ChartPage() {
   const { ticker = '' } = useParams();
   const navigate = useNavigate();
-  const [tf, setTf] = useState<Timeframe>('Daily');
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const navState = (location.state as ChartNavState | null) ?? {};
+
+  const [tf, setTf] = useState<Timeframe>(navState.tf ?? 'Daily');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -64,6 +89,49 @@ export function ChartPage() {
     mutationFn: () => api.putPreset('chart', settings),
   });
 
+  const markInterest = useMutation({
+    mutationFn: (status: 'interested' | 'not_interested') => {
+      const signal = navState.signal;
+      const pine = chart.data?.pine;
+      const entry = signal?.entry ?? pine?.close;
+      if (entry == null || !Number.isFinite(entry)) {
+        throw new Error('No entry price available');
+      }
+      const tp = signal?.tp ?? pine?.tp ?? undefined;
+      const sl = signal?.sl ?? pine?.sl ?? undefined;
+      const riskUsd = navState.riskUsd ?? settings.risk_dollars ?? 100;
+      const shares =
+        signal?.shares ??
+        sharesFromRisk(entry, sl ?? null, riskUsd);
+      const periodKey = navState.periodKey;
+      if (!periodKey) {
+        throw new Error('Missing period — open chart from a scan result');
+      }
+
+      return api.createTrade({
+        symbol: signal?.symbol ?? chart.data?.tvSymbol ?? ticker,
+        yahooTicker: signal?.yahooTicker ?? chart.data?.yahooTicker ?? ticker,
+        companyName: signal?.companyName ?? chart.data?.companyName,
+        tf: navState.tf ?? tf,
+        entry,
+        tp: tp ?? undefined,
+        sl: sl ?? undefined,
+        rrAtEntry: signal?.rr ?? pine?.rr ?? undefined,
+        shares,
+        riskUsd,
+        asOf: signal?.asOf,
+        runId: navState.runId,
+        periodKey,
+        status,
+        source: 'manual',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['signals'] });
+    },
+  });
+
   useEffect(() => {
     if (!containerRef.current || !chart.data) return;
     destroyRef.current?.();
@@ -109,6 +177,10 @@ export function ChartPage() {
 
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
+  const canMark =
+    Boolean(navState.periodKey) &&
+    (navState.signal?.entry != null || (pine?.close != null && Number.isFinite(pine.close)));
+  const marking = markInterest.isPending;
 
   return (
     <div className="chart-page">
@@ -174,6 +246,46 @@ export function ChartPage() {
 
       {chart.isLoading ? <p className="muted small">Loading bars…</p> : null}
       {chart.error ? <p className="error">{(chart.error as Error).message}</p> : null}
+      {markInterest.error ? (
+        <p className="error">{(markInterest.error as Error).message}</p>
+      ) : null}
+
+      <div className="card-actions chart-actions">
+        <button
+          type="button"
+          className="btn-sm"
+          disabled={!canMark || marking}
+          onClick={() => markInterest.mutate('interested')}
+        >
+          {marking ? 'Saving…' : 'Interested'}
+        </button>
+        <button
+          type="button"
+          className="btn-sm ghost"
+          disabled={!canMark || marking}
+          onClick={() => markInterest.mutate('not_interested')}
+        >
+          Not Interested
+        </button>
+        <a
+          className="btn-sm ghost"
+          href="https://app.fastgraphs.com/dashboard"
+          target="_blank"
+          rel="noreferrer"
+        >
+          FastGraph
+        </a>
+        <a
+          className="btn-sm ghost"
+          href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+            chart.data?.tvSymbol ?? ticker,
+          )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          TradingView
+        </a>
+      </div>
 
       <ChartSettingsPanel
         open={settingsOpen}
@@ -190,17 +302,6 @@ export function ChartPage() {
           <p className="muted small">{wm.description}</p>
         </section>
       ) : null}
-
-      <a
-        className="btn btn-accent"
-        href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-          chart.data?.tvSymbol ?? ticker,
-        )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
-        target="_blank"
-        rel="noreferrer"
-      >
-        Open in TradingView
-      </a>
     </div>
   );
 }
