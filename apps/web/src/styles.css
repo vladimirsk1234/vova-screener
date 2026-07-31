@@ -533,10 +533,6 @@ a {
   background: #707585;
 }
 
-.chart-host.drawing {
-  cursor: crosshair;
-}
-
 .chart-watermark {
   position: absolute;
   top: 10px;
@@ -552,39 +548,6 @@ a {
 .chart-legend {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   margin: 0;
-}
-
-.drawing-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-
-.draw-btn {
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: 8px;
-  border: 1px solid #333948;
-  background: #1a1f2b;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.draw-btn.active {
-  border-color: var(--accent);
-  color: #fff;
-  background: #243056;
-}
-
-.draw-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.draw-count {
-  margin-left: 4px;
 }
 
 .chart-settings-sheet {

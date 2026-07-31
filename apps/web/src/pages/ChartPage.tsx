@@ -1,15 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, type ChartDrawing, type ChartSettings, type Timeframe } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
-import {
-  DrawingToolbar,
-  newDrawingId,
-  pushDrawingHistory,
-  type DrawingTool,
-} from '../components/DrawingToolbar';
 import { mountSequenceChart } from '../components/mountSequenceChart';
 import {
   DEFAULT_CHART_SETTINGS,
@@ -20,17 +14,11 @@ import {
 export function ChartPage() {
   const { ticker = '' } = useParams();
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const [tf, setTf] = useState<Timeframe>('Daily');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
-  const [tool, setTool] = useState<DrawingTool>('cursor');
-  const [magnet, setMagnet] = useState(true);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
-  const [past, setPast] = useState<ChartDrawing[][]>([]);
-  const [future, setFuture] = useState<ChartDrawing[][]>([]);
-  const [pendingPoint, setPendingPoint] = useState<{ time: string; price: number } | null>(null);
   const [crosshair, setCrosshair] = useState<string>('');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -62,9 +50,6 @@ export function ChartPage() {
     const items = drawingsQ.data?.items;
     if (items) {
       setDrawings(items);
-      setPast([]);
-      setFuture([]);
-      setPendingPoint(null);
     }
   }, [drawingsQ.data, ticker, tf]);
 
@@ -77,10 +62,6 @@ export function ChartPage() {
 
   const savePreset = useMutation({
     mutationFn: () => api.putPreset('chart', settings),
-  });
-  const saveDrawings = useMutation({
-    mutationFn: (items: ChartDrawing[]) => api.putPreset(drawingsKey, { items }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['preset', drawingsKey] }),
   });
 
   useEffect(() => {
@@ -118,93 +99,6 @@ export function ChartPage() {
     };
   }, [chart.data, settings, drawings]);
 
-  const applyDrawings = (next: ChartDrawing[]) => {
-    const hist = pushDrawingHistory(drawings, past, future, next);
-    setDrawings(hist.drawings);
-    setPast(hist.past);
-    setFuture(hist.future);
-    saveDrawings.mutate(hist.drawings);
-  };
-
-  const onChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (tool === 'cursor' || !chart.data) return;
-    const host = containerRef.current;
-    if (!host) return;
-    // Approximate: map click X to nearest bar by ratio; Y ignored for hline uses last close.
-    const rect = host.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const idx = Math.min(
-      chart.data.bars.length - 1,
-      Math.max(0, Math.round(ratio * (chart.data.bars.length - 1))),
-    );
-    let bar = chart.data.bars[idx];
-    if (magnet) {
-      // already snapped to bar
-    }
-    const price = bar.close;
-    const point = { time: bar.date, price };
-
-    if (tool === 'erase') {
-      if (drawings.length) applyDrawings(drawings.slice(0, -1));
-      return;
-    }
-    if (tool === 'hline') {
-      applyDrawings([...drawings, { id: newDrawingId(), type: 'hline', points: [point], color: '#2962ff' }]);
-      setTool('cursor');
-      return;
-    }
-    if (tool === 'vline') {
-      applyDrawings([...drawings, { id: newDrawingId(), type: 'vline', points: [point], color: '#2962ff' }]);
-      setTool('cursor');
-      return;
-    }
-    if (tool === 'text') {
-      const text = window.prompt('Text note', 'Note');
-      if (text) {
-        applyDrawings([
-          ...drawings,
-          { id: newDrawingId(), type: 'text', points: [point], text, color: '#e0e0e0' },
-        ]);
-      }
-      setTool('cursor');
-      return;
-    }
-    if (tool === 'trend' || tool === 'ray' || tool === 'fib') {
-      if (!pendingPoint) {
-        setPendingPoint(point);
-        return;
-      }
-      applyDrawings([
-        ...drawings,
-        {
-          id: newDrawingId(),
-          type: tool,
-          points: [pendingPoint, point],
-          color: tool === 'fib' ? settings.fib_color : '#2962ff',
-        },
-      ]);
-      setPendingPoint(null);
-      setTool('cursor');
-    }
-  };
-
-  const undo = () => {
-    if (!past.length) return;
-    const prev = past[past.length - 1];
-    setFuture([drawings, ...future]);
-    setPast(past.slice(0, -1));
-    setDrawings(prev);
-    saveDrawings.mutate(prev);
-  };
-  const redo = () => {
-    if (!future.length) return;
-    const next = future[0];
-    setPast([...past, drawings]);
-    setFuture(future.slice(1));
-    setDrawings(next);
-    saveDrawings.mutate(next);
-  };
-
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
 
@@ -230,31 +124,8 @@ export function ChartPage() {
 
       <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
 
-      <DrawingToolbar
-        tool={tool}
-        onTool={(t) => {
-          setTool(t);
-          setPendingPoint(null);
-        }}
-        onUndo={undo}
-        onRedo={redo}
-        canUndo={past.length > 0}
-        canRedo={future.length > 0}
-        magnet={magnet}
-        onMagnet={setMagnet}
-        count={drawings.length}
-      />
-
-      {pendingPoint ? (
-        <p className="muted small">Click second point for {tool}…</p>
-      ) : null}
-
       <div className="chart-stage">
-        <div
-          className={`chart-host ${tool !== 'cursor' ? 'drawing' : ''}`}
-          ref={containerRef}
-          onClick={onChartClick}
-        />
+        <div className="chart-host" ref={containerRef} />
         {settings.show_watermark && wm?.lines?.length ? (
           <div
             className="chart-watermark"
