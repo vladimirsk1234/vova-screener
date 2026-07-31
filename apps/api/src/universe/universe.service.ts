@@ -22,11 +22,38 @@ export class UniverseService implements OnModuleInit {
   constructor(@InjectModel(INSTRUMENT) private readonly instruments: Model<any>) {}
 
   async onModuleInit() {
-    const count = await this.instruments.countDocuments().exec();
-    if (count === 0) {
+    // Re-import when DB is empty OR out of sync with list files (e.g. after
+    // STOCK-TICKERS.txt grows via gap-scan / deploy). Previously only empty DB
+    // triggered import, so the UI kept showing the old symbol count.
+    if (await this.needsImport()) {
       const res = await this.importFromFiles();
       this.log.log(`Universe imported: ${JSON.stringify(res)}`);
     }
+  }
+
+  private fileEntryCount(filename: string): number {
+    const file = path.join(REPO_ROOT, filename);
+    if (!fs.existsSync(file)) return 0;
+    return parseListText(fs.readFileSync(file, 'utf8')).entries.length;
+  }
+
+  private async needsImport(): Promise<boolean> {
+    const total = await this.instruments.countDocuments().exec();
+    if (total === 0) return true;
+    for (const cfg of Object.values(SOURCES)) {
+      const fileCount = this.fileEntryCount(cfg.file);
+      if (fileCount <= 0) continue;
+      const dbCount = await this.instruments
+        .countDocuments({ universes: cfg.universe, active: true })
+        .exec();
+      if (dbCount !== fileCount) {
+        this.log.log(
+          `Universe out of sync for ${cfg.universe}: db=${dbCount} file=${fileCount}`,
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   async importFromFiles() {
@@ -43,6 +70,7 @@ export class UniverseService implements OnModuleInit {
         out[label] = 0;
         continue;
       }
+      const yahooInFile = new Set(parsed.entries.map((e) => e.yahoo));
       await this.instruments.bulkWrite(
         parsed.entries.map((e) => ({
           updateOne: {
@@ -60,6 +88,14 @@ export class UniverseService implements OnModuleInit {
             upsert: true,
           },
         })),
+      );
+      // Drop stale membership so /universe/summary matches the list file.
+      await this.instruments.updateMany(
+        {
+          universes: cfg.universe,
+          yahooTicker: { $nin: [...yahooInFile] },
+        },
+        { $pull: { universes: cfg.universe } },
       );
       out[label] = parsed.entries.length;
     }
