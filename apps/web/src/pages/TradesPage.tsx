@@ -15,6 +15,7 @@ export function TradesPage() {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['trades'] });
+    queryClient.invalidateQueries({ queryKey: ['performance'] });
     queryClient.invalidateQueries({ queryKey: ['monthly'] });
   };
 

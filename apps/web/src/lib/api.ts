@@ -122,6 +122,27 @@ export type Trade = {
   unrealizedR?: number | null;
 };
 
+export type PerformanceReport = {
+  tf: Timeframe;
+  periods: Array<{
+    periodKey: string;
+    trades: number;
+    wins: number;
+    winRatePct: number;
+    pnlUsd: number;
+    avgR: number | null;
+  }>;
+  equity: Array<{ date: string; equity: number }>;
+  totals: {
+    closed: number;
+    open: number;
+    wins: number;
+    winRatePct: number;
+    pnlUsd: number;
+    avgR: number | null;
+  };
+};
+
 export type MonthlyReport = {
   months: Array<{
     month: string;
@@ -383,6 +404,8 @@ export const api = {
   refreshTrades: () =>
     request<{ checked: number; closed: number }>('/trades/refresh', { method: 'POST' }),
   monthly: () => request<MonthlyReport>('/reports/monthly'),
+  performance: (tf: Timeframe = 'Daily') =>
+    request<PerformanceReport>(`/reports/performance?tf=${encodeURIComponent(tf)}`),
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>

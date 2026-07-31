@@ -1,9 +1,32 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api, type Timeframe } from '../lib/api';
+import { Chips } from '../components/Chips';
 
 function money(n: number | null | undefined) {
   if (n == null) return '—';
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function periodLabel(periodKey: string, tf: Timeframe) {
+  if (!periodKey || periodKey === 'unknown') return periodKey || '—';
+  if (tf === 'Daily') {
+    return new Date(`${periodKey}T12:00:00`).toLocaleDateString(undefined, {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+  if (tf === 'Monthly') {
+    const [y, m] = periodKey.split('-');
+    if (!y || !m) return periodKey;
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+    });
+  }
+  return periodKey;
 }
 
 function Sparkline({ points }: { points: Array<{ equity: number }> }) {
@@ -28,7 +51,11 @@ function Sparkline({ points }: { points: Array<{ equity: number }> }) {
 }
 
 export function PnlPage() {
-  const { data, isLoading } = useQuery({ queryKey: ['monthly'], queryFn: api.monthly });
+  const [tf, setTf] = useState<Timeframe>('Daily');
+  const { data, isLoading } = useQuery({
+    queryKey: ['performance', tf],
+    queryFn: () => api.performance(tf),
+  });
 
   if (isLoading) return <p className="empty">Loading…</p>;
   if (!data) return <p className="empty">No data</p>;
@@ -37,6 +64,7 @@ export function PnlPage() {
     <div>
       <section className="card">
         <h2>Performance</h2>
+        <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
         <div className="meta-grid">
           <div>
             <span>Win rate</span>
@@ -59,18 +87,18 @@ export function PnlPage() {
       </section>
 
       <section className="card">
-        <h3>Monthly</h3>
-        {data.months.length === 0 ? (
-          <p className="muted">No closed trades yet.</p>
+        <h3>{tf} periods</h3>
+        {data.periods.length === 0 ? (
+          <p className="muted">No closed {tf} trades yet.</p>
         ) : (
-          data.months.map((m) => (
-            <div className="stack-row list-row" key={m.month}>
-              <span>{m.month}</span>
+          data.periods.map((p) => (
+            <div className="stack-row list-row" key={p.periodKey}>
+              <span>{periodLabel(p.periodKey, tf)}</span>
               <span>
-                <span className={m.pnlUsd >= 0 ? 'up-text' : 'down-text'}>{money(m.pnlUsd)}</span>
+                <span className={p.pnlUsd >= 0 ? 'up-text' : 'down-text'}>{money(p.pnlUsd)}</span>
                 <span className="muted small">
                   {' '}
-                  · {m.trades} trades · {m.winRatePct}% · avgR {m.avgR ?? '—'}
+                  · {p.trades} trades · {p.winRatePct}% · avgR {p.avgR ?? '—'}
                 </span>
               </span>
             </div>
