@@ -24,6 +24,8 @@ export type ScanRun = {
   params: ScanParams;
   status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
   asOf: string | null;
+  /** Oldest Yahoo pull behind the scanned bars. */
+  barsOldestAt?: string | null;
   periodKey?: string;
   periodTf?: Timeframe;
   trigger?: 'manual' | 'scheduled';
@@ -84,6 +86,25 @@ export type SellSignal = {
 };
 
 export type Signal = BuySignal | SellSignal;
+
+/** Engine numbers behind a reject, for side-by-side comparison with TradingView. */
+export type RejectDetail = {
+  barDate: string | null;
+  close: number | null;
+  criticalLevel: number | null;
+  seqState: number | null;
+  rr: number | null;
+  sl: number | null;
+  tp: number | null;
+  minRr: number;
+};
+
+export type Rejection = {
+  _id: string;
+  symbol: string;
+  reason: string;
+  detail?: RejectDetail | null;
+};
 
 export type SellSummary = {
   count: number;
@@ -367,7 +388,7 @@ export const api = {
   },
   rejections: (runId: string, limit = 500) =>
     request<{
-      rows: Array<{ _id: string; symbol: string; reason: string }>;
+      rows: Rejection[];
       reasonCounts: Record<string, number>;
       total: number;
     }>(`/scans/${runId}/rejections?limit=${limit}`),

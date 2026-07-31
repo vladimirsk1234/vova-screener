@@ -111,6 +111,10 @@ export class ScanRunnerService {
       let signalBuffer: any[] = [];
       let rejectionBuffer: any[] = [];
       let asOf: string | null = null;
+      /** Oldest bar date seen, so a run without signals still reports what it looked at. */
+      let evaluatedAsOf: string | null = null;
+      /** Oldest Yahoo pull across the universe — the run's worst-case data age. */
+      let barsOldestAt: Date | null = null;
       let lastPublish = 0;
 
       const queue = [...entries];
@@ -144,6 +148,13 @@ export class ScanRunnerService {
           });
           counters.downloaded += 1;
           if (result.fromCache) counters.fromCache += 1;
+          if (result.fetchedAt && (!barsOldestAt || result.fetchedAt < barsOldestAt)) {
+            barsOldestAt = result.fetchedAt;
+          }
+          if (result.bars?.length) {
+            const barDate = result.bars[result.bars.length - 1].date;
+            if (!evaluatedAsOf || barDate < evaluatedAsOf) evaluatedAsOf = barDate;
+          }
 
           const evaluation = evaluateSymbol({
             bars: result.bars,
@@ -179,6 +190,7 @@ export class ScanRunnerService {
                 runId: runObjectId,
                 symbol: entry.yahoo,
                 reason: evaluation.reason,
+                detail: evaluation.detail ?? null,
               });
             }
           }
@@ -226,9 +238,10 @@ export class ScanRunnerService {
       run.counters = counters;
       run.reasonCounts = reasonCounts;
       run.newSymbols = newSymbols;
+      run.barsOldestAt = barsOldestAt;
       await this.finish(run, cancelled ? 'cancelled' : 'completed', {
         startedAt,
-        asOf,
+        asOf: asOf ?? evaluatedAsOf,
         summary,
       });
 

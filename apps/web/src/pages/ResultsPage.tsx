@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, type BuySignal, type SellSignal, type Signal } from '../lib/api';
+import { formatDataAge } from '../lib/freshness';
 import { Switch } from '../components/Chips';
 
 function money(n: number) {
@@ -158,6 +159,7 @@ export function ResultsPage() {
   if (!data) return <p className="empty">No data</p>;
 
   const { run, rows, count } = data;
+  const dataAge = formatDataAge(run.barsOldestAt);
 
   return (
     <div>
@@ -168,8 +170,14 @@ export function ResultsPage() {
         </div>
         <p className="muted">
           {run.params.source} · {run.params.direction.toUpperCase()} · {run.params.tf}
-          {run.asOf ? ` · as of ${run.asOf}` : ''}
+          {run.asOf ? ` · bar ${run.asOf}` : ''}
         </p>
+        {dataAge ? (
+          <p className="muted small">
+            Bars pulled {dataAge}. TradingView shows the live in-progress bar, this run scored the
+            snapshot above.
+          </p>
+        ) : null}
         <Switch label="New only" checked={onlyNew} onChange={setOnlyNew} />
         {run.params.direction === 'buy' ? (
           <Switch label="Strong only" checked={onlyStrong} onChange={setOnlyStrong} />

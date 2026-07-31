@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Direction, type ScanParams, type SourceLabel, type Timeframe } from '../lib/api';
+import { formatDataAge } from '../lib/freshness';
 import { useScanProgress } from '../lib/useScanProgress';
 import { Chips, Switch } from '../components/Chips';
 
@@ -15,7 +16,8 @@ const DEFAULTS: ScanParams = {
   noRrReq: false,
   useLastHlSl: true,
   newOnly: true,
-  forceRefresh: false,
+  // Manual scans are ad-hoc checks against a live chart: always pull fresh bars.
+  forceRefresh: true,
 };
 
 const ACTIVE_RUN_KEY = 'vova.activeRunId';
@@ -93,6 +95,7 @@ export function ScanPage() {
   };
 
   const counters = progress?.counters ?? run.data?.counters;
+  const dataAge = formatDataAge(run.data?.barsOldestAt);
   const done = progressDone || Boolean(run.data && TERMINAL.includes(run.data.status));
   const universeCount =
     params.source === 'Stocks'
@@ -114,7 +117,9 @@ export function ScanPage() {
           label="Source"
           value={params.source}
           options={['Stocks', 'ETF', 'MANUAL SCAN'] as const satisfies readonly SourceLabel[]}
-          onChange={(source) => patch({ source })}
+          onChange={(source) =>
+            patch(source === 'MANUAL SCAN' ? { source, forceRefresh: true } : { source })
+          }
           disabled={isRunning}
         />
         <Chips
@@ -248,6 +253,13 @@ export function ScanPage() {
                 {counters.fromCache ?? 0}
               </div>
             </div>
+          ) : null}
+
+          {run.data?.asOf ? (
+            <p className="muted small" style={{ margin: '8px 0 0' }}>
+              Scored bar {run.data.asOf}
+              {dataAge ? ` · bars pulled ${dataAge}` : ''}
+            </p>
           ) : null}
 
           {done ? (

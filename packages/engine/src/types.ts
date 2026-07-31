@@ -28,6 +28,13 @@ export type PineResult = {
   ATR: number;
   last_peak_was_hh: boolean;
   last_trough_was_hl: boolean;
+  /** Last-bar sequence state: 1 up, -1 down, 0 undecided. */
+  seq_state: number;
+  /** Sequence broke below the last confirmed trough (buy) / above the peak (sell). */
+  struct_invalid: boolean;
+  critical_level: number;
+  risk: number;
+  reward: number;
 };
 
 export type CloseScanResult = {

@@ -8,7 +8,7 @@ import {
   runSequenceVovaPine,
 } from './sequenceVova';
 import { buildChartUrl, inferTvSymbol, tfToTvInterval } from './tradingview';
-import type { OhlcSeries, ScanDirection, Timeframe } from './types';
+import type { OhlcSeries, PineResult, ScanDirection, Timeframe } from './types';
 
 export const MIN_BARS = 50;
 export const ATR_LEN = 14;
@@ -75,9 +75,25 @@ export type SellSummary = {
   pnlPct: number;
 };
 
+/**
+ * Numbers behind a reject, so a symbol can be compared with the live TradingView
+ * chart without re-running the scan (the app evaluates a stored bar snapshot,
+ * TradingView draws the in-progress bar).
+ */
+export type RejectDetail = {
+  barDate: string | null;
+  close: number | null;
+  criticalLevel: number | null;
+  seqState: number | null;
+  rr: number | null;
+  sl: number | null;
+  tp: number | null;
+  minRr: number;
+};
+
 export type Evaluation =
   | { status: 'signal'; signal: Signal }
-  | { status: 'rejected'; reason: string }
+  | { status: 'rejected'; reason: string; detail?: RejectDetail }
   | { status: 'skipped'; reason: string };
 
 function round2(n: number) {
@@ -86,6 +102,24 @@ function round2(n: number) {
 
 function finiteOrNull(n: number): number | null {
   return Number.isFinite(n) ? round2(n) : null;
+}
+
+function rejectDetail(
+  bars: OhlcSeries,
+  pine: PineResult | null,
+  minRr: number,
+): RejectDetail {
+  const last = bars.length ? bars[bars.length - 1] : null;
+  return {
+    barDate: last?.date ?? null,
+    close: pine ? finiteOrNull(pine.Close) : (last ? round2(last.close) : null),
+    criticalLevel: pine ? finiteOrNull(pine.critical_level) : null,
+    seqState: pine ? pine.seq_state : null,
+    rr: pine ? finiteOrNull(pine.RR) : null,
+    sl: pine ? finiteOrNull(pine.SL) : null,
+    tp: pine ? finiteOrNull(pine.TP) : null,
+    minRr,
+  };
 }
 
 function avgVolume(bars: OhlcSeries, lookback = 20): number {
@@ -104,10 +138,16 @@ export function evaluateSymbol(input: {
 }): Evaluation {
   const { bars, yahooTicker, params } = input;
   if (!bars || !bars.length) return { status: 'rejected', reason: 'NO_DATA' };
-  if (bars.length < MIN_BARS) return { status: 'rejected', reason: 'INSUFFICIENT_DATA' };
+  if (bars.length < MIN_BARS) {
+    return {
+      status: 'rejected',
+      reason: 'INSUFFICIENT_DATA',
+      detail: rejectDetail(bars, null, params.minRr),
+    };
+  }
 
   if (params.minAvgVolume && avgVolume(bars) < params.minAvgVolume) {
-    return { status: 'rejected', reason: 'LOW_VOL' };
+    return { status: 'rejected', reason: 'LOW_VOL', detail: rejectDetail(bars, null, params.minRr) };
   }
 
   const tvSymbol = input.tvSymbol || inferTvSymbol(yahooTicker);
@@ -123,7 +163,13 @@ export function evaluateSymbol(input: {
       risk_dollars: params.riskPerTrade,
       no_rr_req: params.noRrReq,
     });
-    if (!out || !out.Valid) return { status: 'rejected', reason: 'NO_CLOSE_SIGNAL' };
+    if (!out || !out.Valid) {
+      return {
+        status: 'rejected',
+        reason: 'NO_CLOSE_SIGNAL',
+        detail: rejectDetail(bars, null, params.minRr),
+      };
+    }
     if (params.newOnly && !out.New) return { status: 'skipped', reason: 'NOT_NEW' };
 
     const shares =
@@ -163,10 +209,20 @@ export function evaluateSymbol(input: {
     no_rr_req: params.noRrReq,
   });
   if (!out || !out.Valid) {
-    return { status: 'rejected', reason: explainInvalidBuy(out, params.minRr, params.noRrReq) };
+    return {
+      status: 'rejected',
+      reason: explainInvalidBuy(out, params.minRr, params.noRrReq),
+      detail: rejectDetail(bars, out, params.minRr),
+    };
   }
   if (params.newOnly && !out.New) return { status: 'skipped', reason: 'NOT_NEW' };
-  if (!out.last_peak_was_hh) return { status: 'rejected', reason: 'NO_HH_LAST_PEAK' };
+  if (!out.last_peak_was_hh) {
+    return {
+      status: 'rejected',
+      reason: 'NO_HH_LAST_PEAK',
+      detail: rejectDetail(bars, out, params.minRr),
+    };
+  }
 
   const shares =
     Number.isFinite(out.position_size) && out.position_size >= 1

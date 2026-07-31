@@ -16,6 +16,8 @@ import { YahooClient } from './yahoo.client';
 export type BarsResult = {
   bars: OhlcSeries | null;
   fromCache: boolean;
+  /** When these bars were pulled from Yahoo — cache age is why a scan can lag TradingView. */
+  fetchedAt: Date | null;
   companyName?: string;
   exchange?: string;
 };
@@ -51,19 +53,31 @@ export class BarsService {
     if (!opts.force) {
       const doc = await this.barSeries.findOne({ yahooTicker, interval }).lean<any>().exec();
       if (doc?.barCount && Date.now() - new Date(doc.updatedAt).getTime() < maxAgeMs) {
-        return { bars: this.decode(doc, tf), fromCache: true };
+        return { bars: this.decode(doc, tf), fromCache: true, fetchedAt: new Date(doc.updatedAt) };
       }
     }
 
     const { bars, meta } = await this.yahoo.fetchOhlc(yahooTicker, tf, { signal: opts.signal });
     if (!bars) {
       const stale = await this.barSeries.findOne({ yahooTicker, interval }).lean<any>().exec();
-      if (stale?.barCount) return { bars: this.decode(stale, tf), fromCache: true };
-      return { bars: null, fromCache: false };
+      if (stale?.barCount) {
+        return {
+          bars: this.decode(stale, tf),
+          fromCache: true,
+          fetchedAt: new Date(stale.updatedAt),
+        };
+      }
+      return { bars: null, fromCache: false, fetchedAt: null };
     }
 
     await this.save(yahooTicker, interval, bars);
-    return { bars, fromCache: false, companyName: meta?.companyName, exchange: meta?.exchange };
+    return {
+      bars,
+      fromCache: false,
+      fetchedAt: new Date(),
+      companyName: meta?.companyName,
+      exchange: meta?.exchange,
+    };
   }
 
   private decode(doc: any, tf: Timeframe): OhlcSeries {
