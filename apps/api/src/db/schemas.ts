@@ -103,6 +103,8 @@ export const RejectionSchema = new Schema(
     runId: { type: Schema.Types.ObjectId, required: true, index: true },
     symbol: { type: String, required: true },
     reason: { type: String, required: true },
+    /** Engine numbers behind the reject (barDate, close, criticalLevel, seqState, rr, sl, tp, minRr). */
+    detail: { type: Schema.Types.Mixed, default: null },
     createdAt: { type: Date, default: Date.now },
   },
   { versionKey: false },

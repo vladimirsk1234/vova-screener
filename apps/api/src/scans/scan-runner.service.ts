@@ -179,6 +179,7 @@ export class ScanRunnerService {
                 runId: runObjectId,
                 symbol: entry.yahoo,
                 reason: evaluation.reason,
+                detail: evaluation.detail ?? null,
               });
             }
           }
