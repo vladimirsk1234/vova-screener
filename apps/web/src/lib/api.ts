@@ -24,6 +24,8 @@ export type ScanRun = {
   params: ScanParams;
   status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
   asOf: string | null;
+  /** Oldest Yahoo pull behind the scanned bars. */
+  barsOldestAt?: string | null;
   periodKey?: string;
   periodTf?: Timeframe;
   trigger?: 'manual' | 'scheduled';

@@ -79,6 +79,7 @@ export class ScansService {
       run.error = undefined;
       run.cancelRequested = false;
       run.asOf = undefined;
+      run.barsOldestAt = undefined;
       run.startedAt = undefined;
       run.finishedAt = undefined;
       run.timings = { downloadMs: 0, processMs: 0, totalMs: 0 };

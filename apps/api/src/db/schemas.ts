@@ -55,6 +55,8 @@ export const ScanRunSchema = new Schema(
     periodTf: { type: String, index: true },
     trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
     asOf: String,
+    /** Oldest Yahoo pull behind this run's bars (cache age at scan time). */
+    barsOldestAt: Date,
     counters: {
       total: { type: Number, default: 0 },
       downloaded: { type: Number, default: 0 },
