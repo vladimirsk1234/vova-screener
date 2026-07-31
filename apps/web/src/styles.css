@@ -504,7 +504,7 @@ a {
 
 .chart-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: calc(8px + var(--safe-top)) 4px 8px;
 }
@@ -514,10 +514,35 @@ a {
   padding: 0 14px;
 }
 
+.chart-head-title {
+  min-width: 0;
+  flex: 1;
+}
+
 .chart-head-actions {
   margin-left: auto;
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.chart-pine-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+}
+
+.chart-pine-metric {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.chart-pine-metric > span {
+  color: var(--muted);
+  margin-right: 4px;
 }
 
 .chart-stage {
@@ -533,9 +558,20 @@ a {
   background: #707585;
 }
 
-.chart-watermark {
+.chart-legend {
   position: absolute;
   top: 10px;
+  left: 12px;
+  z-index: 3;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.chart-watermark {
+  position: absolute;
+  top: 32px;
   left: 12px;
   z-index: 2;
   pointer-events: none;
@@ -543,11 +579,6 @@ a {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
   max-width: min(92%, 420px);
   white-space: pre-wrap;
-}
-
-.chart-legend {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  margin: 0;
 }
 
 .chart-settings-sheet {

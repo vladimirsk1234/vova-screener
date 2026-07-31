@@ -108,9 +108,30 @@ export function ChartPage() {
         <button type="button" className="btn-sm ghost" onClick={() => navigate(-1)}>
           Back
         </button>
-        <div>
+        <div className="chart-head-title">
           <strong>{chart.data?.tvSymbol ?? ticker}</strong>
           <span className="muted small block ellipsis">{chart.data?.companyName ?? ''}</span>
+          {pine ? (
+            <div className="chart-pine-row">
+              <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
+                {pine.valid ? 'VALID' : 'NO SIGNAL'}
+              </span>
+              {pine.isNew ? <span className="badge up">NEW</span> : null}
+              {pine.strong ? <span className="badge">STRONG</span> : null}
+              <span className="chart-pine-metric">
+                <span>Close</span> {pine.close?.toFixed(2) ?? 'n/a'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>RR</span> {pine.rr != null ? pine.rr.toFixed(2) : 'n/a'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>TP</span> {pine.tp != null ? pine.tp.toFixed(2) : 'n/a'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>SL</span> {pine.sl != null ? pine.sl.toFixed(2) : 'n/a'}
+              </span>
+            </div>
+          ) : null}
         </div>
         <div className="chart-head-actions">
           <button type="button" className="btn-sm" onClick={() => fitRef.current?.()}>
@@ -126,6 +147,7 @@ export function ChartPage() {
 
       <div className="chart-stage">
         <div className="chart-host" ref={containerRef} />
+        {crosshair ? <p className="chart-legend muted small">{crosshair}</p> : null}
         {settings.show_watermark && wm?.lines?.length ? (
           <div
             className="chart-watermark"
@@ -138,7 +160,6 @@ export function ChartPage() {
         ) : null}
       </div>
 
-      {crosshair ? <p className="chart-legend muted small">{crosshair}</p> : null}
       {chart.isLoading ? <p className="muted small">Loading bars…</p> : null}
       {chart.error ? <p className="error">{(chart.error as Error).message}</p> : null}
 
@@ -150,36 +171,6 @@ export function ChartPage() {
         onSave={() => savePreset.mutate()}
         onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
       />
-
-      {pine ? (
-        <section className="card">
-          <div className="chip-row">
-            <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
-              {pine.valid ? 'VALID' : 'NO SIGNAL'}
-            </span>
-            {pine.isNew ? <span className="badge up">NEW</span> : null}
-            {pine.strong ? <span className="badge">STRONG</span> : null}
-          </div>
-          <div className="meta-grid">
-            <div>
-              <span>Close</span>
-              {pine.close?.toFixed(2)}
-            </div>
-            <div>
-              <span>RR</span>
-              {pine.rr != null ? pine.rr.toFixed(2) : 'n/a'}
-            </div>
-            <div>
-              <span>TP</span>
-              {pine.tp != null ? pine.tp.toFixed(2) : 'n/a'}
-            </div>
-            <div>
-              <span>SL</span>
-              {pine.sl != null ? pine.sl.toFixed(2) : 'n/a'}
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       {wm?.description ? (
         <section className="card">
