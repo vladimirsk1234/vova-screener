@@ -36,6 +36,11 @@ body,
   background: var(--bg);
 }
 
+html,
+body {
+  touch-action: manipulation;
+}
+
 button,
 input,
 select {
@@ -556,6 +561,7 @@ a {
   overflow: hidden;
   border: 1px solid #262b38;
   background: #707585;
+  touch-action: none;
 }
 
 .chart-legend {
