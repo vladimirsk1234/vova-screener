@@ -524,6 +524,24 @@ a {
   flex: 1;
 }
 
+.chart-head-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chart-head-name strong {
+  flex-shrink: 0;
+}
+
+.chart-head-name .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chart-head-actions {
   margin-left: auto;
   display: flex;
@@ -535,11 +553,16 @@ a {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px 10px;
-  margin-top: 6px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 2px;
+  gap: 4px 8px;
+  margin-top: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chart-pine-row .badge {
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  flex-shrink: 0;
 }
 
 .chart-pine-metric {
@@ -571,8 +594,9 @@ a {
 }
 
 .chart-host {
-  height: 52vh;
-  min-height: 300px;
+  /* One text line shorter so trading data fits without page scroll */
+  height: calc(52vh - 1.25em);
+  min-height: calc(300px - 1.25em);
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid #262b38;

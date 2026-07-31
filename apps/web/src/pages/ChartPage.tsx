@@ -189,8 +189,12 @@ export function ChartPage() {
           Back
         </button>
         <div className="chart-head-title">
-          <strong>{chart.data?.tvSymbol ?? ticker}</strong>
-          <span className="muted small block ellipsis">{chart.data?.companyName ?? ''}</span>
+          <div className="chart-head-name ellipsis">
+            <strong>{chart.data?.tvSymbol ?? ticker}</strong>
+            {chart.data?.companyName ? (
+              <span className="muted small">{chart.data.companyName}</span>
+            ) : null}
+          </div>
           {pine ? (
             <div className="chart-pine-row">
               <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
@@ -198,9 +202,6 @@ export function ChartPage() {
               </span>
               {pine.isNew ? <span className="badge up">NEW</span> : null}
               {pine.strong ? <span className="badge">STRONG</span> : null}
-              <span className="chart-pine-metric">
-                <span>Close</span> {pine.close?.toFixed(2) ?? 'n/a'}
-              </span>
               <span className="chart-pine-metric">
                 <span>RR</span> {pine.rr != null ? pine.rr.toFixed(2) : 'n/a'}
               </span>
