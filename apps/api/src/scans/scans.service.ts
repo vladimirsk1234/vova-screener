@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL } from '../db/schemas';
-import { periodKey } from './period';
+import { TradesService } from '../trades/trades.service';
+import { isPeriodClosed, periodKey } from './period';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
 const DEFAULTS: ScanParamsApi = {
@@ -35,11 +36,14 @@ const EMPTY_COUNTERS = {
 
 @Injectable()
 export class ScansService {
+  private readonly log = new Logger(ScansService.name);
+
   constructor(
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
     @InjectModel(SIGNAL) private readonly signals: Model<any>,
     @InjectModel(REJECTION) private readonly rejections: Model<any>,
     private readonly runner: ScanRunnerService,
+    private readonly trades: TradesService,
   ) {}
 
   async start(input: Partial<ScanParamsApi>, opts: StartOpts = {}) {
@@ -53,11 +57,11 @@ export class ScansService {
       .exec();
 
     if (run) {
-      const runId = String(run._id);
-      if (this.runner.isRunning(runId)) {
-        this.runner.cancel(runId);
+      const existingId = String(run._id);
+      if (this.runner.isRunning(existingId)) {
+        this.runner.cancel(existingId);
         for (let i = 0; i < 50; i++) {
-          if (!this.runner.isRunning(runId)) break;
+          if (!this.runner.isRunning(existingId)) break;
           await new Promise((r) => setTimeout(r, 200));
         }
       }
@@ -90,12 +94,41 @@ export class ScansService {
     }
 
     const runId = String(run._id);
-    if (opts.wait) {
+    const finish = async () => {
       await this.runner.execute(runId);
+      await this.afterScanComplete(runId, params.tf);
+    };
+    if (opts.wait) {
+      await finish();
     } else {
-      void this.runner.execute(runId);
+      void finish().catch((err) =>
+        this.log.error(`post-scan for ${runId} failed: ${(err as Error).message}`),
+      );
     }
     return { runId, params };
+  }
+
+  /**
+   * After a completed buy scan: journal new signals when scheduled OR period is already closed
+   * (after-hours / weekend / end of week / end of month), then refresh open trades for that TF.
+   */
+  async afterScanComplete(runId: string, tf: Timeframe) {
+    const run = await this.runs.findById(runId).lean<any>().exec();
+    if (!run || run.status !== 'completed') return;
+    if (run.params?.direction !== 'buy') return;
+
+    const runTf = (run.periodTf ?? run.params.tf ?? tf) as Timeframe;
+    const eligible = run.trigger === 'scheduled' || isPeriodClosed(runTf);
+    if (!eligible) {
+      this.log.debug(`Skip auto-journal for ${runId} — mid-period manual scan`);
+      return;
+    }
+
+    const journaled = await this.trades.journalNewBuySignals(runId);
+    const closed = await this.trades.refresh({ tf: runTf });
+    this.log.log(
+      `afterScan ${runId}: trades +${journaled.created}, closed ${closed.closed} (trigger=${run.trigger})`,
+    );
   }
 
   async list(opts: { limit?: number; tf?: Timeframe } = {}) {

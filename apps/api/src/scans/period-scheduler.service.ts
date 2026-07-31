@@ -56,12 +56,12 @@ export class PeriodSchedulerService {
   async runPeriod(tf: Timeframe) {
     this.log.log(`Starting end-of-period ${tf} scans`);
     for (const source of ['Stocks', 'ETF'] as const) {
+      // start(wait) runs afterScanComplete → journal + close-check per run
       const { runId } = await this.scans.start(
         { ...SCHEDULED_BASE, source, tf },
         { trigger: 'scheduled', wait: true },
       );
-      const journaled = await this.trades.journalNewBuySignals(runId);
-      this.log.log(`${tf} ${source}: run ${runId}, auto trades ${journaled.created}`);
+      this.log.log(`${tf} ${source}: run ${runId} finished`);
     }
     const closed = await this.trades.refresh({ tf });
     this.log.log(`${tf} close-check: checked ${closed.checked}, closed ${closed.closed}`);

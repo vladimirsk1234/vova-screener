@@ -98,18 +98,19 @@ export class TradesService {
   }
 
   /**
-   * Auto-open journal rows from New buy signals of a scheduled end-of-period run.
-   * Mid-period manual runs must not call this (caller checks trigger).
+   * Auto-open journal rows from New buy signals.
+   * Caller must only invoke when scheduled OR period is already closed (after hours).
+   * Skips symbols that already have an open trade or any trade for this periodKey.
    */
   async journalNewBuySignals(runId: string) {
     if (!Types.ObjectId.isValid(runId)) return { created: 0 };
     const run = await this.runs.findById(runId).lean<any>().exec();
-    if (!run || run.trigger !== 'scheduled') return { created: 0 };
+    if (!run) return { created: 0 };
     if (run.params?.direction !== 'buy') return { created: 0 };
     if (run.status !== 'completed') return { created: 0 };
 
     const tf = (run.params.tf as Timeframe) ?? 'Daily';
-    const periodKey = run.periodKey as string | undefined;
+    const periodKeyVal = run.periodKey as string | undefined;
     const rows = await this.signals
       .find({ runId: new Types.ObjectId(runId), kind: 'buy', isNew: true })
       .lean<any>()
@@ -126,12 +127,17 @@ export class TradesService {
         .exec();
       if (open) continue;
 
-      if (periodKey) {
-        const dismissed = await this.trades
-          .findOne({ symbol: signal.symbol, tf, status: 'dismissed', periodKey })
+      if (periodKeyVal) {
+        const alreadyInPeriod = await this.trades
+          .findOne({
+            symbol: signal.symbol,
+            tf,
+            periodKey: periodKeyVal,
+            status: { $in: ['open', 'closed', 'dismissed'] },
+          })
           .lean()
           .exec();
-        if (dismissed) continue;
+        if (alreadyInPeriod) continue;
       }
 
       await this.create({
@@ -148,7 +154,7 @@ export class TradesService {
         asOf: signal.asOf,
         runId,
         source: 'auto',
-        periodKey,
+        periodKey: periodKeyVal,
       });
       created += 1;
     }

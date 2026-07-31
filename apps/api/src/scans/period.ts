@@ -61,6 +61,30 @@ export function periodKey(tf: Timeframe, date: Date = new Date()): string {
   return isoWeekKey(year, month, day);
 }
 
+/** Minutes since midnight in America/New_York. */
+export function nyTimeMinutes(date: Date = new Date()): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: MARKET_TZ,
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((p) => [p.type, p.value]),
+  );
+  return Number(parts.hour) * 60 + Number(parts.minute);
+}
+
+const SESSION_CLOSE_MINUTES = 16 * 60; // 16:00 ET
+
+/** True after the US cash session close (or on weekend). */
+export function isAfterSessionClose(date: Date = new Date()): boolean {
+  const { weekday } = partsInNy(date);
+  if (weekday === 0 || weekday === 6) return true;
+  return nyTimeMinutes(date) >= SESSION_CLOSE_MINUTES;
+}
+
 /** True on the last Mon–Fri of the month in America/New_York. */
 export function isLastTradingDayOfMonth(date: Date = new Date()): boolean {
   const today = partsInNy(date);
@@ -75,5 +99,46 @@ export function isLastTradingDayOfMonth(date: Date = new Date()): boolean {
     }
     offset += 1;
   }
+  return false;
+}
+
+/** True if we are past the last trading day of the current month (weekend after month-end, etc.). */
+export function isPastLastTradingDayOfMonth(date: Date = new Date()): boolean {
+  const today = partsInNy(date);
+  // Walk backward to find the most recent weekday; if that weekday's month differs, we are past month-end.
+  let offset = 0;
+  while (offset <= 7) {
+    const probe = new Date(date.getTime() - offset * 86_400_000);
+    const p = partsInNy(probe);
+    if (p.weekday !== 0 && p.weekday !== 6) {
+      if (p.month !== today.month || p.year !== today.year) return true;
+      // Most recent weekday is still this month — only "past" if that day was last trading day AND we're after it
+      if (isLastTradingDayOfMonth(probe) && offset > 0) return true;
+      return false;
+    }
+    offset += 1;
+  }
+  return false;
+}
+
+/**
+ * Period is closed for journaling: Daily after 16:00 ET / weekend;
+ * Weekly after Friday close / weekend; Monthly after last trading day close.
+ */
+export function isPeriodClosed(tf: Timeframe, date: Date = new Date()): boolean {
+  const { weekday } = partsInNy(date);
+  const afterClose = isAfterSessionClose(date);
+
+  if (tf === 'Daily') return afterClose;
+
+  if (tf === 'Weekly') {
+    if (weekday === 0 || weekday === 6) return true;
+    if (weekday === 5 && afterClose) return true;
+    return false;
+  }
+
+  // Monthly
+  if (isPastLastTradingDayOfMonth(date)) return true;
+  if (isLastTradingDayOfMonth(date) && afterClose) return true;
   return false;
 }
