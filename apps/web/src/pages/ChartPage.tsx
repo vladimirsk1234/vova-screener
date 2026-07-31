@@ -327,7 +327,9 @@ export function ChartPage() {
       <div className="card-actions chart-actions">
         <button
           type="button"
-          className={`btn-sm${markStatus === 'interested' ? ' selected' : ''}`}
+          className={`btn-sm${
+            markStatus === 'interested' ? ' selected' : ' ghost'
+          }`}
           disabled={!canMark || marking}
           onClick={() => markInterest.mutate('interested')}
         >

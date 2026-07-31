@@ -48,21 +48,46 @@ function criticalStepline(
   return out;
 }
 
+const RIGHT_EXTEND_BARS = 8;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseBarTimeMs(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return Date.UTC(y, (m ?? 1) - 1, d ?? 1);
+}
+
+function formatBarTime(ms: number): string {
+  const dt = new Date(ms);
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(dt.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function barStepMs(bars: ChartPayload['bars']): number {
+  if (bars.length < 2) return DAY_MS;
+  const a = parseBarTimeMs(bars[bars.length - 2].date);
+  const b = parseBarTimeMs(bars[bars.length - 1].date);
+  const step = b - a;
+  return step > 0 ? step : DAY_MS;
+}
+
 function extendLine(
   bars: ChartPayload['bars'],
   x0: number,
   y0: number,
   x1: number,
   y1: number,
+  /** Extra bars past the last candle (fills timeScale rightOffset). */
+  extraBars = 0,
 ): LinePoint[] {
   const n = bars.length;
   if (n === 0) return [];
   const dx = x1 - x0;
   const slope = dx !== 0 ? (y1 - y0) / dx : 0;
-  const start = Math.max(0, Math.min(x0, x1, n - 1));
   const end = n - 1;
   const points: LinePoint[] = [];
-  // Segment from clamped x0→x1, then extend to last bar.
+  // Segment from clamped x0→x1, then extend to last bar (+ optional future).
   const a = Math.max(0, Math.min(n - 1, x0));
   const b = Math.max(0, Math.min(n - 1, x1));
   const yAt = (x: number) => y0 + slope * (x - x0);
@@ -71,7 +96,20 @@ function extendLine(
   if (end !== b && end !== a) {
     points.push({ time: bars[end].date as Time, value: yAt(end) });
   }
-  void start;
+  if (extraBars > 0) {
+    // Ensure a point on the last bar before projecting into whitespace.
+    if (points[points.length - 1]?.time !== (bars[end].date as Time)) {
+      points.push({ time: bars[end].date as Time, value: yAt(end) });
+    }
+    const step = barStepMs(bars);
+    const lastMs = parseBarTimeMs(bars[end].date);
+    for (let i = 1; i <= extraBars; i++) {
+      points.push({
+        time: formatBarTime(lastMs + step * i) as Time,
+        value: yAt(end + i),
+      });
+    }
+  }
   return points;
 }
 
@@ -194,7 +232,14 @@ export function mountSequenceChart(
 
   if (settings.show_extension_lines && ov) {
     for (const ln of ov.extensionLines) {
-      const pts = extendLine(payload.bars, ln.rawX0Idx, ln.y0, ln.rawX1Idx, ln.y1);
+      const pts = extendLine(
+        payload.bars,
+        ln.rawX0Idx,
+        ln.y0,
+        ln.rawX1Idx,
+        ln.y1,
+        RIGHT_EXTEND_BARS,
+      );
       addLine(settings.hhll_color, 2, 0).setData(pts);
     }
   }

@@ -661,6 +661,7 @@ a {
 .chart-actions .btn-sm {
   flex: 1 1 calc(50% - 4px);
   min-width: 120px;
+  min-height: 36px;
   text-align: center;
 }
 
