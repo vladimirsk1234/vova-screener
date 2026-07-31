@@ -50,8 +50,6 @@ export function ChartPage() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
-  const fitRef = useRef<(() => void) | null>(null);
-  const lastTapRef = useRef(0);
 
   const presetQ = useQuery({
     queryKey: ['preset', 'chart'],
@@ -144,7 +142,6 @@ export function ChartPage() {
     destroyRef.current?.();
     const mounted = mountSequenceChart(containerRef.current, chart.data, settings, drawings);
     destroyRef.current = mounted.destroy;
-    fitRef.current = mounted.fitContent;
 
     const chartApi = mounted.chart;
     const handler = (param: { time?: unknown; seriesData?: Map<unknown, unknown> }) => {
@@ -166,8 +163,13 @@ export function ChartPage() {
       }
     };
     chartApi.subscribeCrosshairMove(handler as never);
+    const onDblClick = () => {
+      mounted.fitContent();
+    };
+    chartApi.subscribeDblClick(onDblClick);
 
     return () => {
+      chartApi.unsubscribeDblClick(onDblClick);
       chartApi.unsubscribeCrosshairMove(handler as never);
       destroyRef.current?.();
       destroyRef.current = null;
@@ -212,18 +214,6 @@ export function ChartPage() {
     Boolean(navState.periodKey) &&
     (signal?.entry != null || (pine?.close != null && Number.isFinite(pine.close)));
   const marking = markInterest.isPending;
-
-  const fitChart = () => fitRef.current?.();
-
-  const onChartDoubleTap = () => {
-    const now = Date.now();
-    if (now - lastTapRef.current < 300) {
-      fitChart();
-      lastTapRef.current = 0;
-      return;
-    }
-    lastTapRef.current = now;
-  };
 
   return (
     <div className="chart-page">
@@ -293,11 +283,7 @@ export function ChartPage() {
 
       <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
 
-      <div
-        className="chart-stage"
-        onDoubleClick={fitChart}
-        onTouchEnd={onChartDoubleTap}
-      >
+      <div className="chart-stage">
         <div className="chart-host" ref={containerRef} />
         {crosshair ? (
           <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
