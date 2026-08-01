@@ -1,7 +1,7 @@
 /**
  * End-to-end check of the signal lifecycle without touching Yahoo.
  *
- * Feeds three synthetic scans through SignalTrackerService — a period close, a mid-session pass
+ * Feeds three synthetic scans through SignalTrackerService — a period close, a session pass
  * and the next period close — then asserts the Results buckets and the History aggregation.
  *
  *   npm run smoke:tracker -w @vova/api
@@ -20,7 +20,8 @@ const TICKERS = ['ZZTEST-A', 'ZZTEST-B', 'ZZTEST-C', 'ZZTEST-D'];
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
 const DAY1_CLOSE = new Date('2026-07-15T20:15:00Z');
-const DAY2_MIDDAY = new Date('2026-07-16T15:00:00Z');
+/** An hourly pass that started at 15:05 and ran past the bell — deliberately not a close scan. */
+const DAY2_OVERRUN = new Date('2026-07-16T20:05:00Z');
 const DAY2_CLOSE = new Date('2026-07-16T20:15:00Z');
 
 let failures = 0;
@@ -74,7 +75,13 @@ type Snapshot = { ticker: string; entry: number; tp: number; sl: number; rr: num
 async function fakeScan(
   runs: Model<any>,
   signals: Model<any>,
-  opts: { periodKey: string; asOf: string; finishedAt: Date; rows: Snapshot[] },
+  opts: {
+    periodKey: string;
+    asOf: string;
+    finishedAt: Date;
+    periodClose: boolean;
+    rows: Snapshot[];
+  },
 ) {
   const run = await runs.findOneAndUpdate(
     { periodKey: opts.periodKey, periodTf: 'Daily', 'params.source': 'Stocks', trigger: 'smoke' },
@@ -83,6 +90,7 @@ async function fakeScan(
         params: { source: 'Stocks', tf: 'Daily', direction: 'buy', noRrReq: true, newOnly: false },
         periodKey: opts.periodKey,
         periodTf: 'Daily',
+        periodClose: opts.periodClose,
         trigger: 'smoke',
         status: 'completed',
         asOf: opts.asOf,
@@ -177,6 +185,7 @@ async function main() {
     periodKey: '2026-07-15',
     asOf: '2026-07-15',
     finishedAt: DAY1_CLOSE,
+    periodClose: true,
     rows: [snap('ZZTEST-A', 100), snap('ZZTEST-B', 100), snap('ZZTEST-C', 100)],
   });
   const report1 = await tracker.applyRun(run1);
@@ -187,16 +196,18 @@ async function main() {
     0,
   );
 
-  // 2. Mid-session: prices move and D appears, but nothing opens or closes for good.
+  // 2. Session pass: prices move and D appears, but nothing opens or closes for good. It also
+  //    finishes after the bell, which must not be enough to make it authoritative.
   const run2 = await fakeScan(runs, signals, {
     periodKey: '2026-07-16',
     asOf: '2026-07-16',
-    finishedAt: DAY2_MIDDAY,
+    finishedAt: DAY2_OVERRUN,
+    periodClose: false,
     rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100), snap('ZZTEST-D', 100)],
   });
   const report2 = await tracker.applyRun(run2);
-  check('mid-session does not confirm', report2?.confirmed, false);
-  check('mid-session closes nothing', [report2?.closed, report2?.dropped], [0, 0]);
+  check('session pass does not confirm', report2?.confirmed, false);
+  check('session pass closes nothing', [report2?.closed, report2?.dropped], [0, 0]);
   check(
     'D is provisional',
     (await tracked.findOne({ yahooTicker: 'ZZTEST-D' }).lean<any>())?.provisional,
@@ -213,6 +224,7 @@ async function main() {
     periodKey: '2026-07-16',
     asOf: '2026-07-16',
     finishedAt: DAY2_CLOSE,
+    periodClose: true,
     rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100)],
   });
   const report3 = await tracker.applyRun(run3);

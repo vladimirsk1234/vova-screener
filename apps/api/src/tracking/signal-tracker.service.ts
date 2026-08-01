@@ -12,7 +12,6 @@ import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type OhlcSeries, type Timeframe } from '@vova/engine';
 import { SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
-import { isPeriodClosed } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
 import {
   computePnl,
@@ -87,7 +86,9 @@ export class SignalTrackerService {
     const periodKey = run.periodKey as string | undefined;
     if (!periodKey) return null;
 
-    const confirmed = isPeriodClosed(tf, run.finishedAt ? new Date(run.finishedAt) : new Date());
+    // Set when the scan started, so a long hourly pass that happens to finish after the bell
+    // cannot confirm or close anything on prices it captured while the market was open.
+    const confirmed = run.periodClose === true;
     const { maxRiskUsd } = await this.settings.get();
     const seen = await this.loadSignals(runId);
     const active = await this.tracked

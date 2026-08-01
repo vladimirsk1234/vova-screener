@@ -55,7 +55,7 @@ Lifecycle:
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr` and the unrealized numbers, and
   opens a `provisional` record for a symbol it has not seen before. That is what makes a signal
   appearing mid-session visible in NEW straight away.
-- Only a scan that runs once the period is closed (`isPeriodClosed`) confirms or closes anything:
+- Only a scan that already had its period closed when it started (`run.periodClose`) confirms or closes anything:
   provisional records are either confirmed or deleted, and confirmed records that hit TP/SL, print
   a bullish break or drop out of the scan are closed with a realized P&L. Intra-period noise
   therefore never reaches History.

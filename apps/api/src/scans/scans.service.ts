@@ -4,7 +4,7 @@ import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
-import { periodKey } from './period';
+import { isPeriodClosed, periodKey } from './period';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
 const DEFAULTS: ScanParamsApi = {
@@ -52,6 +52,7 @@ export class ScansService {
     const trigger = opts.trigger ?? 'manual';
     const key = periodKey(params.tf);
     const periodTf = params.tf;
+    const periodClose = isPeriodClosed(params.tf);
 
     let run = await this.runs
       .findOne({ periodKey: key, periodTf, 'params.source': params.source })
@@ -73,6 +74,7 @@ export class ScansService {
       run.trigger = trigger;
       run.periodKey = key;
       run.periodTf = periodTf;
+      run.periodClose = periodClose;
       run.counters = { ...EMPTY_COUNTERS };
       run.reasonCounts = {};
       run.newSymbols = [];
@@ -91,6 +93,7 @@ export class ScansService {
         status: 'queued',
         periodKey: key,
         periodTf,
+        periodClose,
         trigger,
       });
     }
