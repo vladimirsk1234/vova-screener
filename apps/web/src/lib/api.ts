@@ -110,11 +110,10 @@ export type ResultRow = {
 };
 
 export type ScanMeta = {
+  /** Period of the newest scan that produced data — the boundary between NEW and VALID. */
   periodKey: string;
   asOf: string | null;
   finishedAt: string | null;
-  barsOldestAt: string | null;
-  signals: number;
   running: boolean;
   status: string | null;
 };

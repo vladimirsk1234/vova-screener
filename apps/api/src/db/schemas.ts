@@ -54,6 +54,11 @@ export const ScanRunSchema = new Schema(
     periodKey: { type: String, index: true },
     periodTf: { type: String, index: true },
     trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
+    /**
+     * Last time this period was scanned end to end. A rescan reuses the run document and resets
+     * `status`, so this is the only field that answers "does this period have data yet".
+     */
+    lastCompletedAt: Date,
     asOf: String,
     /** Oldest Yahoo pull behind this run's bars (cache age at scan time). */
     barsOldestAt: Date,

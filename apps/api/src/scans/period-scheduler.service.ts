@@ -122,8 +122,8 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
       const key = periodKey(tf);
       for (const source of UNIVERSES) {
         const latest = await this.runs
-          .findOne({ 'params.source': source, periodTf: tf, status: 'completed' })
-          .sort({ periodKey: -1, finishedAt: -1 })
+          .findOne({ 'params.source': source, periodTf: tf, lastCompletedAt: { $exists: true } })
+          .sort({ periodKey: -1, lastCompletedAt: -1 })
           .select('periodKey')
           .lean<any>()
           .exec();

@@ -301,6 +301,7 @@ export class ScanRunnerService {
     run.summary = ctx.summary;
     run.timings = { ...run.timings, totalMs: Date.now() - ctx.startedAt };
     run.finishedAt = new Date();
+    if (status === 'completed') run.lastCompletedAt = run.finishedAt;
     await run.save();
   }
 

@@ -20,12 +20,10 @@ export type SortKey = 'rr' | 'pnl' | 'interest' | 'symbol';
 export type SortDir = 'asc' | 'desc';
 
 export type ScanMeta = {
+  /** Period of the newest scan that produced data — the boundary between NEW and VALID. */
   periodKey: string;
   asOf: string | null;
-  /** When the newest completed scan for this universe + timeframe finished. */
   finishedAt: string | null;
-  barsOldestAt: string | null;
-  signals: number;
   running: boolean;
   status: string | null;
 };
@@ -50,9 +48,14 @@ export class ResultsService {
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
   ) {}
 
+  /**
+   * A rescan of the current period reuses that period's run document and resets its status, so
+   * the bucket boundary follows `lastCompletedAt`. Reading `status` instead would move every
+   * signal one bucket for the few minutes a rescan takes.
+   */
   async scanMeta(universe: TrackedUniverse, tf: Timeframe): Promise<ScanMeta> {
     const base = { 'params.source': universe, periodTf: tf };
-    const [latest, completed] = await Promise.all([
+    const [latest, scanned] = await Promise.all([
       this.runs
         .findOne(base)
         .sort({ periodKey: -1, createdAt: -1 })
@@ -60,21 +63,19 @@ export class ResultsService {
         .lean<any>()
         .exec(),
       this.runs
-        .findOne({ ...base, status: 'completed' })
-        .sort({ periodKey: -1, finishedAt: -1 })
-        .select('periodKey asOf finishedAt barsOldestAt counters')
+        .findOne({ ...base, lastCompletedAt: { $exists: true } })
+        .sort({ periodKey: -1, lastCompletedAt: -1 })
+        .select('periodKey asOf lastCompletedAt')
         .lean<any>()
         .exec(),
     ]);
 
     return {
-      periodKey: completed?.periodKey ?? currentPeriodKey(tf),
-      asOf: completed?.asOf ?? null,
-      finishedAt: completed?.finishedAt ? new Date(completed.finishedAt).toISOString() : null,
-      barsOldestAt: completed?.barsOldestAt
-        ? new Date(completed.barsOldestAt).toISOString()
+      periodKey: scanned?.periodKey ?? currentPeriodKey(tf),
+      asOf: scanned?.asOf ?? null,
+      finishedAt: scanned?.lastCompletedAt
+        ? new Date(scanned.lastCompletedAt).toISOString()
         : null,
-      signals: completed?.counters?.signals ?? 0,
       running: RUNNING.includes(latest?.status ?? ''),
       status: latest?.status ?? null,
     };

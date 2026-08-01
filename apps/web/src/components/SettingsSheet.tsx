@@ -46,7 +46,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   };
 
   return (
-    <div className="chart-settings-sheet" role="dialog" aria-label="Settings">
+    <>
+      <div className="sheet-backdrop" onClick={onClose} aria-hidden />
+      <div className="chart-settings-sheet" role="dialog" aria-label="Settings">
       <div className="chart-settings-head">
         <strong>Settings</strong>
         <button type="button" className="btn-sm ghost" onClick={onClose}>
@@ -95,7 +97,8 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           Deleted {reset.data.deletedRuns} runs and {reset.data.deletedSignals} tracked signals.
         </p>
       ) : null}
-      {save.error ? <p className="error">{(save.error as Error).message}</p> : null}
-    </div>
+        {save.error ? <p className="error">{(save.error as Error).message}</p> : null}
+      </div>
+    </>
   );
 }

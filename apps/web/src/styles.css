@@ -338,6 +338,12 @@ a {
   font-size: 0.75rem;
 }
 
+.meta-grid strong {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
 .app-main-flush {
   padding-left: 8px;
   padding-right: 8px;
@@ -466,10 +472,14 @@ a {
 
 .signal-card-metrics {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  column-gap: 2px;
   margin-top: 4px;
   font-size: 0.8rem;
-  overflow-x: auto;
+}
+
+.signal-card-metrics > span {
   white-space: nowrap;
 }
 
@@ -715,9 +725,16 @@ a {
   white-space: pre-wrap;
 }
 
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(0, 0, 0, 0.5);
+}
+
 .chart-settings-sheet {
   position: fixed;
-  inset: auto 0 56px 0;
+  inset: auto 0 calc(var(--nav-h) + var(--safe-bottom)) 0;
   max-height: 70vh;
   overflow: auto;
   z-index: 40;
@@ -733,6 +750,11 @@ a {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.chart-settings-head .btn-sm {
+  flex: 0 0 auto;
+  padding: 0 16px;
 }
 
 .chart-settings-grid {

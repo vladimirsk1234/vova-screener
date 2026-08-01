@@ -112,29 +112,31 @@ export function HistoryPage() {
           <div className="meta-grid">
             <div>
               <span>Win rate</span>
-              {data.totals.winRatePct}%
+              <strong>{data.totals.winRatePct}%</strong>
             </div>
             <div>
               <span>Net P&amp;L</span>
-              <span className={data.totals.pnlUsd >= 0 ? 'up-text' : 'down-text'}>
+              <strong className={data.totals.pnlUsd >= 0 ? 'up-text' : 'down-text'}>
                 {signedMoney(data.totals.pnlUsd)}
-              </span>
+              </strong>
             </div>
             <div>
               <span>Closed / active</span>
-              {data.totals.closed} / {data.totals.active}
+              <strong>
+                {data.totals.closed} / {data.totals.active}
+              </strong>
             </div>
             <div>
               <span>Avg R</span>
-              {num(data.totals.avgR)}
+              <strong>{num(data.totals.avgR)}</strong>
             </div>
             <div>
               <span>Avg RR at entry</span>
-              {num(data.totals.avgRrEntry)}
+              <strong>{num(data.totals.avgRrEntry)}</strong>
             </div>
             <div>
               <span>Avg hold ({unit})</span>
-              {num(data.totals.avgHold)}
+              <strong>{num(data.totals.avgHold)}</strong>
             </div>
           </div>
           <Sparkline points={data.equity} />

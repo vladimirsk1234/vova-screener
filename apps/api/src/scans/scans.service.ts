@@ -79,10 +79,10 @@ export class ScansService {
       run.summary = null;
       run.error = undefined;
       run.cancelRequested = false;
-      run.asOf = undefined;
-      run.barsOldestAt = undefined;
       run.startedAt = undefined;
-      run.finishedAt = undefined;
+      // asOf / barsOldestAt / finishedAt keep describing the last completed pass over this
+      // period until the new one overwrites them. Results derives its bucket boundary from
+      // them, and clearing them would move every signal one bucket while a rescan is running.
       run.timings = { downloadMs: 0, processMs: 0, totalMs: 0 };
       await run.save();
     } else {
