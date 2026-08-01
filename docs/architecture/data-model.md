@@ -55,10 +55,15 @@ Lifecycle:
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr` and the unrealized numbers, and
   opens a `provisional` record for a symbol it has not seen before. That is what makes a signal
   appearing mid-session visible in NEW straight away.
-- Only a scan that already had its period closed when it started (`run.periodClose`) confirms or closes anything:
-  provisional records are either confirmed or deleted, and confirmed records that hit TP/SL, print
-  a bullish break or drop out of the scan are closed with a realized P&L. Intra-period noise
-  therefore never reaches History.
+- Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
+  closes anything: provisional records are either confirmed or deleted, and confirmed records are
+  closed with a realized P&L. Intra-period noise therefore never reaches History.
+- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost`, checked in that order on the
+  first bar after `openedAsOf`. The stop wins over the target on a bar that spans both, because the
+  path within a bar is unknowable; `sell_to_close` is the Sequence Vova bullish break, exiting at
+  that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
+  buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
+  closes positions.
 - A signal reaches VALID by surviving a period close, never by the clock: a provisional record
   whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
   confirmed records can be closed, so a signal that comes and goes inside one period leaves no

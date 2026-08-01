@@ -10,7 +10,7 @@ import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type OhlcSeries, type Timeframe } from '@vova/engine';
-import { SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
+import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { SettingsService } from '../settings/settings.module';
 import {
@@ -46,8 +46,12 @@ type ActiveDoc = {
   sl?: number;
   shares?: number;
   openedAsOf?: string;
+  openedAt?: Date;
   provisional?: boolean;
 };
+
+/** Reject reasons that mean "could not evaluate", as opposed to "evaluated, not a buy". */
+const UNEVALUATED = ['NO_DATA', 'INSUFFICIENT_DATA'];
 
 type Exit = { date: string; price: number; reason: ExitReason };
 
@@ -70,6 +74,7 @@ export class SignalTrackerService implements OnModuleInit {
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
     @InjectModel(SIGNAL) private readonly signals: Model<any>,
+    @InjectModel(REJECTION) private readonly rejections: Model<any>,
     private readonly bars: BarsService,
     private readonly settings: SettingsService,
   ) {}
@@ -136,9 +141,10 @@ export class SignalTrackerService implements OnModuleInit {
     const confirmed = run.periodClose === true;
     const { maxRiskUsd } = await this.settings.get();
     const seen = await this.loadSignals(runId);
+    const unevaluated = confirmed ? await this.loadUnevaluated(runId) : new Set<string>();
     const active = await this.tracked
       .find({ universe, tf, status: 'active' })
-      .select('yahooTicker entry tp sl shares openedAsOf provisional')
+      .select('yahooTicker entry tp sl shares openedAsOf openedAt provisional')
       .lean<ActiveDoc[]>()
       .exec();
 
@@ -192,6 +198,9 @@ export class SignalTrackerService implements OnModuleInit {
         continue;
       }
       if (!snapshot) {
+        // A symbol Yahoo could not deliver is missing from the scan for a reason that says
+        // nothing about the trade, so a data outage must never close a position.
+        if (unevaluated.has(doc.yahooTicker)) continue;
         const bar = evaluated?.lastBar;
         if (!bar) continue;
         ops.push(
@@ -247,6 +256,15 @@ export class SignalTrackerService implements OnModuleInit {
       });
     }
     return out;
+  }
+
+  private async loadUnevaluated(runId: string): Promise<Set<string>> {
+    const rows = await this.rejections
+      .find({ runId: new Types.ObjectId(runId), reason: { $in: UNEVALUATED } })
+      .select('symbol')
+      .lean<Array<{ symbol: string }>>()
+      .exec();
+    return new Set(rows.map((r) => r.symbol));
   }
 
   /** TP / SL / sell-to-close check against the bars the scan just cached. */
@@ -381,9 +399,14 @@ export class SignalTrackerService implements OnModuleInit {
   }
 }
 
-/** First bar after entry that hits SL, TP or a bullish break (sell-to-close). */
+/**
+ * First bar after entry that hits SL, TP or a bullish break (sell-to-close), in that order — SL
+ * wins when a bar spans both stop and target, because the intrabar path is unknowable.
+ */
 function findExit(bars: OhlcSeries, doc: ActiveDoc): Exit | null {
-  const since = doc.openedAsOf ?? '';
+  // Without a floor every bar in the series qualifies and the very first one would close the
+  // signal at a price from years ago, so fall back to the day the signal was opened.
+  const since = doc.openedAsOf || openedOn(doc);
   const overlay = runStructureOverlay(bars);
   for (let i = 0; i < bars.length; i++) {
     const bar = bars[i];
@@ -395,4 +418,8 @@ function findExit(bars: OhlcSeries, doc: ActiveDoc): Exit | null {
     }
   }
   return null;
+}
+
+function openedOn(doc: ActiveDoc): string {
+  return (doc.openedAt ? new Date(doc.openedAt) : new Date()).toISOString().slice(0, 10);
 }

@@ -14,13 +14,21 @@ import mongoose, { Types, type Model } from 'mongoose';
 import { encodeSeries, type OhlcSeries } from '@vova/engine';
 import { AppModule } from '../app.module';
 import { resolveMongoUri } from '../db/local-mongo';
-import { BAR_SERIES, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
+import { BAR_SERIES, REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { HistoryService } from '../tracking/history.service';
 import { ResultsService } from '../tracking/results.service';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
 import { SettingsService } from '../settings/settings.module';
 
-const TICKERS = ['ZZTEST-A', 'ZZTEST-B', 'ZZTEST-C', 'ZZTEST-D', 'ZZTEST-E'];
+const TICKERS = [
+  'ZZTEST-A',
+  'ZZTEST-B',
+  'ZZTEST-C',
+  'ZZTEST-D',
+  'ZZTEST-E',
+  'ZZTEST-F',
+  'ZZTEST-G',
+];
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
 const DAY1_CLOSE = new Date('2026-07-15T20:15:00Z');
@@ -65,13 +73,28 @@ function check(label: string, actual: unknown, expected: unknown) {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}: ${JSON.stringify(actual)}` + (ok ? '' : ` (want ${JSON.stringify(expected)})`));
 }
 
+type Tail = Array<{ date: string; high: number; low: number; close: number }>;
+
 /** Flat 100.00 series so the only interesting bars are the ones written by hand. */
-function series(tail: Array<{ date: string; high: number; low: number; close: number }>): OhlcSeries {
+function series(tail: Tail): OhlcSeries {
+  return buildSeries(tail, () => 100);
+}
+
+/**
+ * Flat, then a steady climb to 178. That is what puts the engine into a bullish sequence with a
+ * critical level, so a tail that closes back through it produces the sell-to-close break.
+ */
+function climbingSeries(tail: Tail): OhlcSeries {
+  return buildSeries(tail, (i) => (i < 80 ? 100 : 100 + (i - 80) * 2));
+}
+
+function buildSeries(tail: Tail, closeAt: (i: number) => number): OhlcSeries {
   const bars: OhlcSeries = [];
   const start = Date.UTC(2026, 0, 5);
   for (let i = 0; i < 120; i++) {
     const date = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
-    bars.push({ date, open: 100, high: 100.5, low: 99.5, close: 100, volume: 1_000_000 });
+    const close = closeAt(i);
+    bars.push({ date, open: close, high: close + 0.5, low: close - 0.5, close, volume: 1_000_000 });
   }
   for (const bar of tail) {
     bars.push({ date: bar.date, open: bar.close, high: bar.high, low: bar.low, close: bar.close, volume: 1_000_000 });
@@ -108,12 +131,15 @@ type Snapshot = { ticker: string; entry: number; tp: number; sl: number; rr: num
 async function fakeScan(
   runs: Model<any>,
   signals: Model<any>,
+  rejections: Model<any>,
   opts: {
     periodKey: string;
     asOf: string;
     finishedAt: Date;
     periodClose: boolean;
     rows: Snapshot[];
+    /** Symbols Yahoo could not deliver, recorded the way a real scan records them. */
+    noData?: string[];
   },
 ) {
   const run = await runs.findOneAndUpdate(
@@ -137,6 +163,16 @@ async function fakeScan(
 
   const runId = String(run._id);
   await signals.deleteMany({ runId: new Types.ObjectId(runId) });
+  await rejections.deleteMany({ runId: new Types.ObjectId(runId) });
+  if (opts.noData?.length) {
+    await rejections.insertMany(
+      opts.noData.map((symbol) => ({
+        runId: new Types.ObjectId(runId),
+        symbol,
+        reason: 'NO_DATA',
+      })),
+    );
+  }
   if (opts.rows.length) {
     await signals.insertMany(
       opts.rows.map((row) => ({
@@ -177,18 +213,21 @@ async function main() {
   const signals = app.get<Model<any>>(getModelToken(SIGNAL));
   const tracked = app.get<Model<any>>(getModelToken(TRACKED_SIGNAL));
   const barSeries = app.get<Model<any>>(getModelToken(BAR_SERIES));
+  const rejections = app.get<Model<any>>(getModelToken(REJECTION));
 
   const oldRuns = await runs.find({ trigger: 'smoke' }).select('_id').lean<any[]>();
   await Promise.all([
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({ runId: { $in: oldRuns.map((r) => r._id) } }),
+    rejections.deleteMany({ runId: { $in: oldRuns.map((r) => r._id) } }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);
 
   // A drifts up, B runs through its target on day 2, C gaps down through its stop, D only ever
-  // shows mid-session, E shows mid-session across two periods whose closes are never scanned.
-  const tails: Record<string, Array<{ date: string; high: number; low: number; close: number }>> = {
+  // shows mid-session, E shows mid-session across two periods whose closes are never scanned,
+  // F goes missing because Yahoo failed, G sells to close on a bullish break.
+  const tails: Record<string, Tail> = {
     'ZZTEST-A': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
       { date: '2026-07-16', high: 106, low: 100, close: 105 },
@@ -209,8 +248,20 @@ async function main() {
       { date: '2026-07-17', high: 101, low: 99, close: 100 },
       { date: '2026-07-20', high: 101, low: 99, close: 100 },
     ],
+    'ZZTEST-F': [
+      { date: '2026-07-15', high: 101, low: 99, close: 100 },
+      { date: '2026-07-16', high: 101, low: 99, close: 100 },
+    ],
+    // Rides the climb, then closes back through the critical level on day 2.
+    'ZZTEST-G': [
+      { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
+      { date: '2026-07-16', high: 169, low: 167, close: 168 },
+    ],
   };
-  for (const ticker of TICKERS) await saveBars(barSeries, ticker, series(tails[ticker]));
+  for (const ticker of TICKERS) {
+    const build = ticker === 'ZZTEST-G' ? climbingSeries : series;
+    await saveBars(barSeries, ticker, build(tails[ticker]));
+  }
 
   /** Distinct RRs so the sort assertions have something to order by. */
   const RR: Record<string, number> = {
@@ -219,6 +270,8 @@ async function main() {
     'ZZTEST-C': 3,
     'ZZTEST-D': 1,
     'ZZTEST-E': 4,
+    'ZZTEST-F': 2.5,
+    'ZZTEST-G': 1.5,
   };
   const snap = (ticker: string, entry: number): Snapshot => ({
     ticker,
@@ -228,16 +281,22 @@ async function main() {
     rr: RR[ticker],
   });
 
-  // 1. Period close: A, B and C open as confirmed signals.
-  const run1 = await fakeScan(runs, signals, {
+  // 1. Period close: A, B, C, F and G open as confirmed signals.
+  const run1 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-15',
     asOf: '2026-07-15',
     finishedAt: DAY1_CLOSE,
     periodClose: true,
-    rows: [snap('ZZTEST-A', 100), snap('ZZTEST-B', 100), snap('ZZTEST-C', 100)],
+    rows: [
+      snap('ZZTEST-A', 100),
+      snap('ZZTEST-B', 100),
+      snap('ZZTEST-C', 100),
+      snap('ZZTEST-F', 100),
+      snap('ZZTEST-G', 180),
+    ],
   });
   const report1 = await tracker.applyRun(run1);
-  check('day 1 close confirms', [report1?.confirmed, report1?.opened], [true, 3]);
+  check('day 1 close confirms', [report1?.confirmed, report1?.opened], [true, 5]);
   check(
     'day 1 provisional count',
     await tracked.countDocuments({ yahooTicker: { $in: TICKERS }, provisional: true }),
@@ -246,7 +305,7 @@ async function main() {
 
   // 2. Session pass: prices move and D appears, but nothing opens or closes for good. It also
   //    finishes after the bell, which must not be enough to make it authoritative.
-  const run2 = await fakeScan(runs, signals, {
+  const run2 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-16',
     asOf: '2026-07-16',
     finishedAt: DAY2_OVERRUN,
@@ -267,23 +326,35 @@ async function main() {
     50, // $100 risk / $10 stop distance = 10 shares × $5
   );
 
-  // 3. Next period close: B takes its target, C is stopped out, D never confirmed, A rolls into VALID.
-  const run3 = await fakeScan(runs, signals, {
+  // 3. Next period close: B takes its target, C is stopped out, G sells to close on the bullish
+  //    break, D was never confirmed, F is only missing because Yahoo failed, A rolls into VALID.
+  const run3 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-16',
     asOf: '2026-07-16',
     finishedAt: DAY2_CLOSE,
     periodClose: true,
-    rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100)],
+    rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100), snap('ZZTEST-G', 180)],
+    noData: ['ZZTEST-F'],
   });
   const report3 = await tracker.applyRun(run3);
-  check('day 2 close', [report3?.closed, report3?.dropped, report3?.refreshed], [2, 1, 1]);
+  check('day 2 close', [report3?.closed, report3?.dropped, report3?.refreshed], [3, 1, 1]);
 
   const closed = await tracked.findOne({ yahooTicker: 'ZZTEST-C' }).lean<any>();
   check('C stopped out', [closed?.status, closed?.exitReason, closed?.exitPrice], ['closed', 'SL', 90]);
   check('C realized P&L', [closed?.pnlUsd, closed?.pnlR], [-100, -1]);
   const won = await tracked.findOne({ yahooTicker: 'ZZTEST-B' }).lean<any>();
   check('B took its target', [won?.exitReason, won?.exitPrice, won?.pnlUsd, won?.pnlR], ['TP', 120, 200, 2]);
+  // Neither stop nor target was touched: the structure break is what ends the trade.
+  const broke = await tracked.findOne({ yahooTicker: 'ZZTEST-G' }).lean<any>();
+  check(
+    'G sells to close on the bullish break',
+    [broke?.exitReason, broke?.exitPrice, broke?.exitDate, broke?.pnlUsd],
+    ['sell_to_close', 168, '2026-07-16', -72],
+  );
   check('D dropped', await tracked.countDocuments({ yahooTicker: 'ZZTEST-D' }), 0);
+  // A scan that could not price a symbol says nothing about the trade, so F stays open.
+  const outage = await tracked.findOne({ yahooTicker: 'ZZTEST-F' }).lean<any>();
+  check('a data outage does not close a signal', [outage?.status, outage?.exitReason], ['active', undefined]);
 
   const buckets = await Promise.all(
     (['new', 'valid', 'closed'] as const).map((bucket) =>
@@ -293,14 +364,17 @@ async function main() {
   check(
     'buckets new/valid/closed',
     buckets.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).length),
-    [0, 1, 2],
+    [0, 2, 3],
   );
   check(
     'valid marked to market',
     (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid', sort: 'pnl' })).rows
       .filter((r) => TICKERS.includes(r.yahooTicker))
       .map((r) => [r.symbol, r.pnlUsd]),
-    [['ZZTEST-A', 50]],
+    [
+      ['ZZTEST-A', 50],
+      ['ZZTEST-F', 0],
+    ],
   );
 
   // CLOSED orders by RR at entry, the live buckets by the RR of the latest scan.
@@ -308,8 +382,8 @@ async function main() {
     (await results.list({ universe: 'Stocks', tf: 'Daily', bucket, sort: 'rr', dir })).rows
       .filter((r) => TICKERS.includes(r.yahooTicker))
       .map((r) => r.symbol);
-  check('closed sorted by RR desc', await byRr('closed', 'desc'), ['ZZTEST-B', 'ZZTEST-C']);
-  check('closed sorted by RR asc', await byRr('closed', 'asc'), ['ZZTEST-C', 'ZZTEST-B']);
+  check('closed sorted by RR desc', await byRr('closed', 'desc'), ['ZZTEST-B', 'ZZTEST-C', 'ZZTEST-G']);
+  check('closed sorted by RR asc', await byRr('closed', 'asc'), ['ZZTEST-G', 'ZZTEST-C', 'ZZTEST-B']);
 
   const marked = await results.setInterest(buckets[1].rows[0].id, 'interested');
   check('interest saved', marked.interest, 'interested');
@@ -322,7 +396,7 @@ async function main() {
 
   // 4. A close scan is missed (machine asleep at 16:15) and E stays provisional while the period
   //    rolls over. Age alone must not promote it: VALID is earned by surviving a close.
-  const run4 = await fakeScan(runs, signals, {
+  const run4 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-17',
     asOf: '2026-07-17',
     finishedAt: new Date('2026-07-17T15:00:00Z'),
@@ -330,7 +404,7 @@ async function main() {
     rows: [snap('ZZTEST-E', 100)],
   });
   await tracker.applyRun(run4);
-  const run5 = await fakeScan(runs, signals, {
+  const run5 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-20',
     asOf: '2026-07-20',
     finishedAt: new Date('2026-07-20T15:00:00Z'),
@@ -349,16 +423,17 @@ async function main() {
   check(
     'unconfirmed signal stays in NEW',
     rolled.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol)),
-    [['ZZTEST-E'], ['ZZTEST-A']],
+    // Default sort is RR descending: F still carries its opening 2.5, A was refreshed down to 2.
+    [['ZZTEST-E'], ['ZZTEST-F', 'ZZTEST-A']],
   );
   check('NEW sorted by RR desc', await byRr('new', 'desc'), ['ZZTEST-E']);
 
   const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
   const day = stats.periods.find((p) => p.periodKey === '2026-07-16');
-  check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [2, 1, 100]);
-  check('history avg RR at entry', day?.avgRrEntry, 4); // B 5 and C 3
-  // A only: E is active but still provisional, so it is not an open position yet.
-  check('history counts confirmed positions only', stats.totals.active, 1);
+  check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [3, 1, 28]);
+  check('history avg RR at entry', day?.avgRrEntry, 3.17); // B 5, C 3, G 1.5
+  // A and F: E is active but still provisional, so it is not an open position yet.
+  check('history counts confirmed positions only', stats.totals.active, 2);
   check(
     'history periods sortable by RR',
     (await history.report({ tf: 'Daily', groupBy: 'Daily', sort: 'rr', dir: 'desc' })).periods[0]
@@ -386,12 +461,19 @@ async function main() {
     sort: 'rr',
     dir: 'desc',
   });
-  check('history drill-down sorted by RR', drill.rows.map((r) => r.symbol), ['ZZTEST-B', 'ZZTEST-C']);
+  check(
+    'history drill-down sorted by RR',
+    drill.rows.map((r) => r.symbol),
+    ['ZZTEST-B', 'ZZTEST-C', 'ZZTEST-G'],
+  );
 
   await Promise.all([
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({
+      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+    }),
+    rejections.deleteMany({
       runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
     }),
     runs.deleteMany({ trigger: 'smoke' }),
