@@ -68,7 +68,7 @@ export type BuySignal = {
   positionValue: number;
   isNew: boolean;
   isStrong: boolean;
-  /** Bars of the scanned timeframe since the signal became valid: 0 means "on the latest bar". */
+  /** Bars of the scanned timeframe since the signal appeared: 0 means "on the latest bar". */
   barsSinceValid: number | null;
   validSinceAsOf: string | null;
   atr: number;
@@ -97,7 +97,7 @@ export type ResultRow = {
   isStrong: boolean;
   openedPeriodKey: string;
   openedAsOf: string | null;
-  /** Bars of `tf` since the signal became valid: 0 in NEW, 1 or more in VALID. */
+  /** Bars of `tf` since the signal appeared: 0 in NEW, 1 or more in VALID. */
   barsSinceValid: number | null;
   validSinceAsOf: string | null;
   lastPrice: number | null;
@@ -325,7 +325,10 @@ export type ChartPayload = {
     valid: boolean;
     isNew: boolean;
     strong: boolean;
-    /** Bars since the signal became valid: 0 means "on the latest bar", as in the Results tabs. */
+    /**
+     * Bars since the signal appeared: 0 means "on the latest bar", exactly as in the Results tabs.
+     * Measured with the RR requirement off, so `minRr` here cannot change it.
+     */
     barsSinceValid: number | null;
     validSinceAsOf: string | null;
     tp: number | null;

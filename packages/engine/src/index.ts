@@ -7,6 +7,7 @@ export * from './evaluate';
 export * from './indicatorParams';
 export * from './indicators';
 export * from './sequenceVovaFull';
+export * from './signalAge';
 export * from './watermark';
 export {
   calcAtr,

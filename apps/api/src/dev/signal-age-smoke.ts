@@ -1,11 +1,15 @@
 /**
  * The NEW / VALID split, end to end and without touching Yahoo.
  *
- * Two synthetic symbols per timeframe: one whose signal becomes valid on the latest bar, one that
- * has been valid for four bars by the time the scanner meets it for the first time. Nothing here
- * writes an age by hand — a real scan runs through `ScanRunnerService`, the real tracker opens the
- * records and the real Results reads sort them, so the whole chain is under test. A signal older
- * than the record that carries it belongs in VALID, which is the case that used to land in NEW.
+ * Two synthetic symbols per timeframe: one whose signal appears on the latest bar, one that has been
+ * running for four bars by the time the scanner meets it for the first time. Nothing here writes an
+ * age by hand — a real scan runs through `ScanRunnerService`, the real tracker opens the records and
+ * the real Results reads sort them, so the whole chain is under test. A signal older than the record
+ * that carries it belongs in VALID, which is the case that used to land in NEW.
+ *
+ * Two things the split has broken on before are checked as well: the chart badge must read the same
+ * age as the tabs even with the default RR settings, and records written before the age existed must
+ * be filled in on boot instead of sitting in VALID until the next scan of their timeframe.
  *
  *   npm run smoke:age -w @vova/api
  */
@@ -16,6 +20,7 @@ import { encodeSeries, runSequenceVovaPine, type OhlcSeries, type Timeframe } fr
 import { AppModule } from '../app.module';
 import { BAR_SERIES, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { InstrumentsService } from '../instruments/instruments.service';
+import { SignalAgeBackfill } from '../migrations/signal-age-backfill.service';
 import { ScansService } from '../scans/scans.service';
 import { ResultsService } from '../tracking/results.service';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
@@ -97,6 +102,7 @@ async function main() {
   const tracker = app.get(SignalTrackerService);
   const results = app.get(ResultsService);
   const instruments = app.get(InstrumentsService);
+  const ageBackfill = app.get(SignalAgeBackfill);
   const runs = app.get<Model<any>>(getModelToken(SCAN_RUN));
   const signals = app.get<Model<any>>(getModelToken(SIGNAL));
   const tracked = app.get<Model<any>>(getModelToken(TRACKED_SIGNAL));
@@ -160,35 +166,65 @@ async function main() {
 
     check(`${tf}: both open as tracked signals`, (await tracker.applyRun(runId))?.opened, 2);
 
-    const [newList, validList] = await Promise.all([
-      results.list({ universe: 'Stocks', tf, bucket: 'new' }),
-      results.list({ universe: 'Stocks', tf, bucket: 'valid' }),
-    ]);
     const symbolsIn = (rows: Array<{ yahooTicker: string }>) =>
       rows.filter((r) => tickers.includes(r.yahooTicker)).map((r) => r.yahooTicker);
+    const buckets = async () => {
+      const [newList, validList] = await Promise.all([
+        results.list({ universe: 'Stocks', tf, bucket: 'new' }),
+        results.list({ universe: 'Stocks', tf, bucket: 'valid' }),
+      ]);
+      return { newList, validList, split: [symbolsIn(newList.rows), symbolsIn(validList.rows)] };
+    };
+
+    const first = await buckets();
     check(
-      `${tf}: the breakout is NEW, the four-bar-old signal is VALID`,
-      [symbolsIn(newList.rows), symbolsIn(validList.rows)],
+      `${tf}: the new signal is NEW, the four-bar-old signal is VALID`,
+      first.split,
       [[freshTicker], [oldTicker]],
     );
     check(
       `${tf}: the VALID row carries the age of the signal`,
-      validList.rows
+      first.validList.rows
         .filter((r) => r.yahooTicker === oldTicker)
         .map((r) => [r.barsSinceValid, r.validSinceAsOf]),
       [[4, validSince]],
     );
 
-    // The chart badge reads the same number, so a symbol cannot be NEW on one screen and VALID on
-    // the other.
-    const chartOpts = { minRr: 0, noRrReq: true };
+    // The chart reads the same age as the tabs on the settings the chart screen actually sends —
+    // `min_rr: 1.5` with the RR requirement on — because RR decides nothing about NEW vs VALID.
     check(
-      `${tf}: the chart agrees with the tabs`,
+      `${tf}: the chart agrees with the tabs on the default RR settings`,
       [
-        (await instruments.chart(freshTicker, tf, chartOpts)).pine?.barsSinceValid,
-        (await instruments.chart(oldTicker, tf, chartOpts)).pine?.barsSinceValid,
+        (await instruments.chart(freshTicker, tf)).pine?.barsSinceValid,
+        (await instruments.chart(oldTicker, tf)).pine?.barsSinceValid,
       ],
       [0, 4],
+    );
+
+    // What a deploy finds in the database: records written before the age was stored. They can only
+    // land in VALID, which empties NEW for a whole timeframe until its next scan — so the boot
+    // backfill has to rebuild the ages from the bar cache.
+    await tracked.updateMany(
+      { yahooTicker: { $in: tickers } },
+      { $unset: { barsSinceValid: '', validSinceAsOf: '' } },
+    );
+    check(`${tf}: records with no age all fall into VALID`, (await buckets()).split, [
+      [],
+      [freshTicker, oldTicker].sort(),
+    ]);
+
+    const report = await ageBackfill.run();
+    check(`${tf}: the backfill fills both records`, [report.filled, report.skipped], [2, 0]);
+    check(`${tf}: the split is back after the backfill`, (await buckets()).split, [
+      [freshTicker],
+      [oldTicker],
+    ]);
+    check(
+      `${tf}: the backfilled age matches the scan`,
+      (await buckets()).validList.rows
+        .filter((r) => r.yahooTicker === oldTicker)
+        .map((r) => [r.barsSinceValid, r.validSinceAsOf]),
+      [[4, validSince]],
     );
 
     await Promise.all([

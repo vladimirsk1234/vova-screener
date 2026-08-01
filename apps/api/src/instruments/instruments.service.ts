@@ -10,6 +10,7 @@ import {
   maxBarsForTf,
   runSequenceVovaFull,
   runSequenceVovaPine,
+  signalAge,
   type IndicatorParams,
   type Timeframe,
 } from '@vova/engine';
@@ -58,12 +59,16 @@ export class InstrumentsService {
     });
 
     const full = runSequenceVovaFull(bars, { params });
+    // The overlays above are drawn with the params the caller asked for, TradingView-style. The
+    // signal state below is not: `min_rr` is the only thing these two options change, and RR is a
+    // number this app reports rather than a gate it applies. TP, SL and RR come out the same either
+    // way, while VALID / NEW / STRONG stay the structural answer the Results tabs are built on.
     const pine = runSequenceVovaPine(bars, {
       atr_len: params.atr_len,
-      min_rr: params.min_rr,
+      min_rr: 0,
       use_last_hl_sl: params.use_last_hl_sl,
       risk_dollars: params.risk_dollars,
-      no_rr_req: params.no_rr_req,
+      no_rr_req: true,
       direction: 'buy',
     });
 
@@ -174,12 +179,7 @@ export class InstrumentsService {
             valid: pine.Valid,
             isNew: pine.New,
             strong: pine.Strong,
-            // Same number the Results tabs split on, so the badge here cannot disagree with them.
-            barsSinceValid: pine.bars_since_valid,
-            validSinceAsOf:
-              pine.valid_since_index != null
-                ? (bars[pine.valid_since_index]?.date ?? null)
-                : null,
+            ...signalAge(bars),
             tp: Number.isFinite(pine.TP) ? pine.TP : null,
             sl: Number.isFinite(pine.SL) ? pine.SL : null,
             rr: Number.isFinite(pine.RR) ? pine.RR : null,
@@ -211,16 +211,20 @@ export class InstrumentsService {
         continue;
       }
       const full = runSequenceVovaFull(bars, { atr_len: ATR_LEN });
-      const pine = runSequenceVovaPine(bars, { atr_len: ATR_LEN, direction: 'buy' });
+      // Same rule as the background scans: RR is reported, never required.
+      const pine = runSequenceVovaPine(bars, {
+        atr_len: ATR_LEN,
+        direction: 'buy',
+        min_rr: 0,
+        no_rr_req: true,
+      });
       out[tf] = {
         asOf: bars[bars.length - 1].date,
         seqState: full ? full.seq_state_final : null,
         lastPeakWasHh: pine?.last_peak_was_hh ?? null,
         lastTroughWasHl: pine?.last_trough_was_hl ?? null,
         valid: pine?.Valid ?? false,
-        barsSinceValid: pine?.bars_since_valid ?? null,
-        validSinceAsOf:
-          pine?.valid_since_index != null ? (bars[pine.valid_since_index]?.date ?? null) : null,
+        ...signalAge(bars),
         rr: pine && Number.isFinite(pine.RR) ? pine.RR : null,
         close: bars[bars.length - 1].close,
       };
