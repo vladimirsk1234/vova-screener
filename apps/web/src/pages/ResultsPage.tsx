@@ -15,6 +15,7 @@ import {
 import { formatAge, TF_SHORT } from '../lib/format';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SignalCard } from '../components/SignalCard';
+import { SortChips, type SortOption } from '../components/SortChips';
 
 const PAGE_SIZE = 100;
 
@@ -24,11 +25,11 @@ const BUCKET_LABEL: Record<Bucket, string> = {
   closed: 'Closed',
 };
 
-const SORTS: Array<{ value: ResultSort; label: string }> = [
+const SORTS: SortOption<ResultSort>[] = [
   { value: 'rr', label: 'RR' },
   { value: 'pnl', label: 'P&L' },
   { value: 'interest', label: 'Marked' },
-  { value: 'symbol', label: 'A-Z' },
+  { value: 'symbol', label: 'A-Z', from: 'asc' },
 ];
 
 const BUCKET_HINT: Record<Bucket, string> = {
@@ -121,11 +122,6 @@ export function ResultsPage() {
     }
   }, [universe, tf, bucket, sort, dir, page.isLoading, queryClient]);
 
-  const setSort = (next: ResultSort) => {
-    const nextDir: SortDir = sort === next && dir === 'desc' ? 'asc' : 'desc';
-    setSearch({ sort: next, dir: nextDir }, { replace: true });
-  };
-
   if (!universe) return <Navigate to="/results/Stocks/Daily/new" replace />;
 
   const scanAge = formatAge(scan?.finishedAt);
@@ -171,19 +167,12 @@ export function ResultsPage() {
             {scan?.running ? 'Scanning now' : scanAge ? `Scanned ${scanAge}` : 'No scan yet'}
             {scan?.asOf ? ` · bar ${scan.asOf}` : ''}
           </span>
-          <div className="sort-row">
-            {SORTS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`sort-chip${sort === option.value ? ' active' : ''}`}
-                onClick={() => setSort(option.value)}
-              >
-                {option.label}
-                {sort === option.value ? (dir === 'desc' ? ' ↓' : ' ↑') : ''}
-              </button>
-            ))}
-          </div>
+          <SortChips
+            options={SORTS}
+            value={sort}
+            dir={dir}
+            onChange={(next, nextDir) => setSearch({ sort: next, dir: nextDir }, { replace: true })}
+          />
         </div>
       </section>
 

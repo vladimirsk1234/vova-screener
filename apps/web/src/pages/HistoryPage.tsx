@@ -12,6 +12,7 @@ import {
 import { holdLabel, money, num, periodLabel, signedMoney } from '../lib/format';
 import { Chips } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
+import { SortChips } from '../components/SortChips';
 
 const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
 
@@ -20,6 +21,7 @@ const PERIOD_SORTS: Array<{ value: HistoryPeriodSort; label: string }> = [
   { value: 'pnl', label: 'P&L' },
   { value: 'winRate', label: 'Win %' },
   { value: 'trades', label: 'Count' },
+  { value: 'rr', label: 'RR' },
 ];
 
 const TRADE_SORTS: Array<{ value: HistoryTradeSort; label: string }> = [
@@ -152,22 +154,16 @@ export function HistoryPage() {
         <section className="card">
           <div className="stack-row">
             <h3 style={{ margin: 0 }}>Periods</h3>
-            <div className="sort-row">
-              {PERIOD_SORTS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`sort-chip${periodSort === option.value ? ' active' : ''}`}
-                  onClick={() => {
-                    setPeriodDir(periodSort === option.value && periodDir === 'desc' ? 'asc' : 'desc');
-                    setPeriodSort(option.value);
-                  }}
-                >
-                  {option.label}
-                  {periodSort === option.value ? (periodDir === 'desc' ? ' ↓' : ' ↑') : ''}
-                </button>
-              ))}
-            </div>
+            <SortChips
+              label="Sort periods"
+              options={PERIOD_SORTS}
+              value={periodSort}
+              dir={periodDir}
+              onChange={(next, dir) => {
+                setPeriodSort(next);
+                setPeriodDir(dir);
+              }}
+            />
           </div>
 
           {data.periods.length === 0 ? (
@@ -208,22 +204,16 @@ export function HistoryPage() {
             </button>
           ) : null}
         </div>
-        <div className="sort-row">
-          {TRADE_SORTS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`sort-chip${tradeSort === option.value ? ' active' : ''}`}
-              onClick={() => {
-                setTradeDir(tradeSort === option.value && tradeDir === 'desc' ? 'asc' : 'desc');
-                setTradeSort(option.value);
-              }}
-            >
-              {option.label}
-              {tradeSort === option.value ? (tradeDir === 'desc' ? ' ↓' : ' ↑') : ''}
-            </button>
-          ))}
-        </div>
+        <SortChips
+          label="Sort closed signals"
+          options={TRADE_SORTS}
+          value={tradeSort}
+          dir={tradeDir}
+          onChange={(next, dir) => {
+            setTradeSort(next);
+            setTradeDir(dir);
+          }}
+        />
         {trades.data && trades.data.rows.length === 0 ? (
           <p className="muted">Nothing closed here yet.</p>
         ) : null}
