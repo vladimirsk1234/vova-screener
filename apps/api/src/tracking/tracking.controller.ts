@@ -89,7 +89,9 @@ export class HistoryController {
     return this.history.report({
       tf: parseHistoryTf(tf),
       groupBy: parseTf(groupBy ?? tf),
-      sort: (['period', 'pnl', 'winRate', 'trades'] as PeriodSort[]).includes(sort as PeriodSort)
+      sort: (['period', 'pnl', 'winRate', 'trades', 'rr'] as PeriodSort[]).includes(
+        sort as PeriodSort,
+      )
         ? (sort as PeriodSort)
         : 'period',
       dir: parseDir(dir),

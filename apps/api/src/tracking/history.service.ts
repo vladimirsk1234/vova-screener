@@ -12,7 +12,7 @@ import {
 } from './tracked-signal';
 
 export type HistoryTf = Timeframe | 'All';
-export type PeriodSort = 'period' | 'pnl' | 'winRate' | 'trades';
+export type PeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
 export type TradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
 export type SortDir = 'asc' | 'desc';
 
@@ -250,7 +250,15 @@ function finalizePeriod(row: any): HistoryPeriod {
 function sortPeriods(periods: HistoryPeriod[], sort: PeriodSort, dir: SortDir): HistoryPeriod[] {
   const order = dir === 'asc' ? 1 : -1;
   const value = (p: HistoryPeriod) =>
-    sort === 'pnl' ? p.pnlUsd : sort === 'winRate' ? p.winRatePct : sort === 'trades' ? p.trades : 0;
+    sort === 'pnl'
+      ? p.pnlUsd
+      : sort === 'winRate'
+        ? p.winRatePct
+        : sort === 'trades'
+          ? p.trades
+          : sort === 'rr'
+            ? (p.avgRrEntry ?? 0)
+            : 0;
   return [...periods].sort((a, b) => {
     if (sort === 'period') return a.periodKey.localeCompare(b.periodKey) * order;
     return (value(a) - value(b)) * order || a.periodKey.localeCompare(b.periodKey) * -1;

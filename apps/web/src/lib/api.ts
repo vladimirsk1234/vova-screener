@@ -170,7 +170,7 @@ export type HistoryReport = {
   };
 };
 
-export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades';
+export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
 export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
 
 export type AppSettings = { maxRiskUsd: number };
