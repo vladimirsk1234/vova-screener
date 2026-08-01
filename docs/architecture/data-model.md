@@ -30,11 +30,10 @@ A failed Yahoo fetch falls back to stale cache rather than dropping the symbol.
 
 - `counters`: `total`, `downloaded`, `evaluated`, `signals`, `rejected`, `skipped`, `fromCache`
 - `reasonCounts`: reject/skip reason histogram (why a scan produced few signals)
-- `newSymbols`: symbols absent from the previous completed run with the same source/tf/direction
-- `summary`: sell-scan aggregate (win rate, net P&L, invested, avg RR)
+- `newSymbols`: symbols absent from the previous completed run with the same source and timeframe
 
 ### `signals`
-One document per BUY/SELL row: `{ runId, kind, symbol, yahooTicker, companyName, isNew, isStrong, rr, payload }`.
+One document per buy signal: `{ runId, kind, symbol, yahooTicker, companyName, isNew, isStrong, rr, payload }`.
 Index `{ runId, symbol }`. Charts read bars from `barSeries`, so no bar snapshot is duplicated here.
 
 ### `scanRejections`
@@ -58,7 +57,8 @@ Lifecycle:
 - Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
   closes anything: provisional records are either confirmed or deleted, and confirmed records are
   closed with a realized P&L. Intra-period noise therefore never reaches History.
-- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost`, checked in that order on the
+- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost` (plus `manual` on imported
+  journal rows), checked in that order on the
   first bar after `openedAsOf`. The stop wins over the target on a bar that spans both, because the
   path within a bar is unknowable; `sell_to_close` is the Sequence Vova bullish break, exiting at
   that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a

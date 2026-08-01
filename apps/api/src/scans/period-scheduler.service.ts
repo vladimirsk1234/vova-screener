@@ -37,7 +37,6 @@ const MONTHLY_CLOSE_CRON = process.env.VOVA_MONTHLY_CLOSE_CRON || '25 16 * * 1-5
  * positions are alive. `noRrReq: true` is the "MIN RR = any" rule — RR is a sort key, not a filter.
  */
 const BASE_PARAMS: Omit<ScanParamsApi, 'source' | 'tf' | 'riskPerTrade'> = {
-  direction: 'buy',
   minRr: 0,
   noRrReq: true,
   useLastHlSl: true,

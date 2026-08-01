@@ -60,6 +60,8 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   or ticker; Valid and Closed carry P&L
 - Scans never filter on RR (MIN RR is "any"), so RR is a sort key rather than a gate — every list
   in the app, Results, Manual and History alike, can be ordered by it
+- Every scan is a buy scan; there is no direction to pick. Selling is what closes a position, and
+  the tracker decides that on its own
 - A signal reaches Valid only by surviving a period close, so one that appears and disappears
   inside a single period never gets a P&L and never lands in History
 - Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —

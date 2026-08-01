@@ -7,11 +7,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import {
-  buildSellSummary,
   evaluateSymbol,
+  type BuySignal,
   type EvaluateParams,
-  type SellSignal,
-  type Signal,
   type Timeframe,
 } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL } from '../db/schemas';
@@ -26,7 +24,6 @@ export type ScanParamsApi = {
   source: SourceLabelApi;
   manualTickers?: string;
   tf: Timeframe;
-  direction: 'buy' | 'sell';
   minRr: number;
   riskPerTrade: number;
   noRrReq: boolean;
@@ -81,13 +78,12 @@ export class ScanRunnerService {
       await run.save();
 
       if (!total) {
-        await this.finish(run, 'completed', { startedAt, asOf: null, summary: null });
+        await this.finish(run, 'completed', { startedAt, asOf: null });
         this.publish(runId, 'completed', 100, 'Nothing to scan');
         return;
       }
 
       const evalParams: EvaluateParams = {
-        direction: params.direction,
         minRr: params.minRr,
         riskPerTrade: params.riskPerTrade,
         noRrReq: params.noRrReq,
@@ -107,7 +103,7 @@ export class ScanRunnerService {
         fromCache: 0,
       };
       const reasonCounts: Record<string, number> = {};
-      const collectedSignals: Signal[] = [];
+      const collectedSignals: BuySignal[] = [];
       let signalBuffer: any[] = [];
       let rejectionBuffer: any[] = [];
       let asOf: string | null = null;
@@ -177,8 +173,8 @@ export class ScanRunnerService {
               yahooTicker: signal.yahooTicker,
               companyName: signal.companyName,
               isNew: signal.isNew,
-              isStrong: signal.kind === 'buy' ? signal.isStrong : false,
-              rr: signal.kind === 'buy' ? signal.rr : signal.rrAtEntry,
+              isStrong: signal.isStrong,
+              rr: signal.rr,
               payload: signal,
             });
           } else {
@@ -228,11 +224,6 @@ export class ScanRunnerService {
         ...counters,
       });
 
-      const summary =
-        params.direction === 'sell'
-          ? buildSellSummary(collectedSignals.filter((s): s is SellSignal => s.kind === 'sell'))
-          : null;
-
       const newSymbols = await this.computeNewSymbols(run, collectedSignals);
 
       run.counters = counters;
@@ -242,7 +233,6 @@ export class ScanRunnerService {
       await this.finish(run, cancelled ? 'cancelled' : 'completed', {
         startedAt,
         asOf: asOf ?? evaluatedAsOf,
-        summary,
       });
 
       this.publish(
@@ -270,7 +260,7 @@ export class ScanRunnerService {
   }
 
   /** Symbols that were not present in the previous completed run of the same shape. */
-  private async computeNewSymbols(run: any, signals: Signal[]): Promise<string[]> {
+  private async computeNewSymbols(run: any, signals: BuySignal[]): Promise<string[]> {
     const symbols = signals.map((s) => s.symbol);
     if (!symbols.length) return [];
     const prev = await this.runs
@@ -279,7 +269,6 @@ export class ScanRunnerService {
         status: 'completed',
         'params.source': run.params.source,
         'params.tf': run.params.tf,
-        'params.direction': run.params.direction,
       })
       .sort({ createdAt: -1 })
       .select('_id')
@@ -294,11 +283,10 @@ export class ScanRunnerService {
   private async finish(
     run: any,
     status: 'completed' | 'cancelled',
-    ctx: { startedAt: number; asOf: string | null; summary: unknown },
+    ctx: { startedAt: number; asOf: string | null },
   ) {
     run.status = status;
     run.asOf = ctx.asOf;
-    run.summary = ctx.summary;
     run.timings = { ...run.timings, totalMs: Date.now() - ctx.startedAt };
     run.finishedAt = new Date();
     if (status === 'completed') run.lastCompletedAt = run.finishedAt;

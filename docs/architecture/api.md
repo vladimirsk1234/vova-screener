@@ -49,16 +49,16 @@ the bell and ran past it.
 | GET | `/scans/defaults` | Server-side default params |
 | POST | `/scans` | Create run, start it out-of-request, return `{ runId, params }` |
 | GET | `/scans?limit=` | Run history, newest first |
-| GET | `/scans/:id` | Run detail: status, counters, `reasonCounts`, timings, `newSymbols`, sell summary, `asOf` (scored bar date), `barsOldestAt` (oldest Yahoo pull) |
+| GET | `/scans/:id` | Run detail: status, counters, `reasonCounts`, timings, `newSymbols`, `asOf` (scored bar date), `barsOldestAt` (oldest Yahoo pull) |
 | GET | `/scans/:id/signals?limit&offset&onlyNew&onlyStrong` | Signal rows + run + `newSymbols` |
 | GET | `/scans/:id/rejections?limit=` | Rejected symbols + reason breakdown; each row carries `detail` (`barDate`, `close`, `criticalLevel`, `seqState`, `rr`, `sl`, `tp`, `minRr`) |
 | GET | `/scans/:id/events` | SSE progress stream |
 | POST | `/scans/:id/cancel` | Cooperative cancel (flag + in-process abort) |
 | DELETE | `/scans/history` | Drop every run, signal, rejection and tracked signal |
 
-Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `direction`,
-`minRr`, `riskPerTrade`, `noRrReq`, `useLastHlSl`, `newOnly`, `minAvgVolume`, `maxSymbols`,
-`barsMaxAgeHours`, `forceRefresh`.
+Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `minRr`,
+`riskPerTrade`, `noRrReq`, `useLastHlSl`, `newOnly`, `minAvgVolume`, `maxSymbols`,
+`barsMaxAgeHours`, `forceRefresh`. Every scan is a buy scan: there is no direction to pick.
 
 ## Instruments / universe
 
@@ -96,8 +96,8 @@ and in `reasonCounts`. HTTP 4xx/5xx is reserved for bad requests and infrastruct
 BUY reasons follow the order of the Python oracle `sequence_vova.explain_invalid_buy`, so the
 first failing gate is reported: `NO_SEQ_UP` (close is below the critical level — the sequence is
 not up), `NO_STRUCT_HL`, `NO_STRUCT_HH`, `STRUCT_INVALID`, `NO_REWARD`, `NO_RISK`,
-`RR_TOO_LOW:1.02 (min 1.50)`, `NO_VALID_SIGNAL`. Plus `NO_HH_LAST_PEAK` (BUY hard guard),
-`NO_CLOSE_SIGNAL` (SELL to close), `NO_DATA`, `INSUFFICIENT_DATA`, `LOW_VOL`.
+`RR_TOO_LOW:1.02 (min 1.50)`, `NO_VALID_SIGNAL`. Plus `NO_HH_LAST_PEAK` (buy hard guard),
+`NO_DATA`, `INSUFFICIENT_DATA`, `LOW_VOL`.
 
 A `NO_SEQ_UP` symbol can be VALID on a live TradingView chart at the same moment: TradingView
 scores the in-progress bar, the scan scores the stored snapshot named by `detail.barDate`.

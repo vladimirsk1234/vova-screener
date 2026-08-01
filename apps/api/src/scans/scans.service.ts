@@ -11,7 +11,6 @@ const DEFAULTS: ScanParamsApi = {
   source: 'MANUAL SCAN',
   manualTickers: 'AAPL, TSLA, NVDA',
   tf: 'Daily',
-  direction: 'buy',
   minRr: 1.5,
   riskPerTrade: 100,
   noRrReq: true,
@@ -78,7 +77,6 @@ export class ScansService {
       run.counters = { ...EMPTY_COUNTERS };
       run.reasonCounts = {};
       run.newSymbols = [];
-      run.summary = null;
       run.error = undefined;
       run.cancelRequested = false;
       run.startedAt = undefined;

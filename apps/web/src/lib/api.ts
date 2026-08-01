@@ -4,10 +4,9 @@ export type Timeframe = 'Daily' | 'Weekly' | 'Monthly';
 export type HistoryTf = Timeframe | 'All';
 export type Universe = 'Stocks' | 'ETF';
 export type SourceLabel = Universe | 'MANUAL SCAN';
-export type Direction = 'buy' | 'sell';
 export type Bucket = 'new' | 'valid' | 'closed';
 export type Interest = 'interested' | 'not_interested';
-export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost';
+export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost' | 'manual';
 
 export const TIMEFRAMES = ['Daily', 'Weekly', 'Monthly'] as const satisfies readonly Timeframe[];
 export const UNIVERSES = ['Stocks', 'ETF'] as const satisfies readonly Universe[];
@@ -17,7 +16,6 @@ export type ScanParams = {
   source: SourceLabel;
   manualTickers: string;
   tf: Timeframe;
-  direction: Direction;
   minRr: number;
   riskPerTrade: number;
   noRrReq: boolean;

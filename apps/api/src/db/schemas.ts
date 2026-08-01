@@ -84,7 +84,6 @@ export const ScanRunSchema = new Schema(
       totalMs: { type: Number, default: 0 },
     },
     newSymbols: { type: [String], default: [] },
-    summary: { type: Schema.Types.Mixed, default: null },
     cancelRequested: { type: Boolean, default: false },
     error: String,
     startedAt: Date,
@@ -98,7 +97,7 @@ ScanRunSchema.index({ periodKey: 1, periodTf: 1, 'params.source': 1 });
 export const SignalSchema = new Schema(
   {
     runId: { type: Schema.Types.ObjectId, required: true, index: true },
-    kind: { type: String, enum: ['buy', 'sell'], required: true },
+    kind: { type: String, enum: ['buy'], required: true },
     symbol: { type: String, required: true },
     yahooTicker: { type: String, required: true },
     companyName: String,
