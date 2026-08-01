@@ -70,11 +70,14 @@ export function ChartPage() {
     }
   }, [drawingsQ.data, ticker, tf]);
 
+  const appSettings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const maxRiskUsd = appSettings.data?.maxRiskUsd;
+
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
   const chart = useQuery({
-    queryKey: ['chart', ticker, tf, numeric],
-    queryFn: () => api.chart(ticker, tf, numeric),
-    enabled: Boolean(ticker) && settingsReady,
+    queryKey: ['chart', ticker, tf, numeric, maxRiskUsd],
+    queryFn: () => api.chart(ticker, tf, numeric, maxRiskUsd),
+    enabled: Boolean(ticker) && settingsReady && maxRiskUsd != null,
   });
 
   const savePreset = useMutation({
@@ -154,7 +157,8 @@ export function ChartPage() {
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
   const row = tracked.data ?? null;
-  const riskUsd = row?.riskUsd || settings.risk_dollars || 100;
+  // A tracked signal carries the risk it was sized at; anything else uses the current setting.
+  const riskUsd = row?.riskUsd || maxRiskUsd || 100;
 
   const tradeMetrics = useMemo(() => {
     const entry = row?.entry ?? pine?.close ?? null;

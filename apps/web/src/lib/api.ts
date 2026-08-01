@@ -214,7 +214,6 @@ export type ChartSettings = {
   min_rr: number;
   no_rr_req: boolean;
   use_last_hl_sl: boolean;
-  risk_dollars: number;
   bg_color: string;
   paper_color: string;
   grid_color: string;
@@ -427,12 +426,13 @@ export const api = {
     }),
 
   // Charts / universe / chart presets
-  chart: (ticker: string, tf: Timeframe, params?: Partial<ChartSettings>) => {
+  /** `riskUsd` is the global Max risk setting — position size has one source everywhere. */
+  chart: (ticker: string, tf: Timeframe, params?: Partial<ChartSettings>, riskUsd?: number) => {
     const q = new URLSearchParams({ tf });
+    if (riskUsd != null && Number.isFinite(riskUsd)) q.set('riskPerTrade', String(riskUsd));
     if (params) {
       const num: Array<[string, number | undefined]> = [
         ['minRr', params.min_rr],
-        ['riskPerTrade', params.risk_dollars],
         ['lenFast', params.len_fast],
         ['lenSlow', params.len_slow],
         ['lengthMajor', params.length_major],

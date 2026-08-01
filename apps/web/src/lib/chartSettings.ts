@@ -12,7 +12,6 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   min_rr: 1.5,
   no_rr_req: false,
   use_last_hl_sl: true,
-  risk_dollars: 100,
   bg_color: '#707585',
   paper_color: '#2a2e39',
   grid_color: '#363a45',
@@ -87,6 +86,5 @@ export function numericChartParams(s: ChartSettings): Partial<ChartSettings> {
     min_rr: s.min_rr,
     no_rr_req: s.no_rr_req,
     use_last_hl_sl: s.use_last_hl_sl,
-    risk_dollars: s.risk_dollars,
   };
 }
