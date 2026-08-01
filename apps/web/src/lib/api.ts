@@ -1,8 +1,17 @@
 /** REST client for @vova/api. Same-origin /api (Vite proxy in dev). */
 
 export type Timeframe = 'Daily' | 'Weekly' | 'Monthly';
-export type SourceLabel = 'Stocks' | 'ETF' | 'MANUAL SCAN';
+export type HistoryTf = Timeframe | 'All';
+export type Universe = 'Stocks' | 'ETF';
+export type SourceLabel = Universe | 'MANUAL SCAN';
 export type Direction = 'buy' | 'sell';
+export type Bucket = 'new' | 'valid' | 'closed';
+export type Interest = 'interested' | 'not_interested';
+export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost';
+
+export const TIMEFRAMES = ['Daily', 'Weekly', 'Monthly'] as const satisfies readonly Timeframe[];
+export const UNIVERSES = ['Stocks', 'ETF'] as const satisfies readonly Universe[];
+export const BUCKETS = ['new', 'valid', 'closed'] as const satisfies readonly Bucket[];
 
 export type ScanParams = {
   source: SourceLabel;
@@ -24,7 +33,6 @@ export type ScanRun = {
   params: ScanParams;
   status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
   asOf: string | null;
-  /** Oldest Yahoo pull behind the scanned bars. */
   barsOldestAt?: string | null;
   periodKey?: string;
   periodTf?: Timeframe;
@@ -41,7 +49,6 @@ export type ScanRun = {
   reasonCounts: Record<string, number>;
   timings: { totalMs: number };
   newSymbols: string[];
-  summary: SellSummary | null;
   error?: string;
   createdAt: string;
 };
@@ -63,29 +70,111 @@ export type BuySignal = {
   isStrong: boolean;
   atr: number;
   asOf: string;
-  interestMark?: 'interested' | null;
 };
 
-export type SellSignal = {
-  kind: 'sell';
+/** One tracked signal, as rendered by Results and History. */
+export type ResultRow = {
+  id: string;
   symbol: string;
   tvSymbol: string;
   yahooTicker: string;
   companyName: string;
-  tvUrl: string;
+  universe: Universe;
+  tf: Timeframe;
+  status: 'active' | 'closed';
+  provisional: boolean;
   entry: number;
-  exit: number;
+  tp: number | null;
+  sl: number | null;
+  rr: number | null;
+  currentRr: number | null;
   shares: number;
-  rrAtEntry: number | null;
-  rrAtClose: number | null;
-  invested: number;
-  pnlUsd: number;
-  pnlPct: number;
-  isNew: boolean;
-  asOf: string;
+  positionValue: number;
+  riskUsd: number;
+  isStrong: boolean;
+  openedPeriodKey: string;
+  openedAsOf: string | null;
+  lastPrice: number | null;
+  lastSeenAsOf: string | null;
+  /** Unrealized while active, realized once closed. */
+  pnlUsd: number | null;
+  pnlR: number | null;
+  pnlPct: number | null;
+  realized: boolean;
+  closedPeriodKey: string | null;
+  exitDate: string | null;
+  exitPrice: number | null;
+  exitReason: ExitReason | null;
+  holdPeriods: number | null;
+  interest: Interest | null;
 };
 
-export type Signal = BuySignal | SellSignal;
+export type ScanMeta = {
+  periodKey: string;
+  asOf: string | null;
+  finishedAt: string | null;
+  barsOldestAt: string | null;
+  signals: number;
+  running: boolean;
+  status: string | null;
+};
+
+export type ResultSort = 'rr' | 'pnl' | 'interest' | 'symbol';
+export type SortDir = 'asc' | 'desc';
+
+export type ResultsPage = {
+  universe: Universe;
+  tf: Timeframe;
+  bucket: Bucket;
+  sort: ResultSort;
+  dir: SortDir;
+  total: number;
+  rows: ResultRow[];
+  scan: ScanMeta;
+};
+
+export type BucketCounts = { new: number; valid: number; closed: number };
+export type ResultsSummary = Record<
+  Universe,
+  Record<Timeframe, { counts: BucketCounts; scan: ScanMeta }>
+>;
+
+export type HistoryPeriod = {
+  periodKey: string;
+  trades: number;
+  wins: number;
+  winRatePct: number;
+  pnlUsd: number;
+  invested: number;
+  avgR: number | null;
+  avgRrEntry: number | null;
+  avgHold: number | null;
+};
+
+export type HistoryReport = {
+  tf: HistoryTf;
+  groupBy: Timeframe;
+  holdUnit: string;
+  periods: HistoryPeriod[];
+  equity: Array<{ periodKey: string; equity: number }>;
+  exitReasons: Array<{ reason: string; count: number }>;
+  totals: {
+    closed: number;
+    active: number;
+    wins: number;
+    winRatePct: number;
+    pnlUsd: number;
+    invested: number;
+    avgR: number | null;
+    avgRrEntry: number | null;
+    avgHold: number | null;
+  };
+};
+
+export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades';
+export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
+
+export type AppSettings = { maxRiskUsd: number };
 
 /** Engine numbers behind a reject, for side-by-side comparison with TradingView. */
 export type RejectDetail = {
@@ -104,96 +193,6 @@ export type Rejection = {
   symbol: string;
   reason: string;
   detail?: RejectDetail | null;
-};
-
-export type SellSummary = {
-  count: number;
-  winRatePct: number;
-  shares: number;
-  avgEntryRr: number;
-  avgCloseRr: number;
-  invested: number;
-  pnlUsd: number;
-  pnlPct: number;
-};
-
-export type TradeStatus = 'interested' | 'not_interested' | 'open' | 'closed' | 'dismissed';
-
-export type Trade = {
-  _id: string;
-  symbol: string;
-  yahooTicker: string;
-  companyName?: string;
-  tf: Timeframe;
-  openedAt: string;
-  asOf?: string;
-  entry: number;
-  tp?: number;
-  sl?: number;
-  rrAtEntry?: number;
-  shares: number;
-  riskUsd: number;
-  status: TradeStatus;
-  source?: 'auto' | 'manual';
-  periodKey?: string;
-  exitPrice?: number;
-  exitDate?: string;
-  exitReason?: string;
-  pnlUsd?: number;
-  pnlR?: number;
-  currentPrice?: number | null;
-  unrealizedUsd?: number | null;
-  unrealizedR?: number | null;
-  unrealizedPct?: number | null;
-  investedUsd?: number | null;
-};
-
-export type PerformanceReport = {
-  tf: Timeframe;
-  holdUnit: 'days' | 'weeks' | 'months';
-  periods: Array<{
-    periodKey: string;
-    trades: number;
-    wins: number;
-    winRatePct: number;
-    pnlUsd: number;
-    avgR: number | null;
-    avgRrEntry: number | null;
-    avgRrExit: number | null;
-    avgHold: number | null;
-  }>;
-  equity: Array<{ date: string; equity: number }>;
-  totals: {
-    closed: number;
-    open: number;
-    wins: number;
-    winRatePct: number;
-    pnlUsd: number;
-    avgR: number | null;
-    avgRrEntry: number | null;
-    avgRrExit: number | null;
-    avgHold: number | null;
-  };
-};
-
-export type MonthlyReport = {
-  months: Array<{
-    month: string;
-    trades: number;
-    wins: number;
-    winRatePct: number;
-    pnlUsd: number;
-    avgR: number | null;
-  }>;
-  equity: Array<{ date: string; equity: number }>;
-  totals: {
-    closed: number;
-    open: number;
-    wins: number;
-    winRatePct: number;
-    pnlUsd: number;
-    avgR: number | null;
-  };
 };
 
 export type Bar = {
@@ -352,46 +351,83 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function query(params: Record<string, string | number | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') q.set(key, String(value));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
 export const api = {
-  health: () =>
-    request<{ ok: boolean; universe: { stocks: number; etf: number; total: number }; cache: { series: number; bars: number } }>(
-      '/health',
-    ),
+  // Results — always the latest background scan, never started from the UI.
+  results: (opts: {
+    universe: Universe;
+    tf: Timeframe;
+    bucket: Bucket;
+    sort?: ResultSort;
+    dir?: SortDir;
+    limit?: number;
+    offset?: number;
+  }) => request<ResultsPage>(`/results${query(opts)}`),
+  resultsSummary: () => request<ResultsSummary>('/results/summary'),
+  lookupSignal: (yahooTicker: string, tf: Timeframe) =>
+    request<ResultRow | null>(`/results/lookup${query({ yahooTicker, tf })}`),
+  setInterest: (id: string, interest: Interest | null) =>
+    request<ResultRow>(`/results/${id}/interest`, {
+      method: 'PATCH',
+      body: JSON.stringify({ interest }),
+    }),
+
+  // History — statistics over closed tracked signals.
+  history: (opts: {
+    tf: HistoryTf;
+    groupBy: Timeframe;
+    sort?: HistoryPeriodSort;
+    dir?: SortDir;
+  }) => request<HistoryReport>(`/history${query(opts)}`),
+  historyTrades: (opts: {
+    tf: HistoryTf;
+    groupBy?: Timeframe;
+    periodKey?: string;
+    sort?: HistoryTradeSort;
+    dir?: SortDir;
+    limit?: number;
+    offset?: number;
+  }) => request<{ total: number; rows: ResultRow[] }>(`/history/trades${query(opts)}`),
+
+  // Settings
+  settings: () => request<AppSettings>('/settings'),
+  saveSettings: (patch: Partial<AppSettings>) =>
+    request<AppSettings>('/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+
+  // Manual scan
   startScan: (params: Partial<ScanParams>) =>
     request<{ runId: string; params: ScanParams }>('/scans', {
       method: 'POST',
       body: JSON.stringify(params),
     }),
-  cancelScan: (runId: string) => request<{ ok: boolean }>(`/scans/${runId}/cancel`, { method: 'POST' }),
-  runs: (opts: { limit?: number; tf?: Timeframe } | number = 30) => {
-    const limit = typeof opts === 'number' ? opts : (opts.limit ?? 30);
-    const tf = typeof opts === 'number' ? undefined : opts.tf;
-    const q = new URLSearchParams({ limit: String(limit) });
-    if (tf) q.set('tf', tf);
-    return request<ScanRun[]>(`/scans?${q.toString()}`);
-  },
-  resetHistory: () =>
-    request<{ ok: boolean; deletedRuns: number }>('/scans/history', { method: 'DELETE' }),
+  cancelScan: (runId: string) =>
+    request<{ ok: boolean }>(`/scans/${runId}/cancel`, { method: 'POST' }),
   run: (runId: string) => request<ScanRun>(`/scans/${runId}`),
-  signals: (runId: string, opts: { onlyNew?: boolean; onlyStrong?: boolean; limit?: number } = {}) => {
-    const q = new URLSearchParams();
-    if (opts.onlyNew) q.set('onlyNew', 'true');
-    if (opts.onlyStrong) q.set('onlyStrong', 'true');
-    q.set('limit', String(opts.limit ?? 300));
-    return request<{
-      run: ScanRun;
-      count: number;
-      rows: Signal[];
-      newSymbols: string[];
-      interestMarks?: { interested: string[]; notInterested: string[] };
-    }>(`/scans/${runId}/signals?${q.toString()}`);
-  },
+  signals: (runId: string, opts: { onlyStrong?: boolean; limit?: number } = {}) =>
+    request<{ run: ScanRun; count: number; rows: BuySignal[]; newSymbols: string[] }>(
+      `/scans/${runId}/signals${query({
+        onlyStrong: opts.onlyStrong ? 'true' : undefined,
+        limit: opts.limit ?? 300,
+      })}`,
+    ),
   rejections: (runId: string, limit = 500) =>
-    request<{
-      rows: Rejection[];
-      reasonCounts: Record<string, number>;
-      total: number;
-    }>(`/scans/${runId}/rejections?limit=${limit}`),
+    request<{ rows: Rejection[]; reasonCounts: Record<string, number>; total: number }>(
+      `/scans/${runId}/rejections?limit=${limit}`,
+    ),
+  resetHistory: () =>
+    request<{ ok: boolean; deletedRuns: number; deletedSignals: number }>('/scans/history', {
+      method: 'DELETE',
+    }),
+
+  // Charts / universe / chart presets
   chart: (ticker: string, tf: Timeframe, params?: Partial<ChartSettings>) => {
     const q = new URLSearchParams({ tf });
     if (params) {
@@ -412,70 +448,7 @@ export const api = {
       if (params.use_last_hl_sl != null) q.set('useLastHlSl', String(params.use_last_hl_sl));
       if (params.no_rr_req != null) q.set('noRrReq', String(params.no_rr_req));
     }
-    return request<ChartPayload>(
-      `/instruments/${encodeURIComponent(ticker)}/chart?${q.toString()}`,
-    );
-  },
-  status: (ticker: string) =>
-    request<{
-      yahooTicker: string;
-      timeframes: Record<
-        string,
-        null | {
-          asOf: string;
-          seqState: number | null;
-          lastPeakWasHh: boolean | null;
-          lastTroughWasHl: boolean | null;
-          valid: boolean;
-          rr: number | null;
-          close: number;
-        }
-      >;
-    }>(`/instruments/${encodeURIComponent(ticker)}/status`),
-  trades: (opts?: { status?: TradeStatus; tf?: Timeframe } | TradeStatus) => {
-    const status = typeof opts === 'string' ? opts : opts?.status;
-    const tf = typeof opts === 'string' ? undefined : opts?.tf;
-    const q = new URLSearchParams();
-    if (status) q.set('status', status);
-    if (tf) q.set('tf', tf);
-    const qs = q.toString();
-    return request<Trade[]>(`/trades${qs ? `?${qs}` : ''}`);
-  },
-  createTrade: (body: Record<string, unknown>) =>
-    request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
-  updateTradeRisk: (id: string, riskUsd: number) =>
-    request<Trade>(`/trades/${id}/risk`, {
-      method: 'PATCH',
-      body: JSON.stringify({ riskUsd }),
-    }),
-  closeTrade: (id: string, body: { exitPrice: number; exitReason?: string }) =>
-    request<Trade>(`/trades/${id}/close`, { method: 'POST', body: JSON.stringify(body) }),
-  dismissTrade: (id: string) =>
-    request<Trade>(`/trades/${id}/dismiss`, { method: 'POST' }),
-  deleteTrade: (id: string) => request<{ ok: boolean }>(`/trades/${id}`, { method: 'DELETE' }),
-  refreshTrades: () =>
-    request<{ checked: number; closed: number }>('/trades/refresh', { method: 'POST' }),
-  monthly: () => request<MonthlyReport>('/reports/monthly'),
-  performance: (tf: Timeframe = 'Daily') =>
-    request<PerformanceReport>(`/reports/performance?tf=${encodeURIComponent(tf)}`),
-  downloadPerformanceReport: async (tf: Timeframe = 'Daily') => {
-    const res = await fetch(`/api/reports/export?tf=${encodeURIComponent(tf)}`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
-    }
-    const blob = await res.blob();
-    const disposition = res.headers.get('Content-Disposition') ?? '';
-    const match = /filename="([^"]+)"/.exec(disposition);
-    const filename = match?.[1] ?? `vova-pnl-${tf.toLowerCase()}.csv`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    return request<ChartPayload>(`/instruments/${encodeURIComponent(ticker)}/chart?${q.toString()}`);
   },
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),

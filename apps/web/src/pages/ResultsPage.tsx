@@ -1,234 +1,218 @@
-import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api, type BuySignal, type SellSignal, type Signal } from '../lib/api';
-import { formatDataAge } from '../lib/freshness';
-import { Switch } from '../components/Chips';
+import { useEffect, useMemo } from 'react';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  BUCKETS,
+  TIMEFRAMES,
+  UNIVERSES,
+  api,
+  type Bucket,
+  type ResultSort,
+  type SortDir,
+  type Timeframe,
+  type Universe,
+} from '../lib/api';
+import { formatAge, TF_SHORT } from '../lib/format';
+import { SegmentedTabs } from '../components/SegmentedTabs';
+import { SignalCard } from '../components/SignalCard';
 
-function money(n: number) {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const PAGE_SIZE = 100;
+
+const BUCKET_LABEL: Record<Bucket, string> = {
+  new: 'New',
+  valid: 'Valid',
+  closed: 'Closed',
+};
+
+const SORTS: Array<{ value: ResultSort; label: string }> = [
+  { value: 'rr', label: 'RR' },
+  { value: 'pnl', label: 'P&L' },
+  { value: 'interest', label: 'Marked' },
+  { value: 'symbol', label: 'A-Z' },
+];
+
+const BUCKET_HINT: Record<Bucket, string> = {
+  new: 'Signals that appeared in the current period.',
+  valid: 'Signals from earlier periods that are still valid, marked to market.',
+  closed: 'Signals closed in the current period.',
+};
+
+function isUniverse(value: string | undefined): value is Universe {
+  return UNIVERSES.includes(value as Universe);
 }
 
-function BuyCard({
-  signal,
-  runId,
-  riskUsd,
-  tf,
-  periodKey,
-}: {
-  signal: BuySignal;
-  runId: string;
-  riskUsd: number;
-  tf: string;
-  periodKey?: string;
-}) {
-  const navigate = useNavigate();
-  const openChart = () =>
-    navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`, {
-      state: { signal, runId, riskUsd, tf, periodKey },
-    });
-
-  return (
-    <article
-      className="card signal-card compact"
-      role="button"
-      tabIndex={0}
-      onClick={openChart}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') openChart();
-      }}
-    >
-      <div className="signal-card-line1">
-        <div className="signal-card-title">
-          <strong>{signal.symbol}</strong>
-          <span className="muted ellipsis">({signal.companyName})</span>
-          {signal.interestMark === 'interested' ? (
-            <span className="badge up">INTERESTED</span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="signal-card-metrics">
-        <span>
-          <span className="lbl">E</span> {money(signal.entry)}
-        </span>
-        <span className="sep">·</span>
-        <span>
-          <span className="lbl">TP</span> {money(signal.tp)}
-        </span>
-        <span className="sep">·</span>
-        <span>
-          <span className="lbl">SL</span> {money(signal.sl)}
-        </span>
-        <span className="sep">·</span>
-        <span>
-          <span className="lbl">Sh</span> {signal.shares}
-        </span>
-        <span className="sep">·</span>
-        <span>
-          <span className="lbl">$</span> {money(signal.positionValue)}
-        </span>
-        <span className="sep">·</span>
-        <span>
-          <span className="lbl">RR</span> {signal.rr ?? 'n/a'}
-        </span>
-      </div>
-    </article>
-  );
+function isTimeframe(value: string | undefined): value is Timeframe {
+  return TIMEFRAMES.includes(value as Timeframe);
 }
 
-function SellCard({ signal }: { signal: SellSignal }) {
-  const navigate = useNavigate();
-  const positive = signal.pnlUsd >= 0;
-  return (
-    <article
-      className="card signal-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`);
-      }}
-    >
-      <div className="stack-row">
-        <strong>{signal.symbol}</strong>
-        <span className={`badge ${positive ? 'up' : 'down'}`}>
-          {positive ? '+' : ''}
-          {money(signal.pnlUsd)} ({signal.pnlPct}%)
-        </span>
-      </div>
-      <p className="muted ellipsis">{signal.companyName}</p>
-      <div className="meta-grid">
-        <div>
-          <span>Entry</span>
-          {money(signal.entry)}
-        </div>
-        <div>
-          <span>Exit</span>
-          {money(signal.exit)}
-        </div>
-        <div>
-          <span>RR entry</span>
-          {signal.rrAtEntry ?? 'n/a'}
-        </div>
-        <div>
-          <span>RR close</span>
-          {signal.rrAtClose ?? 'n/a'}
-        </div>
-      </div>
-    </article>
-  );
+function isBucket(value: string | undefined): value is Bucket {
+  return BUCKETS.includes(value as Bucket);
 }
 
 export function ResultsPage() {
-  const { runId = '' } = useParams();
-  const [onlyNew, setOnlyNew] = useState(false);
-  const [onlyStrong, setOnlyStrong] = useState(false);
+  const params = useParams();
+  const [search, setSearch] = useSearchParams();
+  const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['signals', runId, onlyNew, onlyStrong],
-    queryFn: () => api.signals(runId, { onlyNew, onlyStrong }),
+  const universe = isUniverse(params.universe) ? params.universe : null;
+  const tf = isTimeframe(params.tf) ? params.tf : 'Daily';
+  const bucket = isBucket(params.bucket) ? params.bucket : 'new';
+  const sort = (search.get('sort') as ResultSort | null) ?? (bucket === 'closed' ? 'pnl' : 'rr');
+  const dir = (search.get('dir') as SortDir | null) ?? 'desc';
+
+  const summary = useQuery({
+    queryKey: ['results-summary'],
+    queryFn: api.resultsSummary,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
 
-  if (isLoading) return <p className="empty">Loading results…</p>;
-  if (error) {
-    const msg = (error as Error).message;
-    const gone = /404|not found/i.test(msg);
-    if (gone) {
-      try {
-        localStorage.removeItem('vova.activeRunId');
-      } catch {
-        /* ignore */
-      }
-    }
-    return (
-      <div className="card">
-        <p className="error">{gone ? 'This scan was deleted or never existed (history was reset).' : msg}</p>
-        <p className="muted">Start a new scan from the Scan tab, or open a run from History.</p>
-        <div className="card-actions">
-          <Link className="btn-sm" to="/">
-            Scan
-          </Link>
-          <Link className="btn-sm ghost" to="/history">
-            History
-          </Link>
-        </div>
-      </div>
-    );
-  }
-  if (!data) return <p className="empty">No data</p>;
+  const page = useInfiniteQuery({
+    queryKey: ['results', universe, tf, bucket, sort, dir],
+    enabled: Boolean(universe),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.results({
+        universe: universe as Universe,
+        tf,
+        bucket,
+        sort,
+        dir,
+        limit: PAGE_SIZE,
+        offset: pageParam,
+      }),
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((sum, p) => sum + p.rows.length, 0);
+      return loaded < last.total ? loaded : undefined;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
 
-  const { run, rows, count } = data;
-  const dataAge = formatDataAge(run.barsOldestAt);
+  const rows = useMemo(() => page.data?.pages.flatMap((p) => p.rows) ?? [], [page.data]);
+  const first = page.data?.pages[0];
+  const counts = universe ? summary.data?.[universe]?.[tf]?.counts : undefined;
+  const scan = first?.scan ?? (universe ? summary.data?.[universe]?.[tf]?.scan : undefined);
+
+  // Switching timeframe or bucket is the most common gesture here, so warm the neighbours.
+  useEffect(() => {
+    if (!universe || page.isLoading) return;
+    const neighbours: Array<{ tf: Timeframe; bucket: Bucket }> = [
+      ...TIMEFRAMES.filter((t) => t !== tf).map((t) => ({ tf: t, bucket })),
+      ...BUCKETS.filter((b) => b !== bucket).map((b) => ({ tf, bucket: b })),
+    ];
+    for (const next of neighbours) {
+      void queryClient.prefetchInfiniteQuery({
+        queryKey: ['results', universe, next.tf, next.bucket, sort, dir],
+        initialPageParam: 0,
+        queryFn: () =>
+          api.results({
+            universe,
+            tf: next.tf,
+            bucket: next.bucket,
+            sort,
+            dir,
+            limit: PAGE_SIZE,
+            offset: 0,
+          }),
+        staleTime: 60_000,
+      });
+    }
+  }, [universe, tf, bucket, sort, dir, page.isLoading, queryClient]);
+
+  const setSort = (next: ResultSort) => {
+    const nextDir: SortDir = sort === next && dir === 'desc' ? 'asc' : 'desc';
+    setSearch({ sort: next, dir: nextDir }, { replace: true });
+  };
+
+  if (!universe) return <Navigate to="/results/Stocks/Daily/new" replace />;
+
+  const scanAge = formatAge(scan?.finishedAt);
 
   return (
     <div>
-      <section className="card">
-        <div className="stack-row">
-          <h2 style={{ margin: 0 }}>Results</h2>
-          <span className="badge">{count}</span>
+      <section className="results-head">
+        <SegmentedTabs
+          label="Universe"
+          segments={[
+            ...UNIVERSES.map((u) => ({
+              value: u,
+              to: `/results/${u}/${tf}/${bucket}`,
+              label: u,
+            })),
+            { value: 'manual' as const, to: '/results/manual', label: 'Manual' },
+          ]}
+        />
+
+        <SegmentedTabs
+          label="Timeframe"
+          size="sm"
+          segments={TIMEFRAMES.map((t) => ({
+            value: t,
+            to: `/results/${universe}/${t}/${bucket}`,
+            label: TF_SHORT[t],
+          }))}
+        />
+
+        <SegmentedTabs
+          label="Bucket"
+          size="sm"
+          segments={BUCKETS.map((b) => ({
+            value: b,
+            to: `/results/${universe}/${tf}/${b}`,
+            label: BUCKET_LABEL[b],
+            badge: counts?.[b],
+          }))}
+        />
+
+        <div className="results-meta">
+          <span className="muted small">
+            {scan?.running ? 'Scanning now' : scanAge ? `Scanned ${scanAge}` : 'No scan yet'}
+            {scan?.asOf ? ` · bar ${scan.asOf}` : ''}
+          </span>
+          <div className="sort-row">
+            {SORTS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`sort-chip${sort === option.value ? ' active' : ''}`}
+                onClick={() => setSort(option.value)}
+              >
+                {option.label}
+                {sort === option.value ? (dir === 'desc' ? ' ↓' : ' ↑') : ''}
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="muted">
-          {run.params.source} · {run.params.direction.toUpperCase()} · {run.params.tf}
-          {run.asOf ? ` · bar ${run.asOf}` : ''}
-        </p>
-        {dataAge ? (
-          <p className="muted small">
-            Bars pulled {dataAge}. TradingView shows the live in-progress bar, this run scored the
-            snapshot above.
-          </p>
-        ) : null}
-        <Switch label="New only" checked={onlyNew} onChange={setOnlyNew} />
-        {run.params.direction === 'buy' ? (
-          <Switch label="Strong only" checked={onlyStrong} onChange={setOnlyStrong} />
-        ) : null}
-        <Link className="link-row" to={`/runs/${runId}/rejected`}>
-          Rejected ({run.counters.rejected}) · Skipped ({run.counters.skipped ?? 0})
-        </Link>
       </section>
 
-      {run.summary ? (
-        <section className="card accent-border">
-          <h3>Sell summary</h3>
-          <div className="meta-grid">
-            <div>
-              <span>Win rate</span>
-              {run.summary.winRatePct}%
-            </div>
-            <div>
-              <span>Net P&amp;L</span>
-              {money(run.summary.pnlUsd)}
-            </div>
-            <div>
-              <span>Invested</span>
-              {money(run.summary.invested)}
-            </div>
-            <div>
-              <span>Avg RR entry</span>
-              {run.summary.avgEntryRr}
-            </div>
-          </div>
-        </section>
+      {page.isLoading ? <p className="empty">Loading…</p> : null}
+      {page.error ? <p className="error">{(page.error as Error).message}</p> : null}
+
+      {!page.isLoading && rows.length === 0 ? (
+        <p className="empty">
+          Nothing here. {BUCKET_HINT[bucket]}
+          {scan?.running ? ' A scan is running right now.' : ''}
+        </p>
       ) : null}
 
-      {rows.length === 0 ? (
-        <p className="empty">No signals matched. Check rejected reasons for why.</p>
-      ) : (
-        rows.map((signal: Signal) =>
-          signal.kind === 'buy' ? (
-            <BuyCard
-              key={signal.yahooTicker}
-              signal={signal}
-              runId={runId}
-              riskUsd={run.params.riskPerTrade ?? 0}
-              tf={run.params.tf}
-              periodKey={run.periodKey}
-            />
-          ) : (
-            <SellCard key={signal.yahooTicker} signal={signal} />
-          ),
-        )
-      )}
+      {rows.map((row) => (
+        <SignalCard key={row.id} row={row} bucket={bucket} />
+      ))}
+
+      {page.hasNextPage ? (
+        <button
+          type="button"
+          className="btn btn-accent"
+          disabled={page.isFetchingNextPage}
+          onClick={() => void page.fetchNextPage()}
+        >
+          {page.isFetchingNextPage
+            ? 'Loading…'
+            : `Load more (${rows.length} of ${first?.total ?? 0})`}
+        </button>
+      ) : null}
     </div>
   );
 }

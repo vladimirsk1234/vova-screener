@@ -1,52 +1,73 @@
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { ScanPage } from './pages/ScanPage';
+import { Suspense, lazy, useState } from 'react';
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { HistoryPage } from './pages/HistoryPage';
-import { TradesPage } from './pages/TradesPage';
-import { PnlPage } from './pages/PnlPage';
-import { ResultsPage } from './pages/ResultsPage';
+import { ManualPage } from './pages/ManualPage';
 import { RejectedPage } from './pages/RejectedPage';
-import { ChartPage } from './pages/ChartPage';
+import { ResultsPage } from './pages/ResultsPage';
+import { SettingsSheet } from './components/SettingsSheet';
 
-const tabs = [
-  { to: '/', label: 'Scan', end: true },
-  { to: '/history', label: 'History', end: false },
-  { to: '/trades', label: 'Trades', end: false },
-  { to: '/pnl', label: 'P&L', end: false },
+// Lightweight Charts is the heaviest dependency and only the chart screen needs it.
+const ChartPage = lazy(() =>
+  import('./pages/ChartPage').then((m) => ({ default: m.ChartPage })),
+);
+
+const TABS = [
+  { to: '/results', label: 'Results' },
+  { to: '/history', label: 'History' },
 ];
 
 export function App() {
   const { pathname } = useLocation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const isChart = pathname.startsWith('/chart/');
 
   return (
     <div className={`app-shell${isChart ? ' app-shell--chart' : ''}`}>
       {!isChart && (
         <header className="app-header">
-          <h1>Sequence Vova</h1>
-          <p>Mobile-first screener</p>
+          <div className="app-header-row">
+            <h1>Sequence Vova</h1>
+            <button
+              type="button"
+              className="chart-icon-btn"
+              aria-label="Settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              ⚙
+            </button>
+          </div>
         </header>
       )}
 
       <main className={`app-main${isChart ? ' app-main-flush app-main--chart' : ''}`}>
-        <Routes>
-          <Route path="/" element={<ScanPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/trades" element={<TradesPage />} />
-          <Route path="/pnl" element={<PnlPage />} />
-          <Route path="/runs/:runId" element={<ResultsPage />} />
-          <Route path="/runs/:runId/rejected" element={<RejectedPage />} />
-          <Route path="/chart/:ticker" element={<ChartPage />} />
-        </Routes>
+        <Suspense fallback={<p className="empty">Loading…</p>}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/results/Stocks/Daily/new" replace />} />
+            <Route path="/results" element={<Navigate to="/results/Stocks/Daily/new" replace />} />
+            <Route path="/results/manual" element={<ManualPage />} />
+            <Route path="/results/manual/rejected/:runId" element={<RejectedPage />} />
+            <Route path="/results/:universe" element={<ResultsPage />} />
+            <Route path="/results/:universe/:tf" element={<ResultsPage />} />
+            <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/chart/:ticker" element={<ChartPage />} />
+            <Route path="*" element={<Navigate to="/results/Stocks/Daily/new" replace />} />
+          </Routes>
+        </Suspense>
       </main>
 
-      <nav className="bottom-nav" aria-label="Primary">
-        {tabs.map((tab) => (
-          <NavLink key={tab.to} to={tab.to} end={tab.end}>
-            <span className="dot" aria-hidden />
-            {tab.label}
-          </NavLink>
-        ))}
-      </nav>
+      {!isChart && (
+        <nav className="bottom-nav" aria-label="Primary">
+          {TABS.map((tab) => (
+            <NavLink key={tab.to} to={tab.to}>
+              <span className="dot" aria-hidden />
+              {tab.label}
+            </NavLink>
+          ))}
+        </nav>
+      )}
+
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
