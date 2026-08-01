@@ -46,15 +46,16 @@ background scan finishes, so both screens are indexed reads with no per-request 
 
 `{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional,
 openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
-lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, isStrong, unrealizedUsd, unrealizedR, unrealizedPct,
+lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, barsSinceValid, validSinceAsOf, isStrong,
+unrealizedUsd, unrealizedR, unrealizedPct,
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
 interest, interestRank, interestAt, runId }`.
 
 Lifecycle:
 
-- Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr` and the unrealized numbers, and
-  opens a `provisional` record for a symbol it has not seen before. That is what makes a signal
-  appearing mid-session visible in NEW straight away.
+- Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr`, `barsSinceValid` and the
+  unrealized numbers, and opens a `provisional` record for a symbol it has not seen before. That is
+  what makes a signal appearing mid-session visible straight away.
 - Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
   closes anything: provisional records are either confirmed or deleted, and confirmed records are
   closed with a realized P&L. Intra-period noise therefore never reaches History.
@@ -64,10 +65,18 @@ Lifecycle:
   that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
   buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
   closes positions.
-- A signal reaches VALID by surviving a period close, never by the clock: a provisional record
-  whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
-  confirmed records can be closed, so a signal that comes and goes inside one period leaves no
-  trace, and `totals.active` in History counts confirmed positions only.
+- `barsSinceValid` is the bar the engine says the signal became valid on, counted in bars of `tf`
+  back from the latest one: `0` is NEW, anything higher is VALID. It is the signal that ages, not
+  the record — a symbol the scanner meets for the first time may already have been valid for four
+  bars, and it belongs in VALID from the moment it is opened. `validSinceAsOf` is the date of that
+  bar, so a card can say how long a trade has been running.
+- NEW additionally requires `lastSeenPeriodKey` to be the current period. `barsSinceValid` is only
+  true as of the scan that wrote it, so a record last priced days ago (Yahoo could not deliver it
+  since) was new on that bar, not on this one. The two filters are exact complements within
+  `status: 'active'`, so the tab counts always add up.
+- `provisional` no longer decides which tab a signal shows in; it still decides what a period-close
+  scan does with the record. Only confirmed records can be closed, so a signal that comes and goes
+  inside one period leaves no trace, and `totals.active` in History counts confirmed positions only.
 - `interest` is set from the chart screen and survives NEW → VALID → CLOSED. `interestRank`
   (2 / 1 / 0) exists only so Mongo can sort marked signals first.
 
@@ -80,9 +89,10 @@ and a repeat run only picks up what is left. Two things the journal never had ar
 the enum only because the old app let you close a trade by hand.
 
 Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`, plus
-`{ universe, tf, status, openedPeriodKey }`, `{ universe, tf, status, closedPeriodKey }`,
-`{ universe, tf, status, lastRr }`, `{ universe, tf, status, interestRank }` and
-`{ status, tf, closedPeriodKey }` — one index per bucket-and-sort combination the UI offers.
+`{ universe, tf, status, barsSinceValid }`, `{ universe, tf, status, openedPeriodKey }`,
+`{ universe, tf, status, closedPeriodKey }`, `{ universe, tf, status, lastRr }`,
+`{ universe, tf, status, interestRank }` and `{ status, tf, closedPeriodKey }` — one index per
+bucket-and-sort combination the UI offers.
 
 ### `presets`
 `{ key, data }` for chart params (successor to Streamlit `session_state`) and the `app` key

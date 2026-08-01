@@ -182,14 +182,21 @@ function bucketFilter(
   // The split is the bar the signal became valid on, not the period the tracker first recorded it
   // in: a symbol the scan meets for the first time may already have been valid for four bars, and
   // it belongs next to the other four-bar-old trades rather than next to today's breakouts.
-  if (bucket === 'new') return { universe, tf, status: 'active', barsSinceValid: 0 };
-  // Records written before the field existed fall in here: a signal the tracker is already
-  // carrying is by definition not new on this bar, and the next scan fills the number in.
+  //
+  // `barsSinceValid` is only true as of the scan that wrote it, so NEW also asks that the scan was
+  // this period's. A record last priced days ago (Yahoo could not deliver it since) was new on
+  // that bar, not on this one, and ages into VALID on the freshness test alone.
+  if (bucket === 'new') {
+    return { universe, tf, status: 'active', barsSinceValid: 0, lastSeenPeriodKey: periodKey };
+  }
+  // Exact complement of NEW within the active signals, so the two counts always add up. Records
+  // written before `barsSinceValid` existed match `$ne: 0` on the missing field and land here: a
+  // signal the tracker is already carrying is by definition not new on this bar.
   return {
     universe,
     tf,
     status: 'active',
-    $or: [{ barsSinceValid: { $gt: 0 } }, { barsSinceValid: null }],
+    $or: [{ barsSinceValid: { $ne: 0 } }, { lastSeenPeriodKey: { $ne: periodKey } }],
   };
 }
 

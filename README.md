@@ -58,10 +58,14 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   each period closes — so **Results** always shows the latest scan without pressing anything
 - Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
   or ticker; Valid and Closed carry P&L
+- New is the signals that became valid on the current bar of that timeframe, Valid the ones that
+  became valid on an earlier bar and still hold, and each Valid card says how many bars it has been
+  running — a symbol the scanner meets for the first time when it has already been valid for four
+  bars opens straight into Valid instead of sitting next to today's breakouts
 - Scans never filter on RR (MIN RR is "any"), so RR is a sort key rather than a gate — every list
   in the app, Results, Manual and History alike, can be ordered by it
-- A signal reaches Valid only by surviving a period close, so one that appears and disappears
-  inside a single period never gets a P&L and never lands in History
+- Only a period-close scan confirms or closes a signal, so one that appears and disappears inside a
+  single period never gets a realized P&L and never lands in History
 - Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —
   and, failing all three, when the scan stops calling the symbol a buy. A symbol Yahoo could not
   deliver is left open, so a data outage never closes a position

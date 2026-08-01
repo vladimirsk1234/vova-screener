@@ -13,6 +13,11 @@ view is linkable and survives a reload:
 2. D · W · M
 3. New · Valid · Closed
 
+New holds the signals that became valid on the current bar of the selected timeframe, Valid the
+ones that became valid on an earlier bar and still hold — so the two lists never mix a fresh
+breakout with a trade that has been running for four bars. The chart screen badges the same symbol
+the same way, off the same number.
+
 Manual is the only screen with a Scan button; Stocks and ETF come from background scans.
 Every card links to `/chart/:ticker`, where Interested / Not Interested marks the tracked signal;
 the mark shows as a badge in the lists and is a sort key in every bucket.

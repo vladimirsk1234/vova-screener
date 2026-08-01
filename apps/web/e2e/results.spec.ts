@@ -91,11 +91,15 @@ test.describe('results shell', () => {
   });
 
   test('a signal card opens the chart', async ({ page }) => {
-    // NEW is the one bucket a freshly scanned database is guaranteed to fill; VALID and CLOSED
-    // need a signal to survive into a later period, which no single scan can produce.
-    await page.goto('/results/Stocks/Daily/new');
-    await expect(page.getByText('Loading…')).toHaveCount(0);
-    const card = page.locator('.signal-card').first();
+    // A single scan fills NEW only with the symbols that broke out on the bar it evaluated;
+    // everything valid for longer lands in VALID, so try both before giving up.
+    let card = page.locator('.signal-card').first();
+    for (const bucket of ['new', 'valid']) {
+      await page.goto(`/results/Stocks/Daily/${bucket}`);
+      await expect(page.getByText('Loading…')).toHaveCount(0);
+      card = page.locator('.signal-card').first();
+      if ((await card.count()) > 0) break;
+    }
     if ((await card.count()) === 0) test.skip(true, 'no tracked signals in this database');
     await card.click();
     await expect(page).toHaveURL(/\/chart\//);
