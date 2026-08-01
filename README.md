@@ -34,6 +34,7 @@ npm run dev
 - API: http://localhost:3001/api
 - MongoDB: started automatically as a persistent single-node replica set in `.data/mongo`
   (no Docker or MongoDB install needed). Set `MONGO_URI` to use your own instance.
+  Set `FMP_API_KEY` for in-app Fundamentals (Fast Graphs–style valuation via Financial Modeling Prep).
 
 Only the web port needs to be reachable from the phone — the browser talks to `/api`,
 which Vite proxies to the API.
