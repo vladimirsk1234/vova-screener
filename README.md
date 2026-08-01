@@ -58,6 +58,8 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   each period closes — so **Results** always shows the latest scan without pressing anything
 - Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
   or ticker; Valid and Closed carry P&L
+- Scans never filter on RR (MIN RR is "any"), so RR is a sort key rather than a gate — every list
+  in the app, Results, Manual and History alike, can be ordered by it
 - A signal reaches Valid only by surviving a period close, so one that appears and disappears
   inside a single period never gets a P&L and never lands in History
 - Any signal opens a chart where it can be marked Interested / Not interested; the mark shows in

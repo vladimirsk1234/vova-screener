@@ -37,6 +37,21 @@ test.describe('results shell', () => {
     await expect(page).toHaveURL(/sort=interest/);
   });
 
+  test('every bucket can be sorted by RR', async ({ page }) => {
+    for (const bucket of ['new', 'valid', 'closed']) {
+      await page.goto(`/results/Stocks/Daily/${bucket}`);
+      const rr = page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: /^RR/ });
+      await expect(rr).toBeVisible();
+      // NEW and VALID already default to RR, CLOSED to P&L, so assert the toggle rather than a
+      // fixed starting direction.
+      await rr.click();
+      await expect(page).toHaveURL(/sort=rr/);
+      const dir = new URL(page.url()).searchParams.get('dir');
+      await rr.click();
+      await expect(page).toHaveURL(new RegExp(`sort=rr&dir=${dir === 'desc' ? 'asc' : 'desc'}$`));
+    }
+  });
+
   test('manual is the only place with a scan button', async ({ page }) => {
     await page.goto('/results/Stocks/Daily/new');
     await expect(page.getByRole('button', { name: 'START SCAN' })).toHaveCount(0);

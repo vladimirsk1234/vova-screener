@@ -40,6 +40,10 @@ From Streamlit/Expo palette: bg `#050505`, surfaces `#1e222d`/`#2a2e39`, accent 
   switching tabs, a 5-minute `refetchInterval` on Results, and neighbouring timeframe/bucket
   queries prefetched on arrival
 - Lists page at 100 rows through `useInfiniteQuery`; sorting and paging happen on the server
+- `SortChips` renders every sort selector, so a key behaves the same on Results, Manual and
+  History: clicking the active key flips direction, a fresh key starts from its natural end
+  (descending for RR, P&L and dates; ascending for A-Z). Manual sorts client-side — a handful of
+  ad-hoc tickers never justifies a round trip
 - `ChartPage` is `React.lazy` so Lightweight Charts stays out of the main bundle
 - Ephemeral UI: local React state / Zustand later
 - Forms: react-hook-form + Zod from `@vova/contracts` later

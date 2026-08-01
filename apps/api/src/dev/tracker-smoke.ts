@@ -184,8 +184,8 @@ async function main() {
     runs.deleteMany({ trigger: 'smoke' }),
   ]);
 
-  // A drifts up, B stays flat, C gaps down through its stop on day 2, D only ever shows mid-session,
-  // E shows mid-session across two periods whose closes are never scanned.
+  // A drifts up, B runs through its target on day 2, C gaps down through its stop, D only ever
+  // shows mid-session, E shows mid-session across two periods whose closes are never scanned.
   const tails: Record<string, Array<{ date: string; high: number; low: number; close: number }>> = {
     'ZZTEST-A': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
@@ -193,7 +193,7 @@ async function main() {
     ],
     'ZZTEST-B': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
-      { date: '2026-07-16', high: 101, low: 99, close: 100 },
+      { date: '2026-07-16', high: 121, low: 100, close: 119 },
     ],
     'ZZTEST-C': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
@@ -210,12 +210,20 @@ async function main() {
   };
   for (const ticker of TICKERS) await saveBars(barSeries, ticker, series(tails[ticker]));
 
+  /** Distinct RRs so the sort assertions have something to order by. */
+  const RR: Record<string, number> = {
+    'ZZTEST-A': 2,
+    'ZZTEST-B': 5,
+    'ZZTEST-C': 3,
+    'ZZTEST-D': 1,
+    'ZZTEST-E': 4,
+  };
   const snap = (ticker: string, entry: number): Snapshot => ({
     ticker,
     entry,
     tp: entry * 1.2,
     sl: entry * 0.9,
-    rr: 2,
+    rr: RR[ticker],
   });
 
   // 1. Period close: A, B and C open as confirmed signals.
@@ -257,7 +265,7 @@ async function main() {
     50, // $100 risk / $10 stop distance = 10 shares × $5
   );
 
-  // 3. Next period close: C is stopped out, D never confirmed, A and B roll into VALID.
+  // 3. Next period close: B takes its target, C is stopped out, D never confirmed, A rolls into VALID.
   const run3 = await fakeScan(runs, signals, {
     periodKey: '2026-07-16',
     asOf: '2026-07-16',
@@ -266,11 +274,13 @@ async function main() {
     rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100)],
   });
   const report3 = await tracker.applyRun(run3);
-  check('day 2 close', [report3?.closed, report3?.dropped, report3?.refreshed], [1, 1, 2]);
+  check('day 2 close', [report3?.closed, report3?.dropped, report3?.refreshed], [2, 1, 1]);
 
   const closed = await tracked.findOne({ yahooTicker: 'ZZTEST-C' }).lean<any>();
   check('C stopped out', [closed?.status, closed?.exitReason, closed?.exitPrice], ['closed', 'SL', 90]);
   check('C realized P&L', [closed?.pnlUsd, closed?.pnlR], [-100, -1]);
+  const won = await tracked.findOne({ yahooTicker: 'ZZTEST-B' }).lean<any>();
+  check('B took its target', [won?.exitReason, won?.exitPrice, won?.pnlUsd, won?.pnlR], ['TP', 120, 200, 2]);
   check('D dropped', await tracked.countDocuments({ yahooTicker: 'ZZTEST-D' }), 0);
 
   const buckets = await Promise.all(
@@ -281,18 +291,23 @@ async function main() {
   check(
     'buckets new/valid/closed',
     buckets.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).length),
-    [0, 2, 1],
+    [0, 1, 2],
   );
   check(
-    'valid sorted by P&L',
+    'valid marked to market',
     (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid', sort: 'pnl' })).rows
       .filter((r) => TICKERS.includes(r.yahooTicker))
       .map((r) => [r.symbol, r.pnlUsd]),
-    [
-      ['ZZTEST-A', 50],
-      ['ZZTEST-B', 0],
-    ],
+    [['ZZTEST-A', 50]],
   );
+
+  // CLOSED orders by RR at entry, the live buckets by the RR of the latest scan.
+  const byRr = async (bucket: 'new' | 'valid' | 'closed', dir: 'asc' | 'desc') =>
+    (await results.list({ universe: 'Stocks', tf: 'Daily', bucket, sort: 'rr', dir })).rows
+      .filter((r) => TICKERS.includes(r.yahooTicker))
+      .map((r) => r.symbol);
+  check('closed sorted by RR desc', await byRr('closed', 'desc'), ['ZZTEST-B', 'ZZTEST-C']);
+  check('closed sorted by RR asc', await byRr('closed', 'asc'), ['ZZTEST-C', 'ZZTEST-B']);
 
   const marked = await results.setInterest(buckets[1].rows[0].id, 'interested');
   check('interest saved', marked.interest, 'interested');
@@ -332,17 +347,31 @@ async function main() {
   check(
     'unconfirmed signal stays in NEW',
     rolled.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol)),
-    [['ZZTEST-E'], ['ZZTEST-A', 'ZZTEST-B']],
+    [['ZZTEST-E'], ['ZZTEST-A']],
   );
+  check('NEW sorted by RR desc', await byRr('new', 'desc'), ['ZZTEST-E']);
 
   const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
   const day = stats.periods.find((p) => p.periodKey === '2026-07-16');
-  check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [1, 0, -100]);
-  // A and B only: E is active but still provisional, so it is not an open position yet.
-  check('history counts confirmed positions only', stats.totals.active, 2);
+  check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [2, 1, 100]);
+  check('history avg RR at entry', day?.avgRrEntry, 4); // B 5 and C 3
+  // A only: E is active but still provisional, so it is not an open position yet.
+  check('history counts confirmed positions only', stats.totals.active, 1);
+  check(
+    'history periods sortable by RR',
+    (await history.report({ tf: 'Daily', groupBy: 'Daily', sort: 'rr', dir: 'desc' })).periods[0]
+      ?.periodKey,
+    '2026-07-16',
+  );
 
-  const drill = await history.trades({ tf: 'Daily', groupBy: 'Daily', periodKey: '2026-07-16' });
-  check('history drill-down', drill.rows.map((r) => r.symbol), ['ZZTEST-C']);
+  const drill = await history.trades({
+    tf: 'Daily',
+    groupBy: 'Daily',
+    periodKey: '2026-07-16',
+    sort: 'rr',
+    dir: 'desc',
+  });
+  check('history drill-down sorted by RR', drill.rows.map((r) => r.symbol), ['ZZTEST-B', 'ZZTEST-C']);
 
   await Promise.all([
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),

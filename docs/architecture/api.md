@@ -11,7 +11,7 @@ timeframe, not the wall clock, so buckets always line up with the data on screen
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (opened in the current period) / `valid` (opened earlier, marked to market) / `closed` (closed in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`; sorting and paging happen in Mongo |
+| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (opened in the current period) / `valid` (opened earlier, marked to market) / `closed` (closed in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card |
 | GET | `/results/summary` | Bucket counts and scan freshness for every universe × timeframe, for the tab badges |
 | GET | `/results/lookup?yahooTicker&tf` | The active tracked signal for a symbol, so a chart opened by URL can show and toggle the mark |
 | PATCH | `/results/:id/interest` | `{ interest: 'interested' \| 'not_interested' \| null }`; the mark survives NEW → VALID → CLOSED |
@@ -20,8 +20,8 @@ timeframe, not the wall clock, so buckets always line up with the data on screen
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/history?tf=Daily\|Weekly\|Monthly\|All&groupBy=Daily\|Weekly\|Monthly&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over closed signals; aggregated in Mongo |
-| GET | `/history/trades?tf&groupBy&periodKey&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket |
+| GET | `/history?tf=Daily\|Weekly\|Monthly\|All&groupBy=Daily\|Weekly\|Monthly&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over closed signals; aggregated in Mongo. `sort` = `period`, `pnl`, `winRate`, `trades`, `rr` (avg RR at entry) |
+| GET | `/history/trades?tf&groupBy&periodKey&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket. `sort` = `date`, `pnl`, `r`, `rr`, `interest`, `symbol` |
 
 ## Settings
 
