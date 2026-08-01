@@ -19,7 +19,8 @@ test.describe('chart parity UI', () => {
   test('timeframe chips and outbound links', async ({ page }) => {
     await page.goto('/chart/AAPL');
     await page.getByRole('button', { name: 'Weekly' }).click();
-    await expect(page.getByRole('link', { name: 'TradingView' })).toBeVisible();
+    // Exact: Lightweight Charts injects its own "Charting by TradingView" attribution link.
+    await expect(page.getByRole('link', { name: 'TradingView', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'FastGraph' })).toBeVisible();
   });
 
