@@ -9,8 +9,10 @@ Reads of `trackedSignals`, written only by the background scans — nothing here
 The "current period" is the `periodKey` of the newest completed scan for that universe and
 timeframe, not the wall clock, so buckets always line up with the data on screen.
 
-NEW and VALID split on `barsSinceValid`, the bar the engine says the signal became valid on, which
-is why a symbol the scanner meets for the first time can open straight into VALID.
+NEW and VALID split on `barsSinceValid`, the bar the engine says the signal appeared on, which is why
+a symbol the scanner meets for the first time can open straight into VALID. RR is not part of that
+split anywhere: the age is measured with the RR requirement off, so `/instruments/:ticker/chart`
+reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with.
 
 | Method | Path | Notes |
 |--------|------|-------|

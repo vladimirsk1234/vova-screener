@@ -13,10 +13,10 @@ view is linkable and survives a reload:
 2. D · W · M
 3. New · Valid · Closed
 
-New holds the signals that became valid on the current bar of the selected timeframe, Valid the
-ones that became valid on an earlier bar and still hold — so the two lists never mix a fresh
-breakout with a trade that has been running for four bars. The chart screen badges the same symbol
-the same way, off the same number.
+New holds the signals that appeared on the current bar of the selected timeframe, Valid the ones that
+appeared on an earlier bar and still hold — so the two lists never mix a fresh breakout with a trade
+that has been running for four bars. That is the only rule; the RR settings on the chart screen do
+not move a symbol between the tabs, and the chart badge reads the same age the tabs split on.
 
 Manual is the only screen with a Scan button; Stocks and ETF come from background scans.
 Every card links to `/chart/:ticker`, where Interested / Not Interested marks the tracked signal;

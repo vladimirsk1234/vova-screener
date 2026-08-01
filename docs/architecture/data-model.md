@@ -65,11 +65,22 @@ Lifecycle:
   that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
   buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
   closes positions.
-- `barsSinceValid` is the bar the engine says the signal became valid on, counted in bars of `tf`
-  back from the latest one: `0` is NEW, anything higher is VALID. It is the signal that ages, not
-  the record — a symbol the scanner meets for the first time may already have been valid for four
-  bars, and it belongs in VALID from the moment it is opened. `validSinceAsOf` is the date of that
-  bar, so a card can say how long a trade has been running.
+- `barsSinceValid` is the bar the engine says the signal appeared on, counted in bars of `tf` back
+  from the latest one: `0` is NEW, anything higher is VALID, and that is the whole rule. It is the
+  signal that ages, not the record — a symbol the scanner meets for the first time may already have
+  been running for four bars, and it belongs in VALID from the moment it is opened. `validSinceAsOf`
+  is the date of that bar, so a card can say how long a trade has been running.
+- The age always comes from `signalAge` in the engine, which evaluates with the RR requirement off.
+  RR decides which signals a scan reports and how the lists sort, never whether a signal is new: with
+  a minimum RR in place the valid flag flips as the ratio drifts across the threshold mid-trade, and
+  the age would count bars since the last flip. That is why the chart screen, whose settings default
+  to `min_rr: 1.5`, still reports the same age as the tabs.
+- Records written before this field existed are filled in on boot by
+  [signal-age-backfill.service.ts](../../apps/api/src/migrations/signal-age-backfill.service.ts),
+  off the bar cache and counted up to the record's own `lastSeenAsOf` bar. Without it a timeframe
+  whose next scan is days away (Weekly, Monthly) would show every active signal as VALID and nothing
+  as NEW. A record with no cached bars, or whose structure has since broken, keeps no age and stays
+  in VALID — a hand-imported journal trade is not a new signal.
 - NEW additionally requires `lastSeenPeriodKey` to be the current period. `barsSinceValid` is only
   true as of the scan that wrote it, so a record last priced days ago (Yahoo could not deliver it
   since) was new on that bar, not on this one. The two filters are exact complements within
