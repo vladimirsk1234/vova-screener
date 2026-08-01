@@ -19,7 +19,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     mutationFn: (maxRiskUsd: number) => api.saveSettings({ maxRiskUsd }),
     onSuccess: (next) => {
       queryClient.setQueryData(['settings'], next);
-      void queryClient.invalidateQueries({ queryKey: ['results'] });
+      // The server re-sizes every open position before answering, so everything showing a share
+      // count or an unrealized number is now stale.
+      for (const key of ['results', 'results-summary', 'history', 'history-trades', 'tracked-signal', 'chart']) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 
@@ -73,8 +77,8 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         />
       </div>
       <p className="muted small">
-        Position size for every tracked signal is derived from this and the distance to SL. Changing
-        it re-sizes active signals on the next background scan.
+        One risk for every signal: position size is this divided by the distance to SL. Changing it
+        re-sizes all open signals right away. Closed ones keep the size they were closed at.
       </p>
 
       <div className="chart-settings-actions">

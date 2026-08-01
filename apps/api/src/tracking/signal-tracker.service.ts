@@ -6,7 +6,7 @@
  * that runs once the period is closed confirms those records, or closes them with a realized
  * P&L — intra-period noise therefore never reaches History.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type OhlcSeries, type Timeframe } from '@vova/engine';
@@ -63,7 +63,7 @@ export type TrackerReport = {
 };
 
 @Injectable()
-export class SignalTrackerService {
+export class SignalTrackerService implements OnModuleInit {
   private readonly log = new Logger(SignalTrackerService.name);
 
   constructor(
@@ -73,6 +73,51 @@ export class SignalTrackerService {
     private readonly bars: BarsService,
     private readonly settings: SettingsService,
   ) {}
+
+  onModuleInit() {
+    this.settings.onChange(async (next, prev) => {
+      if (next.maxRiskUsd === prev.maxRiskUsd) return;
+      const count = await this.resizeActive(next.maxRiskUsd);
+      this.log.log(
+        `max risk ${prev.maxRiskUsd} → ${next.maxRiskUsd}: re-sized ${count} open signals`,
+      );
+    });
+  }
+
+  /**
+   * Max risk is one number for every signal, so changing it has to re-size all open positions at
+   * once — waiting for the next scan would leave the lists showing sizes from the old risk for up
+   * to an hour. Closed signals keep the size they were closed at: their realized P&L is history.
+   */
+  async resizeActive(maxRiskUsd: number): Promise<number> {
+    const docs = await this.tracked
+      .find({ status: 'active' })
+      .select('entry sl lastPrice')
+      .lean<Array<{ _id: Types.ObjectId; entry: number; sl?: number; lastPrice?: number }>>()
+      .exec();
+
+    const ops = docs.map((doc) => {
+      const shares = sharesFromRisk(doc.entry, doc.sl, maxRiskUsd);
+      const pnl = computePnl(doc.entry, doc.sl, shares, doc.lastPrice ?? doc.entry);
+      return {
+        updateOne: {
+          filter: { _id: doc._id },
+          update: {
+            $set: {
+              shares,
+              riskUsd: maxRiskUsd,
+              unrealizedUsd: pnl.usd,
+              unrealizedR: pnl.r,
+              unrealizedPct: pnl.pct,
+            },
+          },
+        },
+      };
+    });
+
+    await this.flush(ops);
+    return ops.length;
+  }
 
   async applyRun(runId: string): Promise<TrackerReport | null> {
     const run = await this.runs.findById(runId).lean<any>().exec();

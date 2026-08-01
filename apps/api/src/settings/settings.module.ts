@@ -8,6 +8,8 @@ export type AppSettings = {
   maxRiskUsd: number;
 };
 
+export type SettingsListener = (next: AppSettings, prev: AppSettings) => Promise<void> | void;
+
 export const DEFAULT_SETTINGS: AppSettings = { maxRiskUsd: 100 };
 
 const SETTINGS_KEY = 'app';
@@ -21,7 +23,17 @@ function sanitize(patch: Partial<AppSettings>): Partial<AppSettings> {
 
 @Injectable()
 export class SettingsService {
+  private readonly listeners: SettingsListener[] = [];
+
   constructor(@InjectModel(PRESET) private readonly presets: Model<any>) {}
+
+  /**
+   * Lets tracking re-size open positions when the risk changes, without SettingsModule having to
+   * depend on TrackingModule — the dependency already runs the other way.
+   */
+  onChange(listener: SettingsListener) {
+    this.listeners.push(listener);
+  }
 
   async get(): Promise<AppSettings> {
     const doc = await this.presets.findOne({ key: SETTINGS_KEY }).lean<any>().exec();
@@ -29,10 +41,13 @@ export class SettingsService {
   }
 
   async put(patch: Partial<AppSettings>): Promise<AppSettings> {
-    const next = { ...(await this.get()), ...sanitize(patch) };
+    const prev = await this.get();
+    const next = { ...prev, ...sanitize(patch) };
     await this.presets
       .updateOne({ key: SETTINGS_KEY }, { $set: { key: SETTINGS_KEY, data: next } }, { upsert: true })
       .exec();
+    // Awaited, so the response the UI refetches against already reflects the new sizes.
+    for (const listener of this.listeners) await listener(next, prev);
     return next;
   }
 }
