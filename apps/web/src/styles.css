@@ -870,6 +870,11 @@ a {
   gap: 6px;
 }
 
+/* Manual has no sticky header to hang the sort row from, so it sits above the cards. */
+.manual-sort {
+  margin: 0 2px 8px;
+}
+
 .sort-chip {
   min-height: 32px;
   padding: 0 10px;

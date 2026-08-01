@@ -1,15 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Timeframe } from '../lib/api';
 import { money, num } from '../lib/format';
 import { Chips } from '../components/Chips';
 import { SegmentedTabs } from '../components/SegmentedTabs';
+import { SortChips, type SortDir, type SortOption } from '../components/SortChips';
 import { useScanProgress } from '../lib/useScanProgress';
 
 const ACTIVE_RUN_KEY = 'vova.manualRunId';
 const TICKERS_KEY = 'vova.manualTickers';
 const TERMINAL = ['completed', 'cancelled', 'failed'];
+
+type ManualSort = 'rr' | 'entry' | 'symbol';
+
+const SORTS: SortOption<ManualSort>[] = [
+  { value: 'rr', label: 'RR' },
+  { value: 'entry', label: 'Entry' },
+  { value: 'symbol', label: 'A-Z', from: 'asc' },
+];
 
 /**
  * The only screen that starts a scan. Manual runs are ad-hoc checks against a live chart, so
@@ -25,6 +34,8 @@ export function ManualPage() {
   const [runId, setRunId] = useState<string | null>(() => localStorage.getItem(ACTIVE_RUN_KEY));
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<ManualSort>('rr');
+  const [dir, setDir] = useState<SortDir>('desc');
   const progress = useScanProgress(runId);
 
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
@@ -86,7 +97,18 @@ export function ManualPage() {
     }
   };
 
-  const rows = signals.data?.rows ?? [];
+  const rows = useMemo(() => {
+    const order = dir === 'asc' ? 1 : -1;
+    // MIN RR is "any", so a signal can have no computable RR. Ranking those lowest keeps them at
+    // one end of the list instead of scattered through it, matching how Results sorts them.
+    const rank = (s: BuySignal) => (sort === 'rr' ? (s.rr ?? -Infinity) : s.entry);
+    return [...(signals.data?.rows ?? [])].sort((a, b) => {
+      if (sort === 'symbol') return a.symbol.localeCompare(b.symbol) * order;
+      const x = rank(a);
+      const y = rank(b);
+      return (x === y ? 0 : x < y ? -1 : 1) * order || a.symbol.localeCompare(b.symbol);
+    });
+  }, [signals.data, sort, dir]);
 
   return (
     <div>
@@ -163,6 +185,21 @@ export function ManualPage() {
 
       {done && rows.length === 0 ? (
         <p className="empty">No valid signals. Check the rejected reasons for why.</p>
+      ) : null}
+
+      {rows.length > 1 ? (
+        <div className="results-meta manual-sort">
+          <span className="muted small">{rows.length} signals</span>
+          <SortChips
+            options={SORTS}
+            value={sort}
+            dir={dir}
+            onChange={(next, nextDir) => {
+              setSort(next);
+              setDir(nextDir);
+            }}
+          />
+        </div>
       ) : null}
 
       {rows.map((signal: BuySignal) => (
