@@ -71,6 +71,14 @@ Lifecycle:
 - `interest` is set from the chart screen and survives NEW → VALID → CLOSED. `interestRank`
   (2 / 1 / 0) exists only so Mongo can sort marked signals first.
 
+The pre-tracking journal (`trades`) is imported into this collection on boot by
+`LegacyTradesMigration`: closed rows arrive as closed signals with the P&L they were recorded
+with, open and marked rows as active ones, and `dismissed` rows are left behind. Each source row
+is stamped with `migratedAt` / `migratedAs` rather than deleted, so the journal stays as a backup
+and a repeat run only picks up what is left. Two things the journal never had are filled in:
+`universe`, recovered from `instruments.universes`, and the exit reason `manual`, which exists in
+the enum only because the old app let you close a trade by hand.
+
 Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`, plus
 `{ universe, tf, status, openedPeriodKey }`, `{ universe, tf, status, closedPeriodKey }`,
 `{ universe, tf, status, lastRr }`, `{ universe, tf, status, interestRank }` and

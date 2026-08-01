@@ -4,6 +4,7 @@ import type { Connection } from 'mongoose';
 import { DbModule } from './db/db.module';
 import { InstrumentsModule } from './instruments/instruments.module';
 import { MarketModule } from './market/market.module';
+import { MigrationsModule } from './migrations/migrations.module';
 import { PresetsModule } from './presets/presets.module';
 import { ScansModule } from './scans/scans.module';
 import { SettingsModule } from './settings/settings.module';
@@ -32,6 +33,7 @@ class HealthController {
     InstrumentsModule,
     SettingsModule,
     PresetsModule,
+    MigrationsModule,
   ],
   controllers: [HealthController],
 })

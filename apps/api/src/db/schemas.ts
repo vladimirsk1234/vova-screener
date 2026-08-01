@@ -172,7 +172,8 @@ export const TrackedSignalSchema = new Schema(
     closedAt: Date,
     exitDate: String,
     exitPrice: Number,
-    exitReason: { type: String, enum: ['TP', 'SL', 'sell_to_close', 'signal_lost'] },
+    // 'manual' only ever arrives from the imported journal: nothing closes a signal by hand now.
+    exitReason: { type: String, enum: ['TP', 'SL', 'sell_to_close', 'signal_lost', 'manual'] },
     pnlUsd: Number,
     pnlR: Number,
     pnlPct: Number,

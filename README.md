@@ -73,6 +73,8 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 - Bars cached in MongoDB (`barSeries`), so repeat scans skip Yahoo
 - One setting: Max risk per signal. It is the single source of position size across scans, lists
   and charts, and changing it re-sizes every open signal immediately
+- Trades from the old journal are imported on first boot, so History still covers everything closed
+  before the app started tracking signals on its own
 
 Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 10-15 * * 1-5`, i.e.
 10:05 to 15:05), `VOVA_DAILY_CLOSE_CRON`, `VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON`
@@ -94,7 +96,8 @@ npm run home-server:verify  # health + smoke MANUAL scan
 npm run tunnel              # Cloudflare Quick Tunnel to :5173
 npm run parity              # TS engine vs Python golden fixture
 npm run typecheck           # engine + api + web
-npm run smoke:tracker -w @vova/api   # signal lifecycle end-to-end, no Yahoo needed
+npm run smoke:tracker       # signal lifecycle end-to-end, no Yahoo needed
+npm run smoke:legacy        # import of the old trade journal
 npm run test:e2e            # Playwright (Pixel 7 + desktop)
 ```
 

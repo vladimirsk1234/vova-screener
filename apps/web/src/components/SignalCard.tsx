@@ -7,6 +7,7 @@ const EXIT_LABEL: Record<string, string> = {
   SL: 'SL hit',
   sell_to_close: 'sell to close',
   signal_lost: 'signal gone',
+  manual: 'closed by hand',
 };
 
 /**
