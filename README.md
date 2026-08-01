@@ -68,7 +68,8 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   signals, for D / W / M / All
 - Manual scan for ad-hoc tickers with live SSE progress and a rejected-reason breakdown
 - Bars cached in MongoDB (`barSeries`), so repeat scans skip Yahoo
-- One setting: Max risk per signal, which drives every position size
+- One setting: Max risk per signal. It is the single source of position size across scans, lists
+  and charts, and changing it re-sizes every open signal immediately
 
 Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 10-15 * * 1-5`, i.e.
 10:05 to 15:05), `VOVA_DAILY_CLOSE_CRON`, `VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON`

@@ -29,6 +29,11 @@ timeframe, not the wall clock, so buckets always line up with the data on screen
 |--------|------|-------|
 | GET/PUT | `/settings` | `{ maxRiskUsd }` — the only user-facing setting; scan parameters are fixed in code |
 
+One risk for every signal: `maxRiskUsd` divided by the distance to SL is the position size
+everywhere — background scans, manual scans, the tracked signals and the chart. A `PUT` re-sizes
+every open tracked signal before it answers, so the response is already consistent with the lists
+the UI refetches. Closed signals keep the size they were closed at.
+
 ## Scans
 
 Only manual scans are started from the UI. Stocks and ETF are scanned by

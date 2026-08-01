@@ -18,6 +18,7 @@ import { BAR_SERIES, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { HistoryService } from '../tracking/history.service';
 import { ResultsService } from '../tracking/results.service';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
+import { SettingsService } from '../settings/settings.module';
 
 const TICKERS = ['ZZTEST-A', 'ZZTEST-B', 'ZZTEST-C', 'ZZTEST-D', 'ZZTEST-E'];
 
@@ -171,6 +172,7 @@ async function main() {
   const tracker = app.get(SignalTrackerService);
   const results = app.get(ResultsService);
   const history = app.get(HistoryService);
+  const settings = app.get(SettingsService);
   const runs = app.get<Model<any>>(getModelToken(SCAN_RUN));
   const signals = app.get<Model<any>>(getModelToken(SIGNAL));
   const tracked = app.get<Model<any>>(getModelToken(TRACKED_SIGNAL));
@@ -363,6 +365,19 @@ async function main() {
       ?.periodKey,
     '2026-07-16',
   );
+
+  // 5. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
+  //    A: $200 risk over a $10 stop distance = 20 shares, and its $5 gain is worth $100.
+  await settings.put({ maxRiskUsd: 200 });
+  const resized = await tracked.findOne({ yahooTicker: 'ZZTEST-A' }).lean<any>();
+  check(
+    'raising max risk re-sizes open signals',
+    [resized?.shares, resized?.riskUsd, resized?.unrealizedUsd],
+    [20, 200, 100],
+  );
+  const untouched = await tracked.findOne({ yahooTicker: 'ZZTEST-C' }).lean<any>();
+  check('closed signals keep their size', [untouched?.shares, untouched?.pnlUsd], [10, -100]);
+  await settings.put({ maxRiskUsd: 100 });
 
   const drill = await history.trades({
     tf: 'Daily',
