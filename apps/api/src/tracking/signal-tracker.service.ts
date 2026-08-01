@@ -127,7 +127,6 @@ export class SignalTrackerService implements OnModuleInit {
   async applyRun(runId: string): Promise<TrackerReport | null> {
     const run = await this.runs.findById(runId).lean<any>().exec();
     if (!run || run.status !== 'completed') return null;
-    if (run.params?.direction !== 'buy') return null;
 
     const universe = run.params?.source as TrackedUniverse;
     if (universe !== 'Stocks' && universe !== 'ETF') return null;
@@ -141,7 +140,7 @@ export class SignalTrackerService implements OnModuleInit {
     const confirmed = run.periodClose === true;
     const { maxRiskUsd } = await this.settings.get();
     const seen = await this.loadSignals(runId);
-    const unevaluated = confirmed ? await this.loadUnevaluated(runId) : new Set<string>();
+    const rejected = confirmed ? await this.loadRejected(runId) : new Set<string>();
     const active = await this.tracked
       .find({ universe, tf, status: 'active' })
       .select('yahooTicker entry tp sl shares openedAsOf openedAt provisional')
@@ -198,9 +197,10 @@ export class SignalTrackerService implements OnModuleInit {
         continue;
       }
       if (!snapshot) {
-        // A symbol Yahoo could not deliver is missing from the scan for a reason that says
-        // nothing about the trade, so a data outage must never close a position.
-        if (unevaluated.has(doc.yahooTicker)) continue;
+        // Absent from the scan is only news if the scan actually looked. A symbol it never
+        // reached (a partial universe) or could not price (a Yahoo outage) says nothing about
+        // the trade, and closing on it would wipe out positions the scan never considered.
+        if (!rejected.has(doc.yahooTicker)) continue;
         const bar = evaluated?.lastBar;
         if (!bar) continue;
         ops.push(
@@ -258,9 +258,10 @@ export class SignalTrackerService implements OnModuleInit {
     return out;
   }
 
-  private async loadUnevaluated(runId: string): Promise<Set<string>> {
+  /** Symbols the run evaluated and turned down — as opposed to ones it could not judge. */
+  private async loadRejected(runId: string): Promise<Set<string>> {
     const rows = await this.rejections
-      .find({ runId: new Types.ObjectId(runId), reason: { $in: UNEVALUATED } })
+      .find({ runId: new Types.ObjectId(runId), reason: { $nin: UNEVALUATED } })
       .select('symbol')
       .lean<Array<{ symbol: string }>>()
       .exec();

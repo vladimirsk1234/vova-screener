@@ -62,8 +62,9 @@ Lifecycle:
   first bar after `openedAsOf`. The stop wins over the target on a bar that spans both, because the
   path within a bar is unknowable; `sell_to_close` is the Sequence Vova bullish break, exiting at
   that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
-  buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
-  closes positions.
+  buy: the run must hold a rejection for that symbol with a reason other than `NO_DATA` or
+  `INSUFFICIENT_DATA`. A symbol the scan never reached, or could not price, is left active — so
+  neither a Yahoo outage nor a scan over part of the universe can close positions it never judged.
 - A signal reaches VALID by surviving a period close, never by the clock: a provisional record
   whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
   confirmed records can be closed, so a signal that comes and goes inside one period leaves no

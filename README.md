@@ -65,8 +65,8 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 - A signal reaches Valid only by surviving a period close, so one that appears and disappears
   inside a single period never gets a P&L and never lands in History
 - Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —
-  and, failing all three, when the scan stops calling the symbol a buy. A symbol Yahoo could not
-  deliver is left open, so a data outage never closes a position
+  and, failing all three, when the scan looks at the symbol and no longer calls it a buy. One the
+  scan never reached, or could not price, stays open
 - Any signal opens a chart where it can be marked Interested / Not interested; the mark shows in
   the lists and sorts on every tab
 - History: win rate, net P&L, avg R, avg RR at entry, avg hold and an equity curve over closed
