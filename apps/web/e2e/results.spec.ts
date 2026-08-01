@@ -65,7 +65,9 @@ test.describe('results shell', () => {
   });
 
   test('a signal card opens the chart', async ({ page }) => {
-    await page.goto('/results/Stocks/Daily/valid');
+    // NEW is the one bucket a freshly scanned database is guaranteed to fill; VALID and CLOSED
+    // need a signal to survive into a later period, which no single scan can produce.
+    await page.goto('/results/Stocks/Daily/new');
     await expect(page.getByText('Loading…')).toHaveCount(0);
     const card = page.locator('.signal-card').first();
     if ((await card.count()) === 0) test.skip(true, 'no tracked signals in this database');

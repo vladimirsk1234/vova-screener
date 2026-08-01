@@ -54,8 +54,8 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 
 ### What works locally
 
-- Stocks and ETF are scanned in the background — a mid-session pass plus one after each period
-  closes — so **Results** always shows the latest scan without pressing anything
+- Stocks and ETF are scanned in the background — hourly through the session plus one right after
+  each period closes — so **Results** always shows the latest scan without pressing anything
 - Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
   or ticker; Valid and Closed carry P&L
 - Any signal opens a chart where it can be marked Interested / Not interested; the mark shows in
@@ -66,9 +66,13 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 - Bars cached in MongoDB (`barSeries`), so repeat scans skip Yahoo
 - One setting: Max risk per signal, which drives every position size
 
-Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON`, `VOVA_DAILY_CLOSE_CRON`,
-`VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON` (all America/New_York), or switched off
-entirely with `VOVA_BACKGROUND_SCANS=off`.
+Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 10-15 * * 1-5`, i.e.
+10:05 to 15:05), `VOVA_DAILY_CLOSE_CRON`, `VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON`
+(all America/New_York), or switched off entirely with `VOVA_BACKGROUND_SCANS=off`.
+
+An hourly pass re-downloads every symbol on all three timeframes, roughly 12k Yahoo requests in
+about a minute. If Yahoo starts throttling, bars fall back to the cached series rather than
+failing; watch the `cached/total` figure in the scheduler log and widen the cron if it climbs.
 
 ### Useful commands
 

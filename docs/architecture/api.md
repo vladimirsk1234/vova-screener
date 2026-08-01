@@ -32,7 +32,12 @@ timeframe, not the wall clock, so buckets always line up with the data on screen
 ## Scans
 
 Only manual scans are started from the UI. Stocks and ETF are scanned by
-`PeriodSchedulerService`: a mid-session pass plus one right after each period closes.
+`PeriodSchedulerService`: hourly through the session plus one right after each period closes.
+Session passes are skipped, not queued, while an earlier pass is still running.
+
+A run records `periodClose`, decided when the scan **starts**, and only those runs let the tracker
+confirm or close signals. Deciding it at finish would misclassify an hourly pass that began before
+the bell and ran past it.
 
 | Method | Path | Notes |
 |--------|------|-------|
