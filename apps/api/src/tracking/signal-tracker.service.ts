@@ -35,6 +35,9 @@ type SignalSnapshot = {
   sl: number | null;
   rr: number | null;
   isStrong: boolean;
+  /** Bars of `tf` since the signal became valid, as of this scan: 0 on the bar it appeared on. */
+  barsSinceValid: number | null;
+  validSinceAsOf: string | null;
   asOf: string;
 };
 
@@ -252,6 +255,8 @@ export class SignalTrackerService implements OnModuleInit {
         sl: Number.isFinite(p.sl) ? p.sl : null,
         rr: Number.isFinite(p.rr) ? p.rr : null,
         isStrong: Boolean(p.isStrong),
+        barsSinceValid: Number.isFinite(p.barsSinceValid) ? p.barsSinceValid : null,
+        validSinceAsOf: p.validSinceAsOf ?? null,
         asOf: p.asOf ?? '',
       });
     }
@@ -310,6 +315,9 @@ export class SignalTrackerService implements OnModuleInit {
             lastSeenAt: new Date(),
             lastPrice: round2(snapshot.entry),
             lastRr: snapshot.rr,
+            // Re-read from the engine on every scan: this is what ages a signal out of NEW.
+            barsSinceValid: snapshot.barsSinceValid,
+            validSinceAsOf: snapshot.validSinceAsOf,
             isStrong: snapshot.isStrong,
             shares,
             riskUsd: maxRiskUsd,
@@ -382,6 +390,8 @@ export class SignalTrackerService implements OnModuleInit {
       lastSeenAt: new Date(),
       lastPrice: round2(snapshot.entry),
       lastRr: snapshot.rr,
+      barsSinceValid: snapshot.barsSinceValid,
+      validSinceAsOf: snapshot.validSinceAsOf,
       isStrong: snapshot.isStrong,
       unrealizedUsd: 0,
       unrealizedR: 0,

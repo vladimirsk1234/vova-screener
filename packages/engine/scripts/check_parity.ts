@@ -62,6 +62,8 @@ function checkRejectReasons(check: (label: string, got: unknown, exp: unknown) =
 
     check(`${label} reason`, canonicalReason(explainInvalidBuy(pine, testCase.min_rr, false)), expect.reason);
     check(`${label} Valid`, pine?.Valid, expect.valid);
+    check(`${label} bars_since_valid`, pine?.bars_since_valid != null, expect.valid);
+    check(`${label} full.bars_since_valid`, full?.bars_since_valid, pine?.bars_since_valid);
     check(`${label} seq_state`, pine?.seq_state, expect.seq_state);
     check(`${label} full.seq_state_final`, full?.seq_state_final, expect.seq_state);
     check(`${label} critical_level`, pine?.critical_level, expect.critical_level);
@@ -109,6 +111,14 @@ function main() {
     check(`close.${key}`, (close as unknown as Record<string, unknown>)?.[key], data.close?.[key]);
   }
 
+  // `bars_since_valid` has no Python counterpart, so it is checked against the invariants the
+  // NEW / VALID split relies on: it exists exactly while the last bar is valid, a break bar is
+  // always bar zero of its run, and the two runners must count the same bars.
+  if (pine) {
+    check('pine.Valid tracks bars_since_valid', pine.Valid, pine.bars_since_valid != null);
+    if (pine.New) check('pine.New is bar zero', pine.bars_since_valid, 0);
+  }
+
   if (!full) {
     ok = false;
     console.error('FAIL full: null');
@@ -116,6 +126,8 @@ function main() {
     check('full.Valid', full.Valid, pine?.Valid);
     check('full.New', full.New, pine?.New);
     check('full.Strong', full.Strong, pine?.Strong);
+    check('full.bars_since_valid', full.bars_since_valid, pine?.bars_since_valid);
+    check('full.valid_since_index', full.valid_since_index, pine?.valid_since_index);
     check('full.RR', full.RR, pine?.RR);
     check('full.TP', full.TP, pine?.TP);
     check('full.SL', full.SL, pine?.SL);

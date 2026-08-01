@@ -174,6 +174,12 @@ export class InstrumentsService {
             valid: pine.Valid,
             isNew: pine.New,
             strong: pine.Strong,
+            // Same number the Results tabs split on, so the badge here cannot disagree with them.
+            barsSinceValid: pine.bars_since_valid,
+            validSinceAsOf:
+              pine.valid_since_index != null
+                ? (bars[pine.valid_since_index]?.date ?? null)
+                : null,
             tp: Number.isFinite(pine.TP) ? pine.TP : null,
             sl: Number.isFinite(pine.SL) ? pine.SL : null,
             rr: Number.isFinite(pine.RR) ? pine.RR : null,
@@ -212,6 +218,9 @@ export class InstrumentsService {
         lastPeakWasHh: pine?.last_peak_was_hh ?? null,
         lastTroughWasHl: pine?.last_trough_was_hl ?? null,
         valid: pine?.Valid ?? false,
+        barsSinceValid: pine?.bars_since_valid ?? null,
+        validSinceAsOf:
+          pine?.valid_since_index != null ? (bars[pine.valid_since_index]?.date ?? null) : null,
         rr: pine && Number.isFinite(pine.RR) ? pine.RR : null,
         close: bars[bars.length - 1].close,
       };

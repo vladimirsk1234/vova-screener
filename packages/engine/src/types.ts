@@ -22,6 +22,13 @@ export type PineResult = {
   Valid: boolean;
   New: boolean;
   Strong: boolean;
+  /**
+   * Bar the current uninterrupted valid run started on, and its distance from the last bar.
+   * `0` means the signal became valid on the last (possibly in-progress) bar; `null` when the
+   * last bar is not valid at all.
+   */
+  valid_since_index: number | null;
+  bars_since_valid: number | null;
   position_size: number;
   position_value: number;
   Close: number;

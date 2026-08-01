@@ -33,8 +33,8 @@ const SORTS: SortOption<ResultSort>[] = [
 ];
 
 const BUCKET_HINT: Record<Bucket, string> = {
-  new: 'Signals that appeared in the current period.',
-  valid: 'Signals from earlier periods that are still valid, marked to market.',
+  new: 'Signals that became valid on the current bar.',
+  valid: 'Signals that became valid on an earlier bar and are still valid, marked to market.',
   closed: 'Signals closed in the current period.',
 };
 

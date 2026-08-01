@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import type { Bucket, ResultRow } from '../lib/api';
-import { money, num, pct, signedMoney } from '../lib/format';
+import { barsLabel, money, num, pct, signedMoney } from '../lib/format';
 
 const EXIT_LABEL: Record<string, string> = {
   TP: 'TP hit',
@@ -13,6 +13,10 @@ const EXIT_LABEL: Record<string, string> = {
 /**
  * One tracked signal. Same card in every bucket — NEW has no P&L yet, VALID carries the
  * unrealized number and CLOSED the realized one.
+ *
+ * A signal can be older than the record: the scan may meet a symbol that has already been valid
+ * for several bars, so VALID reports the age of the signal separately from the price the tracker
+ * measures its P&L against.
  */
 export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) {
   const navigate = useNavigate();
@@ -93,8 +97,8 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
         {bucket === 'closed'
           ? `${row.openedAsOf ?? '—'} → ${row.exitDate ?? '—'} · exit ${money(row.exitPrice)} · ${num(row.pnlR)}R`
           : bucket === 'valid'
-            ? `since ${row.openedAsOf ?? row.openedPeriodKey} · now ${money(row.lastPrice)} · ${num(row.pnlR)}R`
-            : `signal bar ${row.openedAsOf ?? row.openedPeriodKey}`}
+            ? `valid ${barsLabel(row.barsSinceValid)} · since ${row.validSinceAsOf ?? row.openedAsOf ?? row.openedPeriodKey} · now ${money(row.lastPrice)} · ${num(row.pnlR)}R`
+            : `signal bar ${row.validSinceAsOf ?? row.openedAsOf ?? row.openedPeriodKey}`}
       </p>
     </article>
   );

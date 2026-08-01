@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Timeframe } from '../lib/api';
-import { money, num } from '../lib/format';
+import { barsLabel, money, num } from '../lib/format';
 import { Chips } from '../components/Chips';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SortChips, type SortDir, type SortOption } from '../components/SortChips';
@@ -218,7 +218,14 @@ export function ManualPage() {
               <strong>{signal.symbol}</strong>
               <span className="muted ellipsis">{signal.companyName}</span>
             </div>
-            {signal.isNew ? <span className="badge up">NEW</span> : null}
+            {/* Same rule as the Results tabs: bar zero of the valid run is NEW. */}
+            {signal.barsSinceValid === 0 ? (
+              <span className="badge up">NEW</span>
+            ) : (
+              <span className="badge" title={`Valid since ${signal.validSinceAsOf ?? '—'}`}>
+                {barsLabel(signal.barsSinceValid)}
+              </span>
+            )}
           </div>
           <div className="signal-card-metrics">
             <span>
