@@ -17,11 +17,18 @@ test.describe('results shell', () => {
   test('switching universe, timeframe and bucket navigates', async ({ page }) => {
     await page.goto('/results/Stocks/Daily/new');
 
-    await page.getByRole('tab', { name: 'W', exact: true }).click();
+    // Every row builds its links from the current route, so wait for a tab to light up before
+    // clicking the next one: the URL changes ahead of the re-render, and a click landing in
+    // between would follow a link still pointing at the route we just left.
+    const weekly = page.getByRole('tab', { name: 'W', exact: true });
+    await weekly.click();
     await expect(page).toHaveURL(/\/results\/Stocks\/Weekly\/new$/);
+    await expect(weekly).toHaveClass(/active/);
 
-    await page.getByRole('tab', { name: /^Closed/ }).click();
+    const closed = page.getByRole('tab', { name: /^Closed/ });
+    await closed.click();
     await expect(page).toHaveURL(/\/results\/Stocks\/Weekly\/closed$/);
+    await expect(closed).toHaveClass(/active/);
 
     await page.getByRole('tab', { name: 'ETF' }).click();
     await expect(page).toHaveURL(/\/results\/ETF\/Weekly\/closed$/);
@@ -43,12 +50,16 @@ test.describe('results shell', () => {
       const rr = page.getByRole('group', { name: 'Sort' }).getByRole('button', { name: /^RR/ });
       await expect(rr).toBeVisible();
       // NEW and VALID already default to RR, CLOSED to P&L, so assert the toggle rather than a
-      // fixed starting direction.
+      // fixed starting direction. The arrow is what says the chip has caught up with the URL; a
+      // second click before that reads the old direction and asks for the same sort again.
+      const before = await rr.textContent();
       await rr.click();
       await expect(page).toHaveURL(/sort=rr/);
-      const dir = new URL(page.url()).searchParams.get('dir');
+      await expect(rr).not.toHaveText(before ?? '');
+
+      const descending = (await rr.textContent())?.includes('↓');
       await rr.click();
-      await expect(page).toHaveURL(new RegExp(`sort=rr&dir=${dir === 'desc' ? 'asc' : 'desc'}$`));
+      await expect(page).toHaveURL(new RegExp(`sort=rr&dir=${descending ? 'asc' : 'desc'}$`));
     }
   });
 
