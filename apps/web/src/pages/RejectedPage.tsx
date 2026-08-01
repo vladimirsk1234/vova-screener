@@ -38,8 +38,8 @@ export function RejectedPage() {
           <h2 style={{ margin: 0 }}>Rejected</h2>
           <span className="badge">{data.total}</span>
         </div>
-        <Link className="link-row" to={`/runs/${runId}`}>
-          Back to results
+        <Link className="link-row" to="/results/manual">
+          Back to manual scan
         </Link>
       </section>
 

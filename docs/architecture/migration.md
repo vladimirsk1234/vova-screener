@@ -8,8 +8,8 @@ Streamlit Cloud = production until cutover. React/Railway = candidate. Do not mo
 
 1. **Scaffold + parity** — monorepo, salvage engine, delete Expo `mobile/`, docs, local web shell. **Done.**
 2. **Engine completion** — scan evaluation, ticker parsing, TradingView symbols, binary series codec ported; remaining Python chart indicators (EMA/BB/MACD overlays) still open. **Mostly done.**
-3. **API + persistence** — NestJS + MongoDB + SSE + universe import + bar cache + journal + reports, running locally without Docker. **Done** (BullMQ/Redis swap deferred to Phase 5).
-4. **Web client** — scan form with live progress, results cards, rejected breakdown, chart with overlays, journal, monthly P&L. **Done**; Playwright phone gates still open.
+3. **API + persistence** — NestJS + MongoDB + SSE + universe import + bar cache + background scans + tracked signals, running locally without Docker. **Done** (BullMQ/Redis swap deferred to Phase 5).
+4. **Web client** — Results over the latest background scan, History over closed signals, manual scan with live progress, chart with overlays and marking. **Done**; Playwright phone gates green.
 5. **Railway candidate** — deploy api/worker/mongo/redis + Pages, move the runner into a BullMQ worker; Streamlit stays on.
 6. **Cutover** — parity + Playwright + ≥3 scheduled pre-market days + operator sign-off → retire Streamlit.
 

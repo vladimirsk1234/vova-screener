@@ -5,7 +5,7 @@ Two apps live in this repo during migration:
 | App | Role | Status |
 |-----|------|--------|
 | Streamlit (`streamlit_app.py`, `headless_scanner.py`) | Production screener on Streamlit Community Cloud | Still the product; optional Nest/Mongo via `VOVA_API_URL` |
-| React + NestJS + MongoDB (`apps/`, `packages/`) | Mobile-first candidate on this PC | Working: real scans, storage, charts, journal |
+| React + NestJS + MongoDB (`apps/`, `packages/`) | Mobile-first candidate on this PC | Working: background scans, tracked signals, charts, history |
 
 Streamlit stays live until the Railway cutover checklist in [docs/architecture/migration.md](docs/architecture/migration.md) is complete.
 **Alternative to Railway:** keep this PC always on — see [home-server.md](docs/architecture/home-server.md).
@@ -54,14 +54,35 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 
 ### What works locally
 
-- Full scans over the ticker universe imported from `STOCK-TICKERS.txt` / `TV-LIST-ETF.txt`
-  (2308 stocks + 759 ETFs) with live progress over SSE, cancel support
+- Stocks and ETF are scanned in the background — hourly through the session plus one right after
+  each period closes — so **Results** always shows the latest scan without pressing anything
+- Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
+  or ticker; Valid and Closed carry P&L
+- Scans never filter on RR (MIN RR is "any"), so RR is a sort key rather than a gate — every list
+  in the app, Results, Manual and History alike, can be ordered by it
+- A signal reaches Valid only by surviving a period close, so one that appears and disappears
+  inside a single period never gets a P&L and never lands in History
+- Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —
+  and, failing all three, when the scan stops calling the symbol a buy. A symbol Yahoo could not
+  deliver is left open, so a data outage never closes a position
+- Any signal opens a chart where it can be marked Interested / Not interested; the mark shows in
+  the lists and sorts on every tab
+- History: win rate, net P&L, avg R, avg RR at entry, avg hold and an equity curve over closed
+  signals, for D / W / M / All
+- Manual scan for ad-hoc tickers with live SSE progress and a rejected-reason breakdown
 - Bars cached in MongoDB (`barSeries`), so repeat scans skip Yahoo
-- Buy and sell signals persisted per run, plus rejected symbols with reason breakdown
-- "New since last run" delta per scan
-- Chart screen: candles, critical level, TP/SL lines, multi-timeframe status
-- Trade journal with mark-to-market, TP/SL auto-close check, monthly P&L report
-- Scan settings persisted as a preset
+- One setting: Max risk per signal. It is the single source of position size across scans, lists
+  and charts, and changing it re-sizes every open signal immediately
+- Trades from the old journal are imported on first boot, so History still covers everything closed
+  before the app started tracking signals on its own
+
+Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 10-15 * * 1-5`, i.e.
+10:05 to 15:05), `VOVA_DAILY_CLOSE_CRON`, `VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON`
+(all America/New_York), or switched off entirely with `VOVA_BACKGROUND_SCANS=off`.
+
+An hourly pass re-downloads every symbol on all three timeframes, roughly 12k Yahoo requests in
+about a minute. If Yahoo starts throttling, bars fall back to the cached series rather than
+failing; watch the `cached/total` figure in the scheduler log and widen the cron if it climbs.
 
 ### Useful commands
 
@@ -75,6 +96,9 @@ npm run home-server:verify  # health + smoke MANUAL scan
 npm run tunnel              # Cloudflare Quick Tunnel to :5173
 npm run parity              # TS engine vs Python golden fixture
 npm run typecheck           # engine + api + web
+npm run smoke:tracker       # signal lifecycle end-to-end, no Yahoo needed
+npm run smoke:legacy        # import of the old trade journal
+npm run test:e2e            # Playwright (Pixel 7 + desktop)
 ```
 
 ## Docs

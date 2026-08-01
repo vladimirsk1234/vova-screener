@@ -3,9 +3,10 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
-  type BuySignal,
   type ChartDrawing,
   type ChartSettings,
+  type Interest,
+  type ResultRow,
   type Timeframe,
 } from '../lib/api';
 import { Chips } from '../components/Chips';
@@ -18,16 +19,7 @@ import {
 } from '../lib/chartSettings';
 import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
 
-type MarkStatus = 'interested' | 'not_interested';
-
-type ChartNavState = {
-  signal?: BuySignal;
-  runId?: string;
-  riskUsd?: number;
-  tf?: Timeframe;
-  periodKey?: string;
-  markStatus?: MarkStatus | null;
-};
+type ChartNavState = { row?: ResultRow };
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -40,13 +32,12 @@ export function ChartPage() {
   const queryClient = useQueryClient();
   const navState = (location.state as ChartNavState | null) ?? {};
 
-  const [tf, setTf] = useState<Timeframe>(navState.tf ?? 'Daily');
+  const [tf, setTf] = useState<Timeframe>(navState.row?.tf ?? 'Daily');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [crosshair, setCrosshair] = useState<string>('');
-  const [markStatus, setMarkStatus] = useState<MarkStatus | null>(navState.markStatus ?? null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
@@ -79,63 +70,42 @@ export function ChartPage() {
     }
   }, [drawingsQ.data, ticker, tf]);
 
+  const appSettings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const maxRiskUsd = appSettings.data?.maxRiskUsd;
+
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
   const chart = useQuery({
-    queryKey: ['chart', ticker, tf, numeric],
-    queryFn: () => api.chart(ticker, tf, numeric),
-    enabled: Boolean(ticker) && settingsReady,
+    queryKey: ['chart', ticker, tf, numeric, maxRiskUsd],
+    queryFn: () => api.chart(ticker, tf, numeric, maxRiskUsd),
+    enabled: Boolean(ticker) && settingsReady && maxRiskUsd != null,
   });
 
   const savePreset = useMutation({
     mutationFn: () => api.putPreset('chart', settings),
   });
 
-  const markInterest = useMutation({
-    mutationFn: (status: MarkStatus) => {
-      const signal = navState.signal;
-      const pine = chart.data?.pine;
-      const entry = signal?.entry ?? pine?.close;
-      if (entry == null || !Number.isFinite(entry)) {
-        throw new Error('No entry price available');
-      }
-      const tp = signal?.tp ?? pine?.tp ?? undefined;
-      const sl = signal?.sl ?? pine?.sl ?? undefined;
-      const riskUsd = navState.riskUsd ?? settings.risk_dollars ?? 100;
-      const shares =
-        signal?.shares != null &&
-        navState.riskUsd != null &&
-        Number.isFinite(signal.shares)
-          ? signal.shares
-          : sharesFromRisk(entry, sl ?? null, riskUsd);
-      const periodKey = navState.periodKey;
-      if (!periodKey) {
-        throw new Error('Missing period — open chart from a scan result or trade');
-      }
+  // The mark lives on the tracked signal, so a chart opened straight from a URL has to find it.
+  const tracked = useQuery({
+    queryKey: ['tracked-signal', ticker, tf],
+    queryFn: () => api.lookupSignal(ticker, tf),
+    enabled: Boolean(ticker),
+    initialData: navState.row?.tf === tf ? navState.row : undefined,
+  });
 
-      return api.createTrade({
-        symbol: signal?.symbol ?? chart.data?.tvSymbol ?? ticker,
-        yahooTicker: signal?.yahooTicker ?? chart.data?.yahooTicker ?? ticker,
-        companyName: signal?.companyName ?? chart.data?.companyName,
-        tf: navState.tf ?? tf,
-        entry,
-        tp: tp ?? undefined,
-        sl: sl ?? undefined,
-        rrAtEntry: signal?.rr ?? pine?.rr ?? undefined,
-        shares,
-        riskUsd,
-        asOf: signal?.asOf,
-        runId: navState.runId,
-        periodKey,
-        status,
-        source: 'manual',
-      });
+  const markInterest = useMutation({
+    mutationFn: (next: Interest | null) => {
+      const id = tracked.data?.id;
+      if (!id) throw new Error('This symbol is not a tracked signal on this timeframe');
+      return api.setInterest(id, next);
     },
-    onSuccess: (_data, status) => {
-      setMarkStatus(status);
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      queryClient.invalidateQueries({ queryKey: ['signals'] });
+    onSuccess: (row) => {
+      queryClient.setQueryData(['tracked-signal', ticker, tf], row);
+      void queryClient.invalidateQueries({ queryKey: ['results'] });
+      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
     },
   });
+
+  const markStatus = tracked.data?.interest ?? null;
 
   useEffect(() => {
     if (!containerRef.current || !chart.data) return;
@@ -186,33 +156,27 @@ export function ChartPage() {
 
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
-  const signal = navState.signal;
-  const riskUsd = navState.riskUsd ?? settings.risk_dollars ?? 100;
+  const row = tracked.data ?? null;
+  // A tracked signal carries the risk it was sized at; anything else uses the current setting.
+  const riskUsd = row?.riskUsd || maxRiskUsd || 100;
 
   const tradeMetrics = useMemo(() => {
-    const entry = signal?.entry ?? pine?.close ?? null;
-    const tp = signal?.tp ?? pine?.tp ?? null;
-    const sl = signal?.sl ?? pine?.sl ?? null;
-    const rr = signal?.rr ?? pine?.rr ?? null;
+    const entry = row?.entry ?? pine?.close ?? null;
+    const tp = row?.tp ?? pine?.tp ?? null;
+    const sl = row?.sl ?? pine?.sl ?? null;
+    const rr = row?.currentRr ?? row?.rr ?? pine?.rr ?? null;
     const shares =
-      signal?.shares != null && Number.isFinite(signal.shares)
-        ? signal.shares
+      row?.shares != null && row.shares > 0
+        ? row.shares
         : entry != null
           ? sharesFromRisk(entry, sl, riskUsd)
           : 0;
-    const dollars =
-      signal?.positionValue != null && Number.isFinite(signal.positionValue)
-        ? signal.positionValue
-        : entry != null
-          ? investedFromShares(entry, shares)
-          : 0;
+    const dollars = entry != null ? investedFromShares(entry, shares) : 0;
     return { tp, sl, rr, shares, dollars };
-  }, [signal, pine, riskUsd]);
+  }, [row, pine, riskUsd]);
 
-  const showMetrics = Boolean(pine || signal);
-  const canMark =
-    Boolean(navState.periodKey) &&
-    (signal?.entry != null || (pine?.close != null && Number.isFinite(pine.close)));
+  const showMetrics = Boolean(pine || row);
+  const canMark = Boolean(row?.id);
   const marking = markInterest.isPending;
 
   return (
@@ -313,21 +277,19 @@ export function ChartPage() {
       <div className="card-actions chart-actions">
         <button
           type="button"
-          className={`btn-sm${
-            markStatus === 'interested' ? ' selected' : ' ghost'
-          }`}
+          className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
           disabled={!canMark || marking}
-          onClick={() => markInterest.mutate('interested')}
+          onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
         >
           {marking ? 'Saving…' : 'Interested'}
         </button>
         <button
           type="button"
-          className={`btn-sm${
-            markStatus === 'not_interested' ? ' danger selected' : ' ghost'
-          }`}
+          className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
           disabled={!canMark || marking}
-          onClick={() => markInterest.mutate('not_interested')}
+          onClick={() =>
+            markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
+          }
         >
           Not Interested
         </button>

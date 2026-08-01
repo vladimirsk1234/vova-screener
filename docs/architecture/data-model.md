@@ -40,12 +40,53 @@ Index `{ runId, symbol }`. Charts read bars from `barSeries`, so no bar snapshot
 ### `scanRejections`
 `{ runId, symbol, reason, createdAt }` with a 30-day TTL — audit data, not history.
 
-### `trades`
-Journal: `{ symbol, yahooTicker, companyName, tf, openedAt, asOf, entry, tp, sl, rrAtEntry, shares, riskUsd, status, exitPrice, exitDate, exitReason, pnlUsd, pnlR, runId }`.
-Index `{ status, symbol }`. Unrealized P&L is computed on read from cached bars.
+### `trackedSignals`
+The single source for Results and History. Written only by `SignalTrackerService` after a
+background scan finishes, so both screens are indexed reads with no per-request maths.
+
+`{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional,
+openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
+lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, isStrong, unrealizedUsd, unrealizedR, unrealizedPct,
+closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
+interest, interestRank, interestAt, runId }`.
+
+Lifecycle:
+
+- Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr` and the unrealized numbers, and
+  opens a `provisional` record for a symbol it has not seen before. That is what makes a signal
+  appearing mid-session visible in NEW straight away.
+- Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
+  closes anything: provisional records are either confirmed or deleted, and confirmed records are
+  closed with a realized P&L. Intra-period noise therefore never reaches History.
+- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost`, checked in that order on the
+  first bar after `openedAsOf`. The stop wins over the target on a bar that spans both, because the
+  path within a bar is unknowable; `sell_to_close` is the Sequence Vova bullish break, exiting at
+  that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
+  buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
+  closes positions.
+- A signal reaches VALID by surviving a period close, never by the clock: a provisional record
+  whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
+  confirmed records can be closed, so a signal that comes and goes inside one period leaves no
+  trace, and `totals.active` in History counts confirmed positions only.
+- `interest` is set from the chart screen and survives NEW → VALID → CLOSED. `interestRank`
+  (2 / 1 / 0) exists only so Mongo can sort marked signals first.
+
+The pre-tracking journal (`trades`) is imported into this collection on boot by
+`LegacyTradesMigration`: closed rows arrive as closed signals with the P&L they were recorded
+with, open and marked rows as active ones, and `dismissed` rows are left behind. Each source row
+is stamped with `migratedAt` / `migratedAs` rather than deleted, so the journal stays as a backup
+and a repeat run only picks up what is left. Two things the journal never had are filled in:
+`universe`, recovered from `instruments.universes`, and the exit reason `manual`, which exists in
+the enum only because the old app let you close a trade by hand.
+
+Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`, plus
+`{ universe, tf, status, openedPeriodKey }`, `{ universe, tf, status, closedPeriodKey }`,
+`{ universe, tf, status, lastRr }`, `{ universe, tf, status, interestRank }` and
+`{ status, tf, closedPeriodKey }` — one index per bucket-and-sort combination the UI offers.
 
 ### `presets`
-`{ key, data }` for `scan` and `chart` params (successor to Streamlit `session_state`).
+`{ key, data }` for chart params (successor to Streamlit `session_state`) and the `app` key
+holding `{ maxRiskUsd }` behind `GET/PUT /api/settings`.
 
 ## Deferred
 

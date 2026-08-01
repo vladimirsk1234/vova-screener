@@ -2,8 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
-import { REJECTION, SCAN_RUN, SIGNAL } from '../db/schemas';
-import { TradesService } from '../trades/trades.service';
+import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
+import { SignalTrackerService } from '../tracking/signal-tracker.service';
 import { isPeriodClosed, periodKey } from './period';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
@@ -14,9 +14,9 @@ const DEFAULTS: ScanParamsApi = {
   direction: 'buy',
   minRr: 1.5,
   riskPerTrade: 100,
-  noRrReq: false,
+  noRrReq: true,
   useLastHlSl: true,
-  newOnly: true,
+  newOnly: false,
 };
 
 export type StartOpts = {
@@ -42,8 +42,9 @@ export class ScansService {
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
     @InjectModel(SIGNAL) private readonly signals: Model<any>,
     @InjectModel(REJECTION) private readonly rejections: Model<any>,
+    @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     private readonly runner: ScanRunnerService,
-    private readonly trades: TradesService,
+    private readonly tracker: SignalTrackerService,
   ) {}
 
   async start(input: Partial<ScanParamsApi>, opts: StartOpts = {}) {
@@ -51,6 +52,7 @@ export class ScansService {
     const trigger = opts.trigger ?? 'manual';
     const key = periodKey(params.tf);
     const periodTf = params.tf;
+    const periodClose = isPeriodClosed(params.tf);
 
     let run = await this.runs
       .findOne({ periodKey: key, periodTf, 'params.source': params.source })
@@ -72,16 +74,17 @@ export class ScansService {
       run.trigger = trigger;
       run.periodKey = key;
       run.periodTf = periodTf;
+      run.periodClose = periodClose;
       run.counters = { ...EMPTY_COUNTERS };
       run.reasonCounts = {};
       run.newSymbols = [];
       run.summary = null;
       run.error = undefined;
       run.cancelRequested = false;
-      run.asOf = undefined;
-      run.barsOldestAt = undefined;
       run.startedAt = undefined;
-      run.finishedAt = undefined;
+      // asOf / barsOldestAt / finishedAt keep describing the last completed pass over this
+      // period until the new one overwrites them. Results derives its bucket boundary from
+      // them, and clearing them would move every signal one bucket while a rescan is running.
       run.timings = { downloadMs: 0, processMs: 0, totalMs: 0 };
       await run.save();
     } else {
@@ -90,6 +93,7 @@ export class ScansService {
         status: 'queued',
         periodKey: key,
         periodTf,
+        periodClose,
         trigger,
       });
     }
@@ -97,7 +101,7 @@ export class ScansService {
     const runId = String(run._id);
     const finish = async () => {
       await this.runner.execute(runId);
-      await this.afterScanComplete(runId, params.tf);
+      await this.afterScanComplete(runId);
     };
     if (opts.wait) {
       await finish();
@@ -109,27 +113,9 @@ export class ScansService {
     return { runId, params };
   }
 
-  /**
-   * After a completed buy scan at period end: promote interested → open with updated prices,
-   * dismiss invalid interested, then refresh open trades for that TF.
-   */
-  async afterScanComplete(runId: string, tf: Timeframe) {
-    const run = await this.runs.findById(runId).lean<any>().exec();
-    if (!run || run.status !== 'completed') return;
-    if (run.params?.direction !== 'buy') return;
-
-    const runTf = (run.periodTf ?? run.params.tf ?? tf) as Timeframe;
-    const eligible = run.trigger === 'scheduled' || isPeriodClosed(runTf);
-    if (!eligible) {
-      this.log.debug(`Skip promote for ${runId} — mid-period manual scan`);
-      return;
-    }
-
-    const promoted = await this.trades.promoteInterested(runId);
-    const closed = await this.trades.refresh({ tf: runTf });
-    this.log.log(
-      `afterScan ${runId}: promoted ${promoted.promoted}, dismissed ${promoted.dismissed}, closed ${closed.closed} (trigger=${run.trigger})`,
-    );
+  /** Feed a finished universe scan into the signal tracker (manual scans are ignored there). */
+  async afterScanComplete(runId: string) {
+    await this.tracker.applyRun(runId);
   }
 
   async list(opts: { limit?: number; tf?: Timeframe } = {}) {
@@ -149,12 +135,17 @@ export class ScansService {
   }
 
   async resetHistory() {
-    await Promise.all([
+    const [, , tracked] = await Promise.all([
       this.signals.deleteMany({}).exec(),
       this.rejections.deleteMany({}).exec(),
+      this.tracked.deleteMany({}).exec(),
     ]);
     const result = await this.runs.deleteMany({}).exec();
-    return { ok: true, deletedRuns: result.deletedCount ?? 0 };
+    return {
+      ok: true,
+      deletedRuns: result.deletedCount ?? 0,
+      deletedSignals: tracked.deletedCount ?? 0,
+    };
   }
 
   async get(id: string) {
@@ -180,32 +171,8 @@ export class ScansService {
       .lean()
       .exec();
 
-    const tf = (run.periodTf ?? run.params?.tf ?? 'Daily') as Timeframe;
-    const periodKeyVal = run.periodKey as string | undefined;
-    const marks = periodKeyVal
-      ? await this.trades.interestMarks(tf, periodKeyVal)
-      : { interested: [] as string[], notInterested: [] as string[] };
-    const notSet = new Set(marks.notInterested);
-    const interestedSet = new Set(marks.interested);
-
-    const isMarked = (p: any, set: Set<string>) =>
-      Boolean((p?.yahooTicker && set.has(p.yahooTicker)) || (p?.symbol && set.has(p.symbol)));
-
-    const payloads = rows
-      .map((r: any) => r.payload)
-      .filter((p: any) => !isMarked(p, notSet))
-      .map((p: any) => ({
-        ...p,
-        interestMark: isMarked(p, interestedSet) ? ('interested' as const) : null,
-      }));
-
-    return {
-      run,
-      count: payloads.length,
-      rows: payloads,
-      newSymbols: run.newSymbols ?? [],
-      interestMarks: marks,
-    };
+    const payloads = rows.map((r: any) => r.payload);
+    return { run, count: payloads.length, rows: payloads, newSymbols: run.newSymbols ?? [] };
   }
 
   async listRejections(id: string, limit = 300) {

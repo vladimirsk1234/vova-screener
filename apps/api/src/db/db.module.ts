@@ -14,8 +14,8 @@ import {
   ScanRunSchema,
   SIGNAL,
   SignalSchema,
-  TRADE,
-  TradeSchema,
+  TRACKED_SIGNAL,
+  TrackedSignalSchema,
 } from './schemas';
 
 const models = MongooseModule.forFeature([
@@ -24,7 +24,7 @@ const models = MongooseModule.forFeature([
   { name: SCAN_RUN, schema: ScanRunSchema },
   { name: SIGNAL, schema: SignalSchema },
   { name: REJECTION, schema: RejectionSchema },
-  { name: TRADE, schema: TradeSchema },
+  { name: TRACKED_SIGNAL, schema: TrackedSignalSchema },
   { name: PRESET, schema: PresetSchema },
 ]);
 
