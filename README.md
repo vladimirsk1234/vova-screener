@@ -58,13 +58,16 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   pressing anything. Daily refreshes hourly through the session, weekly three times a day, monthly
   once 30 minutes before the bell, and every timeframe again right after its period closes
 - Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
-  or ticker; Valid and Closed carry P&L
+  or ticker. New is this period, Valid is a period or more old (for Daily, yesterday or earlier),
+  Closed is what stopped being valid this period; Valid and Closed carry P&L
 - Scans never filter on RR (MIN RR is "any"), so RR is a sort key rather than a gate — every list
   in the app, Results, Manual and History alike, can be ordered by it
 - Every scan is a buy scan; there is no direction to pick. Selling is what closes a position, and
   the tracker decides that on its own
 - A signal reaches Valid only by surviving a period close, so one that appears and disappears
-  inside a single period never gets a P&L and never lands in History
+  inside a single period never gets a P&L and never lands in History. Closing means a signal
+  stopped being valid after it had been valid — one that was new and then lost is dropped, not
+  counted as a trade
 - Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —
   and, failing all three, when the scan looks at the symbol and no longer calls it a buy. One the
   scan never reached, or could not price, stays open

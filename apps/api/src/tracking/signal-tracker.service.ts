@@ -47,6 +47,7 @@ type ActiveDoc = {
   shares?: number;
   openedAsOf?: string;
   openedAt?: Date;
+  openedPeriodKey?: string;
   provisional?: boolean;
 };
 
@@ -143,7 +144,7 @@ export class SignalTrackerService implements OnModuleInit {
     const rejected = confirmed ? await this.loadRejected(runId) : new Set<string>();
     const active = await this.tracked
       .find({ universe, tf, status: 'active' })
-      .select('yahooTicker entry tp sl shares openedAsOf openedAt provisional')
+      .select('yahooTicker entry tp sl shares openedAsOf openedAt openedPeriodKey provisional')
       .lean<ActiveDoc[]>()
       .exec();
 
@@ -201,6 +202,14 @@ export class SignalTrackerService implements OnModuleInit {
         // reached (a partial universe) or could not price (a Yahoo outage) says nothing about
         // the trade, and closing on it would wipe out positions the scan never considered.
         if (!rejected.has(doc.yahooTicker)) continue;
+        // Closed means a signal stopped being valid after it had been valid. One that never
+        // outlived the period it opened in was new and lost, and leaves no trade behind — the
+        // same treatment a provisional record gets, for the same reason.
+        if (doc.openedPeriodKey === periodKey) {
+          ops.push({ deleteOne: { filter: { _id: doc._id } } });
+          report.dropped += 1;
+          continue;
+        }
         const bar = evaluated?.lastBar;
         if (!bar) continue;
         ops.push(

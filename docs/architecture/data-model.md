@@ -49,6 +49,14 @@ lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, isStrong, unrealizedUsd, unr
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
 interest, interestRank, interestAt, runId }`.
 
+The three Results buckets, against the period of the newest completed scan:
+
+| Bucket | Meaning | Filter |
+| --- | --- | --- |
+| NEW | opened in this period | `openedPeriodKey == periodKey`, or still `provisional` |
+| VALID | at least one period old — for Daily, yesterday or earlier | `openedPeriodKey < periodKey` |
+| CLOSED | stopped being valid in this period, after having been valid | `closedPeriodKey == periodKey` |
+
 Lifecycle:
 
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr` and the unrealized numbers, and
@@ -69,6 +77,10 @@ Lifecycle:
   whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
   confirmed records can be closed, so a signal that comes and goes inside one period leaves no
   trace, and `totals.active` in History counts confirmed positions only.
+- Closing needs the signal to have been valid first. A confirmed record that is lost inside the very
+  period it opened in — which a rescan of that period's close can do — is deleted rather than
+  closed: it was new and lost, not valid and then lost, so it produces no statistic. Only
+  `signal_lost` can fire that early, since the other exits read bars after `openedAsOf`.
 - `interest` is set from the chart screen and survives NEW → VALID → CLOSED. `interestRank`
   (2 / 1 / 0) exists only so Mongo can sort marked signals first.
 

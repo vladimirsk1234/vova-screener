@@ -29,6 +29,7 @@ const TICKERS = [
   'ZZTEST-G',
   'ZZTEST-H',
   'ZZTEST-I',
+  'ZZTEST-J',
 ];
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
@@ -97,6 +98,7 @@ async function fakeScan(
   signals: Model<any>,
   rejections: Model<any>,
   opts: {
+    universe?: 'Stocks' | 'ETF';
     periodKey: string;
     asOf: string;
     finishedAt: Date;
@@ -108,11 +110,12 @@ async function fakeScan(
     rejected?: string[];
   },
 ) {
+  const universe = opts.universe ?? 'Stocks';
   const run = await runs.findOneAndUpdate(
-    { periodKey: opts.periodKey, periodTf: 'Daily', 'params.source': 'Stocks', trigger: 'smoke' },
+    { periodKey: opts.periodKey, periodTf: 'Daily', 'params.source': universe, trigger: 'smoke' },
     {
       $set: {
-        params: { source: 'Stocks', tf: 'Daily', noRrReq: true, newOnly: false },
+        params: { source: universe, tf: 'Daily', noRrReq: true, newOnly: false },
         periodKey: opts.periodKey,
         periodTf: 'Daily',
         periodClose: opts.periodClose,
@@ -227,6 +230,8 @@ async function main() {
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
       { date: '2026-07-16', high: 101, low: 99, close: 100 },
     ],
+    // Ends on the day it opens, so no later bar can hand it an exit.
+    'ZZTEST-J': [{ date: '2026-07-15', high: 101, low: 99, close: 100 }],
     // Rides the climb, then closes back through the critical level on day 2.
     'ZZTEST-G': [
       { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
@@ -249,6 +254,7 @@ async function main() {
     'ZZTEST-G': 1.5,
     'ZZTEST-H': 0.5,
     'ZZTEST-I': 0.75,
+    'ZZTEST-J': 1.25,
   };
   const snap = (ticker: string, entry: number): Snapshot => ({
     ticker,
@@ -440,6 +446,49 @@ async function main() {
   check('closed signals keep their size', [untouched?.shares, untouched?.pnlUsd], [10, -100]);
   await settings.put({ maxRiskUsd: 100 });
 
+  // 6. Closed means a signal stopped being valid after it had been valid. One that is lost inside
+  //    the very period it opened in was new and lost, so it leaves no trade behind. Runs on ETF to
+  //    stay clear of the Stocks fixture above.
+  const run6 = await fakeScan(runs, signals, rejections, {
+    universe: 'ETF',
+    periodKey: '2026-07-15',
+    asOf: '2026-07-15',
+    finishedAt: DAY1_CLOSE,
+    periodClose: true,
+    rows: [snap('ZZTEST-J', 100)],
+  });
+  await tracker.applyRun(run6);
+  check(
+    'J opens in NEW',
+    (await tracked.findOne({ yahooTicker: 'ZZTEST-J' }).lean<any>())?.openedPeriodKey,
+    '2026-07-15',
+  );
+
+  // A rescan of the same period close, the way ScansService reuses that period's run.
+  const run7 = await fakeScan(runs, signals, rejections, {
+    universe: 'ETF',
+    periodKey: '2026-07-15',
+    asOf: '2026-07-15',
+    finishedAt: DAY1_CLOSE,
+    periodClose: true,
+    rows: [],
+    rejected: ['ZZTEST-J'],
+  });
+  const report7 = await tracker.applyRun(run7);
+  check('a signal lost in its opening period is dropped, not closed', [report7?.dropped, report7?.closed], [1, 0]);
+  check(
+    'it leaves no trade behind',
+    await tracked.countDocuments({ yahooTicker: 'ZZTEST-J' }),
+    0,
+  );
+  check(
+    'and nothing lands in History',
+    (await history.report({ tf: 'Daily', groupBy: 'Daily' })).periods.find(
+      (p) => p.periodKey === '2026-07-15',
+    ),
+    undefined,
+  );
+
   const drill = await history.trades({
     tf: 'Daily',
     groupBy: 'Daily',
@@ -457,10 +506,10 @@ async function main() {
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6, run7].map((id) => new Types.ObjectId(id)) },
     }),
     rejections.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6, run7].map((id) => new Types.ObjectId(id)) },
     }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);
