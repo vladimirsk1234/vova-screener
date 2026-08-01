@@ -213,17 +213,21 @@ export function ChartPage() {
         <div className="chart-pine-row">
           {pine ? (
             <>
-              {/* Same rule as the Results tabs: bar zero of the valid run is NEW, older is VALID. */}
+              {/* Same rule and the same number as the Results tabs: the signal is NEW on the bar it
+                  appeared on and VALID on every bar after it. Nothing else — the RR settings below
+                  do not move a signal between the two. */}
               {pine.barsSinceValid === 0 ? (
-                <span className="badge up" title={`Became valid on the current ${tf} bar`}>
+                <span className="badge up" title={`New signal on the current ${tf} bar`}>
                   NEW
                 </span>
               ) : (
                 <span
-                  className={`badge ${pine.valid ? 'up' : 'down'}`}
-                  title={pine.validSinceAsOf ? `Valid since ${pine.validSinceAsOf}` : undefined}
+                  className={`badge ${pine.barsSinceValid != null ? 'up' : 'down'}`}
+                  title={pine.validSinceAsOf ? `Signal bar ${pine.validSinceAsOf}` : undefined}
                 >
-                  {pine.valid ? `VALID · ${barsLabel(pine.barsSinceValid)}` : 'NO SIGNAL'}
+                  {pine.barsSinceValid != null
+                    ? `VALID · ${barsLabel(pine.barsSinceValid)}`
+                    : 'NO SIGNAL'}
                 </span>
               )}
               {pine.strong ? <span className="badge">STRONG</span> : null}

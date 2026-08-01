@@ -7,6 +7,7 @@ import {
   runSequenceVovaCloseScan,
   runSequenceVovaPine,
 } from './sequenceVova';
+import { signalAge } from './signalAge';
 import { buildChartUrl, inferTvSymbol, tfToTvInterval } from './tradingview';
 import type { OhlcSeries, PineResult, ScanDirection, Timeframe } from './types';
 
@@ -40,11 +41,12 @@ export type BuySignal = {
   isNew: boolean;
   isStrong: boolean;
   /**
-   * Age of the signal in bars of `tf`: `0` means it became valid on the bar named by `asOf`.
-   * This is what splits the NEW and VALID lists, so it holds for Daily, Weekly and Monthly alike.
+   * Age of the signal in bars of `tf`: `0` means it appeared on the bar named by `asOf`. This is
+   * what splits the NEW and VALID lists, so it holds for Daily, Weekly and Monthly alike and never
+   * depends on the RR settings of the run that found the signal — see `signalAge`.
    */
   barsSinceValid: number | null;
-  /** Date of the bar the signal became valid on. */
+  /** Date of the bar the signal appeared on. */
   validSinceAsOf: string | null;
   atr: number;
   asOf: string;
@@ -235,7 +237,7 @@ export function evaluateSymbol(input: {
     Number.isFinite(out.position_size) && out.position_size >= 1
       ? Math.round(out.position_size)
       : 0;
-  const validSince = out.valid_since_index;
+  const age = signalAge(bars);
   return {
     status: 'signal',
     signal: {
@@ -253,8 +255,8 @@ export function evaluateSymbol(input: {
       positionValue: Number.isFinite(out.position_value) ? round2(out.position_value) : 0,
       isNew: Boolean(out.New),
       isStrong: Boolean(out.Strong),
-      barsSinceValid: out.bars_since_valid,
-      validSinceAsOf: validSince != null ? (bars[validSince]?.date ?? null) : null,
+      barsSinceValid: age.barsSinceValid,
+      validSinceAsOf: age.validSinceAsOf,
       atr: Number.isFinite(out.ATR) ? round2(out.ATR) : 0,
       asOf,
     },

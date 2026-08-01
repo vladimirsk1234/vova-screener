@@ -10,6 +10,7 @@ import {
   runSequenceVovaPine,
 } from '../src/sequenceVova';
 import { runSequenceVovaFull, runStructureOverlay } from '../src/sequenceVovaFull';
+import { signalAge } from '../src/signalAge';
 import { buildTradeLine, buildDwmLines } from '../src/watermark';
 import { defaultIndicatorParams } from '../src/indicatorParams';
 import type { OhlcSeries } from '../src/types';
@@ -28,6 +29,18 @@ function almostEqual(a: number | null | undefined, b: number | null | undefined,
 /** Python reason strings carry no threshold; the TS code appends " (min x.xx)". */
 function canonicalReason(reason: string): string {
   return reason.replace(/ \(min [\d.]+\)$/, '');
+}
+
+/** Age of the last valid run with RR out of the way, which is what `signalAge` has to reproduce. */
+function structuralAge(bars: OhlcSeries, atrLen: number): number | null {
+  const out = runSequenceVovaPine(bars, {
+    atr_len: atrLen,
+    min_rr: 0,
+    no_rr_req: true,
+    use_last_hl_sl: true,
+    direction: 'buy',
+  });
+  return out?.bars_since_valid ?? null;
 }
 
 /**
@@ -64,6 +77,13 @@ function checkRejectReasons(check: (label: string, got: unknown, exp: unknown) =
     check(`${label} Valid`, pine?.Valid, expect.valid);
     check(`${label} bars_since_valid`, pine?.bars_since_valid != null, expect.valid);
     check(`${label} full.bars_since_valid`, full?.bars_since_valid, pine?.bars_since_valid);
+    // These cases differ only in `min_rr`, and the age of a signal must not move with it: the
+    // NEW / VALID split has to read the same number whatever RR the caller asked for.
+    check(
+      `${label} signalAge ignores min_rr`,
+      signalAge(bars).barsSinceValid,
+      structuralAge(bars, data.opts.atr_len),
+    );
     check(`${label} seq_state`, pine?.seq_state, expect.seq_state);
     check(`${label} full.seq_state_final`, full?.seq_state_final, expect.seq_state);
     check(`${label} critical_level`, pine?.critical_level, expect.critical_level);
@@ -118,6 +138,16 @@ function main() {
     check('pine.Valid tracks bars_since_valid', pine.Valid, pine.bars_since_valid != null);
     if (pine.New) check('pine.New is bar zero', pine.bars_since_valid, 0);
   }
+
+  // What the NEW / VALID tabs and the chart badge all read.
+  const age = signalAge(bars);
+  const structural = structuralAge(bars, opts.atr_len);
+  check('signalAge.barsSinceValid', age.barsSinceValid, structural);
+  check(
+    'signalAge.validSinceAsOf',
+    age.validSinceAsOf,
+    structural != null ? bars[bars.length - 1 - structural].date : null,
+  );
 
   if (!full) {
     ok = false;
