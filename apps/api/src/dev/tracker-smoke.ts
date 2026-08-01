@@ -7,18 +7,17 @@
  *
  *   npm run smoke:tracker -w @vova/api
  */
-import * as net from 'node:net';
 import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import mongoose, { Types, type Model } from 'mongoose';
 import { encodeSeries, type OhlcSeries } from '@vova/engine';
 import { AppModule } from '../app.module';
-import { resolveMongoUri } from '../db/local-mongo';
 import { BAR_SERIES, REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { HistoryService } from '../tracking/history.service';
 import { ResultsService } from '../tracking/results.service';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
 import { SettingsService } from '../settings/settings.module';
+import { check, finish, useSmokeDatabase } from './smoke-harness';
 
 const TICKERS = [
   'ZZTEST-A',
@@ -35,43 +34,6 @@ const DAY1_CLOSE = new Date('2026-07-15T20:15:00Z');
 /** An hourly pass that started at 15:05 and ran past the bell — deliberately not a close scan. */
 const DAY2_OVERRUN = new Date('2026-07-16T20:05:00Z');
 const DAY2_CLOSE = new Date('2026-07-16T20:15:00Z');
-
-const EMBEDDED_PORT = 27019;
-
-let failures = 0;
-
-function portIsOpen(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = net
-      .connect({ host: '127.0.0.1', port })
-      .on('connect', () => (socket.end(), resolve(true)))
-      .on('error', () => resolve(false));
-    socket.setTimeout(500, () => (socket.destroy(), resolve(false)));
-  });
-}
-
-/**
- * Bucket boundaries follow the newest scan in the database, so the fixtures need a database of
- * their own — a real background scan sitting next to them would move NEW and CLOSED off the
- * synthetic period. The embedded Mongo has a persistent data directory shared with the dev
- * server, hence the separate database name rather than a separate server.
- */
-async function useSmokeDatabase() {
-  const base =
-    process.env.MONGO_URI ??
-    ((await portIsOpen(EMBEDDED_PORT))
-      ? `mongodb://127.0.0.1:${EMBEDDED_PORT}/vova?directConnection=true`
-      : await resolveMongoUri());
-  const uri = new URL(base);
-  uri.pathname = '/vova-smoke';
-  process.env.MONGO_URI = uri.toString();
-}
-
-function check(label: string, actual: unknown, expected: unknown) {
-  const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  if (!ok) failures += 1;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}: ${JSON.stringify(actual)}` + (ok ? '' : ` (want ${JSON.stringify(expected)})`));
-}
 
 type Tail = Array<{ date: string; high: number; low: number; close: number }>;
 
@@ -203,7 +165,7 @@ async function fakeScan(
 }
 
 async function main() {
-  await useSmokeDatabase();
+  await useSmokeDatabase('vova-smoke');
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const tracker = app.get(SignalTrackerService);
   const results = app.get(ResultsService);
@@ -481,8 +443,7 @@ async function main() {
 
   await app.close();
   await mongoose.disconnect();
-  console.log(failures ? `\n${failures} check(s) failed` : '\nTRACKER OK');
-  process.exit(failures ? 1 : 0);
+  await finish('TRACKER');
 }
 
 main().catch((err) => {
