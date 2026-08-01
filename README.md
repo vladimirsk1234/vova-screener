@@ -54,17 +54,23 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 
 ### What works locally
 
-- Stocks and ETF are scanned in the background — hourly through the session plus one right after
-  each period closes — so **Results** always shows the latest scan without pressing anything
+- Stocks and ETF are scanned in the background, so **Results** always shows the latest scan without
+  pressing anything. Daily refreshes hourly through the session, weekly three times a day, monthly
+  once 30 minutes before the bell, and every timeframe again right after its period closes
 - Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
-  or ticker; Valid and Closed carry P&L
+  or ticker. New is this period, Valid is a period or more old (for Daily, yesterday or earlier),
+  Closed is what stopped being valid this period; Valid and Closed carry P&L
 - Scans never filter on RR (MIN RR is "any"), so RR is a sort key rather than a gate — every list
   in the app, Results, Manual and History alike, can be ordered by it
+- Every scan is a buy scan; there is no direction to pick. Selling is what closes a position, and
+  the tracker decides that on its own
 - A signal reaches Valid only by surviving a period close, so one that appears and disappears
-  inside a single period never gets a P&L and never lands in History
+  inside a single period never gets a P&L and never lands in History. Closing means a signal
+  stopped being valid after it had been valid — one that was new and then lost is dropped, not
+  counted as a trade
 - Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —
-  and, failing all three, when the scan stops calling the symbol a buy. A symbol Yahoo could not
-  deliver is left open, so a data outage never closes a position
+  and, failing all three, when the scan looks at the symbol and no longer calls it a buy. One the
+  scan never reached, or could not price, stays open
 - Any signal opens a chart where it can be marked Interested / Not interested; the mark shows in
   the lists and sorts on every tab
 - History: win rate, net P&L, avg R, avg RR at entry, avg hold and an equity curve over closed
@@ -76,13 +82,22 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 - Trades from the old journal are imported on first boot, so History still covers everything closed
   before the app started tracking signals on its own
 
-Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 10-15 * * 1-5`, i.e.
-10:05 to 15:05), `VOVA_DAILY_CLOSE_CRON`, `VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON`
-(all America/New_York), or switched off entirely with `VOVA_BACKGROUND_SCANS=off`.
+| Pass | Default cron (America/New_York) | Override |
+| --- | --- | --- |
+| Daily session | `5 10-15 * * 1-5` — 10:05 to 15:05 | `VOVA_DAILY_SESSION_CRON` |
+| Weekly session | `35 10,12,14 * * 1-5` | `VOVA_WEEKLY_SESSION_CRON` |
+| Monthly session | `30 15 * * 1-5` | `VOVA_MONTHLY_SESSION_CRON` |
+| Daily close | `15 16 * * 1-5` | `VOVA_DAILY_CLOSE_CRON` |
+| Weekly close | `20 16 * * 5` | `VOVA_WEEKLY_CLOSE_CRON` |
+| Monthly close | `25 16 * * 1-5`, last trading day | `VOVA_MONTHLY_CLOSE_CRON` |
 
-An hourly pass re-downloads every symbol on all three timeframes, roughly 12k Yahoo requests in
-about a minute. If Yahoo starts throttling, bars fall back to the cached series rather than
-failing; watch the `cached/total` figure in the scheduler log and widen the cron if it climbs.
+`VOVA_BACKGROUND_SCANS=off` switches the lot off.
+
+Yahoo serves `1d`, `1wk` and `1mo` as separate downloads, so each pass costs a full sweep of both
+universes — around 6.6k requests. Refreshing all three every hour is what draws throttling, and
+weekly and monthly bars barely move intraday, hence the split cadence. A throttled pass degrades
+instead of failing: bars fall back to the cached series. Watch the `cached/total` figure in the
+scheduler log, and widen that timeframe's cron if it climbs pass after pass.
 
 ### Useful commands
 
@@ -98,6 +113,7 @@ npm run parity              # TS engine vs Python golden fixture
 npm run typecheck           # engine + api + web
 npm run smoke:tracker       # signal lifecycle end-to-end, no Yahoo needed
 npm run smoke:legacy        # import of the old trade journal
+npm run smoke:scheduler     # background scan cadence, on stubs
 npm run test:e2e            # Playwright (Pixel 7 + desktop)
 ```
 

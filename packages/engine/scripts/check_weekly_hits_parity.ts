@@ -63,7 +63,6 @@ function main() {
       bars: collapsed,
       yahooTicker: ticker,
       params: {
-        direction: 'buy',
         minRr: data.opts.min_rr,
         riskPerTrade: data.opts.risk_dollars,
         noRrReq: false,

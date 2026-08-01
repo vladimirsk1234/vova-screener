@@ -56,7 +56,7 @@ export const ScanRunSchema = new Schema(
     trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
     /**
      * Whether the period was already closed when this scan started. Decided at start, not at
-     * finish: an hourly pass that begins at 15:05 and runs long would otherwise look like a
+     * finish: a session pass that begins at 15:05 and runs long would otherwise look like a
      * period-close scan and let the tracker act on prices captured before the close.
      */
     periodClose: { type: Boolean, default: false },
@@ -84,7 +84,6 @@ export const ScanRunSchema = new Schema(
       totalMs: { type: Number, default: 0 },
     },
     newSymbols: { type: [String], default: [] },
-    summary: { type: Schema.Types.Mixed, default: null },
     cancelRequested: { type: Boolean, default: false },
     error: String,
     startedAt: Date,
@@ -98,7 +97,7 @@ ScanRunSchema.index({ periodKey: 1, periodTf: 1, 'params.source': 1 });
 export const SignalSchema = new Schema(
   {
     runId: { type: Schema.Types.ObjectId, required: true, index: true },
-    kind: { type: String, enum: ['buy', 'sell'], required: true },
+    kind: { type: String, enum: ['buy'], required: true },
     symbol: { type: String, required: true },
     yahooTicker: { type: String, required: true },
     companyName: String,

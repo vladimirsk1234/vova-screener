@@ -80,7 +80,6 @@ export function ManualPage() {
         source: 'MANUAL SCAN',
         manualTickers: tickers,
         tf,
-        direction: 'buy',
         minRr: 0,
         noRrReq: true,
         useLastHlSl: true,

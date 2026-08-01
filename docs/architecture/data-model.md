@@ -30,11 +30,10 @@ A failed Yahoo fetch falls back to stale cache rather than dropping the symbol.
 
 - `counters`: `total`, `downloaded`, `evaluated`, `signals`, `rejected`, `skipped`, `fromCache`
 - `reasonCounts`: reject/skip reason histogram (why a scan produced few signals)
-- `newSymbols`: symbols absent from the previous completed run with the same source/tf/direction
-- `summary`: sell-scan aggregate (win rate, net P&L, invested, avg RR)
+- `newSymbols`: symbols absent from the previous completed run with the same source and timeframe
 
 ### `signals`
-One document per BUY/SELL row: `{ runId, kind, symbol, yahooTicker, companyName, isNew, isStrong, rr, payload }`.
+One document per buy signal: `{ runId, kind, symbol, yahooTicker, companyName, isNew, isStrong, rr, payload }`.
 Index `{ runId, symbol }`. Charts read bars from `barSeries`, so no bar snapshot is duplicated here.
 
 ### `scanRejections`
@@ -50,6 +49,14 @@ lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, isStrong, unrealizedUsd, unr
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
 interest, interestRank, interestAt, runId }`.
 
+The three Results buckets, against the period of the newest completed scan:
+
+| Bucket | Meaning | Filter |
+| --- | --- | --- |
+| NEW | opened in this period | `openedPeriodKey == periodKey`, or still `provisional` |
+| VALID | at least one period old — for Daily, yesterday or earlier | `openedPeriodKey < periodKey` |
+| CLOSED | stopped being valid in this period, after having been valid | `closedPeriodKey == periodKey` |
+
 Lifecycle:
 
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr` and the unrealized numbers, and
@@ -58,16 +65,22 @@ Lifecycle:
 - Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
   closes anything: provisional records are either confirmed or deleted, and confirmed records are
   closed with a realized P&L. Intra-period noise therefore never reaches History.
-- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost`, checked in that order on the
+- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost` (plus `manual` on imported
+  journal rows), checked in that order on the
   first bar after `openedAsOf`. The stop wins over the target on a bar that spans both, because the
   path within a bar is unknowable; `sell_to_close` is the Sequence Vova bullish break, exiting at
   that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
-  buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
-  closes positions.
+  buy: the run must hold a rejection for that symbol with a reason other than `NO_DATA` or
+  `INSUFFICIENT_DATA`. A symbol the scan never reached, or could not price, is left active — so
+  neither a Yahoo outage nor a scan over part of the universe can close positions it never judged.
 - A signal reaches VALID by surviving a period close, never by the clock: a provisional record
   whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
   confirmed records can be closed, so a signal that comes and goes inside one period leaves no
   trace, and `totals.active` in History counts confirmed positions only.
+- Closing needs the signal to have been valid first. A confirmed record that is lost inside the very
+  period it opened in — which a rescan of that period's close can do — is deleted rather than
+  closed: it was new and lost, not valid and then lost, so it produces no statistic. Only
+  `signal_lost` can fire that early, since the other exits read bars after `openedAsOf`.
 - `interest` is set from the chart screen and survives NEW → VALID → CLOSED. `interestRank`
   (2 / 1 / 0) exists only so Mongo can sort marked signals first.
 
