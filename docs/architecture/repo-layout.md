@@ -28,11 +28,12 @@ TV-LIST-ETF.txt
 src/db/                Mongoose schemas, local Mongo bootstrap
 src/market/            Yahoo client + barSeries cache
 src/universe/          ticker file import, universe resolution
-src/scans/             runner, progress bus (SSE), controller
+src/scans/             runner, progress bus (SSE), controller, background scheduler
+src/tracking/          signal lifecycle + Results and History reads
 src/instruments/       chart payloads, multi-TF status
-src/trades/            journal + mark-to-market
-src/reports/           monthly P&L
-src/presets/           persisted scan/chart params
+src/settings/          the single Max risk setting
+src/presets/           persisted chart params
+src/dev/               smoke scripts (Mongo, signal tracker)
 ```
 
 ## Planned (later phases)

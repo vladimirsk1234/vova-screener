@@ -3,7 +3,36 @@
 Base path `/api`. Implemented in `apps/api` (NestJS). Auth is deferred to the Railway phase
 (single local user today), so no endpoint is owner-scoped yet.
 
+## Results
+
+Reads of `trackedSignals`, written only by the background scans — nothing here triggers work.
+The "current period" is the `periodKey` of the newest completed scan for that universe and
+timeframe, not the wall clock, so buckets always line up with the data on screen.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (opened in the current period) / `valid` (opened earlier, marked to market) / `closed` (closed in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`; sorting and paging happen in Mongo |
+| GET | `/results/summary` | Bucket counts and scan freshness for every universe × timeframe, for the tab badges |
+| GET | `/results/lookup?yahooTicker&tf` | The active tracked signal for a symbol, so a chart opened by URL can show and toggle the mark |
+| PATCH | `/results/:id/interest` | `{ interest: 'interested' \| 'not_interested' \| null }`; the mark survives NEW → VALID → CLOSED |
+
+## History
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/history?tf=Daily\|Weekly\|Monthly\|All&groupBy=Daily\|Weekly\|Monthly&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over closed signals; aggregated in Mongo |
+| GET | `/history/trades?tf&groupBy&periodKey&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket |
+
+## Settings
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET/PUT | `/settings` | `{ maxRiskUsd }` — the only user-facing setting; scan parameters are fixed in code |
+
 ## Scans
+
+Only manual scans are started from the UI. Stocks and ETF are scanned by
+`PeriodSchedulerService`: a mid-session pass plus one right after each period closes.
 
 | Method | Path | Notes |
 |--------|------|-------|
@@ -15,6 +44,7 @@ Base path `/api`. Implemented in `apps/api` (NestJS). Auth is deferred to the Ra
 | GET | `/scans/:id/rejections?limit=` | Rejected symbols + reason breakdown; each row carries `detail` (`barDate`, `close`, `criticalLevel`, `seqState`, `rr`, `sl`, `tp`, `minRr`) |
 | GET | `/scans/:id/events` | SSE progress stream |
 | POST | `/scans/:id/cancel` | Cooperative cancel (flag + in-process abort) |
+| DELETE | `/scans/history` | Drop every run, signal, rejection and tracked signal |
 
 Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `direction`,
 `minRr`, `riskPerTrade`, `noRrReq`, `useLastHlSl`, `newOnly`, `minAvgVolume`, `maxSymbols`,
@@ -29,18 +59,12 @@ Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `di
 | GET | `/universe/summary` | Counts per universe |
 | POST | `/universe/import` | Re-import root ticker text files into `instruments` |
 
-## Trades / reports / presets
+## Presets / health
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/trades?status=open\|closed` | Open trades include `currentPrice`, `unrealizedUsd`, `unrealizedR` |
-| POST | `/trades` | Create from a signal card |
-| POST | `/trades/:id/close` | `{ exitPrice, exitDate?, exitReason? }` |
-| POST | `/trades/refresh` | Auto-close open trades whose TP/SL was touched (cached bars) |
-| DELETE | `/trades/:id` | Remove journal entry |
-| GET | `/reports/monthly` | Monthly buckets, equity curve, totals |
-| GET/PUT | `/presets/:key` | `scan` and `chart` params (successor to Streamlit `session_state`) |
-| GET | `/health` | Universe + bar cache stats |
+| GET/PUT | `/presets/:key` | `chart` params (successor to Streamlit `session_state`) |
+| GET | `/health` | Mongo readiness |
 
 ## SSE event shape
 
