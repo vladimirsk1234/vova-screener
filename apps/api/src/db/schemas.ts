@@ -129,10 +129,13 @@ RejectionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 
  * One tracked buy signal per (yahooTicker, tf, universe) while active. Written only by the
  * background scans, so Results and History are plain indexed reads with no per-request maths.
  *
- * `provisional` marks a signal first seen mid-period: it shows up in NEW immediately, but the
- * period-close scan decides whether it is confirmed or dropped. Only a confirmed signal can reach
- * VALID or ever be closed, so a signal that comes and goes inside one period never reaches
- * history.
+ * `barsSinceValid` is what splits NEW from VALID: `0` means the signal became valid on the latest
+ * bar of its timeframe, anything higher means it has been valid for that many bars already.
+ *
+ * `provisional` marks a signal first seen mid-period. It no longer decides which list a signal
+ * shows in, but the period-close scan still decides whether it is confirmed or dropped, and only
+ * a confirmed signal can ever be closed — so a signal that comes and goes inside one period
+ * never reaches history.
  */
 export const TrackedSignalSchema = new Schema(
   {
@@ -162,6 +165,9 @@ export const TrackedSignalSchema = new Schema(
     lastSeenAt: Date,
     lastPrice: Number,
     lastRr: Number,
+    /** Bars of `tf` since the signal became valid: 0 on the bar it appeared on. Splits NEW/VALID. */
+    barsSinceValid: Number,
+    validSinceAsOf: String,
     isStrong: { type: Boolean, default: false },
     unrealizedUsd: Number,
     unrealizedR: Number,
@@ -192,6 +198,7 @@ TrackedSignalSchema.index(
   { yahooTicker: 1, tf: 1, universe: 1 },
   { unique: true, partialFilterExpression: { status: 'active' } },
 );
+TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, barsSinceValid: 1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, openedPeriodKey: -1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, closedPeriodKey: -1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, lastRr: -1 });

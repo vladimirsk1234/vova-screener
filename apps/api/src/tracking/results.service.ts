@@ -20,7 +20,7 @@ export type SortKey = 'rr' | 'pnl' | 'interest' | 'symbol';
 export type SortDir = 'asc' | 'desc';
 
 export type ScanMeta = {
-  /** Period of the newest scan that produced data — the boundary between NEW and VALID. */
+  /** Period of the newest scan that produced data — which period CLOSED reports on. */
   periodKey: string;
   asOf: string | null;
   finishedAt: string | null;
@@ -50,8 +50,8 @@ export class ResultsService {
 
   /**
    * A rescan of the current period reuses that period's run document and resets its status, so
-   * the bucket boundary follows `lastCompletedAt`. Reading `status` instead would move every
-   * signal one bucket for the few minutes a rescan takes.
+   * the CLOSED period follows `lastCompletedAt`. Reading `status` instead would empty the list
+   * for the few minutes a rescan takes.
    */
   async scanMeta(universe: TrackedUniverse, tf: Timeframe): Promise<ScanMeta> {
     const base = { 'params.source': universe, periodTf: tf };
@@ -179,23 +179,24 @@ function bucketFilter(
   if (bucket === 'closed') {
     return { universe, tf, status: 'closed', closedPeriodKey: periodKey };
   }
-  // A signal earns its way into VALID by surviving a period close, never by the clock alone: a
-  // provisional record whose close scan never ran (machine asleep at 16:15) stays in NEW until
-  // some close scan confirms or drops it, rather than ageing into VALID with a P&L attached.
+  // The split is the bar the signal became valid on, not the period the tracker first recorded it
+  // in: a symbol the scan meets for the first time may already have been valid for four bars, and
+  // it belongs next to the other four-bar-old trades rather than next to today's breakouts.
+  //
+  // `barsSinceValid` is only true as of the scan that wrote it, so NEW also asks that the scan was
+  // this period's. A record last priced days ago (Yahoo could not deliver it since) was new on
+  // that bar, not on this one, and ages into VALID on the freshness test alone.
   if (bucket === 'new') {
-    return {
-      universe,
-      tf,
-      status: 'active',
-      $or: [{ openedPeriodKey: periodKey }, { provisional: true }],
-    };
+    return { universe, tf, status: 'active', barsSinceValid: 0, lastSeenPeriodKey: periodKey };
   }
+  // Exact complement of NEW within the active signals, so the two counts always add up. Records
+  // written before `barsSinceValid` existed match `$ne: 0` on the missing field and land here: a
+  // signal the tracker is already carrying is by definition not new on this bar.
   return {
     universe,
     tf,
     status: 'active',
-    provisional: { $ne: true },
-    openedPeriodKey: { $lt: periodKey },
+    $or: [{ barsSinceValid: { $ne: 0 } }, { lastSeenPeriodKey: { $ne: periodKey } }],
   };
 }
 

@@ -27,6 +27,8 @@ const TICKERS = [
   'ZZTEST-E',
   'ZZTEST-F',
   'ZZTEST-G',
+  'ZZTEST-H',
+  'ZZTEST-I',
 ];
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
@@ -88,7 +90,16 @@ async function saveBars(barSeries: Model<any>, yahooTicker: string, bars: OhlcSe
   );
 }
 
-type Snapshot = { ticker: string; entry: number; tp: number; sl: number; rr: number };
+type Snapshot = {
+  ticker: string;
+  entry: number;
+  tp: number;
+  sl: number;
+  rr: number;
+  /** Bars of the timeframe since the signal became valid — 0 is "became valid on this bar". */
+  barsSinceValid: number;
+  validSince?: string;
+};
 
 async function fakeScan(
   runs: Model<any>,
@@ -156,6 +167,8 @@ async function fakeScan(
           sl: row.sl,
           rr: row.rr,
           isStrong: false,
+          barsSinceValid: row.barsSinceValid,
+          validSinceAsOf: row.validSince ?? opts.asOf,
           asOf: opts.asOf,
         },
       })),
@@ -188,7 +201,8 @@ async function main() {
 
   // A drifts up, B runs through its target on day 2, C gaps down through its stop, D only ever
   // shows mid-session, E shows mid-session across two periods whose closes are never scanned,
-  // F goes missing because Yahoo failed, G sells to close on a bullish break.
+  // F goes missing because Yahoo failed, G sells to close on a bullish break, H is met by the
+  // scanner when it has already been valid for four bars and I becomes valid on the current bar.
   const tails: Record<string, Tail> = {
     'ZZTEST-A': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
@@ -219,6 +233,8 @@ async function main() {
       { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
       { date: '2026-07-16', high: 169, low: 167, close: 168 },
     ],
+    'ZZTEST-H': [{ date: '2026-07-20', high: 101, low: 99, close: 100 }],
+    'ZZTEST-I': [{ date: '2026-07-20', high: 101, low: 99, close: 100 }],
   };
   for (const ticker of TICKERS) {
     const build = ticker === 'ZZTEST-G' ? climbingSeries : series;
@@ -234,13 +250,20 @@ async function main() {
     'ZZTEST-E': 4,
     'ZZTEST-F': 2.5,
     'ZZTEST-G': 1.5,
+    'ZZTEST-H': 3.5,
+    'ZZTEST-I': 4.5,
   };
-  const snap = (ticker: string, entry: number): Snapshot => ({
+  const snap = (
+    ticker: string,
+    entry: number,
+    age: { barsSinceValid: number; validSince?: string } = { barsSinceValid: 0 },
+  ): Snapshot => ({
     ticker,
     entry,
     tp: entry * 1.2,
     sl: entry * 0.9,
     rr: RR[ticker],
+    ...age,
   });
 
   // 1. Period close: A, B, C, F and G open as confirmed signals.
@@ -264,6 +287,14 @@ async function main() {
     await tracked.countDocuments({ yahooTicker: { $in: TICKERS }, provisional: true }),
     0,
   );
+  // All five became valid on the bar the scan evaluated, which is what NEW means.
+  check(
+    'day 1 signals are all NEW',
+    (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'new' })).rows.filter((r) =>
+      TICKERS.includes(r.yahooTicker),
+    ).length,
+    5,
+  );
 
   // 2. Session pass: prices move and D appears, but nothing opens or closes for good. It also
   //    finishes after the bell, which must not be enough to make it authoritative.
@@ -272,7 +303,11 @@ async function main() {
     asOf: '2026-07-16',
     finishedAt: DAY2_OVERRUN,
     periodClose: false,
-    rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100), snap('ZZTEST-D', 100)],
+    rows: [
+      snap('ZZTEST-A', 105, { barsSinceValid: 1, validSince: '2026-07-15' }),
+      snap('ZZTEST-B', 100, { barsSinceValid: 1, validSince: '2026-07-15' }),
+      snap('ZZTEST-D', 100),
+    ],
   });
   const report2 = await tracker.applyRun(run2);
   check('session pass does not confirm', report2?.confirmed, false);
@@ -295,7 +330,11 @@ async function main() {
     asOf: '2026-07-16',
     finishedAt: DAY2_CLOSE,
     periodClose: true,
-    rows: [snap('ZZTEST-A', 105), snap('ZZTEST-B', 100), snap('ZZTEST-G', 180)],
+    rows: [
+      snap('ZZTEST-A', 105, { barsSinceValid: 1, validSince: '2026-07-15' }),
+      snap('ZZTEST-B', 100, { barsSinceValid: 1, validSince: '2026-07-15' }),
+      snap('ZZTEST-G', 180, { barsSinceValid: 1, validSince: '2026-07-15' }),
+    ],
     noData: ['ZZTEST-F'],
   });
   const report3 = await tracker.applyRun(run3);
@@ -338,6 +377,15 @@ async function main() {
       ['ZZTEST-F', 0],
     ],
   );
+  // A is one bar into its trade, and the card says so rather than counting scans.
+  const aged = await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid' });
+  check(
+    'valid carries the age of the signal',
+    aged.rows
+      .filter((r) => r.yahooTicker === 'ZZTEST-A')
+      .map((r) => [r.barsSinceValid, r.validSinceAsOf]),
+    [[1, '2026-07-15']],
+  );
 
   // CLOSED orders by RR at entry, the live buckets by the RR of the latest scan.
   const byRr = async (bucket: 'new' | 'valid' | 'closed', dir: 'asc' | 'desc') =>
@@ -356,8 +404,9 @@ async function main() {
     'interested',
   );
 
-  // 4. A close scan is missed (machine asleep at 16:15) and E stays provisional while the period
-  //    rolls over. Age alone must not promote it: VALID is earned by surviving a close.
+  // 4. A close scan is missed (machine asleep at 16:15) so E stays provisional while the period
+  //    rolls over, and the scan meets H and I for the first time: H has already been valid for
+  //    four bars, I became valid on the bar being scanned. Only I is new on this bar.
   const run4 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-17',
     asOf: '2026-07-17',
@@ -366,12 +415,18 @@ async function main() {
     rows: [snap('ZZTEST-E', 100)],
   });
   await tracker.applyRun(run4);
+  check('E opens NEW on the bar it became valid', await byRr('new', 'desc'), ['ZZTEST-E']);
+
   const run5 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-20',
     asOf: '2026-07-20',
     finishedAt: new Date('2026-07-20T15:00:00Z'),
     periodClose: false,
-    rows: [snap('ZZTEST-E', 100)],
+    rows: [
+      snap('ZZTEST-E', 100, { barsSinceValid: 1, validSince: '2026-07-17' }),
+      snap('ZZTEST-H', 100, { barsSinceValid: 4, validSince: '2026-07-14' }),
+      snap('ZZTEST-I', 100),
+    ],
   });
   await tracker.applyRun(run5);
 
@@ -383,12 +438,27 @@ async function main() {
     ),
   );
   check(
-    'unconfirmed signal stays in NEW',
+    'the bar the signal became valid on decides the bucket, not the record',
     rolled.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol)),
-    // Default sort is RR descending: F still carries its opening 2.5, A was refreshed down to 2.
-    [['ZZTEST-E'], ['ZZTEST-F', 'ZZTEST-A']],
+    // Default sort is RR descending. E aged out of NEW without ever being confirmed, H arrived
+    // already four bars old, F was last priced two periods ago so it cannot be new on this bar.
+    [['ZZTEST-I'], ['ZZTEST-E', 'ZZTEST-H', 'ZZTEST-F', 'ZZTEST-A']],
   );
-  check('NEW sorted by RR desc', await byRr('new', 'desc'), ['ZZTEST-E']);
+  check('NEW sorted by RR desc', await byRr('new', 'desc'), ['ZZTEST-I']);
+  const arrivedOld = await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid' });
+  check(
+    'a signal first seen four bars into its run reports that age',
+    arrivedOld.rows
+      .filter((r) => r.yahooTicker === 'ZZTEST-H')
+      .map((r) => [r.barsSinceValid, r.validSinceAsOf]),
+    [[4, '2026-07-14']],
+  );
+  // NEW and VALID are complements, so no active signal can fall between them or land in both.
+  check(
+    'bucket counts add up to every active signal',
+    rolled[0].rows.length + rolled[1].rows.length,
+    await tracked.countDocuments({ universe: 'Stocks', tf: 'Daily', status: 'active' }),
+  );
 
   const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
   const day = stats.periods.find((p) => p.periodKey === '2026-07-16');

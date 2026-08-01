@@ -12,6 +12,7 @@ import {
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
 import { mountSequenceChart } from '../components/mountSequenceChart';
+import { barsLabel } from '../lib/format';
 import {
   DEFAULT_CHART_SETTINGS,
   mergeChartSettings,
@@ -212,11 +213,17 @@ export function ChartPage() {
         <div className="chart-pine-row">
           {pine ? (
             <>
-              {pine.isNew ? (
-                <span className="badge up">NEW</span>
+              {/* Same rule as the Results tabs: bar zero of the valid run is NEW, older is VALID. */}
+              {pine.barsSinceValid === 0 ? (
+                <span className="badge up" title={`Became valid on the current ${tf} bar`}>
+                  NEW
+                </span>
               ) : (
-                <span className={`badge ${pine.valid ? 'up' : 'down'}`}>
-                  {pine.valid ? 'VALID' : 'NO SIGNAL'}
+                <span
+                  className={`badge ${pine.valid ? 'up' : 'down'}`}
+                  title={pine.validSinceAsOf ? `Valid since ${pine.validSinceAsOf}` : undefined}
+                >
+                  {pine.valid ? `VALID · ${barsLabel(pine.barsSinceValid)}` : 'NO SIGNAL'}
                 </span>
               )}
               {pine.strong ? <span className="badge">STRONG</span> : null}

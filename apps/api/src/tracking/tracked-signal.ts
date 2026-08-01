@@ -97,6 +97,9 @@ export type ResultRow = {
   isStrong: boolean;
   openedPeriodKey: string;
   openedAsOf: string | null;
+  /** Bars of `tf` since the signal became valid: 0 in NEW, 1 or more in VALID. */
+  barsSinceValid: number | null;
+  validSinceAsOf: string | null;
   lastPrice: number | null;
   lastSeenAsOf: string | null;
   /** Unrealized while active, realized once closed. */
@@ -136,6 +139,8 @@ export function toResultRow(doc: any): ResultRow {
     isStrong: Boolean(doc.isStrong),
     openedPeriodKey: doc.openedPeriodKey,
     openedAsOf: doc.openedAsOf ?? null,
+    barsSinceValid: finiteOrNull(doc.barsSinceValid),
+    validSinceAsOf: doc.validSinceAsOf ?? null,
     lastPrice: finiteOrNull(doc.lastPrice),
     lastSeenAsOf: doc.lastSeenAsOf ?? null,
     pnlUsd: finiteOrNull(closed ? doc.pnlUsd : doc.unrealizedUsd),

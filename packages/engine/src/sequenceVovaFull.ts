@@ -45,6 +45,12 @@ export type SequenceVovaFullResult = {
   Valid: boolean;
   New: boolean;
   Strong: boolean;
+  /**
+   * Bar the current uninterrupted valid run started on, and its distance from the last bar.
+   * `0` means the signal became valid on the last (possibly in-progress) bar.
+   */
+  valid_since_index: number | null;
+  bars_since_valid: number | null;
   position_size: number;
   position_value: number;
   Close: number;
@@ -189,6 +195,7 @@ export function runSequenceVovaFull(
   let last_pos_value = NaN_;
   let prev_bar_seq_low = l_a[0];
   let signal_bar_index: number | null = null;
+  let valid_since_index = -1;
 
   for (let i = 1; i < n; i++) {
     const c = c_a[i];
@@ -372,6 +379,8 @@ export function runSequenceVovaFull(
     prev_bar_seq_low = seq_low;
     last_crit = critical_level;
     last_peak_val = last_confirmed_peak;
+    // `last_valid` still carries the previous bar here, so a false → true flip starts a new run.
+    valid_since_index = valid_signal ? (last_valid ? valid_since_index : i) : -1;
     last_valid = valid_signal;
     last_new = new_signal;
     last_strong = strong_signal;
@@ -428,6 +437,8 @@ export function runSequenceVovaFull(
     Valid: last_valid,
     New: last_new,
     Strong: last_strong,
+    valid_since_index: valid_since_index >= 0 ? valid_since_index : null,
+    bars_since_valid: valid_since_index >= 0 ? n - 1 - valid_since_index : null,
     position_size: last_pos_size,
     position_value: last_pos_value,
     Close: close_last,

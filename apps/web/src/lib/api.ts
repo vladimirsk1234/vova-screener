@@ -68,6 +68,9 @@ export type BuySignal = {
   positionValue: number;
   isNew: boolean;
   isStrong: boolean;
+  /** Bars of the scanned timeframe since the signal became valid: 0 means "on the latest bar". */
+  barsSinceValid: number | null;
+  validSinceAsOf: string | null;
   atr: number;
   asOf: string;
 };
@@ -94,6 +97,9 @@ export type ResultRow = {
   isStrong: boolean;
   openedPeriodKey: string;
   openedAsOf: string | null;
+  /** Bars of `tf` since the signal became valid: 0 in NEW, 1 or more in VALID. */
+  barsSinceValid: number | null;
+  validSinceAsOf: string | null;
   lastPrice: number | null;
   lastSeenAsOf: string | null;
   /** Unrealized while active, realized once closed. */
@@ -110,7 +116,7 @@ export type ResultRow = {
 };
 
 export type ScanMeta = {
-  /** Period of the newest scan that produced data — the boundary between NEW and VALID. */
+  /** Period of the newest scan that produced data — which period CLOSED reports on. */
   periodKey: string;
   asOf: string | null;
   finishedAt: string | null;
@@ -319,6 +325,9 @@ export type ChartPayload = {
     valid: boolean;
     isNew: boolean;
     strong: boolean;
+    /** Bars since the signal became valid: 0 means "on the latest bar", as in the Results tabs. */
+    barsSinceValid: number | null;
+    validSinceAsOf: string | null;
     tp: number | null;
     sl: number | null;
     rr: number | null;

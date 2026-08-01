@@ -6,6 +6,7 @@
     "dev": "node -r ts-node/register -r tsconfig-paths/register src/main.ts",
     "start": "node -r ts-node/register -r tsconfig-paths/register src/main.ts",
     "smoke:tracker": "node -r ts-node/register -r tsconfig-paths/register src/dev/tracker-smoke.ts",
+    "smoke:age": "node -r ts-node/register -r tsconfig-paths/register src/dev/signal-age-smoke.ts",
     "smoke:legacy": "node -r ts-node/register -r tsconfig-paths/register src/dev/legacy-import-smoke.ts",
     "typecheck": "tsc --noEmit"
   },

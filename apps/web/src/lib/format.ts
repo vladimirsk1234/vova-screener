@@ -59,6 +59,16 @@ export function formatAge(iso: string | null | undefined, now = Date.now()): str
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/**
+ * How long a signal has been valid, in bars of its own timeframe — the number the NEW / VALID
+ * split is made on, so "1 bar" is the youngest thing VALID can hold.
+ */
+export function barsLabel(bars: number | null | undefined): string {
+  if (bars == null || !Number.isFinite(bars)) return '—';
+  if (bars === 0) return 'this bar';
+  return `${bars} bar${bars === 1 ? '' : 's'}`;
+}
+
 export function holdLabel(tf: HistoryTf): string {
   if (tf === 'Daily') return 'days';
   if (tf === 'Weekly') return 'weeks';

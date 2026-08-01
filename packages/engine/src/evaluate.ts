@@ -39,6 +39,13 @@ export type BuySignal = {
   positionValue: number;
   isNew: boolean;
   isStrong: boolean;
+  /**
+   * Age of the signal in bars of `tf`: `0` means it became valid on the bar named by `asOf`.
+   * This is what splits the NEW and VALID lists, so it holds for Daily, Weekly and Monthly alike.
+   */
+  barsSinceValid: number | null;
+  /** Date of the bar the signal became valid on. */
+  validSinceAsOf: string | null;
   atr: number;
   asOf: string;
 };
@@ -228,6 +235,7 @@ export function evaluateSymbol(input: {
     Number.isFinite(out.position_size) && out.position_size >= 1
       ? Math.round(out.position_size)
       : 0;
+  const validSince = out.valid_since_index;
   return {
     status: 'signal',
     signal: {
@@ -245,6 +253,8 @@ export function evaluateSymbol(input: {
       positionValue: Number.isFinite(out.position_value) ? round2(out.position_value) : 0,
       isNew: Boolean(out.New),
       isStrong: Boolean(out.Strong),
+      barsSinceValid: out.bars_since_valid,
+      validSinceAsOf: validSince != null ? (bars[validSince]?.date ?? null) : null,
       atr: Number.isFinite(out.ATR) ? round2(out.ATR) : 0,
       asOf,
     },
