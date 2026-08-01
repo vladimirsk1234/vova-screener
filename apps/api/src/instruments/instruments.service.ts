@@ -59,12 +59,16 @@ export class InstrumentsService {
     });
 
     const full = runSequenceVovaFull(bars, { params });
+    // The overlays above are drawn with the params the caller asked for, TradingView-style. The
+    // signal state below is not: `min_rr` is the only thing these two options change, and RR is a
+    // number this app reports rather than a gate it applies. TP, SL and RR come out the same either
+    // way, while VALID / NEW / STRONG stay the structural answer the Results tabs are built on.
     const pine = runSequenceVovaPine(bars, {
       atr_len: params.atr_len,
-      min_rr: params.min_rr,
+      min_rr: 0,
       use_last_hl_sl: params.use_last_hl_sl,
       risk_dollars: params.risk_dollars,
-      no_rr_req: params.no_rr_req,
+      no_rr_req: true,
       direction: 'buy',
     });
 
@@ -175,9 +179,6 @@ export class InstrumentsService {
             valid: pine.Valid,
             isNew: pine.New,
             strong: pine.Strong,
-            // Everything above answers for the params this call was given; the age deliberately does
-            // not. It is the number the Results tabs split on, and a minimum RR set here must not
-            // turn a week-old signal into a new one on this screen.
             ...signalAge(bars),
             tp: Number.isFinite(pine.TP) ? pine.TP : null,
             sl: Number.isFinite(pine.SL) ? pine.SL : null,

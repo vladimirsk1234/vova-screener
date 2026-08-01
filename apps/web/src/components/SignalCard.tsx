@@ -18,6 +18,22 @@ const EXIT_LABEL: Record<string, string> = {
  * for several bars, so VALID reports the age of the signal separately from the price the tracker
  * measures its P&L against.
  */
+function signalBar(row: ResultRow): string {
+  return row.validSinceAsOf ?? row.openedAsOf ?? row.openedPeriodKey;
+}
+
+/** An imported journal trade can have no age at all, and "valid —" would read like a bug. */
+function validFoot(row: ResultRow): string {
+  return [
+    row.barsSinceValid != null ? `valid ${barsLabel(row.barsSinceValid)}` : null,
+    `since ${signalBar(row)}`,
+    `now ${money(row.lastPrice)}`,
+    `${num(row.pnlR)}R`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) {
   const navigate = useNavigate();
   const openChart = () =>
@@ -97,8 +113,8 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
         {bucket === 'closed'
           ? `${row.openedAsOf ?? '—'} → ${row.exitDate ?? '—'} · exit ${money(row.exitPrice)} · ${num(row.pnlR)}R`
           : bucket === 'valid'
-            ? `valid ${barsLabel(row.barsSinceValid)} · since ${row.validSinceAsOf ?? row.openedAsOf ?? row.openedPeriodKey} · now ${money(row.lastPrice)} · ${num(row.pnlR)}R`
-            : `signal bar ${row.validSinceAsOf ?? row.openedAsOf ?? row.openedPeriodKey}`}
+            ? validFoot(row)
+            : `signal bar ${signalBar(row)}`}
       </p>
     </article>
   );
