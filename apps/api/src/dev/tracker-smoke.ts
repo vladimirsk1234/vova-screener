@@ -1,22 +1,25 @@
 /**
  * End-to-end check of the signal lifecycle without touching Yahoo.
  *
- * Feeds three synthetic scans through SignalTrackerService — a period close, a session pass
- * and the next period close — then asserts the Results buckets and the History aggregation.
+ * Feeds synthetic scans through SignalTrackerService — a period close, a session pass, the next
+ * period close and a period that rolls over with its close scan missed — then asserts the Results
+ * buckets and the History aggregation.
  *
  *   npm run smoke:tracker -w @vova/api
  */
+import * as net from 'node:net';
 import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import mongoose, { Types, type Model } from 'mongoose';
 import { encodeSeries, type OhlcSeries } from '@vova/engine';
 import { AppModule } from '../app.module';
+import { resolveMongoUri } from '../db/local-mongo';
 import { BAR_SERIES, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { HistoryService } from '../tracking/history.service';
 import { ResultsService } from '../tracking/results.service';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
 
-const TICKERS = ['ZZTEST-A', 'ZZTEST-B', 'ZZTEST-C', 'ZZTEST-D'];
+const TICKERS = ['ZZTEST-A', 'ZZTEST-B', 'ZZTEST-C', 'ZZTEST-D', 'ZZTEST-E'];
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
 const DAY1_CLOSE = new Date('2026-07-15T20:15:00Z');
@@ -24,7 +27,36 @@ const DAY1_CLOSE = new Date('2026-07-15T20:15:00Z');
 const DAY2_OVERRUN = new Date('2026-07-16T20:05:00Z');
 const DAY2_CLOSE = new Date('2026-07-16T20:15:00Z');
 
+const EMBEDDED_PORT = 27019;
+
 let failures = 0;
+
+function portIsOpen(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net
+      .connect({ host: '127.0.0.1', port })
+      .on('connect', () => (socket.end(), resolve(true)))
+      .on('error', () => resolve(false));
+    socket.setTimeout(500, () => (socket.destroy(), resolve(false)));
+  });
+}
+
+/**
+ * Bucket boundaries follow the newest scan in the database, so the fixtures need a database of
+ * their own — a real background scan sitting next to them would move NEW and CLOSED off the
+ * synthetic period. The embedded Mongo has a persistent data directory shared with the dev
+ * server, hence the separate database name rather than a separate server.
+ */
+async function useSmokeDatabase() {
+  const base =
+    process.env.MONGO_URI ??
+    ((await portIsOpen(EMBEDDED_PORT))
+      ? `mongodb://127.0.0.1:${EMBEDDED_PORT}/vova?directConnection=true`
+      : await resolveMongoUri());
+  const uri = new URL(base);
+  uri.pathname = '/vova-smoke';
+  process.env.MONGO_URI = uri.toString();
+}
 
 function check(label: string, actual: unknown, expected: unknown) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
@@ -134,6 +166,7 @@ async function fakeScan(
 }
 
 async function main() {
+  await useSmokeDatabase();
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const tracker = app.get(SignalTrackerService);
   const results = app.get(ResultsService);
@@ -151,7 +184,8 @@ async function main() {
     runs.deleteMany({ trigger: 'smoke' }),
   ]);
 
-  // A drifts up, B stays flat, C gaps down through its stop on day 2, D only ever shows mid-session.
+  // A drifts up, B stays flat, C gaps down through its stop on day 2, D only ever shows mid-session,
+  // E shows mid-session across two periods whose closes are never scanned.
   const tails: Record<string, Array<{ date: string; high: number; low: number; close: number }>> = {
     'ZZTEST-A': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
@@ -168,6 +202,10 @@ async function main() {
     'ZZTEST-D': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
       { date: '2026-07-16', high: 101, low: 99, close: 100 },
+    ],
+    'ZZTEST-E': [
+      { date: '2026-07-17', high: 101, low: 99, close: 100 },
+      { date: '2026-07-20', high: 101, low: 99, close: 100 },
     ],
   };
   for (const ticker of TICKERS) await saveBars(barSeries, ticker, series(tails[ticker]));
@@ -265,10 +303,43 @@ async function main() {
     'interested',
   );
 
+  // 4. A close scan is missed (machine asleep at 16:15) and E stays provisional while the period
+  //    rolls over. Age alone must not promote it: VALID is earned by surviving a close.
+  const run4 = await fakeScan(runs, signals, {
+    periodKey: '2026-07-17',
+    asOf: '2026-07-17',
+    finishedAt: new Date('2026-07-17T15:00:00Z'),
+    periodClose: false,
+    rows: [snap('ZZTEST-E', 100)],
+  });
+  await tracker.applyRun(run4);
+  const run5 = await fakeScan(runs, signals, {
+    periodKey: '2026-07-20',
+    asOf: '2026-07-20',
+    finishedAt: new Date('2026-07-20T15:00:00Z'),
+    periodClose: false,
+    rows: [snap('ZZTEST-E', 100)],
+  });
+  await tracker.applyRun(run5);
+
+  const stale = await tracked.findOne({ yahooTicker: 'ZZTEST-E' }).lean<any>();
+  check('E still provisional a period later', [stale?.provisional, stale?.openedPeriodKey], [true, '2026-07-17']);
+  const rolled = await Promise.all(
+    (['new', 'valid'] as const).map((bucket) =>
+      results.list({ universe: 'Stocks', tf: 'Daily', bucket }),
+    ),
+  );
+  check(
+    'unconfirmed signal stays in NEW',
+    rolled.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol)),
+    [['ZZTEST-E'], ['ZZTEST-A', 'ZZTEST-B']],
+  );
+
   const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
   const day = stats.periods.find((p) => p.periodKey === '2026-07-16');
   check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [1, 0, -100]);
-  check('history active count', stats.totals.active >= 2, true);
+  // A and B only: E is active but still provisional, so it is not an open position yet.
+  check('history counts confirmed positions only', stats.totals.active, 2);
 
   const drill = await history.trades({ tf: 'Daily', groupBy: 'Daily', periodKey: '2026-07-16' });
   check('history drill-down', drill.rows.map((r) => r.symbol), ['ZZTEST-C']);
@@ -276,7 +347,9 @@ async function main() {
   await Promise.all([
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
-    signals.deleteMany({ runId: { $in: [run1, run2, run3].map((id) => new Types.ObjectId(id)) } }),
+    signals.deleteMany({
+      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+    }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);
 
