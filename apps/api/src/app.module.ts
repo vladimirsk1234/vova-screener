@@ -5,9 +5,9 @@ import { DbModule } from './db/db.module';
 import { InstrumentsModule } from './instruments/instruments.module';
 import { MarketModule } from './market/market.module';
 import { PresetsModule } from './presets/presets.module';
-import { ReportsModule } from './reports/reports.module';
 import { ScansModule } from './scans/scans.module';
-import { TradesModule } from './trades/trades.module';
+import { SettingsModule } from './settings/settings.module';
+import { TrackingModule } from './tracking/tracking.module';
 import { UniverseModule } from './universe/universe.module';
 
 @Controller('health')
@@ -27,10 +27,10 @@ class HealthController {
     DbModule,
     MarketModule,
     UniverseModule,
+    TrackingModule,
     ScansModule,
     InstrumentsModule,
-    TradesModule,
-    ReportsModule,
+    SettingsModule,
     PresetsModule,
   ],
   controllers: [HealthController],
