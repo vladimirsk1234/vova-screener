@@ -71,6 +71,7 @@ Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `di
 |--------|------|-------|
 | GET | `/instruments/:ticker/chart?tf=&minRr=&useLastHlSl=&riskPerTrade=&noRrReq=&lenFast=&lenSlow=&lengthMajor=&lookback=&multiplier=&bbLength=&bbMult=` | Bars + full overlays + watermark + pine; numeric params recompute overlays live |
 | GET | `/instruments/:ticker/status` | Multi-TF watermark from cached bars |
+| GET | `/instruments/:ticker/fundamentals?metric=eps\|revenue\|fcf\|ownerEarnings` | FMP-backed Fast Graphs–style valuation (requires `FMP_API_KEY`); 24h in-memory cache |
 | GET | `/universe/summary` | Counts per universe |
 | POST | `/universe/import` | Re-import root ticker text files into `instruments` |
 

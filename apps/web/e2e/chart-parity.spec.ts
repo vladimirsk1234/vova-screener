@@ -21,7 +21,7 @@ test.describe('chart parity UI', () => {
     await page.getByRole('button', { name: 'Weekly' }).click();
     // Exact: Lightweight Charts injects its own "Charting by TradingView" attribution link.
     await expect(page.getByRole('link', { name: 'TradingView', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'FastGraph' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Fundamentals' })).toBeVisible();
   });
 
   /** The mark lives on the tracked signal, so it is disabled for symbols nothing is tracking. */

@@ -936,3 +936,218 @@ a {
   color: #fff;
   background: rgba(41, 98, 255, 0.12);
 }
+
+/* Fundamentals / Fast Graphs–style valuation */
+.fund-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px var(--gutter) calc(24px + var(--safe-bottom));
+  min-height: 100%;
+  background: linear-gradient(180deg, #0c0e12 0%, var(--bg) 40%);
+}
+
+.fund-hero {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0 2px;
+}
+
+.fund-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fund-headline {
+  margin: 2px 0 0;
+  font-size: clamp(1.8rem, 6vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.fund-headline-unit {
+  font-size: 0.45em;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.fund-sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.fund-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.fund-hero-stats div {
+  padding: 8px 0;
+  border-top: 1px solid #21262f;
+}
+
+.fund-hero-stats dt {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.fund-hero-stats dd {
+  margin: 2px 0 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.fund-chart-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fund-chart-host {
+  height: min(42vh, 320px);
+  min-height: 220px;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #12151c;
+}
+
+.fund-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.fund-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fund-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.fund-swatch--power {
+  background: rgba(8, 153, 129, 0.7);
+}
+
+.fund-swatch--price {
+  background: #d1d4dc;
+}
+
+.fund-swatch--fair {
+  background: #ff9800;
+}
+
+.fund-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fund-section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.fund-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+
+@media (min-width: 640px) {
+  .fund-metric-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.fund-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid #21262f;
+}
+
+.fund-metric-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.fund-metric-value {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.fund-pos {
+  color: var(--up);
+}
+
+.fund-neg {
+  color: var(--down);
+}
+
+.fund-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fund-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.fund-table th,
+.fund-table td {
+  padding: 8px 10px 8px 0;
+  text-align: right;
+  border-bottom: 1px solid #21262f;
+  white-space: nowrap;
+}
+
+.fund-table th:first-child,
+.fund-table td:first-child {
+  text-align: left;
+}
+
+.fund-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.72rem;
+}
+
+.fund-about {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fund-footnote {
+  margin: 4px 0 0;
+  line-height: 1.4;
+}

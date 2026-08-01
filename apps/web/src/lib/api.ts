@@ -268,6 +268,96 @@ export type ChartDrawing = {
   text?: string;
 };
 
+export type ValuationMetric = 'eps' | 'revenue' | 'fcf' | 'ownerEarnings';
+
+export type ValuationSeriesPoint = {
+  date: string;
+  year: number;
+  price: number | null;
+  metric: number | null;
+  earningsPower: number | null;
+  fairValue: number | null;
+  pe: number | null;
+};
+
+export type AnnualFundamentalPoint = {
+  date: string;
+  year: number;
+  price: number | null;
+  eps: number | null;
+  revenuePerShare: number | null;
+  fcfPerShare: number | null;
+  ownerEarningsPerShare: number | null;
+  pe: number | null;
+  revenue: number | null;
+  netIncome: number | null;
+  operatingCashFlow: number | null;
+  freeCashFlow: number | null;
+};
+
+export type FundamentalsPayload = {
+  provider: 'fmp';
+  yahooTicker: string;
+  fmpSymbol: string;
+  tvSymbol: string;
+  profile: {
+    companyName: string;
+    currency: string | null;
+    exchange: string | null;
+    sector: string | null;
+    industry: string | null;
+    description: string | null;
+    mktCap: number | null;
+    price: number | null;
+    beta: number | null;
+  };
+  snapshot: {
+    peTTM: number | null;
+    pbTTM: number | null;
+    psTTM: number | null;
+    pegTTM: number | null;
+    roeTTM: number | null;
+    roicTTM: number | null;
+    dividendYieldTTM: number | null;
+    debtToEquityTTM: number | null;
+    currentRatioTTM: number | null;
+    profitMarginTTM: number | null;
+    operatingMarginTTM: number | null;
+    fcfYieldTTM: number | null;
+    dcf: number | null;
+    dcfPremiumPct: number | null;
+    altmanZScore: number | null;
+    piotroskiScore: number | null;
+  };
+  valuation: {
+    series: ValuationSeriesPoint[];
+    summary: {
+      metric: ValuationMetric;
+      normalMultiple: number;
+      normalMultipleSource: 'median_pe' | 'fallback';
+      currentPrice: number | null;
+      latestMetric: number | null;
+      fairValue: number | null;
+      premiumPct: number | null;
+      currentPe: number | null;
+      metricCagrPct: number | null;
+      years: number;
+    };
+  };
+  annual: AnnualFundamentalPoint[];
+  incomeTrend: Array<{
+    year: number;
+    date: string;
+    revenue: number | null;
+    netIncome: number | null;
+    eps: number | null;
+    operatingCashFlow: number | null;
+    freeCashFlow: number | null;
+  }>;
+  asOf: string;
+  cached: boolean;
+};
+
 export type ChartPayload = {
   yahooTicker: string;
   tvSymbol: string;
@@ -437,7 +527,7 @@ export const api = {
       method: 'DELETE',
     }),
 
-  // Charts / universe / chart presets
+  // Charts / universe / chart presets / fundamentals
   /** `riskUsd` is the global Max risk setting — position size has one source everywhere. */
   chart: (ticker: string, tf: Timeframe, params?: Partial<ChartSettings>, riskUsd?: number) => {
     const q = new URLSearchParams({ tf });
@@ -461,6 +551,10 @@ export const api = {
     }
     return request<ChartPayload>(`/instruments/${encodeURIComponent(ticker)}/chart?${q.toString()}`);
   },
+  fundamentals: (ticker: string, metric: ValuationMetric = 'eps') =>
+    request<FundamentalsPayload>(
+      `/instruments/${encodeURIComponent(ticker)}/fundamentals${query({ metric })}`,
+    ),
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>

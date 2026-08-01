@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -304,14 +304,9 @@ export function ChartPage() {
         >
           Not Interested
         </button>
-        <a
-          className="btn-sm ghost"
-          href="https://app.fastgraphs.com/dashboard"
-          target="_blank"
-          rel="noreferrer"
-        >
-          FastGraph
-        </a>
+        <Link className="btn-sm ghost" to={`/fundamentals/${encodeURIComponent(ticker)}`}>
+          Fundamentals
+        </Link>
         <a
           className="btn-sm ghost"
           href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(

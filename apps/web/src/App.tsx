@@ -10,6 +10,9 @@ import { SettingsSheet } from './components/SettingsSheet';
 const ChartPage = lazy(() =>
   import('./pages/ChartPage').then((m) => ({ default: m.ChartPage })),
 );
+const FundamentalsPage = lazy(() =>
+  import('./pages/FundamentalsPage').then((m) => ({ default: m.FundamentalsPage })),
+);
 
 const TABS = [
   { to: '/results', label: 'Results' },
@@ -20,10 +23,12 @@ export function App() {
   const { pathname } = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const isChart = pathname.startsWith('/chart/');
+  const isFund = pathname.startsWith('/fundamentals/');
+  const hideChrome = isChart || isFund;
 
   return (
-    <div className={`app-shell${isChart ? ' app-shell--chart' : ''}`}>
-      {!isChart && (
+    <div className={`app-shell${hideChrome ? ' app-shell--chart' : ''}`}>
+      {!hideChrome && (
         <header className="app-header">
           <div className="app-header-row">
             <h1>Sequence Vova</h1>
@@ -39,7 +44,7 @@ export function App() {
         </header>
       )}
 
-      <main className={`app-main${isChart ? ' app-main-flush app-main--chart' : ''}`}>
+      <main className={`app-main${hideChrome ? ' app-main-flush app-main--chart' : ''}`}>
         <Suspense fallback={<p className="empty">Loading…</p>}>
           <Routes>
             <Route path="/" element={<Navigate to="/results/Stocks/Daily/new" replace />} />
@@ -51,12 +56,13 @@ export function App() {
             <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/chart/:ticker" element={<ChartPage />} />
+            <Route path="/fundamentals/:ticker" element={<FundamentalsPage />} />
             <Route path="*" element={<Navigate to="/results/Stocks/Daily/new" replace />} />
           </Routes>
         </Suspense>
       </main>
 
-      {!isChart && (
+      {!hideChrome && (
         <nav className="bottom-nav" aria-label="Primary">
           {TABS.map((tab) => (
             <NavLink key={tab.to} to={tab.to}>

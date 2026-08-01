@@ -9,6 +9,7 @@ export * from './indicators';
 export * from './sequenceVovaFull';
 export * from './signalAge';
 export * from './watermark';
+export * from './fundamentalsValuation';
 export {
   calcAtr,
   runSequenceVovaPine,
