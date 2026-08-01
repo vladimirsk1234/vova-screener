@@ -36,6 +36,9 @@ test.describe('chart parity UI', () => {
     const host = page.locator('.chart-host');
     await expect(host).toBeVisible();
     await expect(host).toHaveCSS('background-color', 'rgb(112, 117, 133)');
+    // The reference image is rewritten on every run, so let the bars land first: a shot of the
+    // loading line is worth nothing to whoever opens it next.
+    await expect(page.getByText('Loading bars…')).toHaveCount(0);
     await page.screenshot({
       path: `e2e/__snapshots__/chart-${test.info().project.name}.png`,
       fullPage: true,
