@@ -170,8 +170,9 @@ function closedMatch(tf: HistoryTf): Record<string, unknown> {
   return match;
 }
 
+/** Confirmed positions only — a provisional record is not a signal yet, so it is not "open". */
 function activeMatch(tf: HistoryTf): Record<string, unknown> {
-  const match: Record<string, unknown> = { status: 'active' };
+  const match: Record<string, unknown> = { status: 'active', provisional: { $ne: true } };
   if (tf !== 'All') match.tf = tf;
   return match;
 }

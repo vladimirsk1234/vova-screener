@@ -59,6 +59,10 @@ Lifecycle:
   provisional records are either confirmed or deleted, and confirmed records that hit TP/SL, print
   a bullish break or drop out of the scan are closed with a realized P&L. Intra-period noise
   therefore never reaches History.
+- A signal reaches VALID by surviving a period close, never by the clock: a provisional record
+  whose close scan never ran stays in NEW until some close scan confirms or drops it. Only
+  confirmed records can be closed, so a signal that comes and goes inside one period leaves no
+  trace, and `totals.active` in History counts confirmed positions only.
 - `interest` is set from the chart screen and survives NEW → VALID → CLOSED. `interestRank`
   (2 / 1 / 0) exists only so Mongo can sort marked signals first.
 

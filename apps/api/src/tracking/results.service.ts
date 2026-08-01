@@ -179,10 +179,24 @@ function bucketFilter(
   if (bucket === 'closed') {
     return { universe, tf, status: 'closed', closedPeriodKey: periodKey };
   }
+  // A signal earns its way into VALID by surviving a period close, never by the clock alone: a
+  // provisional record whose close scan never ran (machine asleep at 16:15) stays in NEW until
+  // some close scan confirms or drops it, rather than ageing into VALID with a P&L attached.
   if (bucket === 'new') {
-    return { universe, tf, status: 'active', openedPeriodKey: periodKey };
+    return {
+      universe,
+      tf,
+      status: 'active',
+      $or: [{ openedPeriodKey: periodKey }, { provisional: true }],
+    };
   }
-  return { universe, tf, status: 'active', openedPeriodKey: { $lt: periodKey } };
+  return {
+    universe,
+    tf,
+    status: 'active',
+    provisional: { $ne: true },
+    openedPeriodKey: { $lt: periodKey },
+  };
 }
 
 /**

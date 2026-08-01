@@ -130,8 +130,9 @@ RejectionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 
  * background scans, so Results and History are plain indexed reads with no per-request maths.
  *
  * `provisional` marks a signal first seen mid-period: it shows up in NEW immediately, but the
- * period-close scan decides whether it is confirmed or dropped, so intra-period noise never
- * reaches history.
+ * period-close scan decides whether it is confirmed or dropped. Only a confirmed signal can reach
+ * VALID or ever be closed, so a signal that comes and goes inside one period never reaches
+ * history.
  */
 export const TrackedSignalSchema = new Schema(
   {
