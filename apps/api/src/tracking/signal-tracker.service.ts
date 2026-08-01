@@ -135,7 +135,7 @@ export class SignalTrackerService implements OnModuleInit {
     const periodKey = run.periodKey as string | undefined;
     if (!periodKey) return null;
 
-    // Set when the scan started, so a long hourly pass that happens to finish after the bell
+    // Set when the scan started, so a long session pass that happens to finish after the bell
     // cannot confirm or close anything on prices it captured while the market was open.
     const confirmed = run.periodClose === true;
     const { maxRiskUsd } = await this.settings.get();

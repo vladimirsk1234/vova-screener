@@ -33,7 +33,7 @@ const TICKERS = [
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
 const DAY1_CLOSE = new Date('2026-07-15T20:15:00Z');
-/** An hourly pass that started at 15:05 and ran past the bell — deliberately not a close scan. */
+/** A session pass that started at 15:05 and ran past the bell — deliberately not a close scan. */
 const DAY2_OVERRUN = new Date('2026-07-16T20:05:00Z');
 const DAY2_CLOSE = new Date('2026-07-16T20:15:00Z');
 

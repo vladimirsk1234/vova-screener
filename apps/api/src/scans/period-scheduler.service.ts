@@ -2,15 +2,16 @@
  * Background scans. Results always show the latest of these — nothing in the UI starts a
  * universe scan.
  *
- * Two cadences: an hourly session refresh that surfaces signals appearing during the day, and a
- * scan right after each period closes. Only the latter confirms and closes tracked signals.
- * A catch-up runs at boot when the newest scan predates the current period.
+ * Two kinds of pass: session refreshes that surface signals appearing during the day as
+ * provisional, and a scan right after each period closes. Only the latter confirms and closes
+ * tracked signals. A catch-up runs at boot when the newest scan predates the current period.
  *
- * One hourly pass re-downloads Stocks + ETF across all three timeframes, so it is the heaviest
- * thing this service does — see `scanAll` for how throttling shows up. Session passes are skipped
- * rather than queued when the previous one is still going, so a slow hour cannot snowball. Every
- * cron can be retuned with VOVA_SESSION_SCAN_CRON / VOVA_*_CLOSE_CRON, and background scanning
- * turns off entirely with VOVA_BACKGROUND_SCANS=off.
+ * Each timeframe refreshes at its own pace, because Yahoo serves `1d`, `1wk` and `1mo` as separate
+ * downloads and scanning all three every hour is what draws throttling. Weekly and monthly bars
+ * barely move intraday, so they buy little at that rate. Session passes are skipped rather than
+ * queued when an earlier scan is still going, so a slow pass cannot snowball. Every cron can be
+ * retuned with VOVA_*_SESSION_CRON / VOVA_*_CLOSE_CRON, and background scanning turns off entirely
+ * with VOVA_BACKGROUND_SCANS=off.
  */
 import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -26,8 +27,16 @@ import type { ScanParamsApi } from './scan-runner.service';
 const UNIVERSES = ['Stocks', 'ETF'] as const;
 const TIMEFRAMES: readonly Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
 
-/** Every hour of the cash session, 10:05 through 15:05 ET; the 16:15 close scan covers the last hour. */
-const SESSION_CRON = process.env.VOVA_SESSION_SCAN_CRON || '5 10-15 * * 1-5';
+/** Exported so the scheduler smoke can assert the cadence rather than a copy of it. */
+export const SESSION_CRONS = {
+  /** Every hour of the cash session, 10:05 through 15:05 ET; the 16:15 close scan covers the last hour. */
+  Daily: process.env.VOVA_DAILY_SESSION_CRON || '5 10-15 * * 1-5',
+  /** Three times a day, on the half hour so a weekly pass never starts alongside a daily one. */
+  Weekly: process.env.VOVA_WEEKLY_SESSION_CRON || '35 10,12,14 * * 1-5',
+  /** Once a day, 30 minutes before the bell. */
+  Monthly: process.env.VOVA_MONTHLY_SESSION_CRON || '30 15 * * 1-5',
+} satisfies Record<Timeframe, string>;
+
 const DAILY_CLOSE_CRON = process.env.VOVA_DAILY_CLOSE_CRON || '15 16 * * 1-5';
 const WEEKLY_CLOSE_CRON = process.env.VOVA_WEEKLY_CLOSE_CRON || '20 16 * * 5';
 const MONTHLY_CLOSE_CRON = process.env.VOVA_MONTHLY_CLOSE_CRON || '25 16 * * 1-5';
@@ -64,14 +73,19 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
     void this.enqueue(() => this.catchUp(), 'catch-up');
   }
 
-  /** Hourly session pass: picks up signals that appear during the day as provisional. */
-  @Cron(SESSION_CRON, { timeZone: MARKET_TZ })
-  sessionRefresh() {
-    if (this.busy) {
-      this.log.warn('Session refresh skipped — the previous pass is still running');
-      return;
-    }
-    void this.enqueue(() => this.scanAll(TIMEFRAMES, false), 'session refresh');
+  @Cron(SESSION_CRONS.Daily, { timeZone: MARKET_TZ })
+  dailySession() {
+    this.session('Daily');
+  }
+
+  @Cron(SESSION_CRONS.Weekly, { timeZone: MARKET_TZ })
+  weeklySession() {
+    this.session('Weekly');
+  }
+
+  @Cron(SESSION_CRONS.Monthly, { timeZone: MARKET_TZ })
+  monthlySession() {
+    this.session('Monthly');
   }
 
   @Cron(DAILY_CLOSE_CRON, { timeZone: MARKET_TZ })
@@ -90,6 +104,15 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
     void this.enqueue(() => this.scanAll(['Monthly'], true), 'monthly close');
   }
 
+  /** Picks up signals appearing during the day as provisional; confirms and closes nothing. */
+  private session(tf: Timeframe) {
+    if (this.busy) {
+      this.log.warn(`${tf} session refresh skipped — a scan is still running`);
+      return;
+    }
+    void this.enqueue(() => this.scanAll([tf], false), `${tf} session refresh`);
+  }
+
   /** Scans are serialised: two full universe passes at once would only fight over Yahoo. */
   private enqueue(job: () => Promise<void>, label: string) {
     if (!this.enabled) return this.queue;
@@ -104,14 +127,14 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
   }
 
   /**
-   * `barsMaxAgeHours: 0.5` is what makes an hourly cadence real: it is short enough that every
+   * `barsMaxAgeHours: 0.5` is what makes the session cadence real: it is short enough that every
    * symbol is genuinely re-downloaded each pass, and long enough that two passes running back to
    * back do not fetch the same series twice.
    *
    * A throttled pass degrades instead of failing — `BarsService` falls back to the cached series
    * when Yahoo answers 429 — so the cache/download split is logged as the signal to watch. If
-   * `cached` climbs towards the symbol count hour after hour, the cadence is too aggressive for
-   * this IP and `VOVA_SESSION_SCAN_CRON` should be widened.
+   * `cached` climbs towards the symbol count pass after pass, the cadence is too aggressive for
+   * this IP and that timeframe's VOVA_*_SESSION_CRON should be widened.
    */
   private async scanAll(timeframes: readonly Timeframe[], atPeriodClose: boolean) {
     const { maxRiskUsd } = await this.settings.get();

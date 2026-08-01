@@ -37,11 +37,14 @@ the UI refetches. Closed signals keep the size they were closed at.
 ## Scans
 
 Only manual scans are started from the UI. Stocks and ETF are scanned by
-`PeriodSchedulerService`: hourly through the session plus one right after each period closes.
-Session passes are skipped, not queued, while an earlier pass is still running.
+`PeriodSchedulerService`, at a cadence per timeframe: Daily hourly through the session, Weekly three
+times a day, Monthly once 30 minutes before the bell, and each timeframe again right after its
+period closes. Each timeframe is a separate Yahoo download, so the split is what keeps the intraday
+load off the throttling threshold. Session passes are skipped, not queued, while an earlier pass is
+still running. `npm run smoke:scheduler` pins the whole schedule.
 
 A run records `periodClose`, decided when the scan **starts**, and only those runs let the tracker
-confirm or close signals. Deciding it at finish would misclassify an hourly pass that began before
+confirm or close signals. Deciding it at finish would misclassify a session pass that began before
 the bell and ran past it.
 
 | Method | Path | Notes |

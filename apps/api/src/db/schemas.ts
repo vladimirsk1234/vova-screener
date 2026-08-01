@@ -56,7 +56,7 @@ export const ScanRunSchema = new Schema(
     trigger: { type: String, enum: ['manual', 'scheduled'], default: 'manual' },
     /**
      * Whether the period was already closed when this scan started. Decided at start, not at
-     * finish: an hourly pass that begins at 15:05 and runs long would otherwise look like a
+     * finish: a session pass that begins at 15:05 and runs long would otherwise look like a
      * period-close scan and let the tracker act on prices captured before the close.
      */
     periodClose: { type: Boolean, default: false },
