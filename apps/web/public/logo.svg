@@ -1,21 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="SV Screener">
-  <!-- Angular gold S (left) -->
   <path
-    fill="#C9A227"
+    fill="#E8B923"
     d="M34 22h36l-4 14H46l10 12h22l-4 14H50l12 16H28l-4-14h24L38 50H22l4-14h22L36 22h-2z"
   />
-  <!-- Steel-blue V / lower frame -->
   <path
-    fill="#2B4C7E"
+    fill="#3D7AD6"
     d="M58 86l28-34h18L74 98H42l6-12h10z"
   />
-  <!-- Candlesticks -->
   <g stroke-linecap="round">
-    <path d="M70 40v8M70 80v8" stroke="#C9A227" stroke-width="3"/>
-    <rect x="64" y="48" width="12" height="32" rx="1.5" fill="#C9A227"/>
-    <path d="M54 52v6M54 74v6" stroke="#2B4C7E" stroke-width="2.5"/>
-    <rect x="49" y="58" width="10" height="16" rx="1.2" fill="#2B4C7E"/>
-    <path d="M86 48v6M86 78v6" stroke="#2B4C7E" stroke-width="2.5"/>
-    <rect x="81" y="54" width="10" height="24" rx="1.2" fill="#2B4C7E"/>
+    <path d="M70 40v8M70 80v8" stroke="#E8B923" stroke-width="3"/>
+    <rect x="64" y="48" width="12" height="32" rx="1.5" fill="#E8B923"/>
+    <path d="M54 52v6M54 74v6" stroke="#3D7AD6" stroke-width="2.5"/>
+    <rect x="49" y="58" width="10" height="16" rx="1.2" fill="#3D7AD6"/>
+    <path d="M86 48v6M86 78v6" stroke="#3D7AD6" stroke-width="2.5"/>
+    <rect x="81" y="54" width="10" height="24" rx="1.2" fill="#3D7AD6"/>
   </g>
 </svg>

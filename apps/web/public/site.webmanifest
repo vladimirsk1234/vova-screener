@@ -4,7 +4,7 @@
   "description": "Precision trading insights",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#050505",
+  "background_color": "#F4F6F8",
   "theme_color": "#050505",
   "icons": [
     {
