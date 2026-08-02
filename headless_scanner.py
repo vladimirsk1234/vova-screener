@@ -5,14 +5,16 @@ import gc
 import logging
 import os
 import re
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import numpy as np
 import time
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+import yfinance as yf
 
 _log = logging.getLogger(__name__)
 
@@ -20,9 +22,9 @@ _log = logging.getLogger(__name__)
 # 1. PAGE CONFIG & STYLES (TERMINAL UI)
 # ==========================================
 st.set_page_config(
-    page_title="Screener Vova (Terminal)",
+    page_title="SV Screener",
     layout="wide",
-    page_icon="💎",
+    page_icon=str(Path(__file__).resolve().parent / "assets" / "sv-screener-icon.png"),
     initial_sidebar_state="collapsed",
 )
 
