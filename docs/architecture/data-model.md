@@ -44,7 +44,7 @@ Index `{ runId, symbol }`. Charts read bars from `barSeries`, so no bar snapshot
 The single source for Results and History. Written only by `SignalTrackerService` after a
 background scan finishes, so both screens are indexed reads with no per-request maths.
 
-`{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional,
+`{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional, provisionalClose,
 openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
 lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, barsSinceValid, validSinceAsOf, isStrong,
 unrealizedUsd, unrealizedR, unrealizedPct,
@@ -56,15 +56,26 @@ Lifecycle:
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr`, `barsSinceValid` and the
   unrealized numbers, and opens a `provisional` record for a symbol it has not seen before. That is
   what makes a signal appearing mid-session visible straight away.
-- Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
-  closes anything: provisional records are either confirmed or deleted, and confirmed records are
-  closed with a realized P&L. Intra-period noise therefore never reaches History.
-- `exitReason` is one of `SL`, `TP`, `sell_to_close` or `signal_lost`, checked in that order on the
-  first bar after `openedAsOf`. The stop wins over the target on a bar that spans both, because the
-  path within a bar is unknowable; `sell_to_close` is the Sequence Vova bullish break, exiting at
-  that bar's close. `signal_lost` covers a confirmed signal the scan evaluated and no longer calls a
-  buy — a symbol rejected as `NO_DATA` or `INSUFFICIENT_DATA` is left alone, so a Yahoo outage never
-  closes positions.
+- Only a scan that already had its period closed when it started (`run.periodClose`) makes anything
+  final: provisional records are either confirmed or deleted, and a break is turned into realized
+  P&L. Intra-period noise therefore never reaches History.
+- **A trade ends on the sell-to-close break and on nothing else** — the first bar after `openedAsOf`
+  whose close falls back through the critical level of the sequence, exiting at that bar's close.
+  This is the exit of the Streamlit close scan (`run_sequence_vova_close_scan`), and `exitReason`
+  on anything this app closes is always `sell_to_close`. `TP`, `SL` and `signal_lost` remain in the
+  enum for the imported journal and for records written before this was the only rule; boot re-opens
+  the ones an older build closed
+  ([reopen-non-break-exits.service.ts](../../apps/api/src/migrations/reopen-non-break-exits.service.ts)).
+- TP and SL are entry-time numbers. SL sizes the position and both state what the setup was worth
+  when it was taken; price passing through either changes what the trade is worth, not whether it is
+  still on.
+- A position the scan stops reporting — the buy setup broke down, or Yahoo could not price it —
+  keeps running. It is simply not refreshed, which is what drops it off NEW and VALID until a scan
+  finds it again.
+- `provisionalClose` is a break on the bar still in progress. The record stays `active` and carries
+  the exit it would realize, so CLOSED shows the trade for the current period while History waits
+  for the bar to finish. The period-close scan either turns it into a real close or clears the exit
+  fields, which is what happens when the bar recovers before the bell.
 - `barsSinceValid` is the bar the engine says the signal appeared on, counted in bars of `tf` back
   from the latest one: `0` is NEW, anything higher is VALID, and that is the whole rule. It is the
   signal that ages, not the record — a symbol the scanner meets for the first time may already have
@@ -81,10 +92,11 @@ Lifecycle:
   whose next scan is days away (Weekly, Monthly) would show every active signal as VALID and nothing
   as NEW. A record with no cached bars, or whose structure has since broken, keeps no age and stays
   in VALID — a hand-imported journal trade is not a new signal.
-- NEW additionally requires `lastSeenPeriodKey` to be the current period. `barsSinceValid` is only
-  true as of the scan that wrote it, so a record last priced days ago (Yahoo could not deliver it
-  since) was new on that bar, not on this one. The two filters are exact complements within
-  `status: 'active'`, so the tab counts always add up.
+- Both live buckets require `lastSeenPeriodKey` to be the current period, which is what hides an
+  open position the latest scan did not report. `barsSinceValid` is only true as of the scan that
+  wrote it anyway, so a record last priced days ago was new on that bar, not on this one. The two
+  filters are exact complements among the signals the scan did report, so the tab counts add up.
+- CLOSED is everything with `closedPeriodKey` on the current period, realized or `provisionalClose`.
 - `provisional` no longer decides which tab a signal shows in; it still decides what a period-close
   scan does with the record. Only confirmed records can be closed, so a signal that comes and goes
   inside one period leaves no trace, and `totals.active` in History counts confirmed positions only.
@@ -102,8 +114,8 @@ the enum only because the old app let you close a trade by hand.
 Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`, plus
 `{ universe, tf, status, barsSinceValid }`, `{ universe, tf, status, openedPeriodKey }`,
 `{ universe, tf, status, closedPeriodKey }`, `{ universe, tf, status, lastRr }`,
-`{ universe, tf, status, interestRank }` and `{ status, tf, closedPeriodKey }` — one index per
-bucket-and-sort combination the UI offers.
+`{ universe, tf, status, interestRank }`, `{ status, tf, closedPeriodKey }` and
+`{ universe, tf, closedPeriodKey }` — one index per bucket-and-sort combination the UI offers.
 
 ### `presets`
 `{ key, data }` for chart params (successor to Streamlit `session_state`) and the `app` key

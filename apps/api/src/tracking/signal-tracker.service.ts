@@ -62,9 +62,12 @@ type ActiveDoc = {
 
 type Exit = { date: string; price: number; reason: ExitReason };
 
-/** Everything a provisional close writes, so undoing one leaves an ordinary open position. */
+/**
+ * The exit a provisional close writes, so undoing one leaves an ordinary open position. The flag
+ * itself is set back to false rather than removed: every active record then carries it, and code
+ * reading one never has to tell "not closing" apart from "written before this existed".
+ */
 const EXIT_FIELDS = {
-  provisionalClose: '',
   closedPeriodKey: '',
   closedAt: '',
   exitDate: '',
@@ -323,10 +326,11 @@ export class SignalTrackerService implements OnModuleInit {
             unrealizedUsd: pnl.usd,
             unrealizedR: pnl.r,
             unrealizedPct: pnl.pct,
+            // The break that put this trade in CLOSED is gone from the bar in progress, so the
+            // trade is open again and the exit numbers it carried go with it.
+            provisionalClose: false,
             ...(confirm ? { provisional: false } : {}),
           },
-          // The break that put this trade in CLOSED is gone from the bar in progress, so the
-          // trade is open again and the exit numbers it carried have to go with it.
           ...(doc.provisionalClose ? { $unset: EXIT_FIELDS } : {}),
         },
       },
@@ -375,7 +379,12 @@ export class SignalTrackerService implements OnModuleInit {
 
   /** The break vanished before the bar closed, and the scan no longer prices the symbol. */
   private clearPendingCloseOp(doc: ActiveDoc) {
-    return { updateOne: { filter: { _id: doc._id }, update: { $unset: EXIT_FIELDS } } };
+    return {
+      updateOne: {
+        filter: { _id: doc._id },
+        update: { $set: { provisionalClose: false }, $unset: EXIT_FIELDS },
+      },
+    };
   }
 
   private newDocument(
@@ -397,6 +406,7 @@ export class SignalTrackerService implements OnModuleInit {
       tf,
       status: 'active',
       provisional: !confirmed,
+      provisionalClose: false,
       openedPeriodKey: periodKey,
       openedAsOf: snapshot.asOf,
       openedAt: new Date(),

@@ -386,7 +386,7 @@ async function main() {
   check(
     'day 2 close',
     [report3?.closed, report3?.pendingClose, report3?.dropped, report3?.refreshed],
-    [1, 0, 1, 2],
+    [1, 0, 1, 3],
   );
 
   // TP and SL size a trade and say what it was worth. Price passing through either changes the
@@ -550,7 +550,7 @@ async function main() {
       status: 'active',
       lastSeenPeriodKey: { $ne: '2026-07-20' },
     }),
-    4, // A, B, C and F all still run: none of them broke.
+    5, // A, B, C, F and K all still run: none of them broke.
   );
 
   const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
