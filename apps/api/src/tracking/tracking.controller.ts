@@ -67,6 +67,11 @@ export class ResultsController {
     return this.results.lookup(yahooTicker, parseTf(tf));
   }
 
+  @Get('signal/:id')
+  byId(@Param('id') id: string) {
+    return this.results.byId(id);
+  }
+
   @Patch(':id/interest')
   setInterest(@Param('id') id: string, @Body() body: { interest?: Interest | null }) {
     const value = body?.interest;

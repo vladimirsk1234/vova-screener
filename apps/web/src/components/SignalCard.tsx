@@ -2,10 +2,14 @@ import { useNavigate } from 'react-router-dom';
 import type { Bucket, ResultRow } from '../lib/api';
 import { barsLabel, money, num, pct, signedMoney } from '../lib/format';
 
+/**
+ * A trade this app takes ends on the sell-to-close break and on nothing else. The other codes are
+ * only ever read, never written: imported journal trades and records left by older builds.
+ */
 const EXIT_LABEL: Record<string, string> = {
+  sell_to_close: 'SELL TO CLOSE',
   TP: 'TP hit',
   SL: 'SL hit',
-  sell_to_close: 'sell to close',
   signal_lost: 'signal gone',
   manual: 'closed by hand',
 };
@@ -36,8 +40,13 @@ function validFoot(row: ResultRow): string {
 
 export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) {
   const navigate = useNavigate();
+  // A closed trade opens as a snapshot of itself — the chart cut at the bar it broke on, with the
+  // entry and the exit marked. Anything still running opens on the live chart.
   const openChart = () =>
-    navigate(`/chart/${encodeURIComponent(row.yahooTicker)}`, { state: { row } });
+    navigate(
+      `/chart/${encodeURIComponent(row.yahooTicker)}${bucket === 'closed' ? `?trade=${row.id}` : ''}`,
+      { state: { row } },
+    );
 
   const showPnl = bucket !== 'new' && row.pnlUsd != null;
   const positive = (row.pnlUsd ?? 0) >= 0;
@@ -79,6 +88,14 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
         ) : null}
         {bucket === 'closed' && row.exitReason ? (
           <span className="badge">{EXIT_LABEL[row.exitReason] ?? row.exitReason}</span>
+        ) : null}
+        {row.provisionalClose ? (
+          <span
+            className="badge warn-badge"
+            title="Break on the bar still running — goes to History if it holds to the close"
+          >
+            CLOSING
+          </span>
         ) : null}
       </div>
 

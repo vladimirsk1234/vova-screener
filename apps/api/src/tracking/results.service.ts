@@ -140,6 +140,14 @@ export class ResultsService {
     return out;
   }
 
+  /** One tracked signal whatever its state, so the chart can be opened on a trade from History. */
+  async byId(id: string): Promise<ResultRow> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('bad signal id');
+    const doc = await this.tracked.findById(id).lean<any>().exec();
+    if (!doc) throw new NotFoundException('signal not found');
+    return toResultRow(doc);
+  }
+
   /** Active tracked signal for a ticker, so the chart screen can show and toggle the mark. */
   async lookup(yahooTicker: string, tf: Timeframe): Promise<ResultRow | null> {
     const doc = await this.tracked
@@ -176,28 +184,38 @@ function bucketFilter(
   bucket: Bucket,
   periodKey: string,
 ): Record<string, unknown> {
+  // CLOSED is "closed in this period", and mid-period that includes a sell-to-close break on the
+  // bar still running: the trade reads as closed here from the moment the break appears, and only
+  // reaches History if the break survives to the final bar.
   if (bucket === 'closed') {
-    return { universe, tf, status: 'closed', closedPeriodKey: periodKey };
+    return {
+      universe,
+      tf,
+      closedPeriodKey: periodKey,
+      $or: [{ status: 'closed' }, { provisionalClose: true }],
+    };
   }
-  // The split is the bar the signal became valid on, not the period the tracker first recorded it
-  // in: a symbol the scan meets for the first time may already have been valid for four bars, and
-  // it belongs next to the other four-bar-old trades rather than next to today's breakouts.
+  // A trade only ends on a break, so a position whose buy setup stopped being valid is still open
+  // — it simply drops out of the scan and stops being refreshed. Both live buckets therefore ask
+  // for a record this period's scan priced, which is what keeps such a position off the screen
+  // until the setup comes back.
   //
-  // `barsSinceValid` is only true as of the scan that wrote it, so NEW also asks that the scan was
-  // this period's. A record last priced days ago (Yahoo could not deliver it since) was new on
-  // that bar, not on this one, and ages into VALID on the freshness test alone.
-  if (bucket === 'new') {
-    return { universe, tf, status: 'active', barsSinceValid: 0, lastSeenPeriodKey: periodKey };
-  }
-  // Exact complement of NEW within the active signals, so the two counts always add up. Records
-  // written before `barsSinceValid` existed match `$ne: 0` on the missing field and land here: a
-  // signal the tracker is already carrying is by definition not new on this bar.
-  return {
+  // The NEW / VALID split is the bar the signal became valid on, not the period the tracker first
+  // recorded it in: a symbol the scan meets for the first time may already have been valid for
+  // four bars, and it belongs next to the other four-bar-old trades rather than next to today's
+  // breakouts.
+  const live = {
     universe,
     tf,
     status: 'active',
-    $or: [{ barsSinceValid: { $ne: 0 } }, { lastSeenPeriodKey: { $ne: periodKey } }],
+    provisionalClose: { $ne: true },
+    lastSeenPeriodKey: periodKey,
   };
+  if (bucket === 'new') return { ...live, barsSinceValid: 0 };
+  // Exact complement of NEW among the signals this scan priced, so the two counts always add up.
+  // Records written before `barsSinceValid` existed match `$ne: 0` on the missing field and land
+  // here: a signal the tracker is already carrying is by definition not new on this bar.
+  return { ...live, barsSinceValid: { $ne: 0 } };
 }
 
 /**

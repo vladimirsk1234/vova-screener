@@ -136,6 +136,11 @@ RejectionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 
  * shows in, but the period-close scan still decides whether it is confirmed or dropped, and only
  * a confirmed signal can ever be closed — so a signal that comes and goes inside one period
  * never reaches history.
+ *
+ * `provisionalClose` is the mirror image on the way out: a sell-to-close break on the bar still in
+ * progress. The record stays `active` and carries the exit it would realize, so CLOSED shows the
+ * trade for the current period while History keeps waiting for the bar to finish. The close scan
+ * either turns it into a real close or takes the exit fields back off.
  */
 export const TrackedSignalSchema = new Schema(
   {
@@ -147,6 +152,8 @@ export const TrackedSignalSchema = new Schema(
     tf: { type: String, enum: ['Daily', 'Weekly', 'Monthly'], required: true },
     status: { type: String, enum: ['active', 'closed'], default: 'active' },
     provisional: { type: Boolean, default: true },
+    /** Sell-to-close break on the bar in progress: shown in CLOSED, still open in History. */
+    provisionalClose: { type: Boolean, default: false },
 
     /** Frozen at first appearance — the entry the P&L is measured from. */
     openedPeriodKey: { type: String, required: true },
@@ -173,12 +180,15 @@ export const TrackedSignalSchema = new Schema(
     unrealizedR: Number,
     unrealizedPct: Number,
 
-    /** Written once, when a period-close scan closes the signal. */
+    /** Written by the sell-to-close break, provisionally mid-period and for good at the close. */
     closedPeriodKey: String,
     closedAt: Date,
     exitDate: String,
     exitPrice: Number,
-    // 'manual' only ever arrives from the imported journal: nothing closes a signal by hand now.
+    /**
+     * The tracker only ever writes 'sell_to_close'. The other codes stay in the enum for the
+     * imported journal, which recorded exits this app no longer takes.
+     */
     exitReason: { type: String, enum: ['TP', 'SL', 'sell_to_close', 'signal_lost', 'manual'] },
     pnlUsd: Number,
     pnlR: Number,
@@ -204,6 +214,9 @@ TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, closedPeriodKey: -1 }
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, lastRr: -1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, interestRank: -1 });
 TrackedSignalSchema.index({ status: 1, tf: 1, closedPeriodKey: -1 });
+// CLOSED spans both a realized close and a break on the bar in progress, so it reads by period
+// first and only then asks which of the two a record is.
+TrackedSignalSchema.index({ universe: 1, tf: 1, closedPeriodKey: -1 });
 
 export const PresetSchema = new Schema(
   {

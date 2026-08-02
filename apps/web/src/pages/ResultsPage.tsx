@@ -35,7 +35,7 @@ const SORTS: SortOption<ResultSort>[] = [
 const BUCKET_HINT: Record<Bucket, string> = {
   new: 'New signals, the ones that appeared on the current bar.',
   valid: 'Signals from an earlier bar that still hold, marked to market.',
-  closed: 'Signals closed in the current period.',
+  closed: 'Trades sold to close in this period. They reach History once the bar has finished.',
 };
 
 function isUniverse(value: string | undefined): value is Universe {
