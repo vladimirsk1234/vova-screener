@@ -21,6 +21,7 @@
     "smoke:tracker": "npm run smoke:tracker -w @vova/api",
     "smoke:age": "npm run smoke:age -w @vova/api",
     "smoke:legacy": "npm run smoke:legacy -w @vova/api",
+    "smoke:close-live": "npm run smoke:close-live -w @vova/api",
     "test:e2e": "npm run test:e2e -w @vova/web"
   },
   "devDependencies": {

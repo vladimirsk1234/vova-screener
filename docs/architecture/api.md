@@ -22,10 +22,13 @@ reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with
 | GET | `/results/signal/:id` | One tracked signal whatever its state — how a closed trade from History is opened on the chart |
 | PATCH | `/results/:id/interest` | `{ interest: 'interested' \| 'not_interested' \| null }`; the mark survives NEW → VALID → CLOSED |
 
-A trade ends on the sell-to-close break and on nothing else, so CLOSED means "broke on the newest
-bar's period". While that bar is still running the break is provisional: the row shows in CLOSED
-with `provisionalClose: true`, carries the exit it would realize, and reaches History only if the
-break survives to the final bar. A break on any earlier bar is settled and realized straight away.
+CLOSED is the Streamlit SELL TO CLOSE list for the period the scan reports on. A trade ends on the
+sell-to-close break and on nothing else, and it ends whether or not this app opened it: every buy
+pass runs the close scan over the same bars, and a break on a symbol with no record of its own is
+written down entry and exit together. While the exit bar is still running the break is provisional
+— the row shows in CLOSED with `provisionalClose: true`, carries the exit it would realize, and
+reaches History only if the break survives to the final bar. A break on any earlier bar is settled
+and realized straight away.
 
 An open position a scan evaluated and stopped reporting is not on screen at all — it is still
 running, and comes back the moment a scan finds its setup again. A symbol the scan could not

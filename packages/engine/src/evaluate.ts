@@ -2,14 +2,10 @@
  * Per-symbol scan evaluation — pure, mirrors the Streamlit scan decision path
  * (headless_scanner.run_scan) without any I/O.
  */
-import {
-  explainInvalidBuy,
-  runSequenceVovaCloseScan,
-  runSequenceVovaPine,
-} from './sequenceVova';
+import { explainInvalidBuy, runCloseLedger, runSequenceVovaPine } from './sequenceVova';
 import { signalAge } from './signalAge';
 import { buildChartUrl, inferTvSymbol, tfToTvInterval } from './tradingview';
-import type { OhlcSeries, PineResult, ScanDirection, Timeframe } from './types';
+import type { CloseTrade, OhlcSeries, PineResult, ScanDirection, Timeframe } from './types';
 
 export const MIN_BARS = 50;
 export const ATR_LEN = 14;
@@ -68,6 +64,12 @@ export type SellSignal = {
   pnlUsd: number;
   pnlPct: number;
   isNew: boolean;
+  /** Bar the close scan's replay took this long on, and the numbers that bar priced it with. */
+  entryAsOf: string;
+  entrySl: number | null;
+  entryTp: number | null;
+  /** Bar the sequence broke back down on. Always the last bar of the series for a close signal. */
+  exitAsOf: string;
   asOf: string;
 };
 
@@ -165,47 +167,17 @@ export function evaluateSymbol(input: {
   const asOf = bars[bars.length - 1].date;
 
   if (params.direction === 'sell') {
-    const out = runSequenceVovaCloseScan(bars, {
-      atr_len: ATR_LEN,
-      min_rr: params.minRr,
-      use_last_hl_sl: params.useLastHlSl,
-      risk_dollars: params.riskPerTrade,
-      no_rr_req: params.noRrReq,
-    });
-    if (!out || !out.Valid) {
+    const closing = closingTrade(bars, params);
+    if (!closing) {
       return {
         status: 'rejected',
         reason: 'NO_CLOSE_SIGNAL',
         detail: rejectDetail(bars, null, params.minRr),
       };
     }
-    if (params.newOnly && !out.New) return { status: 'skipped', reason: 'NOT_NEW' };
-
-    const shares =
-      Number.isFinite(out.position_size) && out.position_size >= 1
-        ? Math.round(out.position_size)
-        : 0;
-    const entry = round2(out.entry_price);
     return {
       status: 'signal',
-      signal: {
-        kind: 'sell',
-        symbol: tvSymbol,
-        tvSymbol,
-        yahooTicker,
-        companyName,
-        tvUrl,
-        entry,
-        exit: round2(out.exit_price),
-        shares,
-        rrAtEntry: finiteOrNull(out.entry_rr),
-        rrAtClose: finiteOrNull(out.close_rr),
-        invested: shares > 0 ? round2(entry * shares) : 0,
-        pnlUsd: round2(out.pnl_dollars),
-        pnlPct: round2(out.pnl_pct),
-        isNew: Boolean(out.New),
-        asOf,
-      },
+      signal: sellSignal(closing, { tvSymbol, yahooTicker, companyName, tvUrl, asOf }),
     };
   }
 
@@ -261,6 +233,92 @@ export function evaluateSymbol(input: {
       asOf,
     },
   };
+}
+
+/**
+ * The long the close scan gives up on the last bar of `bars`, or nothing.
+ *
+ * This is the whole of "SELL TO CLOSE": the replay is over the bars alone, so a position is found
+ * and priced from its own history rather than from whatever this app happened to have recorded
+ * about the symbol.
+ */
+function closingTrade(bars: OhlcSeries, params: EvaluateParams): CloseTrade | null {
+  const ledger = runCloseLedger(bars, {
+    atr_len: ATR_LEN,
+    min_rr: params.minRr,
+    use_last_hl_sl: params.useLastHlSl,
+    risk_dollars: params.riskPerTrade,
+    no_rr_req: params.noRrReq,
+  });
+  const last = ledger?.trades[ledger.trades.length - 1];
+  return last && last.exit_index === bars.length - 1 ? last : null;
+}
+
+function sellSignal(
+  trade: CloseTrade,
+  ids: {
+    tvSymbol: string;
+    yahooTicker: string;
+    companyName: string;
+    tvUrl: string;
+    asOf: string;
+  },
+): SellSignal {
+  const shares =
+    Number.isFinite(trade.position_size) && trade.position_size >= 1
+      ? Math.round(trade.position_size)
+      : 0;
+  const entry = round2(trade.entry_price);
+  return {
+    kind: 'sell',
+    symbol: ids.tvSymbol,
+    tvSymbol: ids.tvSymbol,
+    yahooTicker: ids.yahooTicker,
+    companyName: ids.companyName,
+    tvUrl: ids.tvUrl,
+    entry,
+    exit: round2(trade.exit_price),
+    shares,
+    rrAtEntry: finiteOrNull(trade.entry_rr),
+    rrAtClose: finiteOrNull(trade.close_rr),
+    invested: shares > 0 ? round2(entry * shares) : 0,
+    pnlUsd: round2(trade.pnl_dollars),
+    pnlPct: round2(trade.pnl_pct),
+    isNew: true,
+    entryAsOf: trade.entry_date,
+    entrySl: finiteOrNull(trade.entry_sl),
+    entryTp: finiteOrNull(trade.entry_tp),
+    exitAsOf: trade.exit_date ?? ids.asOf,
+    asOf: ids.asOf,
+  };
+}
+
+/**
+ * The close signal for a symbol a buy scan is looking at anyway.
+ *
+ * A symbol closing today is by definition not a buy today — the break puts the sequence down — so
+ * it leaves a buy scan as a reject and would never be heard of again. Running the close scan over
+ * the same bars in the same pass is what lets the tracker see the trade end.
+ */
+export function evaluateClose(input: {
+  bars: OhlcSeries | null | undefined;
+  yahooTicker: string;
+  tvSymbol?: string;
+  companyName?: string;
+  params: EvaluateParams;
+}): SellSignal | null {
+  const { bars, yahooTicker, params } = input;
+  if (!bars || bars.length < MIN_BARS) return null;
+  const trade = closingTrade(bars, params);
+  if (!trade) return null;
+  const tvSymbol = input.tvSymbol || inferTvSymbol(yahooTicker);
+  return sellSignal(trade, {
+    tvSymbol,
+    yahooTicker,
+    companyName: input.companyName || yahooTicker,
+    tvUrl: buildChartUrl(tvSymbol, tfToTvInterval(params.tf)),
+    asOf: bars[bars.length - 1].date,
+  });
 }
 
 export function buildSellSummary(signals: SellSignal[]): SellSummary | null {

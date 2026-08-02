@@ -46,6 +46,8 @@ export type ScanRun = {
     downloaded: number;
     evaluated: number;
     signals: number;
+    /** Sell-to-close breaks a buy pass found alongside the signals. */
+    closes?: number;
     rejected: number;
     skipped: number;
     fromCache: number;
@@ -125,6 +127,8 @@ export type ScanMeta = {
   /** Period of the newest scan that produced data — which period CLOSED reports on. */
   periodKey: string;
   asOf: string | null;
+  /** Newest bar the scan saw. CLOSED reports on the period this falls in. */
+  newestAsOf: string | null;
   finishedAt: string | null;
   running: boolean;
   status: string | null;

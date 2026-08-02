@@ -729,7 +729,7 @@ def run_sequence_vova_pine(
     return _pine_result_dict(tup)
 
 
-def _run_sequence_vova_close_python(
+def _close_ledger_python(
     c_a: np.ndarray,
     h_a: np.ndarray,
     l_a: np.ndarray,
@@ -738,10 +738,11 @@ def _run_sequence_vova_close_python(
     use_last_hl_sl: bool,
     risk_dollars: float,
     no_rr_req: bool = False,
-) -> dict:
+) -> list[dict]:
     """
     Simulate long open (BUY new with min_rr at entry) and close on break SEQ down.
-    Opens only when flat (not position_open). Returns close on the last bar only.
+    Opens only when flat (not position_open). Returns every trade, oldest first; the last one has
+    exit_index None while the position is still running.
     """
     n = len(c_a)
     seq_state = 0
@@ -752,22 +753,8 @@ def _run_sequence_vova_close_python(
     last_peak_was_hh = False
     last_trough_was_hl = False
 
-    position_open = False
-    entry_price = np.nan
-    entry_sl = np.nan
-    entry_rr_at_open = np.nan
-    position_size = np.nan
-
-    last_valid = False
-    last_new = False
-    last_entry_price = np.nan
-    last_exit_price = np.nan
-    last_entry_sl = np.nan
-    last_position_size = np.nan
-    last_pnl_dollars = np.nan
-    last_pnl_pct = np.nan
-    last_entry_rr = np.nan
-    last_close_rr = np.nan
+    trades: list[dict] = []
+    open_trade: dict | None = None
 
     for i in range(1, n):
         c, h, l = c_a[i], h_a[i], l_a[i]
@@ -871,67 +858,109 @@ def _run_sequence_vova_close_python(
             )
         new_signal = valid_signal and is_bearish_break
 
-        if new_signal and not position_open:
-            position_open = True
-            entry_price = c
-            entry_sl = sl
-            entry_rr_at_open = rr
-            position_size = (
-                (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
-            )
+        if new_signal and open_trade is None:
+            open_trade = {
+                "entry_index": i,
+                "entry_price": c,
+                "entry_sl": sl,
+                "entry_tp": last_confirmed_peak,
+                "entry_rr": rr,
+                "position_size": (
+                    (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan
+                ),
+                "exit_index": None,
+                "exit_price": np.nan,
+                "close_rr": np.nan,
+                "pnl_dollars": np.nan,
+                "pnl_pct": np.nan,
+            }
+            trades.append(open_trade)
 
-        if position_open and is_bullish_break:
-            exit_price = c
-            psz = position_size
-            entry_risk = entry_price - entry_sl
-            close_rr = (
-                (exit_price - entry_price) / entry_risk
-                if entry_risk > 0 and not np.isnan(entry_price)
-                else np.nan
+        if open_trade is not None and is_bullish_break:
+            entry_price = open_trade["entry_price"]
+            entry_risk = entry_price - open_trade["entry_sl"]
+            open_trade["exit_index"] = i
+            open_trade["exit_price"] = c
+            open_trade["close_rr"] = (
+                (c - entry_price) / entry_risk if entry_risk > 0 else np.nan
             )
-            if not np.isnan(psz) and not np.isnan(entry_price):
-                pnl = (exit_price - entry_price) * psz
-                pnl_pct = (
-                    (exit_price - entry_price) / entry_price * 100.0
-                    if entry_price > 0
-                    else np.nan
+            psz = open_trade["position_size"]
+            if not np.isnan(psz):
+                open_trade["pnl_dollars"] = (c - entry_price) * psz
+                open_trade["pnl_pct"] = (
+                    (c - entry_price) / entry_price * 100.0 if entry_price > 0 else np.nan
                 )
-            else:
-                pnl = np.nan
-                pnl_pct = np.nan
+            open_trade = None
 
-            if i == n - 1:
-                last_valid = True
-                last_new = True
-                last_entry_price = entry_price
-                last_exit_price = exit_price
-                last_entry_sl = entry_sl
-                last_position_size = position_size
-                last_pnl_dollars = pnl
-                last_pnl_pct = pnl_pct
-                last_entry_rr = entry_rr_at_open
-                last_close_rr = close_rr
+    return trades
 
-            position_open = False
-            entry_price = np.nan
-            entry_sl = np.nan
-            entry_rr_at_open = np.nan
-            position_size = np.nan
 
+def _run_sequence_vova_close_python(
+    c_a: np.ndarray,
+    h_a: np.ndarray,
+    l_a: np.ndarray,
+    atr_a: np.ndarray,
+    min_rr: float,
+    use_last_hl_sl: bool,
+    risk_dollars: float,
+    no_rr_req: bool = False,
+) -> dict:
+    """
+    Close-scan answer: the trade that gives up on the very last bar, or nothing. Read off the
+    same replay that produced every earlier trade.
+    """
+    n = len(c_a)
+    trades = _close_ledger_python(
+        c_a, h_a, l_a, atr_a, min_rr, use_last_hl_sl, risk_dollars, no_rr_req
+    )
+    closing = trades[-1] if trades and trades[-1]["exit_index"] == n - 1 else None
     return {
-        "Valid": last_valid,
-        "New": last_new,
-        "entry_price": last_entry_price,
-        "exit_price": last_exit_price,
-        "entry_sl": last_entry_sl,
-        "position_size": last_position_size,
-        "pnl_dollars": last_pnl_dollars,
-        "pnl_pct": last_pnl_pct,
-        "entry_rr": last_entry_rr,
-        "close_rr": last_close_rr,
+        "Valid": closing is not None,
+        "New": closing is not None,
+        "entry_price": closing["entry_price"] if closing else np.nan,
+        "exit_price": closing["exit_price"] if closing else np.nan,
+        "entry_sl": closing["entry_sl"] if closing else np.nan,
+        "position_size": closing["position_size"] if closing else np.nan,
+        "pnl_dollars": closing["pnl_dollars"] if closing else np.nan,
+        "pnl_pct": closing["pnl_pct"] if closing else np.nan,
+        "entry_rr": closing["entry_rr"] if closing else np.nan,
+        "close_rr": closing["close_rr"] if closing else np.nan,
         "Close": c_a[-1],
         "ATR": atr_a[-1],
     }
+
+
+def run_sequence_vova_close_ledger(
+    df,
+    atr_len: int = 14,
+    min_rr: float = 1.5,
+    use_last_hl_sl: bool = True,
+    risk_dollars: float = 100,
+    no_rr_req: bool = False,
+) -> list[dict] | None:
+    """
+    Every long the close scan takes over the series, oldest first, each carrying the bar index it
+    was entered and given up on. `run_sequence_vova_close_scan` is the last one of these when it
+    ends on the final bar; this is the whole replay, for callers that need to know which trade a
+    symbol is in rather than only whether one just ended.
+    """
+    n = len(df)
+    if n < 2:
+        return None
+    c_a = np.ascontiguousarray(df["Close"].values, dtype=np.float64)
+    h_a = np.ascontiguousarray(df["High"].values, dtype=np.float64)
+    l_a = np.ascontiguousarray(df["Low"].values, dtype=np.float64)
+    atr_a = _calc_atr_numpy(h_a, l_a, c_a, atr_len)
+    return _close_ledger_python(
+        c_a,
+        h_a,
+        l_a,
+        atr_a,
+        float(min_rr),
+        bool(use_last_hl_sl),
+        float(risk_dollars),
+        bool(no_rr_req),
+    )
 
 
 def run_sequence_vova_close_scan(

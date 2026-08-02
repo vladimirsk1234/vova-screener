@@ -13,5 +13,7 @@ export {
   calcAtr,
   runSequenceVovaPine,
   runSequenceVovaCloseScan,
+  runCloseLedger,
   explainInvalidBuy,
+  type CloseScanOptions,
 } from './sequenceVova';

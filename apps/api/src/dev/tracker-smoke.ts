@@ -15,7 +15,7 @@
 import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import mongoose, { Types, type Model } from 'mongoose';
-import { encodeSeries, type OhlcSeries } from '@vova/engine';
+import { encodeSeries, evaluateClose, type OhlcSeries, type SellSignal } from '@vova/engine';
 import { AppModule } from '../app.module';
 import { BAR_SERIES, REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { HistoryService } from '../tracking/history.service';
@@ -36,6 +36,8 @@ const TICKERS = [
   'ZZTEST-I',
   'ZZTEST-K',
   'ZZTEST-L',
+  'ZZTEST-M',
+  'ZZTEST-N',
 ];
 
 /** Rides the climb, then closes back through the critical level: the sell-to-close break. */
@@ -48,6 +50,14 @@ const BREAK_TAIL: Tail = [
 const RECOVERED_TAIL: Tail = [
   { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
   { date: '2026-07-16', high: 183, low: 179, close: 182 },
+];
+
+/** Climbs through the week, then closes back through the critical level on the Monday. */
+const BREAK_ON_20: Tail = [
+  { date: '2026-07-15', high: 182.5, low: 181.5, close: 182 },
+  { date: '2026-07-16', high: 184.5, low: 183.5, close: 184 },
+  { date: '2026-07-17', high: 186.5, low: 185.5, close: 186 },
+  { date: '2026-07-20', high: 186, low: 149, close: 150 },
 ];
 
 /** Recovers, then breaks for good on 2026-07-17 and keeps going down. */
@@ -76,6 +86,28 @@ function series(tail: Tail): OhlcSeries {
  */
 function climbingSeries(tail: Tail): OhlcSeries {
   return buildSeries(tail, (i) => (i < 80 ? 100 : 100 + (i - 80) * 2));
+}
+
+/**
+ * Higher high, higher low, then a sequence up: the shape the close scan needs before it will take
+ * a long at all. It enters on 2026-04-16 at 137.50 with a 134.50 stop, which is months before any
+ * of these scans run — which is the point. That entry is what a tracked record has to end up
+ * carrying, whenever this app first happens to meet the symbol.
+ */
+function structuredSeries(tail: Tail): OhlcSeries {
+  return buildSeries(tail, (i) => {
+    if (i < 48) return 100;
+    if (i < 68) return ramp(100, 130, 20, i - 48);
+    if (i < 78) return ramp(130, 110, 10, i - 68);
+    if (i < 93) return ramp(110, 150, 15, i - 78);
+    if (i < 101) return ramp(150, 135, 8, i - 93);
+    if (i < 111) return ramp(135, 160, 10, i - 101);
+    return ramp(160, 180, 9, i - 111);
+  });
+}
+
+function ramp(from: number, to: number, over: number, step: number): number {
+  return from + ((to - from) * (step + 1)) / over;
 }
 
 function buildSeries(tail: Tail, closeAt: (i: number) => number): OhlcSeries {
@@ -139,6 +171,8 @@ async function fakeScan(
     rows: Snapshot[];
     /** Symbols Yahoo could not deliver, recorded the way a real scan records them. */
     noData?: string[];
+    /** Sell-to-close breaks, as a buy pass records them alongside its signals. */
+    closes?: SellSignal[];
   },
 ) {
   const run = await runs.findOneAndUpdate(
@@ -169,6 +203,21 @@ async function fakeScan(
         runId: new Types.ObjectId(runId),
         symbol,
         reason: 'NO_DATA',
+      })),
+    );
+  }
+  if (opts.closes?.length) {
+    await signals.insertMany(
+      opts.closes.map((close) => ({
+        runId: new Types.ObjectId(runId),
+        kind: 'sell',
+        symbol: close.symbol,
+        yahooTicker: close.yahooTicker,
+        companyName: close.companyName,
+        isNew: true,
+        isStrong: false,
+        rr: close.rrAtEntry,
+        payload: close,
       })),
     );
   }
@@ -261,12 +310,47 @@ async function main() {
     'ZZTEST-I': [{ date: '2026-07-20', high: 101, low: 99, close: 100 }],
     'ZZTEST-K': BREAK_TAIL,
     'ZZTEST-L': [{ date: '2026-07-15', high: 180.5, low: 179.5, close: 180 }],
+    'ZZTEST-M': [{ date: '2026-07-15', high: 182.5, low: 181.5, close: 182 }],
+    'ZZTEST-N': [{ date: '2026-07-15', high: 182.5, low: 181.5, close: 182 }],
   };
   const climbers = ['ZZTEST-G', 'ZZTEST-K', 'ZZTEST-L'];
+  // M and N are the only two whose bars the close scan will actually take a long on, so they are
+  // the two that can say where a position started.
+  const structured = ['ZZTEST-M', 'ZZTEST-N'];
+  const bars = new Map<string, OhlcSeries>();
+  const save = async (ticker: string, rows: OhlcSeries) => {
+    bars.set(ticker, rows);
+    await saveBars(barSeries, ticker, rows);
+  };
   for (const ticker of TICKERS) {
-    const build = climbers.includes(ticker) ? climbingSeries : series;
-    await saveBars(barSeries, ticker, build(tails[ticker]));
+    const build = structured.includes(ticker)
+      ? structuredSeries
+      : climbers.includes(ticker)
+        ? climbingSeries
+        : series;
+    await save(ticker, build(tails[ticker]));
   }
+
+  /** The close row a buy pass records for a symbol, built the way the scan runner builds it. */
+  const closeRow = (ticker: string): SellSignal => {
+    const close = evaluateClose({
+      bars: bars.get(ticker),
+      yahooTicker: ticker,
+      tvSymbol: ticker,
+      companyName: `${ticker} Inc`,
+      params: {
+        direction: 'buy',
+        minRr: 0,
+        riskPerTrade: 100,
+        noRrReq: true,
+        useLastHlSl: true,
+        newOnly: false,
+        tf: 'Daily',
+      },
+    });
+    if (!close) throw new Error(`${ticker} has no close signal — fixture is wrong`);
+    return close;
+  };
 
   /** Distinct RRs so the sort assertions have something to order by. */
   const RR: Record<string, number> = {
@@ -281,6 +365,8 @@ async function main() {
     'ZZTEST-I': 4.5,
     'ZZTEST-K': 1.25,
     'ZZTEST-L': 0.75,
+    'ZZTEST-M': 0.5,
+    'ZZTEST-N': 0.25,
   };
   const snap = (
     ticker: string,
@@ -380,7 +466,7 @@ async function main() {
   );
 
   // K's bar recovers before the bell, so the break it showed at 15:05 never happened.
-  await saveBars(barSeries, 'ZZTEST-K', climbingSeries(RECOVERED_TAIL));
+  await save('ZZTEST-K', climbingSeries(RECOVERED_TAIL));
 
   // 3. Next period close: G realizes the break it showed mid-period, K's went away, B ran through
   //    its target and C through its stop without either ending anything, D was never confirmed and
@@ -525,7 +611,11 @@ async function main() {
   // L broke on 2026-07-17 and nothing was scanning that afternoon. The bar is finished by the time
   // this session pass looks at it, so the trade is realized now rather than waiting for a close
   // scan — and the setup is a buy again on 2026-07-20, which starts the next trade in the same pass.
-  await saveBars(barSeries, 'ZZTEST-L', climbingSeries(LATE_BREAK_TAIL));
+  await save('ZZTEST-L', climbingSeries(LATE_BREAK_TAIL));
+  // M breaks on the bar this pass is scanning, and no scan has ever reported it as a buy — which
+  // is the ordinary case, because a symbol closing today is not a buy today. N is a buy for the
+  // first time, four months into a position the close scan has been holding since 2026-04-16.
+  await save('ZZTEST-M', structuredSeries(BREAK_ON_20));
   const run5 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-20',
     asOf: '2026-07-20',
@@ -536,13 +626,59 @@ async function main() {
       snap('ZZTEST-H', 100, { barsSinceValid: 4, validSince: '2026-07-14' }),
       snap('ZZTEST-I', 100),
       snap('ZZTEST-L', 171),
+      snap('ZZTEST-N', 182, { barsSinceValid: 4, validSince: '2026-07-14' }),
     ],
+    closes: [closeRow('ZZTEST-M')],
   });
   const report5 = await tracker.applyRun(run5);
   check(
     'a break on a finished bar is realized by a live pass',
-    [report5?.confirmed, report5?.closed, report5?.pendingClose],
-    [false, 1, 0],
+    [report5?.confirmed, report5?.closed, report5?.pendingClose, report5?.adopted],
+    [false, 1, 1, 1],
+  );
+
+  // The whole trade goes in at once, priced from the bar the replay entered it on — the numbers
+  // the Streamlit close scan reports, for a symbol this app had no record of.
+  const adopted = await tracked.findOne({ yahooTicker: 'ZZTEST-M' }).lean<any>();
+  check(
+    'a break on a symbol we never opened is written down entry and exit together',
+    [
+      adopted?.status,
+      adopted?.provisionalClose,
+      adopted?.openedAsOf,
+      adopted?.entry,
+      adopted?.sl,
+      adopted?.exitDate,
+      adopted?.exitPrice,
+      adopted?.pnlUsd,
+    ],
+    ['active', true, '2026-04-16', 137.5, 134.5, '2026-07-20', 150, 412.5],
+  );
+  check(
+    'and it shows in CLOSED',
+    (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'closed' })).rows
+      .filter((r) => TICKERS.includes(r.yahooTicker))
+      .map((r) => r.symbol),
+    ['ZZTEST-M'],
+  );
+
+  // N is met four bars into its buy signal and four months into its position. The record takes the
+  // trade, not the day it was met: the scan's own 182 is only where the position is marked to.
+  const joined = await tracked.findOne({ yahooTicker: 'ZZTEST-N' }).lean<any>();
+  check(
+    'a position met mid-trade is priced from the bar it started on',
+    [
+      joined?.entry,
+      joined?.sl,
+      joined?.tp,
+      joined?.rrAtEntry,
+      joined?.openedAsOf,
+      joined?.openedPeriodKey,
+      joined?.provisional,
+      joined?.shares,
+      joined?.unrealizedUsd,
+    ],
+    [137.5, 134.5, 150.5, 4.33, '2026-04-16', '2026-04-16', false, 33, 1468.5],
   );
   const settled = await tracked.findOne({ yahooTicker: 'ZZTEST-L', status: 'closed' }).lean<any>();
   check(
@@ -577,7 +713,7 @@ async function main() {
     // already four bars old; the trades this scan did not report are open but off screen.
     [
       ['ZZTEST-I', 'ZZTEST-L'],
-      ['ZZTEST-E', 'ZZTEST-H'],
+      ['ZZTEST-E', 'ZZTEST-H', 'ZZTEST-N'],
     ],
   );
   check('NEW sorted by RR desc', await byRr('new', 'desc'), ['ZZTEST-I', 'ZZTEST-L']);
@@ -609,6 +745,7 @@ async function main() {
       tf: 'Daily',
       status: 'active',
       signalValid: false,
+      provisionalClose: { $ne: true },
     }),
     5, // A, B, C, F and K all still run: none of them broke.
   );
@@ -619,9 +756,10 @@ async function main() {
   check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [1, 0, -72]);
   check('history avg RR at entry', day?.avgRrEntry, 1.5);
   check('every closed trade sold to close', stats.exitReasons, [{ reason: 'sell_to_close', count: 2 }]);
-  // A, B, C, F and K: E, H, I and L's restart are active but still provisional, so none of them is
-  // an open position yet.
-  check('history counts confirmed positions only', stats.totals.active, 5);
+  // A, B, C, F, K, N and M: E, H, I and L's restart are active but still provisional, so none of
+  // them is an open position yet. M's break is on the bar in progress, which can still take it
+  // back, so it is a position until that bar finishes.
+  check('history counts confirmed positions only', stats.totals.active, 7);
   check(
     'history periods sortable by RR',
     (await history.report({ tf: 'Daily', groupBy: 'Daily', sort: 'rr', dir: 'desc' })).periods[0]
@@ -640,7 +778,7 @@ async function main() {
 
   // 5. A close scan catches up two periods late and finds a break that happened on 2026-07-17.
   //    The trade belongs to the period it ended in, not to the period the catch-up ran in.
-  await saveBars(barSeries, 'ZZTEST-K', climbingSeries(LATE_BREAK_TAIL));
+  await save('ZZTEST-K', climbingSeries(LATE_BREAK_TAIL));
   const run6 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-20',
     asOf: '2026-07-20',
@@ -649,7 +787,14 @@ async function main() {
     rows: [snap('ZZTEST-E', 100, { barsSinceValid: 1, validSince: '2026-07-17' })],
   });
   const report6 = await tracker.applyRun(run6);
-  check('the catch-up close finds the old break', report6?.closed, 1);
+  // K's old break, and M's break now that the bar it happened on has finished.
+  check('the catch-up close finds the old break', report6?.closed, 2);
+  const realized = await tracked.findOne({ yahooTicker: 'ZZTEST-M' }).lean<any>();
+  check(
+    'an adopted trade reaches History once its bar is final',
+    [realized?.status, realized?.provisionalClose, realized?.pnlUsd],
+    ['closed', false, 412.5],
+  );
   const late = await tracked.findOne({ yahooTicker: 'ZZTEST-K' }).lean<any>();
   check(
     'a trade is filed under the period it ended in',
@@ -663,9 +808,30 @@ async function main() {
       p.trades,
     ]),
     [
+      // M's adopted trade, realized now that the bar it broke on is final.
+      ['2026-07-20', 1],
       ['2026-07-17', 2],
       ['2026-07-16', 1],
     ],
+  );
+
+  // 5b. The break is still on M's last bar, so every later pass finds it again. Realizing it took
+  //     the record out of the active set, which is what the adoption checks against — so this is
+  //     where an hourly cadence would quietly stack a copy of the trade an hour.
+  const run7 = await fakeScan(runs, signals, rejections, {
+    periodKey: '2026-07-21',
+    asOf: '2026-07-21',
+    finishedAt: new Date('2026-07-21T20:15:00Z'),
+    periodClose: true,
+    rows: [],
+    closes: [closeRow('ZZTEST-M')],
+  });
+  const report7 = await tracker.applyRun(run7);
+  check('a close already written down is not adopted twice', report7?.adopted, 0);
+  check(
+    'and the symbol still has exactly one record',
+    await tracked.countDocuments({ yahooTicker: 'ZZTEST-M' }),
+    1,
   );
 
   // 6. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
@@ -698,10 +864,10 @@ async function main() {
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6, run7].map((id) => new Types.ObjectId(id)) },
     }),
     rejections.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6, run7].map((id) => new Types.ObjectId(id)) },
     }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);

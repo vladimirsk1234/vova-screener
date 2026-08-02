@@ -63,6 +63,39 @@ export type CloseScanResult = {
   ATR: number;
 };
 
+/**
+ * One long as the close scan replays it: taken on the bar a buy signal appeared, given up on the
+ * bar the sequence broke back down. `exit_index` is null while the position is still running.
+ *
+ * Prices are the closes of those bars, and the RR and SL are the ones the entry bar produced —
+ * the numbers the Streamlit close-scan table shows, not anything measured later.
+ */
+export type CloseTrade = {
+  entry_index: number;
+  entry_date: string;
+  entry_price: number;
+  entry_sl: number;
+  /** Target the entry bar priced the trade against: the last confirmed peak at that point. */
+  entry_tp: number;
+  entry_rr: number;
+  position_size: number;
+  exit_index: number | null;
+  exit_date: string | null;
+  exit_price: number;
+  close_rr: number;
+  pnl_dollars: number;
+  pnl_pct: number;
+};
+
+/** Every long the close scan would have taken over a series, oldest first. */
+export type CloseLedger = {
+  trades: CloseTrade[];
+  /** The still-running trade, which is the last entry of `trades` when there is one. */
+  open: CloseTrade | null;
+  /** Date of the last bar the replay saw. */
+  asOf: string;
+};
+
 export type BuyRow = {
   Symbol: string;
   tv_symbol: string;
