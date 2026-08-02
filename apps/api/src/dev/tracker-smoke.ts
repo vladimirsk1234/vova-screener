@@ -5,6 +5,10 @@
  * period close and a period that rolls over with its close scan missed — then asserts the Results
  * buckets and the History aggregation.
  *
+ * The rules it is here to hold: a trade ends on the sell-to-close break and on nothing else, a
+ * break on the bar in progress shows in CLOSED without reaching History, and a position the scan
+ * stops reporting stays open and simply drops off the live lists.
+ *
  *   npm run smoke:tracker -w @vova/api
  */
 import { NestFactory } from '@nestjs/core';
@@ -29,6 +33,19 @@ const TICKERS = [
   'ZZTEST-G',
   'ZZTEST-H',
   'ZZTEST-I',
+  'ZZTEST-K',
+];
+
+/** Rides the climb, then closes back through the critical level: the sell-to-close break. */
+const BREAK_TAIL: Tail = [
+  { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
+  { date: '2026-07-16', high: 169, low: 167, close: 168 },
+];
+
+/** The same bar, recovering before it finishes: no break left for the close scan to confirm. */
+const RECOVERED_TAIL: Tail = [
+  { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
+  { date: '2026-07-16', high: 183, low: 179, close: 182 },
 ];
 
 /** 2026-07-15 and 2026-07-16 are a Wednesday and a Thursday; 20:15Z is 16:15 in New York. */
@@ -202,7 +219,8 @@ async function main() {
   // A drifts up, B runs through its target on day 2, C gaps down through its stop, D only ever
   // shows mid-session, E shows mid-session across two periods whose closes are never scanned,
   // F goes missing because Yahoo failed, G sells to close on a bullish break, H is met by the
-  // scanner when it has already been valid for four bars and I becomes valid on the current bar.
+  // scanner when it has already been valid for four bars, I becomes valid on the current bar and
+  // K breaks intraday only for the bar to recover before it finishes.
   const tails: Record<string, Tail> = {
     'ZZTEST-A': [
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
@@ -228,16 +246,14 @@ async function main() {
       { date: '2026-07-15', high: 101, low: 99, close: 100 },
       { date: '2026-07-16', high: 101, low: 99, close: 100 },
     ],
-    // Rides the climb, then closes back through the critical level on day 2.
-    'ZZTEST-G': [
-      { date: '2026-07-15', high: 180.5, low: 179.5, close: 180 },
-      { date: '2026-07-16', high: 169, low: 167, close: 168 },
-    ],
+    'ZZTEST-G': BREAK_TAIL,
     'ZZTEST-H': [{ date: '2026-07-20', high: 101, low: 99, close: 100 }],
     'ZZTEST-I': [{ date: '2026-07-20', high: 101, low: 99, close: 100 }],
+    'ZZTEST-K': BREAK_TAIL,
   };
+  const climbers = ['ZZTEST-G', 'ZZTEST-K'];
   for (const ticker of TICKERS) {
-    const build = ticker === 'ZZTEST-G' ? climbingSeries : series;
+    const build = climbers.includes(ticker) ? climbingSeries : series;
     await saveBars(barSeries, ticker, build(tails[ticker]));
   }
 
@@ -252,6 +268,7 @@ async function main() {
     'ZZTEST-G': 1.5,
     'ZZTEST-H': 3.5,
     'ZZTEST-I': 4.5,
+    'ZZTEST-K': 1.25,
   };
   const snap = (
     ticker: string,
@@ -266,7 +283,7 @@ async function main() {
     ...age,
   });
 
-  // 1. Period close: A, B, C, F and G open as confirmed signals.
+  // 1. Period close: A, B, C, F, G and K open as confirmed signals.
   const run1 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-15',
     asOf: '2026-07-15',
@@ -278,22 +295,23 @@ async function main() {
       snap('ZZTEST-C', 100),
       snap('ZZTEST-F', 100),
       snap('ZZTEST-G', 180),
+      snap('ZZTEST-K', 180),
     ],
   });
   const report1 = await tracker.applyRun(run1);
-  check('day 1 close confirms', [report1?.confirmed, report1?.opened], [true, 5]);
+  check('day 1 close confirms', [report1?.confirmed, report1?.opened], [true, 6]);
   check(
     'day 1 provisional count',
     await tracked.countDocuments({ yahooTicker: { $in: TICKERS }, provisional: true }),
     0,
   );
-  // All five became valid on the bar the scan evaluated, which is what NEW means.
+  // All six became valid on the bar the scan evaluated, which is what NEW means.
   check(
     'day 1 signals are all NEW',
     (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'new' })).rows.filter((r) =>
       TICKERS.includes(r.yahooTicker),
     ).length,
-    5,
+    6,
   );
 
   // 2. Session pass: prices move and D appears, but nothing opens or closes for good. It also
@@ -311,7 +329,12 @@ async function main() {
   });
   const report2 = await tracker.applyRun(run2);
   check('session pass does not confirm', report2?.confirmed, false);
-  check('session pass closes nothing', [report2?.closed, report2?.dropped], [0, 0]);
+  // G and K both broke on the bar in progress. Nothing is realized until that bar finishes.
+  check(
+    'session pass closes nothing for good',
+    [report2?.closed, report2?.pendingClose, report2?.dropped],
+    [0, 2, 0],
+  );
   check(
     'D is provisional',
     (await tracked.findOne({ yahooTicker: 'ZZTEST-D' }).lean<any>())?.provisional,
@@ -323,8 +346,30 @@ async function main() {
     50, // $100 risk / $10 stop distance = 10 shares × $5
   );
 
-  // 3. Next period close: B takes its target, C is stopped out, G sells to close on the bullish
-  //    break, D was never confirmed, F is only missing because Yahoo failed, A rolls into VALID.
+  // A break mid-period reads as closed on the Results screen and stays out of History.
+  const closing = await tracked.findOne({ yahooTicker: 'ZZTEST-G' }).lean<any>();
+  check(
+    'a break on the bar in progress closes the trade for this period only',
+    [closing?.status, closing?.provisionalClose, closing?.exitReason, closing?.exitPrice],
+    ['active', true, 'sell_to_close', 168],
+  );
+  check(
+    'CLOSED holds it, History does not',
+    [
+      (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'closed' })).rows
+        .filter((r) => TICKERS.includes(r.yahooTicker))
+        .map((r) => r.symbol),
+      (await history.report({ tf: 'Daily', groupBy: 'Daily' })).totals.closed,
+    ],
+    [['ZZTEST-G', 'ZZTEST-K'], 0],
+  );
+
+  // K's bar recovers before the bell, so the break it showed at 15:05 never happened.
+  await saveBars(barSeries, 'ZZTEST-K', climbingSeries(RECOVERED_TAIL));
+
+  // 3. Next period close: G realizes the break it showed mid-period, K's went away, B ran through
+  //    its target and C through its stop without either ending anything, D was never confirmed and
+  //    F is missing because Yahoo failed. A and C keep running, A rolls into VALID.
   const run3 = await fakeScan(runs, signals, rejections, {
     periodKey: '2026-07-16',
     asOf: '2026-07-16',
@@ -333,24 +378,42 @@ async function main() {
     rows: [
       snap('ZZTEST-A', 105, { barsSinceValid: 1, validSince: '2026-07-15' }),
       snap('ZZTEST-B', 100, { barsSinceValid: 1, validSince: '2026-07-15' }),
-      snap('ZZTEST-G', 180, { barsSinceValid: 1, validSince: '2026-07-15' }),
+      snap('ZZTEST-K', 182, { barsSinceValid: 1, validSince: '2026-07-15' }),
     ],
     noData: ['ZZTEST-F'],
   });
   const report3 = await tracker.applyRun(run3);
-  check('day 2 close', [report3?.closed, report3?.dropped, report3?.refreshed], [3, 1, 1]);
+  check(
+    'day 2 close',
+    [report3?.closed, report3?.pendingClose, report3?.dropped, report3?.refreshed],
+    [1, 0, 1, 3],
+  );
 
-  const closed = await tracked.findOne({ yahooTicker: 'ZZTEST-C' }).lean<any>();
-  check('C stopped out', [closed?.status, closed?.exitReason, closed?.exitPrice], ['closed', 'SL', 90]);
-  check('C realized P&L', [closed?.pnlUsd, closed?.pnlR], [-100, -1]);
-  const won = await tracked.findOne({ yahooTicker: 'ZZTEST-B' }).lean<any>();
-  check('B took its target', [won?.exitReason, won?.exitPrice, won?.pnlUsd, won?.pnlR], ['TP', 120, 200, 2]);
-  // Neither stop nor target was touched: the structure break is what ends the trade.
+  // TP and SL size a trade and say what it was worth. Price passing through either changes the
+  // number the position is carrying, never whether the position is still on.
+  const stopped = await tracked.findOne({ yahooTicker: 'ZZTEST-C' }).lean<any>();
+  check(
+    'a stop being taken out does not close a trade',
+    [stopped?.status, stopped?.exitReason],
+    ['active', undefined],
+  );
+  const target = await tracked.findOne({ yahooTicker: 'ZZTEST-B' }).lean<any>();
+  check(
+    'a target being reached does not close a trade',
+    [target?.status, target?.exitReason],
+    ['active', undefined],
+  );
   const broke = await tracked.findOne({ yahooTicker: 'ZZTEST-G' }).lean<any>();
   check(
     'G sells to close on the bullish break',
-    [broke?.exitReason, broke?.exitPrice, broke?.exitDate, broke?.pnlUsd],
-    ['sell_to_close', 168, '2026-07-16', -72],
+    [broke?.status, broke?.provisionalClose, broke?.exitReason, broke?.exitPrice, broke?.exitDate, broke?.pnlUsd],
+    ['closed', false, 'sell_to_close', 168, '2026-07-16', -72],
+  );
+  const recovered = await tracked.findOne({ yahooTicker: 'ZZTEST-K' }).lean<any>();
+  check(
+    'a break that does not survive the bar leaves the trade open',
+    [recovered?.status, recovered?.provisionalClose, recovered?.exitReason, recovered?.pnlUsd],
+    ['active', false, undefined, undefined],
   );
   check('D dropped', await tracked.countDocuments({ yahooTicker: 'ZZTEST-D' }), 0);
   // A scan that could not price a symbol says nothing about the trade, so F stays open.
@@ -362,10 +425,22 @@ async function main() {
       results.list({ universe: 'Stocks', tf: 'Daily', bucket }),
     ),
   );
+  // C and F are still open but this scan did not report them, so neither is on screen: A, B and K
+  // are in VALID and only G is CLOSED.
   check(
     'buckets new/valid/closed',
-    buckets.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).length),
-    [0, 2, 3],
+    buckets.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol)),
+    [[], ['ZZTEST-B', 'ZZTEST-A', 'ZZTEST-K'], ['ZZTEST-G']],
+  );
+  check(
+    'a position the scan stopped reporting is hidden, not closed',
+    (
+      await tracked
+        .find({ yahooTicker: { $in: ['ZZTEST-C', 'ZZTEST-F'] } })
+        .select('status')
+        .lean<any[]>()
+    ).map((d) => d.status),
+    ['active', 'active'],
   );
   check(
     'valid marked to market',
@@ -374,7 +449,8 @@ async function main() {
       .map((r) => [r.symbol, r.pnlUsd]),
     [
       ['ZZTEST-A', 50],
-      ['ZZTEST-F', 0],
+      ['ZZTEST-K', 12],
+      ['ZZTEST-B', 0],
     ],
   );
   // A is one bar into its trade, and the card says so rather than counting scans.
@@ -392,8 +468,8 @@ async function main() {
     (await results.list({ universe: 'Stocks', tf: 'Daily', bucket, sort: 'rr', dir })).rows
       .filter((r) => TICKERS.includes(r.yahooTicker))
       .map((r) => r.symbol);
-  check('closed sorted by RR desc', await byRr('closed', 'desc'), ['ZZTEST-B', 'ZZTEST-C', 'ZZTEST-G']);
-  check('closed sorted by RR asc', await byRr('closed', 'asc'), ['ZZTEST-G', 'ZZTEST-C', 'ZZTEST-B']);
+  check('closed sorted by RR desc', await byRr('closed', 'desc'), ['ZZTEST-G']);
+  check('valid sorted by RR asc', await byRr('valid', 'asc'), ['ZZTEST-K', 'ZZTEST-A', 'ZZTEST-B']);
 
   const marked = await results.setInterest(buckets[1].rows[0].id, 'interested');
   check('interest saved', marked.interest, 'interested');
@@ -440,9 +516,9 @@ async function main() {
   check(
     'the bar the signal became valid on decides the bucket, not the record',
     rolled.map((b) => b.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol)),
-    // Default sort is RR descending. E aged out of NEW without ever being confirmed, H arrived
-    // already four bars old, F was last priced two periods ago so it cannot be new on this bar.
-    [['ZZTEST-I'], ['ZZTEST-E', 'ZZTEST-H', 'ZZTEST-F', 'ZZTEST-A']],
+    // Default sort is RR descending. E aged out of NEW without ever being confirmed and H arrived
+    // already four bars old; the trades this scan did not report are open but off screen.
+    [['ZZTEST-I'], ['ZZTEST-E', 'ZZTEST-H']],
   );
   check('NEW sorted by RR desc', await byRr('new', 'desc'), ['ZZTEST-I']);
   const arrivedOld = await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid' });
@@ -453,27 +529,93 @@ async function main() {
       .map((r) => [r.barsSinceValid, r.validSinceAsOf]),
     [[4, '2026-07-14']],
   );
-  // NEW and VALID are complements, so no active signal can fall between them or land in both.
+  // NEW and VALID are complements among the signals this scan priced, so nothing it reported can
+  // fall between them or land in both. Everything else it did not report is open and hidden.
   check(
-    'bucket counts add up to every active signal',
+    'bucket counts add up to every signal this scan priced',
     rolled[0].rows.length + rolled[1].rows.length,
-    await tracked.countDocuments({ universe: 'Stocks', tf: 'Daily', status: 'active' }),
+    await tracked.countDocuments({
+      universe: 'Stocks',
+      tf: 'Daily',
+      status: 'active',
+      lastSeenPeriodKey: '2026-07-20',
+      provisionalClose: { $ne: true },
+    }),
+  );
+  check(
+    'trades left open and off screen',
+    await tracked.countDocuments({
+      universe: 'Stocks',
+      tf: 'Daily',
+      status: 'active',
+      lastSeenPeriodKey: { $ne: '2026-07-20' },
+    }),
+    5, // A, B, C, F and K all still run: none of them broke.
   );
 
   const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
   const day = stats.periods.find((p) => p.periodKey === '2026-07-16');
-  check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [3, 1, 28]);
-  check('history avg RR at entry', day?.avgRrEntry, 3.17); // B 5, C 3, G 1.5
-  // A and F: E is active but still provisional, so it is not an open position yet.
-  check('history counts confirmed positions only', stats.totals.active, 2);
+  // Only the break reaches History: the stop C took out and the target B reached are not exits.
+  check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [1, 0, -72]);
+  check('history avg RR at entry', day?.avgRrEntry, 1.5);
+  check('every closed trade sold to close', stats.exitReasons, [{ reason: 'sell_to_close', count: 1 }]);
+  // A, B, C, F and K: E, H and I are active but still provisional, so none is an open position yet.
+  check('history counts confirmed positions only', stats.totals.active, 5);
   check(
     'history periods sortable by RR',
     (await history.report({ tf: 'Daily', groupBy: 'Daily', sort: 'rr', dir: 'desc' })).periods[0]
       ?.periodKey,
     '2026-07-16',
   );
+  check(
+    'growth is reported per timeframe',
+    stats.timeframes.map((t) => [t.tf, t.closed, t.pnlUsd, t.equity.length]),
+    [
+      ['Daily', 1, -72, 1],
+      ['Weekly', 0, 0, 0],
+      ['Monthly', 0, 0, 0],
+    ],
+  );
 
-  // 5. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
+  // 5. A close scan catches up two periods late and finds a break that happened on 2026-07-17.
+  //    The trade belongs to the period it ended in, not to the period the catch-up ran in.
+  await saveBars(
+    barSeries,
+    'ZZTEST-K',
+    climbingSeries([
+      ...RECOVERED_TAIL,
+      { date: '2026-07-17', high: 180, low: 169, close: 170 },
+      { date: '2026-07-20', high: 171, low: 167, close: 168 },
+    ]),
+  );
+  const run6 = await fakeScan(runs, signals, rejections, {
+    periodKey: '2026-07-20',
+    asOf: '2026-07-20',
+    finishedAt: new Date('2026-07-20T20:15:00Z'),
+    periodClose: true,
+    rows: [snap('ZZTEST-E', 100, { barsSinceValid: 1, validSince: '2026-07-17' })],
+  });
+  const report6 = await tracker.applyRun(run6);
+  check('the catch-up close finds the old break', report6?.closed, 1);
+  const late = await tracked.findOne({ yahooTicker: 'ZZTEST-K' }).lean<any>();
+  check(
+    'a trade is filed under the period it ended in',
+    [late?.status, late?.exitDate, late?.closedPeriodKey],
+    ['closed', '2026-07-17', '2026-07-17'],
+  );
+  check(
+    'and History buckets it there',
+    (await history.report({ tf: 'Daily', groupBy: 'Daily' })).periods.map((p) => [
+      p.periodKey,
+      p.trades,
+    ]),
+    [
+      ['2026-07-17', 1],
+      ['2026-07-16', 1],
+    ],
+  );
+
+  // 6. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
   //    A: $200 risk over a $10 stop distance = 20 shares, and its $5 gain is worth $100.
   await settings.put({ maxRiskUsd: 200 });
   const resized = await tracked.findOne({ yahooTicker: 'ZZTEST-A' }).lean<any>();
@@ -482,8 +624,8 @@ async function main() {
     [resized?.shares, resized?.riskUsd, resized?.unrealizedUsd],
     [20, 200, 100],
   );
-  const untouched = await tracked.findOne({ yahooTicker: 'ZZTEST-C' }).lean<any>();
-  check('closed signals keep their size', [untouched?.shares, untouched?.pnlUsd], [10, -100]);
+  const untouched = await tracked.findOne({ yahooTicker: 'ZZTEST-G' }).lean<any>();
+  check('closed signals keep their size', [untouched?.shares, untouched?.pnlUsd], [6, -72]);
   await settings.put({ maxRiskUsd: 100 });
 
   const drill = await history.trades({
@@ -496,17 +638,17 @@ async function main() {
   check(
     'history drill-down sorted by RR',
     drill.rows.map((r) => r.symbol),
-    ['ZZTEST-B', 'ZZTEST-C', 'ZZTEST-G'],
+    ['ZZTEST-G'],
   );
 
   await Promise.all([
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
     }),
     rejections.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
     }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);

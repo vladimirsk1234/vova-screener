@@ -5,6 +5,7 @@ import type { Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { TRACKED_SIGNAL } from '../db/schemas';
 import {
+  TIMEFRAMES,
   holdUnitLabel,
   round2,
   toResultRow,
@@ -28,12 +29,31 @@ export type HistoryPeriod = {
   avgHold: number | null;
 };
 
+export type EquityPoint = { periodKey: string; equity: number };
+
+/**
+ * One timeframe's own record, independent of the filter above it. Daily, Weekly and Monthly are
+ * three different strategies sharing one screener, so the growth of each is worth seeing side by
+ * side rather than one at a time.
+ */
+export type HistoryTimeframe = {
+  tf: Timeframe;
+  closed: number;
+  wins: number;
+  winRatePct: number;
+  pnlUsd: number;
+  avgR: number | null;
+  /** Cumulative P&L over that timeframe's own periods, oldest first. */
+  equity: EquityPoint[];
+};
+
 export type HistoryReport = {
   tf: HistoryTf;
   groupBy: Timeframe;
   holdUnit: string;
   periods: HistoryPeriod[];
-  equity: Array<{ periodKey: string; equity: number }>;
+  equity: EquityPoint[];
+  timeframes: HistoryTimeframe[];
   exitReasons: Array<{ reason: string; count: number }>;
   totals: {
     closed: number;
@@ -75,7 +95,7 @@ export class HistoryService {
     const dir = opts.dir ?? 'desc';
     const match = closedMatch(tf);
 
-    const [facet, active] = await Promise.all([
+    const [facet, active, timeframes] = await Promise.all([
       this.tracked
         .aggregate([
           { $match: match },
@@ -93,16 +113,12 @@ export class HistoryService {
         ])
         .exec(),
       this.tracked.countDocuments(activeMatch(tf)).exec(),
+      this.byTimeframe(),
     ]);
 
     const raw = (facet?.[0]?.periods ?? []) as any[];
     const ascending = raw.map(finalizePeriod);
-
-    let cumulative = 0;
-    const equity = ascending.map((p) => {
-      cumulative += p.pnlUsd;
-      return { periodKey: p.periodKey, equity: round2(cumulative) };
-    });
+    const equity = equityCurve(ascending);
 
     const totalsRaw = (facet?.[0]?.totals ?? [])[0];
     const totals = totalsRaw
@@ -115,6 +131,7 @@ export class HistoryService {
       holdUnit: holdUnitLabel(tf),
       periods: sortPeriods(ascending, sort, dir),
       equity,
+      timeframes,
       exitReasons: ((facet?.[0]?.exitReasons ?? []) as any[]).map((r) => ({
         reason: r._id ?? 'unknown',
         count: r.count,
@@ -131,6 +148,43 @@ export class HistoryService {
         avgHold: totals.avgHold,
       },
     };
+  }
+
+  /**
+   * Each timeframe grouped by its own calendar, so a Weekly equity curve has one point per week
+   * rather than per exit day. Three small aggregations rather than one grouped on a `$switch`:
+   * the per-timeframe index does the work and the shapes stay readable.
+   */
+  private async byTimeframe(): Promise<HistoryTimeframe[]> {
+    return Promise.all(
+      TIMEFRAMES.map(async (tf) => {
+        const rows = await this.tracked
+          .aggregate([
+            { $match: { status: 'closed', tf } },
+            { $addFields: { bucket: bucketExpression(tf) } },
+            { $group: { _id: '$bucket', ...GROUP_ACCUMULATORS } },
+            { $sort: { _id: 1 } },
+          ])
+          .exec();
+
+        const periods = (rows as any[]).map(finalizePeriod);
+        const closed = periods.reduce((sum, p) => sum + p.trades, 0);
+        const wins = periods.reduce((sum, p) => sum + p.wins, 0);
+        const pnlUsd = periods.reduce((sum, p) => sum + p.pnlUsd, 0);
+        // Weighted by trade count: averaging the period averages would let a one-trade week
+        // count as much as a twenty-trade one.
+        const rWeighted = periods.reduce((sum, p) => sum + (p.avgR ?? 0) * p.trades, 0);
+        return {
+          tf,
+          closed,
+          wins,
+          winRatePct: closed ? round2((wins / closed) * 100) : 0,
+          pnlUsd: round2(pnlUsd),
+          avgR: closed ? round2(rWeighted / closed) : null,
+          equity: equityCurve(periods),
+        };
+      }),
+    );
   }
 
   async trades(opts: {
@@ -164,6 +218,19 @@ export class HistoryService {
   }
 }
 
+function equityCurve(periods: HistoryPeriod[]): EquityPoint[] {
+  let cumulative = 0;
+  return periods.map((p) => {
+    cumulative += p.pnlUsd;
+    return { periodKey: p.periodKey, equity: round2(cumulative) };
+  });
+}
+
+/**
+ * Realized trades only. A sell-to-close break on the bar in progress leaves the record `active`
+ * with a `provisionalClose` flag, so it shows in CLOSED for the current period and joins these
+ * statistics only once the bar it broke on has finished.
+ */
 function closedMatch(tf: HistoryTf): Record<string, unknown> {
   const match: Record<string, unknown> = { status: 'closed' };
   if (tf !== 'All') match.tf = tf;

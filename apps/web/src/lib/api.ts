@@ -7,7 +7,11 @@ export type SourceLabel = Universe | 'MANUAL SCAN';
 export type Direction = 'buy' | 'sell';
 export type Bucket = 'new' | 'valid' | 'closed';
 export type Interest = 'interested' | 'not_interested';
-export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost';
+/**
+ * A trade taken by this app only ever ends on `sell_to_close`. The rest belong to the imported
+ * journal and to records written before the sell-to-close rule was the only one.
+ */
+export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost' | 'manual';
 
 export const TIMEFRAMES = ['Daily', 'Weekly', 'Monthly'] as const satisfies readonly Timeframe[];
 export const UNIVERSES = ['Stocks', 'ETF'] as const satisfies readonly Universe[];
@@ -86,6 +90,8 @@ export type ResultRow = {
   tf: Timeframe;
   status: 'active' | 'closed';
   provisional: boolean;
+  /** Sell-to-close break on the bar still running: in CLOSED now, in History once it finishes. */
+  provisionalClose: boolean;
   entry: number;
   tp: number | null;
   sl: number | null;
@@ -156,12 +162,26 @@ export type HistoryPeriod = {
   avgHold: number | null;
 };
 
+export type EquityPoint = { periodKey: string; equity: number };
+
+/** One timeframe's own record, reported whatever the filter above the page is set to. */
+export type HistoryTimeframe = {
+  tf: Timeframe;
+  closed: number;
+  wins: number;
+  winRatePct: number;
+  pnlUsd: number;
+  avgR: number | null;
+  equity: EquityPoint[];
+};
+
 export type HistoryReport = {
   tf: HistoryTf;
   groupBy: Timeframe;
   holdUnit: string;
   periods: HistoryPeriod[];
-  equity: Array<{ periodKey: string; equity: number }>;
+  equity: EquityPoint[];
+  timeframes: HistoryTimeframe[];
   exitReasons: Array<{ reason: string; count: number }>;
   totals: {
     closed: number;
@@ -273,6 +293,8 @@ export type ChartPayload = {
   tvSymbol: string;
   companyName: string;
   tf: Timeframe;
+  /** Bar the series was cut at for a trade snapshot, null on the live chart. */
+  asOf: string | null;
   bars: Bar[];
   overlay: {
     critical: (number | null)[];
@@ -384,6 +406,8 @@ export const api = {
   resultsSummary: () => request<ResultsSummary>('/results/summary'),
   lookupSignal: (yahooTicker: string, tf: Timeframe) =>
     request<ResultRow | null>(`/results/lookup${query({ yahooTicker, tf })}`),
+  /** One tracked signal by id, closed included — how the chart is opened on a trade from History. */
+  signal: (id: string) => request<ResultRow>(`/results/signal/${encodeURIComponent(id)}`),
   setInterest: (id: string, interest: Interest | null) =>
     request<ResultRow>(`/results/${id}/interest`, {
       method: 'PATCH',
@@ -438,10 +462,21 @@ export const api = {
     }),
 
   // Charts / universe / chart presets
-  /** `riskUsd` is the global Max risk setting — position size has one source everywhere. */
-  chart: (ticker: string, tf: Timeframe, params?: Partial<ChartSettings>, riskUsd?: number) => {
+  /**
+   * `riskUsd` is the global Max risk setting — position size has one source everywhere.
+   * `asOf` cuts the series at that bar, which is what makes the chart behind a closed trade a
+   * snapshot of the trade rather than a view of today.
+   */
+  chart: (
+    ticker: string,
+    tf: Timeframe,
+    params?: Partial<ChartSettings>,
+    riskUsd?: number,
+    asOf?: string | null,
+  ) => {
     const q = new URLSearchParams({ tf });
     if (riskUsd != null && Number.isFinite(riskUsd)) q.set('riskPerTrade', String(riskUsd));
+    if (asOf) q.set('asOf', asOf);
     if (params) {
       const num: Array<[string, number | undefined]> = [
         ['minRr', params.min_rr],

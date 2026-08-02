@@ -18,11 +18,20 @@ appeared on an earlier bar and still hold — so the two lists never mix a fresh
 that has been running for four bars. That is the only rule; the RR settings on the chart screen do
 not move a symbol between the tabs, and the chart badge reads the same age the tabs split on.
 
+Closed holds the trades sold to close in the current period. A break on the bar still running shows
+there with a `CLOSING` badge: it counts as closed for the period on screen and joins History only
+once that bar finishes. An open position the latest scan did not report is on no list at all — it is
+still running, and comes back the moment a scan finds its setup again.
+
 Manual is the only screen with a Scan button; Stocks and ETF come from background scans.
 Every card links to `/chart/:ticker`, where Interested / Not Interested marks the tracked signal;
-the mark shows as a badge in the lists and is a sort key in every bucket.
+the mark shows as a badge in the lists and is a sort key in every bucket. A closed card passes its
+id (`?trade=`), and the chart then opens as a snapshot of that trade: the series cut at the bar it
+broke on, entry and exit marked, its own TP and SL drawn, and a Snapshot/Live toggle for the chart
+as it stands today.
 
-History covers D / W / M / All over closed signals, groupable by day, week or month.
+History covers D / W / M / All over closed trades, groupable by day, week or month, with an equity
+curve per timeframe above the period list so the three can be compared at a glance.
 
 Results on phone = **cards**. TanStack Table only as desktop (≥1024px) enhancement.
 

@@ -196,11 +196,23 @@ async function main() {
     ],
   );
 
+  // Results shows what the latest scan reported, and no scan has priced an imported trade yet, so
+  // the three open ones are tracked and waiting rather than on screen. They appear the first time
+  // a scan finds their setup still valid, and until then only a break can end them.
   const valid = await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid' });
   check(
-    'open trades show up in Results',
-    valid.rows.filter((r) => TICKERS.includes(r.yahooTicker)).map((r) => r.symbol).sort(),
-    ['ZZOLD-DUP', 'ZZOLD-MARK', 'ZZOLD-OPEN'],
+    'imported open trades are tracked, not yet on screen',
+    [
+      valid.rows.filter((r) => TICKERS.includes(r.yahooTicker)).length,
+      (
+        await tracked
+          .find({ yahooTicker: { $in: TICKERS }, status: 'active', universe: 'Stocks', tf: 'Daily' })
+          .select('symbol')
+          .sort({ symbol: 1 })
+          .lean<any[]>()
+      ).map((d) => d.symbol),
+    ],
+    [0, ['ZZOLD-DUP', 'ZZOLD-MARK', 'ZZOLD-OPEN']],
   );
 
   await Promise.all([

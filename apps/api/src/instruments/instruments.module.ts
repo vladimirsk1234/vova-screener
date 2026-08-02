@@ -16,6 +16,7 @@ class InstrumentsController {
     @Query('useLastHlSl') useLastHlSl?: string,
     @Query('riskPerTrade') riskPerTrade?: string,
     @Query('noRrReq') noRrReq?: string,
+    @Query('asOf') asOf?: string,
     @Query('lenFast') lenFast?: string,
     @Query('lenSlow') lenSlow?: string,
     @Query('lengthMajor') lengthMajor?: string,
@@ -47,6 +48,7 @@ class InstrumentsController {
       useLastHlSl: useLastHlSl ? useLastHlSl === 'true' : undefined,
       riskPerTrade: num(riskPerTrade),
       noRrReq: noRrReq ? noRrReq === 'true' : undefined,
+      asOf: /^\d{4}-\d{2}-\d{2}$/.test(asOf ?? '') ? asOf : undefined,
       chartParams,
     });
   }

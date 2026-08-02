@@ -4,6 +4,10 @@ import type { Timeframe } from '@vova/engine';
 export type TrackedUniverse = 'Stocks' | 'ETF';
 export type Bucket = 'new' | 'valid' | 'closed';
 export type Interest = 'interested' | 'not_interested';
+/**
+ * A trade this app takes only ever ends on 'sell_to_close'. The rest describe exits recorded by
+ * the imported journal or by builds that closed positions on rules this one no longer applies.
+ */
 export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost' | 'manual';
 
 export const UNIVERSES: readonly TrackedUniverse[] = ['Stocks', 'ETF'];
@@ -86,6 +90,8 @@ export type ResultRow = {
   tf: Timeframe;
   status: 'active' | 'closed';
   provisional: boolean;
+  /** Sell-to-close break on the bar still in progress: in CLOSED now, in History once it finishes. */
+  provisionalClose: boolean;
   entry: number;
   tp: number | null;
   sl: number | null;
@@ -102,7 +108,7 @@ export type ResultRow = {
   validSinceAsOf: string | null;
   lastPrice: number | null;
   lastSeenAsOf: string | null;
-  /** Unrealized while active, realized once closed. */
+  /** Unrealized while the trade runs, priced at the exit once a break closes it. */
   pnlUsd: number | null;
   pnlR: number | null;
   pnlPct: number | null;
@@ -117,6 +123,10 @@ export type ResultRow = {
 
 export function toResultRow(doc: any): ResultRow {
   const closed = doc.status === 'closed';
+  const provisionalClose = Boolean(doc.provisionalClose);
+  // A trade closing on the bar in progress already has its exit priced, so the card shows that
+  // number rather than the mark-to-market one it would otherwise still be carrying.
+  const atExit = closed || provisionalClose;
   const shares = doc.shares ?? 0;
   return {
     id: String(doc._id),
@@ -128,6 +138,7 @@ export function toResultRow(doc: any): ResultRow {
     tf: doc.tf,
     status: doc.status,
     provisional: Boolean(doc.provisional),
+    provisionalClose,
     entry: doc.entry,
     tp: finiteOrNull(doc.tp),
     sl: finiteOrNull(doc.sl),
@@ -143,9 +154,9 @@ export function toResultRow(doc: any): ResultRow {
     validSinceAsOf: doc.validSinceAsOf ?? null,
     lastPrice: finiteOrNull(doc.lastPrice),
     lastSeenAsOf: doc.lastSeenAsOf ?? null,
-    pnlUsd: finiteOrNull(closed ? doc.pnlUsd : doc.unrealizedUsd),
-    pnlR: finiteOrNull(closed ? doc.pnlR : doc.unrealizedR),
-    pnlPct: finiteOrNull(closed ? doc.pnlPct : doc.unrealizedPct),
+    pnlUsd: finiteOrNull(atExit ? doc.pnlUsd : doc.unrealizedUsd),
+    pnlR: finiteOrNull(atExit ? doc.pnlR : doc.unrealizedR),
+    pnlPct: finiteOrNull(atExit ? doc.pnlPct : doc.unrealizedPct),
     realized: closed,
     closedPeriodKey: doc.closedPeriodKey ?? null,
     exitDate: doc.exitDate ?? null,

@@ -1,17 +1,24 @@
 /**
  * Turns completed background scans into tracked signals.
  *
- * Every completed Stocks/ETF scan marks positions to market and opens provisional records for
- * symbols seen for the first time, so the Results screen is live during the session. Only a scan
- * that runs once the period is closed confirms those records, or closes them with a realized
- * P&L — intra-period noise therefore never reaches History.
+ * A position ends one way only: the sell-to-close break, exactly as the Streamlit close scan
+ * defines it — the close of a bar falls back through the critical level of a bullish sequence.
+ * TP and SL are entry-time numbers that size the trade and state its potential; touching either
+ * does not end anything, and a buy setup that stops being valid does not either.
+ *
+ * Every completed Stocks/ETF scan marks positions to market, opens provisional records for symbols
+ * seen for the first time, and flags a break on the bar in progress as a provisional close, so the
+ * Results screen is live during the session. Only a scan that runs once the period is closed turns
+ * a provisional record into a signal, or a provisional close into realized P&L — intra-period noise
+ * therefore never reaches History.
  */
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type OhlcSeries, type Timeframe } from '@vova/engine';
-import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
+import { SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
+import { periodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
 import {
   computePnl,
@@ -51,12 +58,27 @@ type ActiveDoc = {
   openedAsOf?: string;
   openedAt?: Date;
   provisional?: boolean;
+  provisionalClose?: boolean;
 };
 
-/** Reject reasons that mean "could not evaluate", as opposed to "evaluated, not a buy". */
-const UNEVALUATED = ['NO_DATA', 'INSUFFICIENT_DATA'];
-
 type Exit = { date: string; price: number; reason: ExitReason };
+
+/**
+ * The exit a provisional close writes, so undoing one leaves an ordinary open position. The flag
+ * itself is set back to false rather than removed: every active record then carries it, and code
+ * reading one never has to tell "not closing" apart from "written before this existed".
+ */
+const EXIT_FIELDS = {
+  closedPeriodKey: '',
+  closedAt: '',
+  exitDate: '',
+  exitPrice: '',
+  exitReason: '',
+  pnlUsd: '',
+  pnlR: '',
+  pnlPct: '',
+  holdPeriods: '',
+} as const;
 
 export type TrackerReport = {
   universe: TrackedUniverse;
@@ -66,6 +88,8 @@ export type TrackerReport = {
   opened: number;
   refreshed: number;
   closed: number;
+  /** Breaks on the bar in progress: shown in CLOSED, not yet in History. */
+  pendingClose: number;
   dropped: number;
 };
 
@@ -77,7 +101,6 @@ export class SignalTrackerService implements OnModuleInit {
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
     @InjectModel(SIGNAL) private readonly signals: Model<any>,
-    @InjectModel(REJECTION) private readonly rejections: Model<any>,
     private readonly bars: BarsService,
     private readonly settings: SettingsService,
   ) {}
@@ -144,10 +167,9 @@ export class SignalTrackerService implements OnModuleInit {
     const confirmed = run.periodClose === true;
     const { maxRiskUsd } = await this.settings.get();
     const seen = await this.loadSignals(runId);
-    const unevaluated = confirmed ? await this.loadUnevaluated(runId) : new Set<string>();
     const active = await this.tracked
       .find({ universe, tf, status: 'active' })
-      .select('yahooTicker entry tp sl shares openedAsOf openedAt provisional')
+      .select('yahooTicker entry tp sl shares openedAsOf openedAt provisional provisionalClose')
       .lean<ActiveDoc[]>()
       .exec();
 
@@ -159,60 +181,52 @@ export class SignalTrackerService implements OnModuleInit {
       opened: 0,
       refreshed: 0,
       closed: 0,
+      pendingClose: 0,
       dropped: 0,
     };
     const ops: any[] = [];
     const known = new Set<string>();
 
-    // Only a period-close run needs bars: mid-period runs never close anything.
-    const exits = confirmed
-      ? await this.evaluateExits(
-          active.filter((doc) => !doc.provisional),
-          tf,
-        )
-      : new Map<string, { exit: Exit | null; lastBar: OhlcSeries[number] | null }>();
+    // Checked on every pass, not just at the close: a break on the bar in progress is what puts a
+    // trade in CLOSED for the current period, and the close scan is what makes it real.
+    const exits = await this.evaluateExits(
+      active.filter((doc) => !doc.provisional),
+      tf,
+    );
 
     for (const doc of active) {
       known.add(doc.yahooTicker);
       const snapshot = seen.get(doc.yahooTicker);
 
-      if (!confirmed) {
-        if (!snapshot) continue;
-        ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, false));
-        report.refreshed += 1;
-        continue;
-      }
-
+      // A record first seen mid-period is not a position yet: the close scan confirms it or drops
+      // it, and nothing can end a trade that has not started.
       if (doc.provisional) {
         if (snapshot) {
-          ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, true));
+          ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, confirmed));
           report.refreshed += 1;
-        } else {
+        } else if (confirmed) {
           ops.push({ deleteOne: { filter: { _id: doc._id } } });
           report.dropped += 1;
         }
         continue;
       }
 
-      const evaluated = exits.get(String(doc._id));
-      if (evaluated?.exit) {
-        ops.push(this.closeOp(doc, evaluated.exit, periodKey, tf));
-        report.closed += 1;
+      const exit = exits.get(String(doc._id))?.exit ?? null;
+      if (exit) {
+        ops.push(this.exitOp(doc, exit, tf, confirmed));
+        if (confirmed) report.closed += 1;
+        else report.pendingClose += 1;
         continue;
       }
+
+      // No break, so the trade is still open whatever the scan says about the buy setup. A symbol
+      // that fell out of the scan — the setup broke down, or Yahoo could not price it — simply
+      // stops being refreshed, which is what hides it from NEW and VALID until it comes back.
       if (!snapshot) {
-        // A symbol Yahoo could not deliver is missing from the scan for a reason that says
-        // nothing about the trade, so a data outage must never close a position.
-        if (unevaluated.has(doc.yahooTicker)) continue;
-        const bar = evaluated?.lastBar;
-        if (!bar) continue;
-        ops.push(
-          this.closeOp(doc, { date: bar.date, price: bar.close, reason: 'signal_lost' }, periodKey, tf),
-        );
-        report.closed += 1;
+        if (doc.provisionalClose) ops.push(this.clearPendingCloseOp(doc));
         continue;
       }
-      ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, true));
+      ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, confirmed));
       report.refreshed += 1;
     }
 
@@ -229,7 +243,8 @@ export class SignalTrackerService implements OnModuleInit {
     await this.flush(ops);
     this.log.log(
       `tracker ${universe}/${tf} ${periodKey} (${confirmed ? 'period close' : 'live'}): ` +
-        `+${report.opened} opened, ${report.refreshed} refreshed, ${report.closed} closed, ${report.dropped} dropped`,
+        `+${report.opened} opened, ${report.refreshed} refreshed, ${report.closed} closed, ` +
+        `${report.pendingClose} closing, ${report.dropped} dropped`,
     );
     return report;
   }
@@ -263,18 +278,9 @@ export class SignalTrackerService implements OnModuleInit {
     return out;
   }
 
-  private async loadUnevaluated(runId: string): Promise<Set<string>> {
-    const rows = await this.rejections
-      .find({ runId: new Types.ObjectId(runId), reason: { $in: UNEVALUATED } })
-      .select('symbol')
-      .lean<Array<{ symbol: string }>>()
-      .exec();
-    return new Set(rows.map((r) => r.symbol));
-  }
-
-  /** TP / SL / sell-to-close check against the bars the scan just cached. */
+  /** Sell-to-close check against the bars the scan just cached. */
   private async evaluateExits(docs: ActiveDoc[], tf: Timeframe) {
-    const out = new Map<string, { exit: Exit | null; lastBar: OhlcSeries[number] | null }>();
+    const out = new Map<string, { exit: Exit | null }>();
     if (!docs.length) return out;
 
     const queue = [...docs];
@@ -284,10 +290,7 @@ export class SignalTrackerService implements OnModuleInit {
         if (!doc) return;
         const bars = await this.bars.getCached(doc.yahooTicker, tf);
         if (!bars?.length) continue;
-        out.set(String(doc._id), {
-          exit: findExit(bars, doc),
-          lastBar: bars[bars.length - 1],
-        });
+        out.set(String(doc._id), { exit: findExit(bars, doc) });
       }
     };
     await Promise.all(Array.from({ length: EXIT_CHECK_CONCURRENCY }, () => worker()));
@@ -324,14 +327,23 @@ export class SignalTrackerService implements OnModuleInit {
             unrealizedUsd: pnl.usd,
             unrealizedR: pnl.r,
             unrealizedPct: pnl.pct,
+            // The break that put this trade in CLOSED is gone from the bar in progress, so the
+            // trade is open again and the exit numbers it carried go with it.
+            provisionalClose: false,
             ...(confirm ? { provisional: false } : {}),
           },
+          ...(doc.provisionalClose ? { $unset: EXIT_FIELDS } : {}),
         },
       },
     };
   }
 
-  private closeOp(doc: ActiveDoc, exit: Exit, periodKey: string, tf: Timeframe) {
+  /**
+   * A break on the bar in progress is a close for the current period only: the record stays active
+   * and out of History until a period-close scan sees the same break on the finished bar. Both
+   * write the same exit fields, so CLOSED reads and sorts one shape either way.
+   */
+  private exitOp(doc: ActiveDoc, exit: Exit, tf: Timeframe, confirmed: boolean) {
     const shares = doc.shares ?? 0;
     const pnl = computePnl(doc.entry, doc.sl, shares, exit.price);
     return {
@@ -339,9 +351,14 @@ export class SignalTrackerService implements OnModuleInit {
         filter: { _id: doc._id },
         update: {
           $set: {
-            status: 'closed',
+            status: confirmed ? 'closed' : 'active',
             provisional: false,
-            closedPeriodKey: periodKey,
+            provisionalClose: !confirmed,
+            // The period the exit bar belongs to, which for a scan that ran on time is the one
+            // being scanned. When a scan is missed for a week, or a trade is re-opened by a
+            // migration and its break turns out to be old, the trade is still filed under the
+            // period it actually ended in rather than the one the catch-up ran in.
+            closedPeriodKey: periodKeyOf(tf, exit.date),
             closedAt: new Date(),
             exitDate: exit.date,
             exitPrice: round2(exit.price),
@@ -351,8 +368,20 @@ export class SignalTrackerService implements OnModuleInit {
             pnlPct: pnl.pct,
             holdPeriods: holdPeriods(tf, doc.openedAsOf, exit.date),
           },
-          $unset: { unrealizedUsd: '', unrealizedR: '', unrealizedPct: '' },
+          ...(confirmed
+            ? { $unset: { unrealizedUsd: '', unrealizedR: '', unrealizedPct: '' } }
+            : {}),
         },
+      },
+    };
+  }
+
+  /** The break vanished before the bar closed, and the scan no longer prices the symbol. */
+  private clearPendingCloseOp(doc: ActiveDoc) {
+    return {
+      updateOne: {
+        filter: { _id: doc._id },
+        update: { $set: { provisionalClose: false }, $unset: EXIT_FIELDS },
       },
     };
   }
@@ -376,6 +405,7 @@ export class SignalTrackerService implements OnModuleInit {
       tf,
       status: 'active',
       provisional: !confirmed,
+      provisionalClose: false,
       openedPeriodKey: periodKey,
       openedAsOf: snapshot.asOf,
       openedAt: new Date(),
@@ -410,20 +440,28 @@ export class SignalTrackerService implements OnModuleInit {
 }
 
 /**
- * First bar after entry that hits SL, TP or a bullish break (sell-to-close), in that order — SL
- * wins when a bar spans both stop and target, because the intrabar path is unknowable.
+ * First bullish break after entry — the sell-to-close rule of the Streamlit close scan, where a
+ * long is held until the close of a bar falls back through the critical level of the sequence.
+ *
+ * TP and SL are not consulted. They are entry-time numbers: SL sizes the position and both state
+ * what the setup was worth when it was taken, so price passing through either changes what the
+ * trade is worth, not whether it is still on.
  */
+/** Calendar slot of a bar, read at noon so a date string cannot land in the previous day. */
+function periodKeyOf(tf: Timeframe, date: string): string {
+  return periodKey(tf, new Date(`${date}T12:00:00-05:00`));
+}
+
 function findExit(bars: OhlcSeries, doc: ActiveDoc): Exit | null {
   // Without a floor every bar in the series qualifies and the very first one would close the
   // signal at a price from years ago, so fall back to the day the signal was opened.
   const since = doc.openedAsOf || openedOn(doc);
   const overlay = runStructureOverlay(bars);
+  if (!overlay) return null;
   for (let i = 0; i < bars.length; i++) {
     const bar = bars[i];
     if (bar.date <= since) continue;
-    if (doc.sl != null && bar.low <= doc.sl) return { date: bar.date, price: doc.sl, reason: 'SL' };
-    if (doc.tp != null && bar.high >= doc.tp) return { date: bar.date, price: doc.tp, reason: 'TP' };
-    if (overlay?.bullish_break[i]) {
+    if (overlay.bullish_break[i]) {
       return { date: bar.date, price: bar.close, reason: 'sell_to_close' };
     }
   }

@@ -5,6 +5,7 @@ import {
   api,
   type HistoryPeriodSort,
   type HistoryTf,
+  type HistoryTimeframe,
   type HistoryTradeSort,
   type SortDir,
   type Timeframe,
@@ -32,24 +33,61 @@ const TRADE_SORTS: Array<{ value: HistoryTradeSort; label: string }> = [
   { value: 'interest', label: 'Marked' },
 ];
 
-function Sparkline({ points }: { points: Array<{ equity: number }> }) {
+function Sparkline({
+  points,
+  className = 'sparkline',
+}: {
+  points: Array<{ equity: number }>;
+  className?: string;
+}) {
   if (points.length < 2) return null;
   const values = points.map((p) => p.equity);
   const min = Math.min(...values, 0);
   const max = Math.max(...values, 0);
   const span = max - min || 1;
+  const y = (v: number) => 40 - ((v - min) / span) * 40;
+  const x = (i: number) => (i / (values.length - 1)) * 100;
   const path = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * 100;
-      const y = 40 - ((v - min) / span) * 40;
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(2)},${y.toFixed(2)}`;
-    })
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(v).toFixed(2)}`)
     .join(' ');
   const positive = values[values.length - 1] >= 0;
+  const stroke = positive ? '#089981' : '#f23645';
   return (
-    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="sparkline">
-      <path d={path} fill="none" stroke={positive ? '#089981' : '#f23645'} strokeWidth="1.5" />
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className={className}>
+      {/* Break-even, so a curve that never recovers its drawdown reads as one. */}
+      <line x1="0" x2="100" y1={y(0)} y2={y(0)} stroke="#2a2e39" strokeWidth="1" />
+      <path d={path} fill="none" stroke={stroke} strokeWidth="1.5" />
     </svg>
+  );
+}
+
+/**
+ * Daily, Weekly and Monthly are three strategies sharing one screener, and their curves are the
+ * quickest way to see which one is actually paying. Shown whatever the filter above is set to.
+ */
+function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
+  const active = rows.filter((r) => r.closed > 0);
+  if (!active.length) return null;
+  return (
+    <section className="card">
+      <h3 style={{ marginTop: 0 }}>Growth by timeframe</h3>
+      <div className="tf-growth">
+        {active.map((r) => (
+          <div key={r.tf} className="tf-growth-cell">
+            <div className="stack-row">
+              <strong>{r.tf}</strong>
+              <span className={r.pnlUsd >= 0 ? 'up-text' : 'down-text'}>
+                {signedMoney(r.pnlUsd)}
+              </span>
+            </div>
+            <Sparkline points={r.equity} className="sparkline sparkline-sm" />
+            <p className="muted small" style={{ margin: '4px 0 0' }}>
+              {r.closed} closed · {r.winRatePct}% won · R {num(r.avgR)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -102,7 +140,10 @@ export function HistoryPage() {
     <div>
       <section className="card">
         <h2>History</h2>
-        <p className="muted small">Closed signals only. Statistics follow the timeframe you pick.</p>
+        <p className="muted small">
+          Trades closed by a sell-to-close break, on bars that have finished. Statistics follow the
+          timeframe you pick.
+        </p>
         <Chips label="Timeframe" value={tf} options={HISTORY_TFS} onChange={onTf} />
         <Chips label="Group by" value={groupBy} options={TIMEFRAMES} onChange={onGroupBy} />
       </section>
@@ -149,6 +190,8 @@ export function HistoryPage() {
           ) : null}
         </section>
       ) : null}
+
+      {data ? <TimeframeGrowth rows={data.timeframes} /> : null}
 
       {data ? (
         <section className="card">
