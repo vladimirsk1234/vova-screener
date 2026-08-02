@@ -127,6 +127,36 @@ async function main() {
     );
   }
 
+  // Scans run hourly against the same period, so every pass meets the same breaks again. The
+  // second one has to recognise the trades it wrote down in the first.
+  console.log('Scanning the same symbols again — the second pass must change nothing');
+  await scans.start(
+    {
+      source: 'Stocks',
+      tf,
+      direction: 'buy',
+      minRr: 0,
+      noRrReq: true,
+      useLastHlSl: true,
+      newOnly: false,
+      riskPerTrade: 100,
+      maxSymbols: limit,
+    },
+    { trigger: 'scheduled', wait: true },
+  );
+  const again = await results.list({ universe: 'Stocks', tf, bucket: 'closed', limit: 500 });
+  const counts = new Map<string, number>();
+  for (const row of again.rows) {
+    counts.set(row.yahooTicker, (counts.get(row.yahooTicker) ?? 0) + 1);
+  }
+  const twice = [...counts.entries()].filter(([, n]) => n > 1).map(([t]) => t);
+  check('a second pass over the same period writes no second copy', twice, []);
+  check(
+    'and the tab still shows the same trades',
+    again.rows.map((r) => r.yahooTicker).sort(),
+    closed.rows.map((r) => r.yahooTicker).sort(),
+  );
+
   await app.close();
   await finish('CLOSE SCAN LIVE');
 }

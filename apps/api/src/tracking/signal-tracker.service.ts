@@ -341,8 +341,13 @@ export class SignalTrackerService implements OnModuleInit {
 
     // Breaks on symbols with no record of their own — the bulk of any close list, because a
     // symbol that closes today is not a buy today and so was never opened here.
+    const recorded = await this.loadRecorded(universe, tf, closes);
     for (const [yahooTicker, row] of closes) {
       if (known.has(yahooTicker)) continue;
+      // Every pass over the period finds the same break again, and a break on a finished bar is
+      // written down realized, which takes the record out of `active` and so out of `known`.
+      // Without this an hourly cadence stacks a copy of each closed trade an hour.
+      if (recorded.has(`${yahooTicker}@${row.exitAsOf}`)) continue;
       const pending = !confirmed && barPeriodKey(tf, row.exitAsOf) === periodKey;
       ops.push({
         insertOne: {
@@ -425,6 +430,30 @@ export class SignalTrackerService implements OnModuleInit {
       });
     }
     return out;
+  }
+
+  /**
+   * Closes already written down, as `ticker@exit-date` pairs. Same symbol and same exit bar is
+   * the same trade; a later break on the same symbol is a different one and gets its own record.
+   */
+  private async loadRecorded(
+    universe: TrackedUniverse,
+    tf: Timeframe,
+    closes: Map<string, CloseRow>,
+  ): Promise<Set<string>> {
+    if (!closes.size) return new Set();
+    const rows = await this.tracked
+      .find({
+        universe,
+        tf,
+        status: 'closed',
+        yahooTicker: { $in: [...closes.keys()] },
+        exitDate: { $in: [...new Set([...closes.values()].map((row) => row.exitAsOf))] },
+      })
+      .select('yahooTicker exitDate')
+      .lean<Array<{ yahooTicker: string; exitDate: string }>>()
+      .exec();
+    return new Set(rows.map((row) => `${row.yahooTicker}@${row.exitDate}`));
   }
 
   /**

@@ -815,6 +815,25 @@ async function main() {
     ],
   );
 
+  // 5b. The break is still on M's last bar, so every later pass finds it again. Realizing it took
+  //     the record out of the active set, which is what the adoption checks against — so this is
+  //     where an hourly cadence would quietly stack a copy of the trade an hour.
+  const run7 = await fakeScan(runs, signals, rejections, {
+    periodKey: '2026-07-21',
+    asOf: '2026-07-21',
+    finishedAt: new Date('2026-07-21T20:15:00Z'),
+    periodClose: true,
+    rows: [],
+    closes: [closeRow('ZZTEST-M')],
+  });
+  const report7 = await tracker.applyRun(run7);
+  check('a close already written down is not adopted twice', report7?.adopted, 0);
+  check(
+    'and the symbol still has exactly one record',
+    await tracked.countDocuments({ yahooTicker: 'ZZTEST-M' }),
+    1,
+  );
+
   // 6. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
   //    A: $200 risk over a $10 stop distance = 20 shares, and its $5 gain is worth $100.
   await settings.put({ maxRiskUsd: 200 });
@@ -845,10 +864,10 @@ async function main() {
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6, run7].map((id) => new Types.ObjectId(id)) },
     }),
     rejections.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6, run7].map((id) => new Types.ObjectId(id)) },
     }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);
