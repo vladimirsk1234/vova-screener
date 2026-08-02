@@ -13,6 +13,7 @@ import {
   type Universe,
 } from '../lib/api';
 import { formatAge, TF_SHORT } from '../lib/format';
+import { lastResultsPath } from '../lib/tabMemory';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips, type SortOption } from '../components/SortChips';
@@ -122,7 +123,7 @@ export function ResultsPage() {
     }
   }, [universe, tf, bucket, sort, dir, page.isLoading, queryClient]);
 
-  if (!universe) return <Navigate to="/results/Stocks/Daily/new" replace />;
+  if (!universe) return <Navigate to={lastResultsPath()} replace />;
 
   const scanAge = formatAge(scan?.finishedAt);
 
