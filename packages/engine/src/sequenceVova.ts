@@ -2,7 +2,7 @@
  * Sequence Vova screener engine — TypeScript port of sequence_vova.py
  * (Python _run_sequence_vova_pine_python + close scan).
  */
-import type { CloseScanResult, OhlcSeries, PineResult } from './types';
+import type { CloseLedger, CloseScanResult, CloseTrade, OhlcSeries, PineResult } from './types';
 
 const NaN_ = Number.NaN;
 const isNaN_ = (v: number) => Number.isNaN(v);
@@ -298,16 +298,27 @@ export function runSequenceVovaPine(
   );
 }
 
-function closePython(
+/**
+ * The close-scan replay of `sequence_vova._run_sequence_vova_close_python`, kept whole instead of
+ * collapsed to its last bar: every long it takes over the series, in order, with the one still
+ * running left open at the end.
+ *
+ * Python reports a close scan only when the exit lands on the final bar, which is all the
+ * Streamlit table needs. The trades before that one are the same replay and say where a position
+ * that is on right now was entered — so this is the shape the tracker reconciles against, and
+ * `closePython` below is the Python answer read off it.
+ */
+function closeLedgerPython(
   c_a: Float64Array,
   h_a: Float64Array,
   l_a: Float64Array,
   atr_a: Float64Array,
+  dates: string[],
   min_rr: number,
   use_last_hl_sl: boolean,
   risk_dollars: number,
   no_rr_req: boolean,
-): CloseScanResult {
+): CloseTrade[] {
   const n = c_a.length;
   let seq_state = 0;
   let critical_level = NaN_;
@@ -318,22 +329,8 @@ function closePython(
   let last_peak_was_hh = false;
   let last_trough_was_hl = false;
 
-  let position_open = false;
-  let entry_price = NaN_;
-  let entry_sl = NaN_;
-  let entry_rr_at_open = NaN_;
-  let position_size = NaN_;
-
-  let last_valid = false;
-  let last_new = false;
-  let last_entry_price = NaN_;
-  let last_exit_price = NaN_;
-  let last_entry_sl = NaN_;
-  let last_position_size = NaN_;
-  let last_pnl_dollars = NaN_;
-  let last_pnl_pct = NaN_;
-  let last_entry_rr = NaN_;
-  let last_close_rr = NaN_;
+  const trades: CloseTrade[] = [];
+  let open: CloseTrade | null = null;
 
   for (let i = 1; i < n; i++) {
     const c = c_a[i];
@@ -426,87 +423,121 @@ function closePython(
       : seq_state === 1 && struct_ok && rr >= min_rr && risk > 0 && reward > 0;
     const new_signal = valid_signal && is_bearish_break;
 
-    if (new_signal && !position_open) {
-      position_open = true;
-      entry_price = c;
-      entry_sl = sl;
-      entry_rr_at_open = rr;
-      position_size = risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_;
+    if (new_signal && !open) {
+      open = {
+        entry_index: i,
+        entry_date: dates[i],
+        entry_price: c,
+        entry_sl: sl,
+        entry_rr: rr,
+        position_size: risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_,
+        exit_index: null,
+        exit_date: null,
+        exit_price: NaN_,
+        close_rr: NaN_,
+        pnl_dollars: NaN_,
+        pnl_pct: NaN_,
+      };
+      trades.push(open);
     }
 
-    if (position_open && is_bullish_break) {
-      const exit_price = c;
-      const psz = position_size;
-      const entry_risk = entry_price - entry_sl;
-      const close_rr =
-        entry_risk > 0 && !isNaN_(entry_price) ? (exit_price - entry_price) / entry_risk : NaN_;
-      let pnl = NaN_;
-      let pnl_pct = NaN_;
-      if (!isNaN_(psz) && !isNaN_(entry_price)) {
-        pnl = (exit_price - entry_price) * psz;
-        pnl_pct = entry_price > 0 ? ((exit_price - entry_price) / entry_price) * 100.0 : NaN_;
+    if (open && is_bullish_break) {
+      const entry_risk = open.entry_price - open.entry_sl;
+      open.exit_index = i;
+      open.exit_date = dates[i];
+      open.exit_price = c;
+      open.close_rr = entry_risk > 0 ? (c - open.entry_price) / entry_risk : NaN_;
+      if (!isNaN_(open.position_size)) {
+        open.pnl_dollars = (c - open.entry_price) * open.position_size;
+        open.pnl_pct =
+          open.entry_price > 0 ? ((c - open.entry_price) / open.entry_price) * 100.0 : NaN_;
       }
-
-      if (i === n - 1) {
-        last_valid = true;
-        last_new = true;
-        last_entry_price = entry_price;
-        last_exit_price = exit_price;
-        last_entry_sl = entry_sl;
-        last_position_size = position_size;
-        last_pnl_dollars = pnl;
-        last_pnl_pct = pnl_pct;
-        last_entry_rr = entry_rr_at_open;
-        last_close_rr = close_rr;
-      }
-
-      position_open = false;
-      entry_price = NaN_;
-      entry_sl = NaN_;
-      entry_rr_at_open = NaN_;
-      position_size = NaN_;
+      open = null;
     }
   }
 
+  return trades;
+}
+
+function closePython(
+  c_a: Float64Array,
+  atr_a: Float64Array,
+  trades: CloseTrade[],
+): CloseScanResult {
+  const n = c_a.length;
+  // Python only fills the result in when a position gives up on the very last bar, which is the
+  // one thing a close scan reports: everything before it has already been shown and acted on.
+  const last = trades.length ? trades[trades.length - 1] : null;
+  const closing = last && last.exit_index === n - 1 ? last : null;
   return {
-    Valid: last_valid,
-    New: last_new,
-    entry_price: last_entry_price,
-    exit_price: last_exit_price,
-    entry_sl: last_entry_sl,
-    position_size: last_position_size,
-    pnl_dollars: last_pnl_dollars,
-    pnl_pct: last_pnl_pct,
-    entry_rr: last_entry_rr,
-    close_rr: last_close_rr,
+    Valid: Boolean(closing),
+    New: Boolean(closing),
+    entry_price: closing ? closing.entry_price : NaN_,
+    exit_price: closing ? closing.exit_price : NaN_,
+    entry_sl: closing ? closing.entry_sl : NaN_,
+    position_size: closing ? closing.position_size : NaN_,
+    pnl_dollars: closing ? closing.pnl_dollars : NaN_,
+    pnl_pct: closing ? closing.pnl_pct : NaN_,
+    entry_rr: closing ? closing.entry_rr : NaN_,
+    close_rr: closing ? closing.close_rr : NaN_,
     Close: c_a[n - 1],
     ATR: atr_a[n - 1],
   };
 }
 
-export function runSequenceVovaCloseScan(
-  bars: OhlcSeries,
-  opts: {
-    atr_len?: number;
-    min_rr?: number;
-    use_last_hl_sl?: boolean;
-    risk_dollars?: number;
-    no_rr_req?: boolean;
-  } = {},
-): CloseScanResult | null {
-  if (bars.length < 2) return null;
+export type CloseScanOptions = {
+  atr_len?: number;
+  min_rr?: number;
+  use_last_hl_sl?: boolean;
+  risk_dollars?: number;
+  no_rr_req?: boolean;
+};
+
+function ledgerOf(bars: OhlcSeries, opts: CloseScanOptions) {
   const { c, h, l } = seriesToArrays(bars);
   const atr = calcAtr(h, l, c, opts.atr_len ?? 14);
-  return closePython(
+  const trades = closeLedgerPython(
     c,
     h,
     l,
     atr,
+    bars.map((b) => b.date),
     opts.min_rr ?? 1.5,
     opts.use_last_hl_sl ?? true,
     opts.risk_dollars ?? 100,
     opts.no_rr_req ?? false,
   );
+  return { c, atr, trades };
+}
+
+export function runSequenceVovaCloseScan(
+  bars: OhlcSeries,
+  opts: CloseScanOptions = {},
+): CloseScanResult | null {
+  if (bars.length < 2) return null;
+  const { c, atr, trades } = ledgerOf(bars, opts);
+  return closePython(c, atr, trades);
+}
+
+/**
+ * Every long the close scan takes over a series, not just the one giving up on the last bar.
+ *
+ * A trade is a fact about the bars, so this is what a position is: the tracker can ask which trade
+ * a symbol is in right now and get the entry the Streamlit close scan would report for it, whether
+ * or not this app was running when the signal appeared.
+ */
+export function runCloseLedger(
+  bars: OhlcSeries,
+  opts: CloseScanOptions = {},
+): CloseLedger | null {
+  if (bars.length < 2) return null;
+  const { trades } = ledgerOf(bars, opts);
+  const last = trades.length ? trades[trades.length - 1] : null;
+  return {
+    trades,
+    open: last && last.exit_index === null ? last : null,
+    asOf: bars[bars.length - 1].date,
+  };
 }
 
 /**
