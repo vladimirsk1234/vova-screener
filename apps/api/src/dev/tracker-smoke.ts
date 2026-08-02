@@ -577,7 +577,45 @@ async function main() {
     ],
   );
 
-  // 5. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
+  // 5. A close scan catches up two periods late and finds a break that happened on 2026-07-17.
+  //    The trade belongs to the period it ended in, not to the period the catch-up ran in.
+  await saveBars(
+    barSeries,
+    'ZZTEST-K',
+    climbingSeries([
+      ...RECOVERED_TAIL,
+      { date: '2026-07-17', high: 180, low: 169, close: 170 },
+      { date: '2026-07-20', high: 171, low: 167, close: 168 },
+    ]),
+  );
+  const run6 = await fakeScan(runs, signals, rejections, {
+    periodKey: '2026-07-20',
+    asOf: '2026-07-20',
+    finishedAt: new Date('2026-07-20T20:15:00Z'),
+    periodClose: true,
+    rows: [snap('ZZTEST-E', 100, { barsSinceValid: 1, validSince: '2026-07-17' })],
+  });
+  const report6 = await tracker.applyRun(run6);
+  check('the catch-up close finds the old break', report6?.closed, 1);
+  const late = await tracked.findOne({ yahooTicker: 'ZZTEST-K' }).lean<any>();
+  check(
+    'a trade is filed under the period it ended in',
+    [late?.status, late?.exitDate, late?.closedPeriodKey],
+    ['closed', '2026-07-17', '2026-07-17'],
+  );
+  check(
+    'and History buckets it there',
+    (await history.report({ tf: 'Daily', groupBy: 'Daily' })).periods.map((p) => [
+      p.periodKey,
+      p.trades,
+    ]),
+    [
+      ['2026-07-17', 1],
+      ['2026-07-16', 1],
+    ],
+  );
+
+  // 6. Max risk is one number for every signal, so raising it re-sizes the open ones immediately.
   //    A: $200 risk over a $10 stop distance = 20 shares, and its $5 gain is worth $100.
   await settings.put({ maxRiskUsd: 200 });
   const resized = await tracked.findOne({ yahooTicker: 'ZZTEST-A' }).lean<any>();
@@ -607,10 +645,10 @@ async function main() {
     tracked.deleteMany({ yahooTicker: { $in: TICKERS } }),
     barSeries.deleteMany({ yahooTicker: { $in: TICKERS } }),
     signals.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
     }),
     rejections.deleteMany({
-      runId: { $in: [run1, run2, run3, run4, run5].map((id) => new Types.ObjectId(id)) },
+      runId: { $in: [run1, run2, run3, run4, run5, run6].map((id) => new Types.ObjectId(id)) },
     }),
     runs.deleteMany({ trigger: 'smoke' }),
   ]);

@@ -18,6 +18,7 @@ import { Types, type Model } from 'mongoose';
 import { runStructureOverlay, type OhlcSeries, type Timeframe } from '@vova/engine';
 import { SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
+import { periodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
 import {
   computePnl,
@@ -212,7 +213,7 @@ export class SignalTrackerService implements OnModuleInit {
 
       const exit = exits.get(String(doc._id))?.exit ?? null;
       if (exit) {
-        ops.push(this.exitOp(doc, exit, periodKey, tf, confirmed));
+        ops.push(this.exitOp(doc, exit, tf, confirmed));
         if (confirmed) report.closed += 1;
         else report.pendingClose += 1;
         continue;
@@ -342,13 +343,7 @@ export class SignalTrackerService implements OnModuleInit {
    * and out of History until a period-close scan sees the same break on the finished bar. Both
    * write the same exit fields, so CLOSED reads and sorts one shape either way.
    */
-  private exitOp(
-    doc: ActiveDoc,
-    exit: Exit,
-    periodKey: string,
-    tf: Timeframe,
-    confirmed: boolean,
-  ) {
+  private exitOp(doc: ActiveDoc, exit: Exit, tf: Timeframe, confirmed: boolean) {
     const shares = doc.shares ?? 0;
     const pnl = computePnl(doc.entry, doc.sl, shares, exit.price);
     return {
@@ -359,7 +354,11 @@ export class SignalTrackerService implements OnModuleInit {
             status: confirmed ? 'closed' : 'active',
             provisional: false,
             provisionalClose: !confirmed,
-            closedPeriodKey: periodKey,
+            // The period the exit bar belongs to, which for a scan that ran on time is the one
+            // being scanned. When a scan is missed for a week, or a trade is re-opened by a
+            // migration and its break turns out to be old, the trade is still filed under the
+            // period it actually ended in rather than the one the catch-up ran in.
+            closedPeriodKey: periodKeyOf(tf, exit.date),
             closedAt: new Date(),
             exitDate: exit.date,
             exitPrice: round2(exit.price),
@@ -448,6 +447,11 @@ export class SignalTrackerService implements OnModuleInit {
  * what the setup was worth when it was taken, so price passing through either changes what the
  * trade is worth, not whether it is still on.
  */
+/** Calendar slot of a bar, read at noon so a date string cannot land in the previous day. */
+function periodKeyOf(tf: Timeframe, date: string): string {
+  return periodKey(tf, new Date(`${date}T12:00:00-05:00`));
+}
+
 function findExit(bars: OhlcSeries, doc: ActiveDoc): Exit | null {
   // Without a floor every bar in the series qualifies and the very first one would close the
   // signal at a price from years ago, so fall back to the day the signal was opened.

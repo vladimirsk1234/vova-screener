@@ -76,6 +76,9 @@ Lifecycle:
   the exit it would realize, so CLOSED shows the trade for the current period while History waits
   for the bar to finish. The period-close scan either turns it into a real close or clears the exit
   fields, which is what happens when the bar recovers before the bell.
+- `closedPeriodKey` is the calendar slot of the exit bar, not of the scan that found it. They agree
+  whenever a scan runs on time; when one is missed for a week, or a re-opened trade turns out to
+  have broken long ago, the trade is still filed under the period it actually ended in.
 - `barsSinceValid` is the bar the engine says the signal appeared on, counted in bars of `tf` back
   from the latest one: `0` is NEW, anything higher is VALID, and that is the whole rule. It is the
   signal that ages, not the record — a symbol the scanner meets for the first time may already have
