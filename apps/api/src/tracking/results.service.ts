@@ -23,7 +23,7 @@ export type ScanMeta = {
   /** Period of the newest scan that produced data — which period CLOSED reports on. */
   periodKey: string;
   asOf: string | null;
-  /** Newest bar the scan saw. CLOSED reports on the period this falls in. */
+  /** Newest bar of the period most of the universe is in. CLOSED reports on that period. */
   newestAsOf: string | null;
   finishedAt: string | null;
   running: boolean;
@@ -191,10 +191,11 @@ function bucketFilter(
   // break on the bar still running: the trade reads as closed here from the moment the break
   // appears, and only reaches History if the break survives to the final bar.
   //
-  // The period comes from the bar, not from the clock, because that is where `closedPeriodKey`
+  // The period comes from the bars, not from the clock, because that is where `closedPeriodKey`
   // comes from. Over a weekend a Monthly scan already runs under the next month while the newest
-  // bar it can see is still the last one of this month. It reads the newest bar rather than the
-  // oldest: a single halted ticker must not move the whole screen a period back.
+  // bar it can see is still the last one of this month. `newestAsOf` is the period the universe
+  // agrees on rather than any one symbol's newest bar, so neither a halted ticker nor a series
+  // Yahoo stamps a day off the grid can point this at a period with nothing in it.
   if (bucket === 'closed') {
     return {
       universe,

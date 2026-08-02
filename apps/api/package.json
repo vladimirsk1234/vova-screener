@@ -8,6 +8,7 @@
     "smoke:tracker": "node -r ts-node/register -r tsconfig-paths/register src/dev/tracker-smoke.ts",
     "smoke:age": "node -r ts-node/register -r tsconfig-paths/register src/dev/signal-age-smoke.ts",
     "smoke:legacy": "node -r ts-node/register -r tsconfig-paths/register src/dev/legacy-import-smoke.ts",
+    "smoke:close-live": "node -r ts-node/register -r tsconfig-paths/register src/dev/close-scan-live-smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

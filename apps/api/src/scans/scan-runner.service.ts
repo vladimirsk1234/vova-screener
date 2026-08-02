@@ -18,6 +18,7 @@ import {
 import { REJECTION, SCAN_RUN, SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { UniverseService, type SourceLabelApi } from '../universe/universe.service';
+import { barPeriodKey } from './period';
 import { ProgressBus } from './progress.bus';
 
 const CONCURRENCY = 12;
@@ -116,11 +117,16 @@ export class ScanRunnerService {
       /** Oldest bar date seen, so a run without signals still reports what it looked at. */
       let evaluatedAsOf: string | null = null;
       /**
-       * Newest bar date seen — the bar the market is actually on. `asOf` is the oldest, which is
-       * the honest answer to "how stale could this run be" but names the wrong period for the
-       * screens: one halted ticker in the list would put CLOSED days behind the market.
+       * How many symbols' newest bar landed in each period, and the newest bar inside it. This is
+       * how the run answers "which period am I reporting on", and neither extreme of the range
+       * can answer it: the oldest bar is one halted ticker away from putting CLOSED days behind
+       * the market, and the newest is one off-grid bar away from putting it a period ahead, where
+       * nothing has closed yet. Yahoo does hand out the odd bar a day off the grid — a handful of
+       * weekly series are stamped Tuesday while the rest of the market is stamped Monday — so
+       * across three thousand symbols both are a matter of time. What the market is on is what
+       * nearly every symbol agrees it is on.
        */
-      let newestAsOf: string | null = null;
+      const periods = new Map<string, { count: number; newest: string }>();
       /** Oldest Yahoo pull across the universe — the run's worst-case data age. */
       let barsOldestAt: Date | null = null;
       let lastPublish = 0;
@@ -162,7 +168,13 @@ export class ScanRunnerService {
           if (result.bars?.length) {
             const barDate = result.bars[result.bars.length - 1].date;
             if (!evaluatedAsOf || barDate < evaluatedAsOf) evaluatedAsOf = barDate;
-            if (!newestAsOf || barDate > newestAsOf) newestAsOf = barDate;
+            const key = barPeriodKey(params.tf, barDate);
+            const slot = periods.get(key);
+            if (!slot) periods.set(key, { count: 1, newest: barDate });
+            else {
+              slot.count += 1;
+              if (barDate > slot.newest) slot.newest = barDate;
+            }
           }
 
           const evaluation = evaluateSymbol({
@@ -275,7 +287,7 @@ export class ScanRunnerService {
       run.reasonCounts = reasonCounts;
       run.newSymbols = newSymbols;
       run.barsOldestAt = barsOldestAt;
-      run.newestAsOf = newestAsOf;
+      run.newestAsOf = this.consensusAsOf(periods);
       await this.finish(run, cancelled ? 'cancelled' : 'completed', {
         startedAt,
         asOf: asOf ?? evaluatedAsOf,
@@ -340,6 +352,21 @@ export class ScanRunnerService {
     run.finishedAt = new Date();
     if (status === 'completed') run.lastCompletedAt = run.finishedAt;
     await run.save();
+  }
+
+  /**
+   * The newest bar of the period most of the universe is in — the bar the screens should read
+   * this run as being about. A tie goes to the later period, which is the market moving on while
+   * the scan ran rather than a stray series.
+   */
+  private consensusAsOf(periods: Map<string, { count: number; newest: string }>): string | null {
+    let best: { key: string; count: number; newest: string } | null = null;
+    for (const [key, slot] of periods) {
+      if (!best || slot.count > best.count || (slot.count === best.count && key > best.key)) {
+        best = { key, ...slot };
+      }
+    }
+    return best?.newest ?? null;
   }
 
   private publish(
