@@ -12,6 +12,7 @@ import {
   runSequenceVovaPine,
   signalAge,
   type IndicatorParams,
+  type OhlcSeries,
   type Timeframe,
 } from '@vova/engine';
 import { BarsService } from '../market/bars.service';
@@ -34,6 +35,12 @@ export class InstrumentsService {
     private readonly universe: UniverseService,
   ) {}
 
+  /**
+   * `asOf` turns this into a snapshot: the series is cut at that bar before the engine sees it, so
+   * the structure, the critical level and every overlay are what they were on that bar rather than
+   * what later bars have since made of them. That is what the chart behind a closed trade needs —
+   * a trade closed in March is unreadable against the structure of today.
+   */
   async chart(
     yahooTicker: string,
     tf: Timeframe,
@@ -42,11 +49,15 @@ export class InstrumentsService {
       useLastHlSl?: boolean;
       riskPerTrade?: number;
       noRrReq?: boolean;
+      asOf?: string;
       chartParams?: Partial<IndicatorParams>;
     } = {},
   ) {
-    const { bars } = await this.bars.getBars(yahooTicker, tf, { maxAgeHours: 12 });
-    if (!bars?.length) throw new NotFoundException(`no bars for ${yahooTicker}`);
+    const { bars: series } = await this.bars.getBars(yahooTicker, tf, { maxAgeHours: 12 });
+    if (!series?.length) throw new NotFoundException(`no bars for ${yahooTicker}`);
+    const asOf = opts.asOf;
+    const bars = asOf ? series.filter((bar) => bar.date <= asOf) : series;
+    if (!bars.length) throw new NotFoundException(`no bars for ${yahooTicker} up to ${opts.asOf}`);
 
     const params = indicatorParamsFromDict({
       ...defaultIndicatorParams(),
@@ -76,10 +87,18 @@ export class InstrumentsService {
     const start = Math.max(0, bars.length - keep);
     const instrument = await this.universe.findOne(yahooTicker);
 
+    // Trimmed the same way as the chart series: on a snapshot the D/W/M status has to read as it
+    // did on that bar, not as it reads today.
+    const upTo = (other: OhlcSeries | null) =>
+      !other || !asOf ? other : other.filter((bar) => bar.date <= asOf);
     const [dailyCached, weeklyCached, monthlyCached] = await Promise.all([
-      tf === 'Daily' ? Promise.resolve(bars) : this.bars.getCached(yahooTicker, 'Daily'),
-      tf === 'Weekly' ? Promise.resolve(bars) : this.bars.getCached(yahooTicker, 'Weekly'),
-      tf === 'Monthly' ? Promise.resolve(bars) : this.bars.getCached(yahooTicker, 'Monthly'),
+      tf === 'Daily' ? Promise.resolve(bars) : this.bars.getCached(yahooTicker, 'Daily').then(upTo),
+      tf === 'Weekly'
+        ? Promise.resolve(bars)
+        : this.bars.getCached(yahooTicker, 'Weekly').then(upTo),
+      tf === 'Monthly'
+        ? Promise.resolve(bars)
+        : this.bars.getCached(yahooTicker, 'Monthly').then(upTo),
     ]);
 
     const dwmLines = full
@@ -172,6 +191,8 @@ export class InstrumentsService {
       tvSymbol: instrument?.tvSymbol ?? yahooTicker,
       companyName: instrument?.companyName ?? yahooTicker,
       tf,
+      /** The bar the series was cut at, or null when this is the live chart. */
+      asOf: asOf ?? null,
       bars: bars.slice(start),
       overlay,
       pine: pine

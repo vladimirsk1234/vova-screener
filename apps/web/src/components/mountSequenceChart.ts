@@ -118,11 +118,26 @@ export type SequenceChartHandle = {
   chart: IChartApi | null;
 };
 
+/**
+ * The trade the chart is being read for. Its levels win over the ones the engine reports for the
+ * latest bar: on a closed trade those are two different things, and the card, the header and the
+ * chart all have to be showing the same trade.
+ */
+export type ChartTrade = {
+  entry: number;
+  tp: number | null;
+  sl: number | null;
+  openedAsOf: string | null;
+  exitDate: string | null;
+  exitPrice: number | null;
+};
+
 export function mountSequenceChart(
   container: HTMLElement,
   payload: ChartPayload,
   settings: ChartSettings,
   drawings: ChartDrawing[] = [],
+  trade: ChartTrade | null = null,
 ): { destroy: () => void; fitContent: () => void; chart: IChartApi } {
   const chart = createChart(container, {
     autoSize: true,
@@ -262,8 +277,8 @@ export function mountSequenceChart(
   }
 
   if (settings.show_tp_sl) {
-    const tp = payload.pine?.tp ?? ov?.tp;
-    const sl = payload.pine?.sl ?? ov?.sl;
+    const tp = trade ? trade.tp : (payload.pine?.tp ?? ov?.tp);
+    const sl = trade ? trade.sl : (payload.pine?.sl ?? ov?.sl);
     if (tp != null) {
       candle.createPriceLine({
         price: tp,
@@ -287,6 +302,40 @@ export function mountSequenceChart(
   }
 
   const markers: SeriesMarker<Time>[] = [];
+
+  if (trade) {
+    candle.createPriceLine({
+      price: trade.entry,
+      color: '#2962ff',
+      lineWidth: 1,
+      lineStyle: 0,
+      axisLabelVisible: true,
+      title: `Entry ${trade.entry.toFixed(2)}`,
+    });
+    // A date the window does not reach would be dropped by the chart anyway; skipping it here
+    // keeps the marker list in step with what is actually drawn.
+    const onChart = (date: string | null) =>
+      Boolean(date) && payload.bars.some((bar) => bar.date === date);
+    if (onChart(trade.openedAsOf)) {
+      markers.push({
+        time: trade.openedAsOf as Time,
+        position: 'belowBar',
+        color: '#2962ff',
+        shape: 'arrowUp',
+        text: `BUY ${trade.entry.toFixed(2)}`,
+      });
+    }
+    if (onChart(trade.exitDate) && trade.exitPrice != null) {
+      markers.push({
+        time: trade.exitDate as Time,
+        position: 'aboveBar',
+        color: trade.exitPrice >= trade.entry ? settings.candle_up : settings.candle_down,
+        shape: 'arrowDown',
+        text: `SELL ${trade.exitPrice.toFixed(2)}`,
+      });
+    }
+  }
+
   if (settings.show_hhll && ov) {
     for (const p of ov.peaks) {
       const bar = payload.bars[p.idx];

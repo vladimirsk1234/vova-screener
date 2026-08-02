@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -11,8 +11,8 @@ import {
 } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
-import { mountSequenceChart } from '../components/mountSequenceChart';
-import { barsLabel } from '../lib/format';
+import { mountSequenceChart, type ChartTrade } from '../components/mountSequenceChart';
+import { barsLabel, signedMoney } from '../lib/format';
 import {
   DEFAULT_CHART_SETTINGS,
   mergeChartSettings,
@@ -30,10 +30,15 @@ export function ChartPage() {
   const { ticker = '' } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [search] = useSearchParams();
   const queryClient = useQueryClient();
   const navState = (location.state as ChartNavState | null) ?? {};
+  const tradeId = search.get('trade');
 
   const [tf, setTf] = useState<Timeframe>(navState.row?.tf ?? 'Daily');
+  // A trade opens as a snapshot of itself: the series cut at the bar it broke on, so the structure
+  // on screen is the structure that closed it. Everything after that is one tap away.
+  const [snapshot, setSnapshot] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -74,44 +79,85 @@ export function ChartPage() {
   const appSettings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const maxRiskUsd = appSettings.data?.maxRiskUsd;
 
+  // The mark lives on the tracked signal, so a chart opened straight from a URL has to find it.
+  // A closed trade cannot be looked up by ticker — nothing is active — so History passes its id.
+  const trade = useQuery({
+    queryKey: ['tracked-signal-by-id', tradeId],
+    queryFn: () => api.signal(tradeId as string),
+    enabled: Boolean(tradeId),
+    initialData: navState.row?.id === tradeId ? navState.row : undefined,
+  });
+  const tracked = useQuery({
+    queryKey: ['tracked-signal', ticker, tf],
+    queryFn: () => api.lookupSignal(ticker, tf),
+    enabled: Boolean(ticker) && !tradeId,
+    initialData: navState.row?.tf === tf ? navState.row : undefined,
+  });
+  const row = (tradeId ? trade.data : tracked.data) ?? null;
+
+  // The trade decides the timeframe: a Weekly trade read on the Daily chart is a different chart.
+  const tradeTf = trade.data?.tf;
+  useEffect(() => {
+    if (tradeTf) setTf(tradeTf);
+  }, [tradeTf]);
+
+  const asOf = snapshot ? (trade.data?.exitDate ?? null) : null;
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
   const chart = useQuery({
-    queryKey: ['chart', ticker, tf, numeric, maxRiskUsd],
-    queryFn: () => api.chart(ticker, tf, numeric, maxRiskUsd),
-    enabled: Boolean(ticker) && settingsReady && maxRiskUsd != null,
+    queryKey: ['chart', ticker, tf, numeric, maxRiskUsd, asOf],
+    queryFn: () => api.chart(ticker, tf, numeric, maxRiskUsd, asOf),
+    enabled: Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data),
   });
 
   const savePreset = useMutation({
     mutationFn: () => api.putPreset('chart', settings),
   });
 
-  // The mark lives on the tracked signal, so a chart opened straight from a URL has to find it.
-  const tracked = useQuery({
-    queryKey: ['tracked-signal', ticker, tf],
-    queryFn: () => api.lookupSignal(ticker, tf),
-    enabled: Boolean(ticker),
-    initialData: navState.row?.tf === tf ? navState.row : undefined,
-  });
-
   const markInterest = useMutation({
     mutationFn: (next: Interest | null) => {
-      const id = tracked.data?.id;
+      const id = row?.id;
       if (!id) throw new Error('This symbol is not a tracked signal on this timeframe');
       return api.setInterest(id, next);
     },
-    onSuccess: (row) => {
-      queryClient.setQueryData(['tracked-signal', ticker, tf], row);
+    onSuccess: (saved) => {
+      queryClient.setQueryData(
+        tradeId ? ['tracked-signal-by-id', tradeId] : ['tracked-signal', ticker, tf],
+        saved,
+      );
       void queryClient.invalidateQueries({ queryKey: ['results'] });
       void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
     },
   });
 
-  const markStatus = tracked.data?.interest ?? null;
+  const markStatus = row?.interest ?? null;
+
+  // Only a chart opened on a trade draws one. The live chart keeps showing what the engine reports
+  // for the latest bar, which is what every other screen is reading from.
+  const chartTrade = useMemo<ChartTrade | null>(
+    () =>
+      tradeId && trade.data
+        ? {
+            entry: trade.data.entry,
+            tp: trade.data.tp,
+            sl: trade.data.sl,
+            openedAsOf: trade.data.openedAsOf,
+            exitDate: trade.data.exitDate,
+            exitPrice: trade.data.exitPrice,
+          }
+        : null,
+    [tradeId, trade.data],
+  );
 
   useEffect(() => {
     if (!containerRef.current || !chart.data) return;
     destroyRef.current?.();
-    const mounted = mountSequenceChart(containerRef.current, chart.data, settings, drawings);
+    const mounted = mountSequenceChart(
+      containerRef.current,
+      chart.data,
+      settings,
+      drawings,
+      chartTrade,
+    );
     destroyRef.current = mounted.destroy;
 
     const chartApi = mounted.chart;
@@ -145,7 +191,7 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [chart.data, settings, drawings]);
+  }, [chart.data, settings, drawings, chartTrade]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -157,7 +203,6 @@ export function ChartPage() {
 
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
-  const row = tracked.data ?? null;
   // A tracked signal carries the risk it was sized at; anything else uses the current setting.
   const riskUsd = row?.riskUsd || maxRiskUsd || 100;
 
@@ -165,7 +210,8 @@ export function ChartPage() {
     const entry = row?.entry ?? pine?.close ?? null;
     const tp = row?.tp ?? pine?.tp ?? null;
     const sl = row?.sl ?? pine?.sl ?? null;
-    const rr = row?.currentRr ?? row?.rr ?? pine?.rr ?? null;
+    // A closed trade reports the RR it was taken at; a running one reports where it stands now.
+    const rr = row?.exitDate ? (row.rr ?? null) : (row?.currentRr ?? row?.rr ?? pine?.rr ?? null);
     const shares =
       row?.shares != null && row.shares > 0
         ? row.shares
@@ -176,6 +222,9 @@ export function ChartPage() {
     return { tp, sl, rr, shares, dollars };
   }, [row, pine, riskUsd]);
 
+  // Realized or closing on the bar in progress — either way the trade is over and the header has
+  // its exit to report instead of a NEW / VALID badge about the setup running right now.
+  const closedTrade = row && (row.status === 'closed' || row.provisionalClose) ? row : null;
   const showMetrics = Boolean(pine || row);
   const canMark = Boolean(row?.id);
   const marking = markInterest.isPending;
@@ -209,9 +258,38 @@ export function ChartPage() {
         </button>
       </div>
 
+      {closedTrade ? (
+        <div className="chart-trade-row">
+          <span className="badge">
+            {closedTrade.provisionalClose ? 'CLOSING' : 'SELL TO CLOSE'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>In</span> {closedTrade.openedAsOf ?? '—'} @ {money(closedTrade.entry)}
+          </span>
+          <span className="chart-pine-metric">
+            <span>Out</span> {closedTrade.exitDate ?? '—'} @{' '}
+            {closedTrade.exitPrice != null ? money(closedTrade.exitPrice) : '—'}
+          </span>
+          <span
+            className={`chart-pine-metric ${(closedTrade.pnlUsd ?? 0) >= 0 ? 'up-text' : 'down-text'}`}
+          >
+            <span>P&amp;L</span> {signedMoney(closedTrade.pnlUsd)}
+            {closedTrade.pnlR != null ? ` · ${closedTrade.pnlR.toFixed(2)}R` : ''}
+          </span>
+          <button
+            type="button"
+            className={`btn-sm${snapshot ? ' selected' : ' ghost'}`}
+            title="Bars up to the exit, structure as it was when the trade closed"
+            onClick={() => setSnapshot(!snapshot)}
+          >
+            {snapshot ? 'Snapshot' : 'Live'}
+          </button>
+        </div>
+      ) : null}
+
       {showMetrics ? (
         <div className="chart-pine-row">
-          {pine ? (
+          {pine && !closedTrade ? (
             <>
               {/* Same rule and the same number as the Results tabs: the signal is NEW on the bar it
                   appeared on and VALID on every bar after it. Nothing else — the RR settings below
