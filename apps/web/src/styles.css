@@ -87,17 +87,17 @@ a {
   border-radius: 8px;
   flex-shrink: 0;
   object-fit: cover;
-  background: #f4f6f8;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  background: #0b1526;
+  box-shadow: 0 0 0 1px rgba(245, 215, 110, 0.35);
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 1.15rem;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   font-weight: 700;
   text-transform: uppercase;
-  color: #e8b923;
+  color: #f5d76e;
 }
 
 .app-header p {
