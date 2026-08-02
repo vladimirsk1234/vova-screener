@@ -26,7 +26,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
-import { runCloseLedger, type CloseTrade, type Timeframe } from '@vova/engine';
+import { runCloseLedger, runStructureOverlay, type CloseTrade, type Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { barPeriodKey } from '../scans/period';
@@ -91,6 +91,9 @@ type ActiveDoc = {
 };
 
 type Exit = { date: string; price: number; reason: ExitReason };
+
+/** What one symbol's bars say: the trades the close scan takes, and every break in the series. */
+type Replay = { trades: CloseTrade[]; open: CloseTrade | null; breaks: Exit[] };
 
 /** Ledger options taken from the run, so a record is priced the way the scan that found it was. */
 type LedgerOpts = {
@@ -268,8 +271,12 @@ export class SignalTrackerService implements OnModuleInit {
         continue;
       }
 
-      const trade = tradeOf(positions.get(doc.yahooTicker), doc.openedAsOf || openedOn(doc));
-      const exit = exitOf(trade);
+      // Without a floor every bar in the series qualifies and the first one would close the trade
+      // at a price from years ago, so fall back to the day the record was written.
+      const since = doc.openedAsOf || openedOn(doc);
+      const replay = positions.get(doc.yahooTicker);
+      const trade = tradeOf(replay, since);
+      const exit = exitOf(replay, since);
       if (exit) {
         // Only the bar still forming can take a break back, and it is the one this scan is
         // scanning. A break on any earlier bar is settled — a close scan missed for a week, or a
@@ -443,9 +450,16 @@ export class SignalTrackerService implements OnModuleInit {
     };
   }
 
-  /** Close-scan replay against the bars the scan just cached, one series per symbol. */
+  /**
+   * Close-scan replay against the bars the scan just cached, one series per symbol.
+   *
+   * The breaks are collected alongside the trades because the two answer different questions. A
+   * trade says where a position started and so what it is worth; a break ends one, and it ends a
+   * record this app opened even on a bar the replay itself was flat on — the record is a position
+   * that was taken, and the sell-to-close rule applies to it whatever the replay was doing.
+   */
   private async replay(tickers: string[], tf: Timeframe, opts: LedgerOpts) {
-    const out = new Map<string, { trades: CloseTrade[]; open: CloseTrade | null }>();
+    const out = new Map<string, Replay>();
     if (!tickers.length) return out;
 
     const queue = [...new Set(tickers)];
@@ -456,7 +470,17 @@ export class SignalTrackerService implements OnModuleInit {
         const bars = await this.bars.getCached(ticker, tf);
         if (!bars?.length) continue;
         const ledger = runCloseLedger(bars, opts);
-        if (ledger) out.set(ticker, { trades: ledger.trades, open: ledger.open });
+        if (!ledger) continue;
+        const overlay = runStructureOverlay(bars);
+        const breaks: Exit[] = [];
+        if (overlay) {
+          for (let i = 0; i < bars.length; i++) {
+            if (overlay.bullish_break[i]) {
+              breaks.push({ date: bars[i].date, price: bars[i].close, reason: 'sell_to_close' });
+            }
+          }
+        }
+        out.set(ticker, { trades: ledger.trades, open: ledger.open, breaks });
       }
     };
     await Promise.all(Array.from({ length: LEDGER_CONCURRENCY }, () => worker()));
@@ -609,6 +633,9 @@ export class SignalTrackerService implements OnModuleInit {
     const openedAsOf = open ? open.entry_date : snapshot.asOf;
     const openedPeriodKey = barPeriodKey(tf, openedAsOf);
     const shares = sharesFromRisk(entry, sl, maxRiskUsd);
+    // A position taken months ago is already worth something, so the card says so from the first
+    // scan that meets it rather than reading flat until the next one marks it to market.
+    const pnl = computePnl(entry, sl, shares, snapshot.entry);
     return {
       yahooTicker: snapshot.yahooTicker,
       symbol: snapshot.symbol,
@@ -638,9 +665,9 @@ export class SignalTrackerService implements OnModuleInit {
       barsSinceValid: snapshot.barsSinceValid,
       validSinceAsOf: snapshot.validSinceAsOf,
       isStrong: snapshot.isStrong,
-      unrealizedUsd: 0,
-      unrealizedR: 0,
-      unrealizedPct: 0,
+      unrealizedUsd: pnl.usd,
+      unrealizedR: pnl.r,
+      unrealizedPct: pnl.pct,
       interest: null,
       interestRank: 1,
       runId: new Types.ObjectId(runId),
@@ -718,31 +745,28 @@ export class SignalTrackerService implements OnModuleInit {
 }
 
 /**
- * The trade a record is in: the first one the replay had not already finished by `since`.
+ * The trade the replay was holding on the day this record was opened.
  *
- * A record is a claim that the symbol was in a position on the day it was opened, so the trade
- * that answers it is the one still running then, or — if the replay was flat — the next one it
- * took. Trades that ended before the record existed belong to whoever was watching back then.
+ * Only a trade already running then can say where this position started; one the replay took later
+ * is a different trade, and one it finished earlier belongs to whoever was watching back then. A
+ * record with no such trade keeps the entry it was written with.
  */
-function tradeOf(
-  ledger: { trades: CloseTrade[] } | undefined,
-  since: string,
-): CloseTrade | null {
-  if (!ledger) return null;
-  for (const trade of ledger.trades) {
+function tradeOf(replay: Replay | undefined, since: string): CloseTrade | null {
+  if (!replay) return null;
+  for (const trade of replay.trades) {
+    if (trade.entry_date > since) return null;
     if (trade.exit_date == null || trade.exit_date > since) return trade;
   }
   return null;
 }
 
 /**
- * The sell-to-close break, and nothing else. TP and SL are entry-time numbers: SL sizes the
- * position and both state what the setup was worth when it was taken, so price passing through
- * either changes what the trade is worth, not whether it is still on.
+ * First sell-to-close break after the position was taken, and nothing else. TP and SL are
+ * entry-time numbers: SL sizes the position and both state what the setup was worth when it was
+ * taken, so price passing through either changes what the trade is worth, not whether it is on.
  */
-function exitOf(trade: CloseTrade | null): Exit | null {
-  if (!trade?.exit_date) return null;
-  return { date: trade.exit_date, price: trade.exit_price, reason: 'sell_to_close' };
+function exitOf(replay: Replay | undefined, since: string): Exit | null {
+  return replay?.breaks.find((brk) => brk.date > since) ?? null;
 }
 
 /**
