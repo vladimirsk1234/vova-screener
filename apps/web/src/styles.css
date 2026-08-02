@@ -827,11 +827,12 @@ a {
   margin-top: 4px;
 }
 
-/* One equity curve per timeframe, side by side where there is room and stacked on a phone. */
+/* One equity curve per timeframe: three across where there is room, stacked on a phone. Two of
+   three side by side leaves the third stranded on its own row, so the floor is a full-width card. */
 .tf-growth {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
 }
 
 .tf-growth-cell {

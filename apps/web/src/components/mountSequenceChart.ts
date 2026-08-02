@@ -276,7 +276,9 @@ export function mountSequenceChart(
     }
   }
 
-  if (settings.show_tp_sl) {
+  // The indicator's TP and SL are a suggestion the reader can switch off. A trade's own are the
+  // potential and the risk it was actually taken on, so a chart opened on one always draws them.
+  if (settings.show_tp_sl || trade) {
     const tp = trade ? trade.tp : (payload.pine?.tp ?? ov?.tp);
     const sl = trade ? trade.sl : (payload.pine?.sl ?? ov?.sl);
     if (tp != null) {
