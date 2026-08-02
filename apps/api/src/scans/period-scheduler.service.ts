@@ -1,6 +1,6 @@
 /**
- * Background scans. Results always show the latest of these — nothing in the UI starts a
- * universe scan.
+ * Background scans. Results always show the latest of these; `runNow` is the one way the UI can
+ * ask for another, and it starts the same pass the crons do.
  *
  * Two cadences: an hourly session refresh that surfaces signals appearing during the day, and a
  * scan right after each period closes. Only the latter confirms and closes tracked signals.
@@ -24,7 +24,7 @@ import { ScansService } from './scans.service';
 import type { ScanParamsApi } from './scan-runner.service';
 
 const UNIVERSES = ['Stocks', 'ETF'] as const;
-const TIMEFRAMES: readonly Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
+export const SCAN_TIMEFRAMES: readonly Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
 
 /** Every hour of the cash session, 10:05 through 15:05 ET; the 16:15 close scan covers the last hour. */
 const SESSION_CRON = process.env.VOVA_SESSION_SCAN_CRON || '5 10-15 * * 1-5';
@@ -42,6 +42,12 @@ const BASE_PARAMS: Omit<ScanParamsApi, 'source' | 'tf' | 'riskPerTrade'> = {
   noRrReq: true,
   useLastHlSl: true,
   newOnly: false,
+};
+
+export type ScanNowResult = {
+  started: boolean;
+  timeframes: Timeframe[];
+  reason?: string;
 };
 
 @Injectable()
@@ -72,7 +78,7 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
       this.log.warn('Session refresh skipped — the previous pass is still running');
       return;
     }
-    void this.enqueue(() => this.scanAll(TIMEFRAMES, false), 'session refresh');
+    void this.enqueue(() => this.scanAll(SCAN_TIMEFRAMES, false), 'session refresh');
   }
 
   @Cron(DAILY_CLOSE_CRON, { timeZone: MARKET_TZ })
@@ -91,9 +97,24 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
     void this.enqueue(() => this.scanAll(['Monthly'], true), 'monthly close');
   }
 
+  /**
+   * A scan asked for from the Settings sheet. It re-downloads every symbol rather than reusing
+   * the hourly cache — the reason to press it is that the screen disagrees with the market — and
+   * it runs even when the crons are switched off, because it was asked for by hand.
+   *
+   * Returns as soon as the pass is queued: a full universe takes minutes, and the Results header
+   * already reports a scan in progress.
+   */
+  runNow(timeframes: readonly Timeframe[] = SCAN_TIMEFRAMES): ScanNowResult {
+    if (this.busy) return { started: false, timeframes: [], reason: 'A scan is already running' };
+    const tfs = timeframes.length ? [...timeframes] : [...SCAN_TIMEFRAMES];
+    void this.enqueue(() => this.scanAll(tfs, true), 'manual rescan', true);
+    return { started: true, timeframes: tfs };
+  }
+
   /** Scans are serialised: two full universe passes at once would only fight over Yahoo. */
-  private enqueue(job: () => Promise<void>, label: string) {
-    if (!this.enabled) return this.queue;
+  private enqueue(job: () => Promise<void>, label: string, force = false) {
+    if (!this.enabled && !force) return this.queue;
     this.busy = true;
     this.queue = this.queue
       .then(job)
@@ -105,16 +126,17 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
   }
 
   /**
-   * `barsMaxAgeHours: 0.5` is what makes an hourly cadence real: it is short enough that every
-   * symbol is genuinely re-downloaded each pass, and long enough that two passes running back to
-   * back do not fetch the same series twice.
+   * `fresh` re-downloads every symbol; without it `barsMaxAgeHours: 0.5` is what makes an hourly
+   * cadence real: short enough that every symbol is genuinely re-downloaded each pass, long enough
+   * that two passes running back to back do not fetch the same series twice. Whether the tracker
+   * treats the result as a period close is decided from the clock in `ScansService`, not here.
    *
    * A throttled pass degrades instead of failing — `BarsService` falls back to the cached series
    * when Yahoo answers 429 — so the cache/download split is logged as the signal to watch. If
    * `cached` climbs towards the symbol count hour after hour, the cadence is too aggressive for
    * this IP and `VOVA_SESSION_SCAN_CRON` should be widened.
    */
-  private async scanAll(timeframes: readonly Timeframe[], atPeriodClose: boolean) {
+  private async scanAll(timeframes: readonly Timeframe[], fresh: boolean) {
     const { maxRiskUsd } = await this.settings.get();
     for (const tf of timeframes) {
       for (const source of UNIVERSES) {
@@ -125,8 +147,8 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
             source,
             tf,
             riskPerTrade: maxRiskUsd,
-            forceRefresh: atPeriodClose,
-            barsMaxAgeHours: atPeriodClose ? 0 : 0.5,
+            forceRefresh: fresh,
+            barsMaxAgeHours: fresh ? 0 : 0.5,
           },
           { trigger: 'scheduled', wait: true },
         );
@@ -143,7 +165,7 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
   /** Only scans the timeframes whose newest completed run is older than the current period. */
   private async catchUp() {
     const stale: Timeframe[] = [];
-    for (const tf of TIMEFRAMES) {
+    for (const tf of SCAN_TIMEFRAMES) {
       const key = periodKey(tf);
       for (const source of UNIVERSES) {
         const latest = await this.runs
