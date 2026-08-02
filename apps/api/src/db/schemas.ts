@@ -65,7 +65,10 @@ export const ScanRunSchema = new Schema(
      * `status`, so this is the only field that answers "does this period have data yet".
      */
     lastCompletedAt: Date,
+    /** Oldest last-bar date across the run: how far behind the market its weakest symbol is. */
     asOf: String,
+    /** Newest last-bar date across the run — the bar the period screens report on. */
+    newestAsOf: String,
     /** Oldest Yahoo pull behind this run's bars (cache age at scan time). */
     barsOldestAt: Date,
     counters: {
@@ -73,6 +76,8 @@ export const ScanRunSchema = new Schema(
       downloaded: { type: Number, default: 0 },
       evaluated: { type: Number, default: 0 },
       signals: { type: Number, default: 0 },
+      /** Sell-to-close breaks the same pass found, which are never also buy signals. */
+      closes: { type: Number, default: 0 },
       rejected: { type: Number, default: 0 },
       skipped: { type: Number, default: 0 },
       fromCache: { type: Number, default: 0 },
@@ -160,6 +165,11 @@ export const TrackedSignalSchema = new Schema(
     provisionalClose: { type: Boolean, default: false },
     /** Does the newest scan that could price this symbol still report the buy setup? */
     signalValid: { type: Boolean, default: true },
+    /**
+     * Came in from the user's trade journal rather than from a scan. Its entry is what they
+     * actually paid, so the close-scan replay closes it but never re-prices it.
+     */
+    imported: { type: Boolean, default: false },
 
     /** Frozen at first appearance — the entry the P&L is measured from. */
     openedPeriodKey: { type: String, required: true },

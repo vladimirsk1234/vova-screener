@@ -23,6 +23,8 @@ export type ScanMeta = {
   /** Period of the newest scan that produced data — which period CLOSED reports on. */
   periodKey: string;
   asOf: string | null;
+  /** Newest bar the scan saw. CLOSED reports on the period this falls in. */
+  newestAsOf: string | null;
   finishedAt: string | null;
   running: boolean;
   status: string | null;
@@ -65,7 +67,7 @@ export class ResultsService {
       this.runs
         .findOne({ ...base, lastCompletedAt: { $exists: true } })
         .sort({ periodKey: -1, lastCompletedAt: -1 })
-        .select('periodKey asOf lastCompletedAt')
+        .select('periodKey asOf newestAsOf lastCompletedAt')
         .lean<any>()
         .exec(),
     ]);
@@ -73,6 +75,7 @@ export class ResultsService {
     return {
       periodKey: scanned?.periodKey ?? currentPeriodKey(tf),
       asOf: scanned?.asOf ?? null,
+      newestAsOf: scanned?.newestAsOf ?? scanned?.asOf ?? null,
       finishedAt: scanned?.lastCompletedAt
         ? new Date(scanned.lastCompletedAt).toISOString()
         : null,
@@ -190,12 +193,13 @@ function bucketFilter(
   //
   // The period comes from the bar, not from the clock, because that is where `closedPeriodKey`
   // comes from. Over a weekend a Monthly scan already runs under the next month while the newest
-  // bar it can see is still the last one of this month.
+  // bar it can see is still the last one of this month. It reads the newest bar rather than the
+  // oldest: a single halted ticker must not move the whole screen a period back.
   if (bucket === 'closed') {
     return {
       universe,
       tf,
-      closedPeriodKey: scan.asOf ? barPeriodKey(tf, scan.asOf) : scan.periodKey,
+      closedPeriodKey: scan.newestAsOf ? barPeriodKey(tf, scan.newestAsOf) : scan.periodKey,
       $or: [{ status: 'closed' }, { provisionalClose: true }],
     };
   }

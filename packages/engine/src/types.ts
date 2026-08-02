@@ -75,6 +75,8 @@ export type CloseTrade = {
   entry_date: string;
   entry_price: number;
   entry_sl: number;
+  /** Target the entry bar priced the trade against: the last confirmed peak at that point. */
+  entry_tp: number;
   entry_rr: number;
   position_size: number;
   exit_index: number | null;

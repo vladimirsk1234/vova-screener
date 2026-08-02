@@ -156,7 +156,8 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
         const counters = run?.counters ?? {};
         this.log.log(
           `${tf} ${source}: ${run?.status} in ${Math.round((Date.now() - started) / 1000)}s · ` +
-            `${counters.signals ?? 0} signals · ${counters.fromCache ?? 0}/${counters.total ?? 0} cached`,
+            `${counters.signals ?? 0} signals · ${counters.closes ?? 0} closes · ` +
+            `${counters.fromCache ?? 0}/${counters.total ?? 0} cached`,
         );
       }
     }

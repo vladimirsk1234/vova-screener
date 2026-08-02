@@ -863,6 +863,7 @@ def _close_ledger_python(
                 "entry_index": i,
                 "entry_price": c,
                 "entry_sl": sl,
+                "entry_tp": last_confirmed_peak,
                 "entry_rr": rr,
                 "position_size": (
                     (risk_dollars / risk) if (risk > 0 and risk_dollars > 0) else np.nan

@@ -29,6 +29,7 @@ const EMPTY_COUNTERS = {
   downloaded: 0,
   evaluated: 0,
   signals: 0,
+  closes: 0,
   rejected: 0,
   skipped: 0,
   fromCache: 0,
@@ -160,7 +161,12 @@ export class ScansService {
     opts: { limit?: number; offset?: number; onlyNew?: boolean; onlyStrong?: boolean } = {},
   ) {
     const run = await this.get(id);
-    const filter: Record<string, unknown> = { runId: new Types.ObjectId(id) };
+    // A buy run also records the sell-to-close breaks it found for the tracker. They are a
+    // different table with different columns, so the scan screen only ever shows its own kind.
+    const filter: Record<string, unknown> = {
+      runId: new Types.ObjectId(id),
+      kind: run.params?.direction === 'sell' ? 'sell' : 'buy',
+    };
     if (opts.onlyNew) filter.isNew = true;
     if (opts.onlyStrong) filter.isStrong = true;
     const rows = await this.signals

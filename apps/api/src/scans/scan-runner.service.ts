@@ -8,6 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import {
   buildSellSummary,
+  evaluateClose,
   evaluateSymbol,
   type EvaluateParams,
   type SellSignal,
@@ -102,6 +103,7 @@ export class ScanRunnerService {
         downloaded: 0,
         evaluated: 0,
         signals: 0,
+        closes: 0,
         rejected: 0,
         skipped: 0,
         fromCache: 0,
@@ -113,6 +115,12 @@ export class ScanRunnerService {
       let asOf: string | null = null;
       /** Oldest bar date seen, so a run without signals still reports what it looked at. */
       let evaluatedAsOf: string | null = null;
+      /**
+       * Newest bar date seen — the bar the market is actually on. `asOf` is the oldest, which is
+       * the honest answer to "how stale could this run be" but names the wrong period for the
+       * screens: one halted ticker in the list would put CLOSED days behind the market.
+       */
+      let newestAsOf: string | null = null;
       /** Oldest Yahoo pull across the universe — the run's worst-case data age. */
       let barsOldestAt: Date | null = null;
       let lastPublish = 0;
@@ -154,6 +162,7 @@ export class ScanRunnerService {
           if (result.bars?.length) {
             const barDate = result.bars[result.bars.length - 1].date;
             if (!evaluatedAsOf || barDate < evaluatedAsOf) evaluatedAsOf = barDate;
+            if (!newestAsOf || barDate > newestAsOf) newestAsOf = barDate;
           }
 
           const evaluation = evaluateSymbol({
@@ -164,6 +173,33 @@ export class ScanRunnerService {
             params: evalParams,
           });
           counters.evaluated += 1;
+
+          // A buy pass also asks the close scan, because the two never report the same symbol:
+          // the break that ends a trade puts the sequence down, so a symbol closing today is a
+          // reject here and the tracker would never hear about it. Same bars, same pass.
+          if (params.direction === 'buy') {
+            const close = evaluateClose({
+              bars: result.bars,
+              yahooTicker: entry.yahoo,
+              tvSymbol: entry.tv,
+              companyName: entry.name ?? undefined,
+              params: evalParams,
+            });
+            if (close) {
+              counters.closes += 1;
+              signalBuffer.push({
+                runId: runObjectId,
+                kind: 'sell',
+                symbol: close.symbol,
+                yahooTicker: close.yahooTicker,
+                companyName: close.companyName,
+                isNew: true,
+                isStrong: false,
+                rr: close.rrAtEntry,
+                payload: close,
+              });
+            }
+          }
 
           if (evaluation.status === 'signal') {
             const signal = evaluation.signal;
@@ -239,6 +275,7 @@ export class ScanRunnerService {
       run.reasonCounts = reasonCounts;
       run.newSymbols = newSymbols;
       run.barsOldestAt = barsOldestAt;
+      run.newestAsOf = newestAsOf;
       await this.finish(run, cancelled ? 'cancelled' : 'completed', {
         startedAt,
         asOf: asOf ?? evaluatedAsOf,
@@ -251,7 +288,7 @@ export class ScanRunnerService {
         100,
         cancelled
           ? `Cancelled after ${counters.evaluated}/${total}`
-          : `Done · ${counters.signals} signals`,
+          : `Done · ${counters.signals} signals · ${counters.closes} closes`,
         { ...counters },
       );
     } catch (err) {

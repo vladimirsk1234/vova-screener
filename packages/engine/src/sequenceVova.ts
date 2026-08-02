@@ -429,6 +429,7 @@ function closeLedgerPython(
         entry_date: dates[i],
         entry_price: c,
         entry_sl: sl,
+        entry_tp: last_confirmed_peak,
         entry_rr: rr,
         position_size: risk > 0 && risk_dollars > 0 ? risk_dollars / risk : NaN_,
         exit_index: null,

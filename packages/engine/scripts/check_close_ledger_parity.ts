@@ -37,6 +37,7 @@ const NUMERIC: Array<keyof CloseTrade> = [
   'entry_index',
   'entry_price',
   'entry_sl',
+  'entry_tp',
   'entry_rr',
   'position_size',
   'exit_index',

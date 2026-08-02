@@ -102,6 +102,7 @@ def _trade(trade: dict, dates: list[str]) -> dict:
         "entry_date": dates[int(trade["entry_index"])],
         "entry_price": _num(trade["entry_price"]),
         "entry_sl": _num(trade["entry_sl"]),
+        "entry_tp": _num(trade["entry_tp"]),
         "entry_rr": _num(trade["entry_rr"]),
         "position_size": _num(trade["position_size"]),
         "exit_index": None if exit_index is None else int(exit_index),

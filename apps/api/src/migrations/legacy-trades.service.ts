@@ -229,6 +229,7 @@ export class LegacyTradesMigration implements OnModuleInit {
       tf,
       status: closed ? 'closed' : 'active',
       provisional: false,
+      imported: true,
       openedPeriodKey,
       openedAsOf,
       openedAt,
