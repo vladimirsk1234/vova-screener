@@ -68,9 +68,15 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   the tabs always agree
 - Only a period-close scan confirms or closes a signal, so one that appears and disappears inside a
   single period never gets a realized P&L and never lands in History
-- Signals close on their stop, their target, or a Sequence Vova sell-to-close on a bullish break —
-  and, failing all three, when the scan stops calling the symbol a buy. A symbol Yahoo could not
-  deliver is left open, so a data outage never closes a position
+- Closed is the Streamlit SELL TO CLOSE list. A trade ends on the sell-to-close break and on
+  nothing else: a stop taken out or a target reached changes what it is worth, not whether it is
+  on, and neither does the buy setup lapsing — that just takes the position off screen. A symbol
+  Yahoo could not deliver is left exactly as it was, so a data outage never closes a position
+- A position is the close scan's trade, replayed from the bars, so it does not have to have been
+  opened here to be closed here. Most of any Closed list is symbols the app never reported as a
+  buy — a break puts the sequence down, so a symbol closing today is a reject in the buy scan —
+  and each one is written down entry and exit together. A trade the app is already carrying is
+  priced from the bar the replay entered it on, not the day the app first met the symbol
 - Any signal opens a chart where it can be marked Interested / Not interested; the mark shows in
   the lists and sorts on every tab
 - History: win rate, net P&L, avg R, avg RR at entry, avg hold and an equity curve over closed
@@ -105,6 +111,7 @@ npm run typecheck           # engine + api + web
 npm run smoke:tracker       # signal lifecycle end-to-end, no Yahoo needed
 npm run smoke:age           # New / Valid split by bar age, D / W / M
 npm run smoke:legacy        # import of the old trade journal
+npm run smoke:close-live    # real scan vs the Closed tab (needs Yahoo)
 npm run test:e2e            # Playwright (Pixel 7 + desktop)
 ```
 

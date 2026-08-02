@@ -8,13 +8,50 @@ Python [`sequence_vova.py`](../../sequence_vova.py) remains the oracle (and Stre
 
 [`packages/engine`](../../packages/engine) salvaged from former `mobile/src/engine`:
 
-- `runSequenceVovaPine` / `runSequenceVovaCloseScan` / `runStructureOverlay` / `explainInvalidBuy`
+- `runSequenceVovaPine` / `runSequenceVovaCloseScan` / `runCloseLedger` / `runStructureOverlay` /
+  `explainInvalidBuy`
 - `dataUtils` OHLC helpers
 - Fixtures: `packages/engine/fixtures/parity_sample.json`,
-  `packages/engine/fixtures/reject_reasons_parity.json`
+  `packages/engine/fixtures/reject_reasons_parity.json`,
+  `packages/engine/fixtures/close_ledger_parity.json`
   (regenerate: `python scripts/export_parity_fixture.py`,
-  `python scripts/export_reject_reason_fixture.py`)
+  `python scripts/export_reject_reason_fixture.py`,
+  `python scripts/export_close_ledger_fixture.py`)
 - Harness: `npm run parity`
+
+## The close scan is a replay, and the whole replay is compared
+
+`runSequenceVovaCloseScan` answers what the Streamlit table renders: the trade that gives up on the
+last bar. Tracked positions read the rest of the replay too — which trade a symbol is in, and the
+bar it was entered on — so `runCloseLedger` returns every trade in the series and
+`check_close_ledger_parity.ts` compares them one for one against
+`sequence_vova.run_sequence_vova_close_ledger`. One extra or missing trade shifts every entry after
+it, which is exactly the failure that would misprice a closed position without changing the
+last-bar answer the older fixture checks.
+
+## Live parity: the close list against today's market
+
+Fixtures prove the arithmetic. They cannot prove the app and Streamlit are looking at the same
+bars, and that is the half that decides whether the CLOSED tab agrees with the Streamlit table — a
+series ending one bar early moves every break by a bar and empties the list. Two harnesses cover
+it, both needing network:
+
+```bash
+npx tsx packages/engine/scripts/export_live_close_scan.ts --tf Daily --limit 900
+PYTHONPATH=. python3 scripts/check_live_close_parity.py reports/live_close_daily.json
+```
+
+reports the close list the engine reads off real symbols against the one
+`run_sequence_vova_close_scan` reads off the same bars, and separately against the series
+`yf.download` + `headless_scanner._prepare_scan_ohlc` produce for the same symbols.
+
+```bash
+VOVA_SMOKE_LIMIT=400 npm run smoke:close-live      # also VOVA_SMOKE_TF=Weekly|Monthly
+```
+
+runs a real scan through the whole app — scan runner, tracker, Results query — and asserts the
+CLOSED tab shows exactly the closes the scan found, priced from the replay entry, and that a second
+pass over the same period adds nothing.
 
 ## History window is part of parity
 

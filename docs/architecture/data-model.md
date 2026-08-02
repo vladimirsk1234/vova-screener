@@ -25,10 +25,14 @@ Freshness: `barsMaxAgeHours` (default 12) decides cache vs refetch; `forceRefres
 A failed Yahoo fetch falls back to stale cache rather than dropping the symbol.
 
 ### `scanRuns`
-`{ params, status, asOf, counters, reasonCounts, timings, newSymbols[], summary, cancelRequested, error, startedAt, finishedAt }`.
+`{ params, status, asOf, newestAsOf, counters, reasonCounts, timings, newSymbols[], summary, cancelRequested, error, startedAt, finishedAt }`.
 `status`: `queued|running|completed|cancelled|failed`. Index `{ createdAt: -1 }`.
 
-- `counters`: `total`, `downloaded`, `evaluated`, `signals`, `rejected`, `skipped`, `fromCache`
+- `counters`: `total`, `downloaded`, `evaluated`, `signals`, `closes`, `rejected`, `skipped`,
+  `fromCache`. `closes` is the sell-to-close breaks a buy pass found alongside its signals
+- `asOf` is the *oldest* newest-bar in the run — the honest answer to how stale it could be.
+  `newestAsOf` is the newest bar of the period most of the universe is in, which is the period the
+  screens read the run as being about; see the CLOSED bucket below for why neither extreme works
 - `reasonCounts`: reject/skip reason histogram (why a scan produced few signals)
 - `newSymbols`: symbols absent from the previous completed run with the same source/tf/direction
 - `summary`: sell-scan aggregate (win rate, net P&L, invested, avg RR)
@@ -36,6 +40,11 @@ A failed Yahoo fetch falls back to stale cache rather than dropping the symbol.
 ### `signals`
 One document per BUY/SELL row: `{ runId, kind, symbol, yahooTicker, companyName, isNew, isStrong, rr, payload }`.
 Index `{ runId, symbol }`. Charts read bars from `barSeries`, so no bar snapshot is duplicated here.
+
+A buy run holds both kinds: `kind: 'buy'` is what the scan screen shows, and `kind: 'sell'` is the
+close scan run over the same bars in the same pass — the two never name the same symbol, because a
+break puts the sequence down and so makes the symbol a reject for the buy scan. The tracker reads
+the sell rows; the scan screen filters them out.
 
 ### `scanRejections`
 `{ runId, symbol, reason, createdAt }` with a 30-day TTL — audit data, not history.
@@ -45,17 +54,34 @@ The single source for Results and History. Written only by `SignalTrackerService
 background scan finishes, so both screens are indexed reads with no per-request maths.
 
 `{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional, provisionalClose,
-signalValid, openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
+signalValid, imported, openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
 lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, barsSinceValid, validSinceAsOf, isStrong,
 unrealizedUsd, unrealizedR, unrealizedPct,
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
 interest, interestRank, interestAt, runId }`.
+
+**A tracked position is the Streamlit close scan's trade.** That scan replays a symbol's whole
+history — take the long on the bar a buy signal appears, give it up on the bar the sequence closes
+back through its critical level — from the bars alone, so the trade a symbol is in does not depend
+on when this app started watching it. `runCloseLedger` is that replay, and everything below follows
+from taking it as the definition rather than tracking only what the app happened to open.
 
 Lifecycle:
 
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr`, `barsSinceValid` and the
   unrealized numbers, and opens a `provisional` record for a symbol it has not seen before. That is
   what makes a signal appearing mid-session visible straight away.
+- **A break ends a trade whether or not this app recorded its start.** A symbol closing today is
+  not a buy today — the break puts the sequence down — so it is a reject in the buy scan and would
+  never be heard of again. Every buy pass therefore also runs the close scan over the same bars and
+  records what it finds as `kind: 'sell'` signals; a break on a symbol with no record of its own is
+  written down complete, entry and exit together. Those adopted trades are most of any close list.
+  A close already written down (same symbol, same exit bar) is skipped, so the hourly cadence does
+  not stack a copy of each trade an hour.
+- **A record's entry follows the replay, not the day the app first met the symbol.** A position met
+  four months into its run is priced from the bar it actually started on, and its `entry`, `sl`,
+  `tp`, `rrAtEntry` and `openedAsOf` are re-aligned to the replay on every scan. `imported` journal
+  trades are exempt: those entries are the user's own record of what they paid.
 - Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
   deletes a provisional record, so a signal that comes and goes inside one period never reaches
   History.
@@ -106,10 +132,14 @@ Lifecycle:
   that wrote it: a record last priced days ago was new on that bar, not on this one. VALID is the
   exact complement, so the two tab counts always add up and a record nobody has priced this period
   lands in VALID rather than nowhere.
-- CLOSED is everything with `closedPeriodKey` on the period of the newest bar the scan looked at,
-  realized or `provisionalClose`. The period comes from the bar rather than the clock because
+- CLOSED is everything with `closedPeriodKey` on the period the scan reports on, realized or
+  `provisionalClose`. That period comes from the bars rather than the clock because
   `closedPeriodKey` does: over a weekend a Monthly scan already runs under the next month while the
-  newest bar it can see is the last one of this month.
+  newest bar it can see is the last one of this month. It is the period *most of the universe* is
+  in (`run.newestAsOf`), not any one symbol's newest bar: the oldest would be one halted ticker
+  away from putting the screen days behind the market, and the plain newest one off-grid bar away
+  from putting it a period ahead where nothing has closed yet — and Yahoo does hand out the odd
+  series stamped a day off the grid.
 - `provisional` no longer decides which tab a signal shows in; it still decides what a period-close
   scan does with the record. Only confirmed records can be closed, so a signal that comes and goes
   inside one period leaves no trace, and `totals.active` in History counts confirmed positions only.
