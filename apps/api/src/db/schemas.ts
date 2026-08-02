@@ -141,6 +141,10 @@ RejectionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 
  * progress. The record stays `active` and carries the exit it would realize, so CLOSED shows the
  * trade for the current period while History keeps waiting for the bar to finish. The close scan
  * either turns it into a real close or takes the exit fields back off.
+ *
+ * `signalValid` is what keeps a position off the screen once its buy setup stops being reported.
+ * It is written only by a scan that actually evaluated the symbol, so a Yahoo outage — or simply
+ * no scan having run yet — leaves the record showing exactly where it was.
  */
 export const TrackedSignalSchema = new Schema(
   {
@@ -154,6 +158,8 @@ export const TrackedSignalSchema = new Schema(
     provisional: { type: Boolean, default: true },
     /** Sell-to-close break on the bar in progress: shown in CLOSED, still open in History. */
     provisionalClose: { type: Boolean, default: false },
+    /** Does the newest scan that could price this symbol still report the buy setup? */
+    signalValid: { type: Boolean, default: true },
 
     /** Frozen at first appearance — the entry the P&L is measured from. */
     openedPeriodKey: { type: String, required: true },
@@ -208,7 +214,7 @@ TrackedSignalSchema.index(
   { yahooTicker: 1, tf: 1, universe: 1 },
   { unique: true, partialFilterExpression: { status: 'active' } },
 );
-TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, barsSinceValid: 1 });
+TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, signalValid: 1, barsSinceValid: 1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, openedPeriodKey: -1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, closedPeriodKey: -1 });
 TrackedSignalSchema.index({ universe: 1, tf: 1, status: 1, lastRr: -1 });

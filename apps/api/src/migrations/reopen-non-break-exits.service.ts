@@ -90,7 +90,14 @@ export class ReopenNonBreakExits implements OnModuleInit {
         updateOne: {
           filter: { _id: doc._id },
           update: {
-            $set: { status: 'active', provisional: false, provisionalClose: false },
+                $set: {
+                  status: 'active',
+                  provisional: false,
+                  provisionalClose: false,
+                  // Back on screen until a scan reports on the symbol: the position is open, and
+                  // nothing has looked at its setup since the build that wrongly closed it.
+                  signalValid: true,
+                },
             $unset: {
               closedPeriodKey: '',
               closedAt: '',
