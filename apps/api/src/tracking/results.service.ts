@@ -4,7 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { SCAN_RUN, TRACKED_SIGNAL } from '../db/schemas';
-import { periodKey as currentPeriodKey } from '../scans/period';
+import { barPeriodKey, periodKey as currentPeriodKey } from '../scans/period';
 import {
   INTEREST_RANK,
   TIMEFRAMES,
@@ -97,7 +97,7 @@ export class ResultsService {
     const offset = Math.max(opts.offset ?? 0, 0);
 
     const scan = await this.scanMeta(universe, tf);
-    const filter = bucketFilter(universe, tf, bucket, scan.periodKey);
+    const filter = bucketFilter(universe, tf, bucket, scan);
 
     const [rows, total] = await Promise.all([
       this.tracked
@@ -124,9 +124,9 @@ export class ResultsService {
     const counted = await Promise.all(
       metas.map(async ({ universe, tf, scan }) => {
         const [newCount, valid, closed] = await Promise.all([
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'new', scan.periodKey)).exec(),
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'valid', scan.periodKey)).exec(),
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'closed', scan.periodKey)).exec(),
+          this.tracked.countDocuments(bucketFilter(universe, tf, 'new', scan)).exec(),
+          this.tracked.countDocuments(bucketFilter(universe, tf, 'valid', scan)).exec(),
+          this.tracked.countDocuments(bucketFilter(universe, tf, 'closed', scan)).exec(),
         ]);
         return { universe, tf, scan, counts: { new: newCount, valid, closed } };
       }),
@@ -182,23 +182,28 @@ function bucketFilter(
   universe: TrackedUniverse,
   tf: Timeframe,
   bucket: Bucket,
-  periodKey: string,
+  scan: ScanMeta,
 ): Record<string, unknown> {
-  // CLOSED is "closed in this period", and mid-period that includes a sell-to-close break on the
-  // bar still running: the trade reads as closed here from the moment the break appears, and only
-  // reaches History if the break survives to the final bar.
+  // CLOSED is "closed on the newest bar's period", and mid-period that includes a sell-to-close
+  // break on the bar still running: the trade reads as closed here from the moment the break
+  // appears, and only reaches History if the break survives to the final bar.
+  //
+  // The period comes from the bar, not from the clock, because that is where `closedPeriodKey`
+  // comes from. Over a weekend a Monthly scan already runs under the next month while the newest
+  // bar it can see is still the last one of this month.
   if (bucket === 'closed') {
     return {
       universe,
       tf,
-      closedPeriodKey: periodKey,
+      closedPeriodKey: scan.asOf ? barPeriodKey(tf, scan.asOf) : scan.periodKey,
       $or: [{ status: 'closed' }, { provisionalClose: true }],
     };
   }
   // A trade only ends on a break, so a position whose buy setup stopped being valid is still open
-  // — it simply drops out of the scan and stops being refreshed. Both live buckets therefore ask
-  // for a record this period's scan priced, which is what keeps such a position off the screen
-  // until the setup comes back.
+  // — it just leaves the screen. `signalValid: false` is written when a scan evaluates the symbol
+  // and does not report it, so this asks the scan directly instead of inferring an answer from
+  // which period a record was last priced in: a scan that has not run yet, or one Yahoo throttled,
+  // then cannot empty the list.
   //
   // The NEW / VALID split is the bar the signal became valid on, not the period the tracker first
   // recorded it in: a symbol the scan meets for the first time may already have been valid for
@@ -209,13 +214,18 @@ function bucketFilter(
     tf,
     status: 'active',
     provisionalClose: { $ne: true },
-    lastSeenPeriodKey: periodKey,
+    signalValid: { $ne: false },
   };
-  if (bucket === 'new') return { ...live, barsSinceValid: 0 };
-  // Exact complement of NEW among the signals this scan priced, so the two counts always add up.
-  // Records written before `barsSinceValid` existed match `$ne: 0` on the missing field and land
-  // here: a signal the tracker is already carrying is by definition not new on this bar.
-  return { ...live, barsSinceValid: { $ne: 0 } };
+  // NEW is a claim about the current bar, so it does ask for a record this period's scan priced.
+  if (bucket === 'new') return { ...live, barsSinceValid: 0, lastSeenPeriodKey: scan.periodKey };
+  // Exact complement of NEW among the signals still being reported, so the two counts always add
+  // up and a record nobody has priced this period lands here rather than nowhere. Records written
+  // before `barsSinceValid` existed match `$ne: 0` on the missing field: a signal the tracker is
+  // already carrying is by definition not new on this bar.
+  return {
+    ...live,
+    $or: [{ barsSinceValid: { $ne: 0 } }, { lastSeenPeriodKey: { $ne: scan.periodKey } }],
+  };
 }
 
 /**
