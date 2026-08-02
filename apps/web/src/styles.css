@@ -87,7 +87,8 @@ a {
   border-radius: 8px;
   flex-shrink: 0;
   object-fit: cover;
-  background: #0b0d10;
+  background: #f4f6f8;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 .app-header h1 {
@@ -96,7 +97,7 @@ a {
   letter-spacing: 0.04em;
   font-weight: 700;
   text-transform: uppercase;
-  color: #c9a227;
+  color: #e8b923;
 }
 
 .app-header p {
