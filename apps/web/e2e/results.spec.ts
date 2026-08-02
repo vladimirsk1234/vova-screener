@@ -72,14 +72,41 @@ test.describe('results shell', () => {
     await expect(page.getByRole('button', { name: 'START SCAN' })).toBeVisible();
   });
 
-  test('settings sheet holds max risk and reset', async ({ page }) => {
+  test('settings sheet holds max risk, rescan and reset', async ({ page }) => {
     await page.goto('/results/Stocks/Daily/new');
     await page.getByRole('button', { name: 'Settings' }).click();
     const sheet = page.getByRole('dialog', { name: 'Settings' });
     await expect(sheet.getByLabel('Max risk per signal ($)')).toBeVisible();
+    for (const label of ['All', 'D', 'W', 'M']) {
+      await expect(sheet.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+    await expect(sheet.getByRole('button', { name: /Run scan now|Scanning/ })).toBeVisible();
     await expect(sheet.getByRole('button', { name: 'Reset all history' })).toBeVisible();
     await sheet.getByRole('button', { name: 'Close' }).click();
     await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0);
+  });
+
+  test('the rescan button asks for the selected timeframe', async ({ page }) => {
+    // Stubbed: a real press starts a full pass over Stocks and ETF, which is not something a test
+    // run should leave going. What is worth checking is the request and what the sheet does next.
+    let asked: string | null = null;
+    await page.route('**/api/scans/run-now', async (route) => {
+      asked = route.request().postDataJSON()?.tf ?? null;
+      await route.fulfill({ json: { started: true, timeframes: ['Weekly'] } });
+    });
+
+    await page.goto('/results/Stocks/Daily/new');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Settings' });
+
+    const run = sheet.getByRole('button', { name: 'Run scan now' });
+    if ((await run.count()) === 0) test.skip(true, 'a scan is already running against this API');
+    await sheet.getByRole('button', { name: 'W', exact: true }).click();
+    await run.click();
+
+    // The pass is queued rather than awaited, so the button is what says the request landed.
+    await expect(sheet.getByRole('button', { name: 'Scanning…' })).toBeVisible();
+    expect(asked).toBe('Weekly');
   });
 
   test('history exposes every timeframe plus All', async ({ page }) => {

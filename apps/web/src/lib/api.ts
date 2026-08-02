@@ -201,6 +201,9 @@ export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbo
 
 export type AppSettings = { maxRiskUsd: number };
 
+/** What `POST /scans/run-now` answers: the pass is queued, or one was already going. */
+export type ScanNowResult = { started: boolean; timeframes: Timeframe[]; reason?: string };
+
 /** Engine numbers behind a reject, for side-by-side comparison with TradingView. */
 export type RejectDetail = {
   barDate: string | null;
@@ -393,7 +396,7 @@ function query(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
-  // Results — always the latest background scan, never started from the UI.
+  // Results — always the latest background scan, which Settings can also ask for by hand.
   results: (opts: {
     universe: Universe;
     tf: Timeframe;
@@ -435,6 +438,13 @@ export const api = {
   settings: () => request<AppSettings>('/settings'),
   saveSettings: (patch: Partial<AppSettings>) =>
     request<AppSettings>('/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+
+  /**
+   * Rescan the tracked universes now, re-downloading every symbol. Returns once the pass is
+   * queued — a full universe takes minutes, and progress shows up in the Results header.
+   */
+  runScanNow: (tf: Timeframe | 'all' = 'all') =>
+    request<ScanNowResult>('/scans/run-now', { method: 'POST', body: JSON.stringify({ tf }) }),
 
   // Manual scan
   startScan: (params: Partial<ScanParams>) =>

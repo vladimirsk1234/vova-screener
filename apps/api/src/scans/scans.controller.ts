@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Sse } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Sse } from '@nestjs/common';
 import { concat, map, of, type Observable } from 'rxjs';
 import type { Timeframe } from '@vova/engine';
+import { PeriodSchedulerService, SCAN_TIMEFRAMES } from './period-scheduler.service';
 import { ProgressBus } from './progress.bus';
 import { ScansService } from './scans.service';
 import type { ScanParamsApi } from './scan-runner.service';
@@ -9,8 +10,22 @@ import type { ScanParamsApi } from './scan-runner.service';
 export class ScansController {
   constructor(
     private readonly scans: ScansService,
+    private readonly scheduler: PeriodSchedulerService,
     private readonly bus: ProgressBus,
   ) {}
+
+  /**
+   * Rescan the tracked universes now. This is the background pass the crons run, not the manual
+   * ticker scan on `POST /scans`, so what it produces goes straight to Results and History.
+   */
+  @Post('run-now')
+  runNow(@Body() body?: { tf?: Timeframe | 'all' }) {
+    const tf = body?.tf;
+    if (tf && tf !== 'all' && !SCAN_TIMEFRAMES.includes(tf)) {
+      throw new BadRequestException(`unknown timeframe ${tf}`);
+    }
+    return this.scheduler.runNow(tf && tf !== 'all' ? [tf] : SCAN_TIMEFRAMES);
+  }
 
   @Get('defaults')
   defaults() {

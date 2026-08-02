@@ -61,6 +61,17 @@ export function periodKey(tf: Timeframe, date: Date = new Date()): string {
   return isoWeekKey(year, month, day);
 }
 
+/**
+ * Calendar slot a bar belongs to, from its `YYYY-MM-DD` date. Read at midday so no timezone
+ * offset can push the date into the previous day.
+ *
+ * This is the period key to use whenever the answer is about data rather than about now: over a
+ * weekend the clock is already in the next week and the newest bar is still in the last one.
+ */
+export function barPeriodKey(tf: Timeframe, date: string): string {
+  return periodKey(tf, new Date(`${date}T12:00:00-05:00`));
+}
+
 /** Minutes since midnight in America/New_York. */
 export function nyTimeMinutes(date: Date = new Date()): number {
   const parts = Object.fromEntries(

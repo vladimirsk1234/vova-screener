@@ -181,7 +181,9 @@ export function ResultsPage() {
 
       {!page.isLoading && rows.length === 0 ? (
         <p className="empty">
-          Nothing here. {BUCKET_HINT[bucket]}
+          {scan?.finishedAt
+            ? `Nothing here. ${BUCKET_HINT[bucket]}`
+            : 'No scan has produced data for this universe yet. Start one from Settings.'}
           {scan?.running ? ' A scan is running right now.' : ''}
         </p>
       ) : null}
