@@ -45,7 +45,7 @@ The single source for Results and History. Written only by `SignalTrackerService
 background scan finishes, so both screens are indexed reads with no per-request maths.
 
 `{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional, provisionalClose,
-openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
+signalValid, openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
 lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, barsSinceValid, validSinceAsOf, isStrong,
 unrealizedUsd, unrealizedR, unrealizedPct,
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
@@ -56,9 +56,9 @@ Lifecycle:
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr`, `barsSinceValid` and the
   unrealized numbers, and opens a `provisional` record for a symbol it has not seen before. That is
   what makes a signal appearing mid-session visible straight away.
-- Only a scan that already had its period closed when it started (`run.periodClose`) makes anything
-  final: provisional records are either confirmed or deleted, and a break is turned into realized
-  P&L. Intra-period noise therefore never reaches History.
+- Only a scan that already had its period closed when it started (`run.periodClose`) confirms or
+  deletes a provisional record, so a signal that comes and goes inside one period never reaches
+  History.
 - **A trade ends on the sell-to-close break and on nothing else** — the first bar after `openedAsOf`
   whose close falls back through the critical level of the sequence, exiting at that bar's close.
   This is the exit of the Streamlit close scan (`run_sequence_vova_close_scan`), and `exitReason`
@@ -69,13 +69,19 @@ Lifecycle:
 - TP and SL are entry-time numbers. SL sizes the position and both state what the setup was worth
   when it was taken; price passing through either changes what the trade is worth, not whether it is
   still on.
-- A position the scan stops reporting — the buy setup broke down, or Yahoo could not price it —
-  keeps running. It is simply not refreshed, which is what drops it off NEW and VALID until a scan
-  finds it again.
-- `provisionalClose` is a break on the bar still in progress. The record stays `active` and carries
-  the exit it would realize, so CLOSED shows the trade for the current period while History waits
-  for the bar to finish. The period-close scan either turns it into a real close or clears the exit
-  fields, which is what happens when the bar recovers before the bell.
+- A position the scan stops reporting keeps running: `signalValid` goes false, which drops it off
+  NEW and VALID until a scan finds the setup again. The flag is written only by a scan that could
+  evaluate the symbol — a `NO_DATA` / `INSUFFICIENT_DATA` reject says nothing about the setup — so
+  a Yahoo outage, or simply no scan having run yet, leaves a record showing exactly where it was.
+  That is also why an imported journal trade is on screen from the moment it is imported.
+- `provisionalClose` is a break on the bar still in progress, which is the only bar that can take
+  one back. The record stays `active` and carries the exit it would realize, so CLOSED shows the
+  trade for the current period while History waits for the bar to finish; the period-close scan
+  either turns it into a real close or clears the exit fields when the bar recovers. A break on any
+  earlier bar is settled and is realized by whichever scan finds it, close scan or not — which is
+  what a catch-up after a missed close, or after the re-opening migration, mostly finds.
+- A symbol whose trade closes and whose setup is a buy again on a later bar opens its next record
+  in the same pass, so it does not disappear for a scan while the old record is cleared away.
 - `closedPeriodKey` is the calendar slot of the exit bar, not of the scan that found it. They agree
   whenever a scan runs on time; when one is missed for a week, or a re-opened trade turns out to
   have broken long ago, the trade is still filed under the period it actually ended in.
@@ -95,11 +101,15 @@ Lifecycle:
   whose next scan is days away (Weekly, Monthly) would show every active signal as VALID and nothing
   as NEW. A record with no cached bars, or whose structure has since broken, keeps no age and stays
   in VALID — a hand-imported journal trade is not a new signal.
-- Both live buckets require `lastSeenPeriodKey` to be the current period, which is what hides an
-  open position the latest scan did not report. `barsSinceValid` is only true as of the scan that
-  wrote it anyway, so a record last priced days ago was new on that bar, not on this one. The two
-  filters are exact complements among the signals the scan did report, so the tab counts add up.
-- CLOSED is everything with `closedPeriodKey` on the current period, realized or `provisionalClose`.
+- Both live buckets require `signalValid` not to be false. NEW additionally requires
+  `lastSeenPeriodKey` to be the current period, because `barsSinceValid` is only true as of the scan
+  that wrote it: a record last priced days ago was new on that bar, not on this one. VALID is the
+  exact complement, so the two tab counts always add up and a record nobody has priced this period
+  lands in VALID rather than nowhere.
+- CLOSED is everything with `closedPeriodKey` on the period of the newest bar the scan looked at,
+  realized or `provisionalClose`. The period comes from the bar rather than the clock because
+  `closedPeriodKey` does: over a weekend a Monthly scan already runs under the next month while the
+  newest bar it can see is the last one of this month.
 - `provisional` no longer decides which tab a signal shows in; it still decides what a period-close
   scan does with the record. Only confirmed records can be closed, so a signal that comes and goes
   inside one period leaves no trace, and `totals.active` in History counts confirmed positions only.

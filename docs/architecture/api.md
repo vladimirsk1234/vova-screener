@@ -22,11 +22,14 @@ reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with
 | GET | `/results/signal/:id` | One tracked signal whatever its state — how a closed trade from History is opened on the chart |
 | PATCH | `/results/:id/interest` | `{ interest: 'interested' \| 'not_interested' \| null }`; the mark survives NEW → VALID → CLOSED |
 
-A trade ends on the sell-to-close break and on nothing else, so CLOSED means "broke this period".
-While the bar is still running that break is provisional: the row shows in CLOSED with
-`provisionalClose: true`, carries the exit it would realize, and reaches History only if the break
-survives to the final bar. An open position the latest scan did not report is not on screen at all —
-it is still running, and comes back the moment a scan finds its setup again.
+A trade ends on the sell-to-close break and on nothing else, so CLOSED means "broke on the newest
+bar's period". While that bar is still running the break is provisional: the row shows in CLOSED
+with `provisionalClose: true`, carries the exit it would realize, and reaches History only if the
+break survives to the final bar. A break on any earlier bar is settled and realized straight away.
+
+An open position a scan evaluated and stopped reporting is not on screen at all — it is still
+running, and comes back the moment a scan finds its setup again. A symbol the scan could not
+evaluate is a different thing and keeps showing on its last numbers.
 
 ## History
 
@@ -48,9 +51,9 @@ the UI refetches. Closed signals keep the size they were closed at.
 
 ## Scans
 
-Only manual scans are started from the UI. Stocks and ETF are scanned by
-`PeriodSchedulerService`: hourly through the session plus one right after each period closes.
-Session passes are skipped, not queued, while an earlier pass is still running.
+Stocks and ETF are scanned by `PeriodSchedulerService`: hourly through the session plus one right
+after each period closes, and on demand from the Settings sheet. Session passes are skipped, not
+queued, while an earlier pass is still running.
 
 A run records `periodClose`, decided when the scan **starts**, and only those runs let the tracker
 confirm or close signals. Deciding it at finish would misclassify an hourly pass that began before
@@ -59,7 +62,8 @@ the bell and ran past it.
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/scans/defaults` | Server-side default params |
-| POST | `/scans` | Create run, start it out-of-request, return `{ runId, params }` |
+| POST | `/scans` | Create a manual ticker run, start it out-of-request, return `{ runId, params }` |
+| POST | `/scans/run-now` | `{ tf?: 'Daily' \| 'Weekly' \| 'Monthly' \| 'all' }` — rescan Stocks and ETF now, re-downloading every symbol. Answers `{ started, timeframes, reason? }` as soon as the pass is queued, and `started: false` when one is already running. This is the background pass, so what it produces goes to Results and History; it runs even with `VOVA_BACKGROUND_SCANS=off` |
 | GET | `/scans?limit=` | Run history, newest first |
 | GET | `/scans/:id` | Run detail: status, counters, `reasonCounts`, timings, `newSymbols`, sell summary, `asOf` (scored bar date), `barsOldestAt` (oldest Yahoo pull) |
 | GET | `/scans/:id/signals?limit&offset&onlyNew&onlyStrong` | Signal rows + run + `newSymbols` |
