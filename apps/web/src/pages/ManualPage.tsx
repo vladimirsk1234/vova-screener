@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Timeframe } from '../lib/api';
 import { barsLabel, money, num } from '../lib/format';
+import { resultsPathForUniverse } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SortChips, type SortDir, type SortOption } from '../components/SortChips';
@@ -118,7 +119,7 @@ export function ManualPage() {
           segments={[
             ...UNIVERSES.map((u) => ({
               value: u,
-              to: `/results/${u}/Daily/new`,
+              to: resultsPathForUniverse(u),
               label: u,
             })),
             { value: 'manual' as const, to: '/results/manual', label: 'Manual' },

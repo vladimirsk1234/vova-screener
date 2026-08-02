@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   TIMEFRAMES,
@@ -11,6 +11,7 @@ import {
   type Timeframe,
 } from '../lib/api';
 import { holdLabel, money, num, periodLabel, signedMoney } from '../lib/format';
+import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
@@ -92,13 +93,17 @@ function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
 }
 
 export function HistoryPage() {
-  const [tf, setTf] = useState<HistoryTf>('Daily');
-  const [groupBy, setGroupBy] = useState<Timeframe>('Daily');
+  const [tf, setTf] = useState<HistoryTf>(() => loadHistoryFilters().tf);
+  const [groupBy, setGroupBy] = useState<Timeframe>(() => loadHistoryFilters().groupBy);
   const [periodSort, setPeriodSort] = useState<HistoryPeriodSort>('period');
   const [periodDir, setPeriodDir] = useState<SortDir>('desc');
   const [tradeSort, setTradeSort] = useState<HistoryTradeSort>('date');
   const [tradeDir, setTradeDir] = useState<SortDir>('desc');
   const [openPeriod, setOpenPeriod] = useState<string | null>(null);
+
+  useEffect(() => {
+    saveHistoryFilters({ tf, groupBy });
+  }, [tf, groupBy]);
 
   const report = useQuery({
     queryKey: ['history', tf, groupBy, periodSort, periodDir],

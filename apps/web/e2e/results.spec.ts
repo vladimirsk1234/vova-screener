@@ -117,6 +117,37 @@ test.describe('results shell', () => {
     await expect(page.getByText('Win rate')).toBeVisible();
   });
 
+  test('Results status and timeframe survive a trip through History', async ({ page }) => {
+    await page.goto('/results/Stocks/Daily/new');
+
+    const weekly = page.getByRole('tab', { name: 'W', exact: true });
+    await weekly.click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Weekly\/new$/);
+
+    const valid = page.getByRole('tab', { name: /^Valid/ });
+    await valid.click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Weekly\/valid$/);
+
+    await page.getByRole('link', { name: 'History' }).click();
+    await expect(page).toHaveURL(/\/history$/);
+
+    // History keeps its own timeframe pick across remounts.
+    await page.getByRole('button', { name: 'Weekly', exact: true }).first().click();
+    await expect(page.getByRole('button', { name: 'Weekly', exact: true }).first()).toHaveClass(
+      /active/,
+    );
+
+    await page.getByRole('link', { name: 'Results' }).click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Weekly\/valid$/);
+    await expect(page.getByRole('tab', { name: 'W', exact: true })).toHaveClass(/active/);
+    await expect(page.getByRole('tab', { name: /^Valid/ })).toHaveClass(/active/);
+
+    await page.getByRole('link', { name: 'History' }).click();
+    await expect(page.getByRole('button', { name: 'Weekly', exact: true }).first()).toHaveClass(
+      /active/,
+    );
+  });
+
   test('a signal card opens the chart', async ({ page }) => {
     // A single scan fills NEW only with the symbols that broke out on the bar it evaluated;
     // everything valid for longer lands in VALID, so try both before giving up.
