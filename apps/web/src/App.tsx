@@ -26,7 +26,17 @@ export function App() {
       {!isChart && (
         <header className="app-header">
           <div className="app-header-row">
-            <h1>Sequence Vova</h1>
+            <div className="brand">
+              <img
+                className="brand-mark"
+                src="/icon-192.png"
+                width={32}
+                height={32}
+                alt=""
+                decoding="async"
+              />
+              <h1>SV Screener</h1>
+            </div>
             <button
               type="button"
               className="chart-icon-btn"
