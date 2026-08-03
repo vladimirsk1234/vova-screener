@@ -86,12 +86,14 @@ export class HistoryController {
 
   @Get()
   report(
+    @Query('universe') universe?: string,
     @Query('tf') tf?: string,
     @Query('groupBy') groupBy?: string,
     @Query('sort') sort?: string,
     @Query('dir') dir?: string,
   ) {
     return this.history.report({
+      universe: parseUniverse(universe),
       tf: parseHistoryTf(tf),
       groupBy: parseTf(groupBy ?? tf),
       sort: (['period', 'pnl', 'winRate', 'trades', 'rr'] as PeriodSort[]).includes(
@@ -105,6 +107,7 @@ export class HistoryController {
 
   @Get('trades')
   trades(
+    @Query('universe') universe?: string,
     @Query('tf') tf?: string,
     @Query('periodKey') periodKey?: string,
     @Query('groupBy') groupBy?: string,
@@ -114,6 +117,7 @@ export class HistoryController {
     @Query('offset') offset?: string,
   ) {
     return this.history.trades({
+      universe: parseUniverse(universe),
       tf: parseHistoryTf(tf),
       periodKey,
       groupBy: parseTf(groupBy ?? tf),

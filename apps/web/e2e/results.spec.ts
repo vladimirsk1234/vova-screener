@@ -72,11 +72,12 @@ test.describe('results shell', () => {
     await expect(page.getByRole('button', { name: 'START SCAN' })).toBeVisible();
   });
 
-  test('settings sheet holds max risk, rescan and reset', async ({ page }) => {
+  test('settings sheet holds max risk, min RR, rescan and reset', async ({ page }) => {
     await page.goto('/results/Stocks/Daily/new');
     await page.getByRole('button', { name: 'Settings' }).click();
     const sheet = page.getByRole('dialog', { name: 'Settings' });
     await expect(sheet.getByLabel('Max risk per signal ($)')).toBeVisible();
+    await expect(sheet.getByLabel('Min RR')).toBeVisible();
     for (const label of ['All', 'D', 'W', 'M']) {
       await expect(sheet.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
@@ -109,8 +110,11 @@ test.describe('results shell', () => {
     expect(asked).toBe('Weekly');
   });
 
-  test('history exposes every timeframe plus All', async ({ page }) => {
+  test('history exposes Stocks/ETF, every timeframe plus All', async ({ page }) => {
     await page.goto('/history');
+    for (const label of ['Stocks', 'ETF']) {
+      await expect(page.getByRole('button', { name: label, exact: true }).first()).toBeVisible();
+    }
     for (const label of ['Daily', 'Weekly', 'Monthly', 'All']) {
       await expect(page.getByRole('button', { name: label, exact: true }).first()).toBeVisible();
     }

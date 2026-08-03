@@ -4,12 +4,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { TRACKED_SIGNAL } from '../db/schemas';
+import { SettingsService } from '../settings/settings.module';
 import {
   TIMEFRAMES,
+  computePnl,
   holdUnitLabel,
   round2,
+  sharesFromRisk,
   toResultRow,
   type ResultRow,
+  type TrackedUniverse,
 } from './tracked-signal';
 
 export type HistoryTf = Timeframe | 'All';
@@ -48,6 +52,7 @@ export type HistoryTimeframe = {
 };
 
 export type HistoryReport = {
+  universe: TrackedUniverse;
   tf: HistoryTf;
   groupBy: Timeframe;
   holdUnit: string;
@@ -82,23 +87,29 @@ const GROUP_ACCUMULATORS = {
 
 @Injectable()
 export class HistoryService {
-  constructor(@InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>) {}
+  constructor(
+    @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
+    private readonly settings: SettingsService,
+  ) {}
 
   async report(opts: {
+    universe: TrackedUniverse;
     tf: HistoryTf;
     groupBy: Timeframe;
     sort?: PeriodSort;
     dir?: SortDir;
   }): Promise<HistoryReport> {
-    const { tf, groupBy } = opts;
+    const { universe, tf, groupBy } = opts;
     const sort = opts.sort ?? 'period';
     const dir = opts.dir ?? 'desc';
-    const match = closedMatch(tf);
+    const { maxRiskUsd, minRr } = await this.settings.get();
+    const match = closedMatch(universe, tf, minRr);
 
     const [facet, active, timeframes] = await Promise.all([
       this.tracked
         .aggregate([
           { $match: match },
+          ...resizeStages(maxRiskUsd),
           { $addFields: { bucket: bucketExpression(groupBy) } },
           {
             $facet: {
@@ -112,8 +123,8 @@ export class HistoryService {
           },
         ])
         .exec(),
-      this.tracked.countDocuments(activeMatch(tf)).exec(),
-      this.byTimeframe(),
+      this.tracked.countDocuments(activeMatch(universe, tf, minRr)).exec(),
+      this.byTimeframe(universe, minRr, maxRiskUsd),
     ]);
 
     const raw = (facet?.[0]?.periods ?? []) as any[];
@@ -126,6 +137,7 @@ export class HistoryService {
       : finalizePeriod({ _id: '', trades: 0, wins: 0, pnlUsd: 0, invested: 0 });
 
     return {
+      universe,
       tf,
       groupBy,
       holdUnit: holdUnitLabel(tf),
@@ -155,12 +167,17 @@ export class HistoryService {
    * rather than per exit day. Three small aggregations rather than one grouped on a `$switch`:
    * the per-timeframe index does the work and the shapes stay readable.
    */
-  private async byTimeframe(): Promise<HistoryTimeframe[]> {
+  private async byTimeframe(
+    universe: TrackedUniverse,
+    minRr: number,
+    maxRiskUsd: number,
+  ): Promise<HistoryTimeframe[]> {
     return Promise.all(
       TIMEFRAMES.map(async (tf) => {
         const rows = await this.tracked
           .aggregate([
-            { $match: { status: 'closed', tf } },
+            { $match: closedMatch(universe, tf, minRr) },
+            ...resizeStages(maxRiskUsd),
             { $addFields: { bucket: bucketExpression(tf) } },
             { $group: { _id: '$bucket', ...GROUP_ACCUMULATORS } },
             { $sort: { _id: 1 } },
@@ -188,6 +205,7 @@ export class HistoryService {
   }
 
   async trades(opts: {
+    universe: TrackedUniverse;
     tf: HistoryTf;
     periodKey?: string;
     groupBy?: Timeframe;
@@ -198,24 +216,129 @@ export class HistoryService {
   }): Promise<{ total: number; rows: ResultRow[] }> {
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
     const offset = Math.max(opts.offset ?? 0, 0);
-    const filter: Record<string, unknown> = closedMatch(opts.tf);
+    const { maxRiskUsd, minRr } = await this.settings.get();
+    const filter: Record<string, unknown> = closedMatch(opts.universe, opts.tf, minRr);
     if (opts.periodKey) {
       const range = periodDateRange(opts.periodKey, opts.groupBy ?? 'Daily');
       if (range) filter.exitDate = range;
     }
 
+    // Resize before sort so a P&L sort follows the same Max risk the cards display.
     const [rows, total] = await Promise.all([
       this.tracked
-        .find(filter)
-        .sort(tradeSortSpec(opts.sort ?? 'date', opts.dir ?? 'desc'))
-        .skip(offset)
-        .limit(limit)
-        .lean<any[]>()
+        .aggregate([
+          { $match: filter },
+          ...resizeStages(maxRiskUsd),
+          { $sort: tradeSortSpec(opts.sort ?? 'date', opts.dir ?? 'desc') },
+          { $skip: offset },
+          { $limit: limit },
+        ])
         .exec(),
       this.tracked.countDocuments(filter).exec(),
     ]);
-    return { total, rows: rows.map(toResultRow) };
+    return { total, rows: (rows as any[]).map((doc) => toResultRow(resizeDoc(doc, maxRiskUsd))) };
   }
+}
+
+/**
+ * Overwrite shares / realized P&L from the current Max risk so History always answers "what if
+ * every closed trade had been sized under today's setting". Stored CLOSED rows stay frozen.
+ */
+/** Stages typed loosely so Nest/mongoose PipelineStage unions stay out of the way. */
+function resizeStages(maxRiskUsd: number): any[] {
+  return [
+    {
+      $addFields: {
+        shares: {
+          $let: {
+            vars: {
+              riskPerShare: {
+                $cond: [
+                  {
+                    $and: [{ $ne: ['$sl', null] }, { $gt: ['$entry', '$sl'] }],
+                  },
+                  { $subtract: ['$entry', '$sl'] },
+                  null,
+                ],
+              },
+            },
+            in: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ['$$riskPerShare', null] },
+                    { $gt: ['$$riskPerShare', 0] },
+                    { $gt: [maxRiskUsd, 0] },
+                  ],
+                },
+                {
+                  $max: [0, { $round: [{ $divide: [maxRiskUsd, '$$riskPerShare'] }, 0] }],
+                },
+                0,
+              ],
+            },
+          },
+        },
+        riskUsd: maxRiskUsd,
+      },
+    },
+    {
+      $addFields: {
+        pnlUsd: {
+          $cond: [
+            {
+              $and: [{ $ne: ['$exitPrice', null] }, { $ne: ['$entry', null] }],
+            },
+            {
+              $round: [
+                {
+                  $multiply: [{ $subtract: ['$exitPrice', '$entry'] }, '$shares'],
+                },
+                2,
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        pnlPct: {
+          $let: {
+            vars: {
+              invested: { $multiply: [{ $ifNull: ['$entry', 0] }, { $ifNull: ['$shares', 0] }] },
+            },
+            in: {
+              $cond: [
+                {
+                  $and: [{ $gt: ['$$invested', 0] }, { $ne: ['$pnlUsd', null] }],
+                },
+                {
+                  $round: [{ $multiply: [{ $divide: ['$pnlUsd', '$$invested'] }, 100] }, 2],
+                },
+                null,
+              ],
+            },
+          },
+        },
+      },
+    },
+  ];
+}
+
+/** Same resize as the aggregation stages, for rows that already went through them (idempotent). */
+function resizeDoc(doc: any, maxRiskUsd: number): any {
+  const shares = sharesFromRisk(doc.entry, doc.sl, maxRiskUsd);
+  const pnl = computePnl(doc.entry, doc.sl, shares, doc.exitPrice);
+  return {
+    ...doc,
+    shares,
+    riskUsd: maxRiskUsd,
+    pnlUsd: pnl.usd,
+    pnlPct: pnl.pct,
+    // pnlR is price-based and independent of size — keep the stored multiple.
+  };
 }
 
 function equityCurve(periods: HistoryPeriod[]): EquityPoint[] {
@@ -231,16 +354,30 @@ function equityCurve(periods: HistoryPeriod[]): EquityPoint[] {
  * with a `provisionalClose` flag, so it shows in CLOSED for the current period and joins these
  * statistics only once the bar it broke on has finished.
  */
-function closedMatch(tf: HistoryTf): Record<string, unknown> {
-  const match: Record<string, unknown> = { status: 'closed' };
+function closedMatch(
+  universe: TrackedUniverse,
+  tf: HistoryTf,
+  minRr: number,
+): Record<string, unknown> {
+  const match: Record<string, unknown> = { status: 'closed', universe };
   if (tf !== 'All') match.tf = tf;
+  if (minRr > 0) match.rrAtEntry = { $gte: minRr };
   return match;
 }
 
 /** Confirmed positions only — a provisional record is not a signal yet, so it is not "open". */
-function activeMatch(tf: HistoryTf): Record<string, unknown> {
-  const match: Record<string, unknown> = { status: 'active', provisional: { $ne: true } };
+function activeMatch(
+  universe: TrackedUniverse,
+  tf: HistoryTf,
+  minRr: number,
+): Record<string, unknown> {
+  const match: Record<string, unknown> = {
+    status: 'active',
+    provisional: { $ne: true },
+    universe,
+  };
   if (tf !== 'All') match.tf = tf;
+  if (minRr > 0) match.rrAtEntry = { $gte: minRr };
   return match;
 }
 
