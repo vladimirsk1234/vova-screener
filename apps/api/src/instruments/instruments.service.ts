@@ -1,5 +1,7 @@
 /** Chart payloads and the multi-timeframe status watermark. */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
 import {
   ATR_LEN,
   buildDwmLines,
@@ -15,10 +17,14 @@ import {
   type OhlcSeries,
   type Timeframe,
 } from '@vova/engine';
+import { TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { UniverseService } from '../universe/universe.service';
 
 const TFS: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
+
+/** Same freshness the hourly scan uses, so chart and Results cannot disagree on bar age. */
+const CHART_BARS_MAX_AGE_HOURS = 0.5;
 
 function sliceSeries<T>(arr: T[], start: number): T[] {
   return arr.slice(start);
@@ -30,7 +36,10 @@ function remapIdx(idx: number, start: number): number {
 
 @Injectable()
 export class InstrumentsService {
+  private readonly log = new Logger(InstrumentsService.name);
+
   constructor(
+    @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     private readonly bars: BarsService,
     private readonly universe: UniverseService,
   ) {}
@@ -53,7 +62,9 @@ export class InstrumentsService {
       chartParams?: Partial<IndicatorParams>;
     } = {},
   ) {
-    const { bars: series } = await this.bars.getBars(yahooTicker, tf, { maxAgeHours: 12 });
+    const { bars: series } = await this.bars.getBars(yahooTicker, tf, {
+      maxAgeHours: CHART_BARS_MAX_AGE_HOURS,
+    });
     if (!series?.length) throw new NotFoundException(`no bars for ${yahooTicker}`);
     const asOf = opts.asOf;
     const bars = asOf ? series.filter((bar) => bar.date <= asOf) : series;
@@ -82,6 +93,14 @@ export class InstrumentsService {
       no_rr_req: true,
       direction: 'buy',
     });
+    const age = signalAge(bars);
+
+    // Live chart only: a closed-trade snapshot must not rewrite today's tracked row. Self-heal
+    // closes the gap where Results still shows NEW from the last scan while the chart already
+    // reads NO SIGNAL on fresher bars.
+    if (!asOf) {
+      await this.syncTrackedAge(yahooTicker, tf, bars[bars.length - 1].date, age);
+    }
 
     const keep = maxBarsForTf(tf);
     const start = Math.max(0, bars.length - keep);
@@ -200,7 +219,7 @@ export class InstrumentsService {
             valid: pine.Valid,
             isNew: pine.New,
             strong: pine.Strong,
-            ...signalAge(bars),
+            ...age,
             tp: Number.isFinite(pine.TP) ? pine.TP : null,
             sl: Number.isFinite(pine.SL) ? pine.SL : null,
             rr: Number.isFinite(pine.RR) ? pine.RR : null,
@@ -251,5 +270,45 @@ export class InstrumentsService {
       };
     }
     return { yahooTicker, timeframes: out };
+  }
+
+  /**
+   * Align the tracked row with the live engine verdict the chart just computed. Results reads
+   * stored fields; without this a symbol can sit in NEW for up to an hour after the setup dies.
+   *
+   * Skips imported journal trades (their entry is the user's), provisional closes (the break is
+   * still settling), and any row whose last scan priced a newer bar than this chart series.
+   */
+  private async syncTrackedAge(
+    yahooTicker: string,
+    tf: Timeframe,
+    barAsOf: string,
+    age: { barsSinceValid: number | null; validSinceAsOf: string | null },
+  ) {
+    try {
+      const set: Record<string, unknown> = {
+        barsSinceValid: age.barsSinceValid,
+        validSinceAsOf: age.validSinceAsOf,
+      };
+      if (age.barsSinceValid == null) set.signalValid = false;
+
+      await this.tracked
+        .updateOne(
+          {
+            yahooTicker,
+            tf,
+            status: 'active',
+            imported: { $ne: true },
+            provisionalClose: { $ne: true },
+            $or: [{ lastSeenAsOf: { $exists: false } }, { lastSeenAsOf: { $lte: barAsOf } }],
+          },
+          { $set: set },
+        )
+        .exec();
+    } catch (err) {
+      this.log.warn(
+        `tracked-age sync ${yahooTicker}/${tf} failed: ${(err as Error).message}`,
+      );
+    }
   }
 }

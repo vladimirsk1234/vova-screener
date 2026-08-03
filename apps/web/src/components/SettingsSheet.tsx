@@ -230,7 +230,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           ? `Scanning ${busy.universe} ${TF_SHORT[busy.tf]}. Stocks and ETF go one timeframe at a time, and the lists fill in as each finishes.`
           : running
             ? 'Starting. Stocks and ETF go one timeframe at a time, and the lists fill in as each finishes.'
-            : 'Re-downloads every symbol in Stocks and ETF and rebuilds the lists from it. Scans otherwise run on their own, hourly through the session and once each period closes.'}
+            : 'Re-downloads every symbol in Stocks and ETF and rebuilds the lists from it. Scans otherwise run on their own — one hourly pass over Daily, Weekly and Monthly together.'}
         {scanAge ? ` Last finished ${scanAge}.` : ' No scan has finished yet.'}
       </p>
       {rescan.data && !rescan.data.started ? (

@@ -54,9 +54,11 @@ the UI refetches. Closed signals keep the size they were closed at.
 
 ## Scans
 
-Stocks and ETF are scanned by `PeriodSchedulerService`: hourly through the session plus one right
-after each period closes, and on demand from the Settings sheet. Session passes are skipped, not
-queued, while an earlier pass is still running.
+Stocks and ETF are scanned by `PeriodSchedulerService`: one hourly pass covering Daily, Weekly and
+Monthly together (09:05–17:05 ET, Mon–Fri), and on demand from the Settings sheet. Post-close ticks
+are themselves the period-close scans — `periodClose` is decided from the clock when the run
+starts — so there are no separate close crons. Passes are skipped, not queued, while an earlier
+pass is still running.
 
 A run records `periodClose`, decided when the scan **starts**, and only those runs let the tracker
 confirm or close signals. Deciding it at finish would misclassify an hourly pass that began before

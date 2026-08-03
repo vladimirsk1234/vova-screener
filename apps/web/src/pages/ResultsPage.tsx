@@ -164,9 +164,18 @@ export function ResultsPage() {
         />
 
         <div className="results-meta">
-          <span className="muted small">
+          <span
+            className="muted small"
+            title={
+              scan?.asOf && scan.asOf !== (scan.newestAsOf ?? scan.asOf)
+                ? `Oldest bar in the run: ${scan.asOf}`
+                : undefined
+            }
+          >
             {scan?.running ? 'Scanning now' : scanAge ? `Scanned ${scanAge}` : 'No scan yet'}
-            {scan?.asOf ? ` · bar ${scan.asOf}` : ''}
+            {scan?.newestAsOf ?? scan?.asOf
+              ? ` · bar ${scan.newestAsOf ?? scan.asOf}`
+              : ''}
           </span>
           <SortChips
             options={SORTS}

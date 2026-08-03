@@ -1,16 +1,15 @@
 /**
  * Background scans. Results always show the latest of these; `runNow` is the one way the UI can
- * ask for another, and it starts the same pass the crons do.
+ * ask for another, and it starts the same pass the cron does.
  *
- * Two cadences: an hourly session refresh that surfaces signals appearing during the day, and a
- * scan right after each period closes. Only the latter confirms and closes tracked signals.
- * A catch-up runs at boot when the newest scan predates the current period.
+ * One hourly pass covers Stocks + ETF across Daily, Weekly and Monthly. Whether the tracker treats
+ * a run as a period close is decided from the clock in `ScansService` (`isPeriodClosed`), so the
+ * 16:05 / 17:05 ticks after the cash close are themselves the close scans — no separate close
+ * crons. A catch-up runs at boot when the newest scan predates the current period.
  *
- * One hourly pass re-downloads Stocks + ETF across all three timeframes, so it is the heaviest
- * thing this service does — see `scanAll` for how throttling shows up. Session passes are skipped
- * rather than queued when the previous one is still going, so a slow hour cannot snowball. Every
- * cron can be retuned with VOVA_SESSION_SCAN_CRON / VOVA_*_CLOSE_CRON, and background scanning
- * turns off entirely with VOVA_BACKGROUND_SCANS=off.
+ * Passes are skipped rather than queued when the previous one is still going, so a slow hour
+ * cannot snowball. The cadence can be retuned with `VOVA_SESSION_SCAN_CRON`, and background
+ * scanning turns off entirely with `VOVA_BACKGROUND_SCANS=off`.
  */
 import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -19,18 +18,15 @@ import type { Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { SCAN_RUN } from '../db/schemas';
 import { SettingsService } from '../settings/settings.module';
-import { isLastTradingDayOfMonth, MARKET_TZ, periodKey } from './period';
+import { MARKET_TZ, periodKey } from './period';
 import { ScansService } from './scans.service';
 import type { ScanParamsApi } from './scan-runner.service';
 
 const UNIVERSES = ['Stocks', 'ETF'] as const;
 export const SCAN_TIMEFRAMES: readonly Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
 
-/** Every hour of the cash session, 10:05 through 15:05 ET; the 16:15 close scan covers the last hour. */
-const SESSION_CRON = process.env.VOVA_SESSION_SCAN_CRON || '5 10-15 * * 1-5';
-const DAILY_CLOSE_CRON = process.env.VOVA_DAILY_CLOSE_CRON || '15 16 * * 1-5';
-const WEEKLY_CLOSE_CRON = process.env.VOVA_WEEKLY_CLOSE_CRON || '20 16 * * 5';
-const MONTHLY_CLOSE_CRON = process.env.VOVA_MONTHLY_CLOSE_CRON || '25 16 * * 1-5';
+/** Every hour from 09:05 through 17:05 ET, Mon–Fri. Post-close ticks are the period-close scans. */
+const PASS_CRON = process.env.VOVA_SESSION_SCAN_CRON || '5 9-17 * * 1-5';
 
 /**
  * `newOnly: false` matters: the tracker needs every still-valid signal to know which of its
@@ -71,36 +67,20 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
     void this.enqueue(() => this.catchUp(), 'catch-up');
   }
 
-  /** Hourly session pass: picks up signals that appear during the day as provisional. */
-  @Cron(SESSION_CRON, { timeZone: MARKET_TZ })
-  sessionRefresh() {
+  /** Hourly pass: all three timeframes, both universes. Post-close ticks confirm and close. */
+  @Cron(PASS_CRON, { timeZone: MARKET_TZ })
+  hourlyPass() {
     if (this.busy) {
-      this.log.warn('Session refresh skipped — the previous pass is still running');
+      this.log.warn('Hourly pass skipped — the previous pass is still running');
       return;
     }
-    void this.enqueue(() => this.scanAll(SCAN_TIMEFRAMES, false), 'session refresh');
-  }
-
-  @Cron(DAILY_CLOSE_CRON, { timeZone: MARKET_TZ })
-  dailyClose() {
-    void this.enqueue(() => this.scanAll(['Daily'], true), 'daily close');
-  }
-
-  @Cron(WEEKLY_CLOSE_CRON, { timeZone: MARKET_TZ })
-  weeklyClose() {
-    void this.enqueue(() => this.scanAll(['Weekly'], true), 'weekly close');
-  }
-
-  @Cron(MONTHLY_CLOSE_CRON, { timeZone: MARKET_TZ })
-  monthlyClose() {
-    if (!isLastTradingDayOfMonth()) return;
-    void this.enqueue(() => this.scanAll(['Monthly'], true), 'monthly close');
+    void this.enqueue(() => this.scanAll(SCAN_TIMEFRAMES), 'hourly pass');
   }
 
   /**
    * A scan asked for from the Settings sheet. It re-downloads every symbol rather than reusing
    * the hourly cache — the reason to press it is that the screen disagrees with the market — and
-   * it runs even when the crons are switched off, because it was asked for by hand.
+   * it runs even when the cron is switched off, because it was asked for by hand.
    *
    * Returns as soon as the pass is queued: a full universe takes minutes, and the Results header
    * already reports a scan in progress.
@@ -126,20 +106,25 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
   }
 
   /**
-   * `fresh` re-downloads every symbol; without it `barsMaxAgeHours: 0.5` is what makes an hourly
-   * cadence real: short enough that every symbol is genuinely re-downloaded each pass, long enough
-   * that two passes running back to back do not fetch the same series twice. Whether the tracker
-   * treats the result as a period close is decided from the clock in `ScansService`, not here.
+   * `barsMaxAgeHours: 0.5` is what makes an hourly cadence real: short enough that every symbol is
+   * genuinely re-downloaded each pass, long enough that two passes running back to back do not
+   * fetch the same series twice. Manual rescans pass `forceRefresh` so they never reuse the cache.
+   * Whether the tracker treats the result as a period close is decided from the clock in
+   * `ScansService`, not here.
+   *
+   * Universe-major order keeps the three timeframes of one universe updating together, so Results
+   * for Stocks Daily / Weekly / Monthly do not lag each other by half a pass.
    *
    * A throttled pass degrades instead of failing — `BarsService` falls back to the cached series
    * when Yahoo answers 429 — so the cache/download split is logged as the signal to watch. If
    * `cached` climbs towards the symbol count hour after hour, the cadence is too aggressive for
    * this IP and `VOVA_SESSION_SCAN_CRON` should be widened.
    */
-  private async scanAll(timeframes: readonly Timeframe[], fresh: boolean) {
+  private async scanAll(timeframes: readonly Timeframe[], forceRefresh = false) {
+    const passStarted = Date.now();
     const { maxRiskUsd } = await this.settings.get();
-    for (const tf of timeframes) {
-      for (const source of UNIVERSES) {
+    for (const source of UNIVERSES) {
+      for (const tf of timeframes) {
         const started = Date.now();
         const { runId } = await this.scans.start(
           {
@@ -147,20 +132,24 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
             source,
             tf,
             riskPerTrade: maxRiskUsd,
-            forceRefresh: fresh,
-            barsMaxAgeHours: fresh ? 0 : 0.5,
+            forceRefresh,
+            barsMaxAgeHours: forceRefresh ? 0 : 0.5,
           },
           { trigger: 'scheduled', wait: true },
         );
         const run = await this.runs.findById(runId).select('counters status').lean<any>().exec();
         const counters = run?.counters ?? {};
         this.log.log(
-          `${tf} ${source}: ${run?.status} in ${Math.round((Date.now() - started) / 1000)}s · ` +
+          `${source} ${tf}: ${run?.status} in ${Math.round((Date.now() - started) / 1000)}s · ` +
             `${counters.signals ?? 0} signals · ${counters.closes ?? 0} closes · ` +
             `${counters.fromCache ?? 0}/${counters.total ?? 0} cached`,
         );
       }
     }
+    this.log.log(
+      `Pass done in ${Math.round((Date.now() - passStarted) / 1000)}s · ` +
+        `${UNIVERSES.length} universes × ${timeframes.length} timeframes`,
+    );
   }
 
   /** Only scans the timeframes whose newest completed run is older than the current period. */
@@ -186,6 +175,6 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
       return;
     }
     this.log.log(`Catch-up scanning ${stale.join(', ')}`);
-    await this.scanAll(stale, false);
+    await this.scanAll(stale);
   }
 }

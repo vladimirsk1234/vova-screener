@@ -54,8 +54,9 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 
 ### What works locally
 
-- Stocks and ETF are scanned in the background — hourly through the session plus one right after
-  each period closes — so **Results** always shows the latest scan without pressing anything
+- Stocks and ETF are scanned in the background — one hourly pass covering Daily, Weekly and Monthly
+  together (09:05–17:05 ET, Mon–Fri); post-close ticks are themselves the period-close scans — so
+  **Results** always shows the latest scan without pressing anything
 - Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
   or ticker; Valid and Closed carry P&L
 - New is the signals that appeared on the current bar of that timeframe, Valid the ones that appeared
@@ -88,9 +89,10 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 - Trades from the old journal are imported on first boot, so History still covers everything closed
   before the app started tracking signals on its own
 
-Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 10-15 * * 1-5`, i.e.
-10:05 to 15:05), `VOVA_DAILY_CLOSE_CRON`, `VOVA_WEEKLY_CLOSE_CRON` and `VOVA_MONTHLY_CLOSE_CRON`
-(all America/New_York), or switched off entirely with `VOVA_BACKGROUND_SCANS=off`.
+Background scanning can be tuned with `VOVA_SESSION_SCAN_CRON` (default `5 9-17 * * 1-5`, i.e.
+09:05 to 17:05 America/New_York), or switched off entirely with `VOVA_BACKGROUND_SCANS=off`.
+There are no separate close crons: `periodClose` is decided from the clock when each run starts,
+so the 16:05 / 17:05 ticks after the cash close confirm and close tracked signals.
 
 An hourly pass re-downloads every symbol on all three timeframes, roughly 12k Yahoo requests in
 about a minute. If Yahoo starts throttling, bars fall back to the cached series rather than
