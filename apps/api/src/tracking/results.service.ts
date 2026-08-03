@@ -5,6 +5,7 @@ import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { SCAN_RUN, TRACKED_SIGNAL } from '../db/schemas';
 import { barPeriodKey, periodKey as currentPeriodKey } from '../scans/period';
+import { SettingsService } from '../settings/settings.module';
 import {
   INTEREST_RANK,
   TIMEFRAMES,
@@ -48,6 +49,7 @@ export class ResultsService {
   constructor(
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -100,7 +102,8 @@ export class ResultsService {
     const offset = Math.max(opts.offset ?? 0, 0);
 
     const scan = await this.scanMeta(universe, tf);
-    const filter = bucketFilter(universe, tf, bucket, scan);
+    const { minRr } = await this.settings.get();
+    const filter = bucketFilter(universe, tf, bucket, scan, minRr);
 
     const [rows, total] = await Promise.all([
       this.tracked
@@ -118,6 +121,7 @@ export class ResultsService {
 
   /** Bucket counts for every universe + timeframe, for the tab badges. */
   async summary() {
+    const { minRr } = await this.settings.get();
     const metas = await Promise.all(
       UNIVERSES.flatMap((universe) =>
         TIMEFRAMES.map(async (tf) => ({ universe, tf, scan: await this.scanMeta(universe, tf) })),
@@ -127,9 +131,9 @@ export class ResultsService {
     const counted = await Promise.all(
       metas.map(async ({ universe, tf, scan }) => {
         const [newCount, valid, closed] = await Promise.all([
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'new', scan)).exec(),
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'valid', scan)).exec(),
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'closed', scan)).exec(),
+          this.tracked.countDocuments(bucketFilter(universe, tf, 'new', scan, minRr)).exec(),
+          this.tracked.countDocuments(bucketFilter(universe, tf, 'valid', scan, minRr)).exec(),
+          this.tracked.countDocuments(bucketFilter(universe, tf, 'closed', scan, minRr)).exec(),
         ]);
         return { universe, tf, scan, counts: { new: newCount, valid, closed } };
       }),
@@ -186,6 +190,7 @@ function bucketFilter(
   tf: Timeframe,
   bucket: Bucket,
   scan: ScanMeta,
+  minRr = 0,
 ): Record<string, unknown> {
   // CLOSED is "closed on the newest bar's period", and mid-period that includes a sell-to-close
   // break on the bar still running: the trade reads as closed here from the moment the break
@@ -196,41 +201,49 @@ function bucketFilter(
   // bar it can see is still the last one of this month. `newestAsOf` is the period the universe
   // agrees on rather than any one symbol's newest bar, so neither a halted ticker nor a series
   // Yahoo stamps a day off the grid can point this at a period with nothing in it.
+  let filter: Record<string, unknown>;
   if (bucket === 'closed') {
-    return {
+    filter = {
       universe,
       tf,
       closedPeriodKey: scan.newestAsOf ? barPeriodKey(tf, scan.newestAsOf) : scan.periodKey,
       $or: [{ status: 'closed' }, { provisionalClose: true }],
     };
+  } else {
+    // A trade only ends on a break, so a position whose buy setup stopped being valid is still open
+    // — it just leaves the screen. `signalValid: false` is written when a scan evaluates the symbol
+    // and does not report it, so this asks the scan directly instead of inferring an answer from
+    // which period a record was last priced in: a scan that has not run yet, or one Yahoo throttled,
+    // then cannot empty the list.
+    //
+    // The NEW / VALID split is the bar the signal became valid on, not the period the tracker first
+    // recorded it in: a symbol the scan meets for the first time may already have been valid for
+    // four bars, and it belongs next to the other four-bar-old trades rather than next to today's
+    // breakouts.
+    const live = {
+      universe,
+      tf,
+      status: 'active',
+      provisionalClose: { $ne: true },
+      signalValid: { $ne: false },
+    };
+    // NEW is a claim about the current bar, so it does ask for a record this period's scan priced.
+    if (bucket === 'new') {
+      filter = { ...live, barsSinceValid: 0, lastSeenPeriodKey: scan.periodKey };
+    } else {
+      // Exact complement of NEW among the signals still being reported, so the two counts always add
+      // up and a record nobody has priced this period lands here rather than nowhere. Records written
+      // before `barsSinceValid` existed match `$ne: 0` on the missing field: a signal the tracker is
+      // already carrying is by definition not new on this bar.
+      filter = {
+        ...live,
+        $or: [{ barsSinceValid: { $ne: 0 } }, { lastSeenPeriodKey: { $ne: scan.periodKey } }],
+      };
+    }
   }
-  // A trade only ends on a break, so a position whose buy setup stopped being valid is still open
-  // — it just leaves the screen. `signalValid: false` is written when a scan evaluates the symbol
-  // and does not report it, so this asks the scan directly instead of inferring an answer from
-  // which period a record was last priced in: a scan that has not run yet, or one Yahoo throttled,
-  // then cannot empty the list.
-  //
-  // The NEW / VALID split is the bar the signal became valid on, not the period the tracker first
-  // recorded it in: a symbol the scan meets for the first time may already have been valid for
-  // four bars, and it belongs next to the other four-bar-old trades rather than next to today's
-  // breakouts.
-  const live = {
-    universe,
-    tf,
-    status: 'active',
-    provisionalClose: { $ne: true },
-    signalValid: { $ne: false },
-  };
-  // NEW is a claim about the current bar, so it does ask for a record this period's scan priced.
-  if (bucket === 'new') return { ...live, barsSinceValid: 0, lastSeenPeriodKey: scan.periodKey };
-  // Exact complement of NEW among the signals still being reported, so the two counts always add
-  // up and a record nobody has priced this period lands here rather than nowhere. Records written
-  // before `barsSinceValid` existed match `$ne: 0` on the missing field: a signal the tracker is
-  // already carrying is by definition not new on this bar.
-  return {
-    ...live,
-    $or: [{ barsSinceValid: { $ne: 0 } }, { lastSeenPeriodKey: { $ne: scan.periodKey } }],
-  };
+  // Global Min RR from Settings: lists and badge counts share one floor on entry RR.
+  if (minRr > 0) filter.rrAtEntry = { $gte: minRr };
+  return filter;
 }
 
 /**

@@ -59,13 +59,21 @@ export function resultsPathForUniverse(universe: Universe): string {
   return `/results/${universe}/Daily/new`;
 }
 
-export type HistoryFilters = { tf: HistoryTf; groupBy: Timeframe };
+export type HistoryFilters = { universe: Universe; tf: HistoryTf; groupBy: Timeframe };
+
+function isUniverse(value: string): value is Universe {
+  return UNIVERSES.includes(value as Universe);
+}
 
 export function loadHistoryFilters(): HistoryFilters {
   try {
     const raw = sessionStorage.getItem(HISTORY_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<HistoryFilters>;
+      const universe =
+        typeof parsed.universe === 'string' && isUniverse(parsed.universe)
+          ? parsed.universe
+          : 'Stocks';
       const tf = typeof parsed.tf === 'string' && isHistoryTf(parsed.tf) ? parsed.tf : 'Daily';
       const groupBy =
         typeof parsed.groupBy === 'string' && isTimeframe(parsed.groupBy)
@@ -73,12 +81,12 @@ export function loadHistoryFilters(): HistoryFilters {
           : tf === 'All'
             ? 'Daily'
             : tf;
-      return { tf, groupBy };
+      return { universe, tf, groupBy };
     }
   } catch {
     // ignore
   }
-  return { tf: 'Daily', groupBy: 'Daily' };
+  return { universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' };
 }
 
 export function saveHistoryFilters(filters: HistoryFilters): void {

@@ -180,6 +180,7 @@ export type HistoryTimeframe = {
 };
 
 export type HistoryReport = {
+  universe: Universe;
   tf: HistoryTf;
   groupBy: Timeframe;
   holdUnit: string;
@@ -203,7 +204,7 @@ export type HistoryReport = {
 export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
 export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
 
-export type AppSettings = { maxRiskUsd: number };
+export type AppSettings = { maxRiskUsd: number; minRr: number };
 
 /** What `POST /scans/run-now` answers: the pass is queued, or one was already going. */
 export type ScanNowResult = { started: boolean; timeframes: Timeframe[]; reason?: string };
@@ -423,12 +424,14 @@ export const api = {
 
   // History — statistics over closed tracked signals.
   history: (opts: {
+    universe: Universe;
     tf: HistoryTf;
     groupBy: Timeframe;
     sort?: HistoryPeriodSort;
     dir?: SortDir;
   }) => request<HistoryReport>(`/history${query(opts)}`),
   historyTrades: (opts: {
+    universe: Universe;
     tf: HistoryTf;
     groupBy?: Timeframe;
     periodKey?: string;

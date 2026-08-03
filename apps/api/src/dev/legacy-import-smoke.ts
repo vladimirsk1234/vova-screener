@@ -184,7 +184,7 @@ async function main() {
     8, // 7 imported + the one that was already tracked
   );
 
-  const stats = await history.report({ tf: 'Daily', groupBy: 'Daily' });
+  const stats = await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' });
   const closed = stats.periods.filter((p) => ['2026-06-12', '2026-06-15', '2026-06-19'].includes(p.periodKey));
   check(
     'imported trades show up in History',

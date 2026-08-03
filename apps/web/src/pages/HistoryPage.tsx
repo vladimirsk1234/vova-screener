@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   TIMEFRAMES,
+  UNIVERSES,
   api,
   type HistoryPeriodSort,
   type HistoryTf,
@@ -9,6 +10,7 @@ import {
   type HistoryTradeSort,
   type SortDir,
   type Timeframe,
+  type Universe,
 } from '../lib/api';
 import { holdLabel, money, num, periodLabel, signedMoney } from '../lib/format';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
@@ -93,6 +95,7 @@ function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
 }
 
 export function HistoryPage() {
+  const [universe, setUniverse] = useState<Universe>(() => loadHistoryFilters().universe);
   const [tf, setTf] = useState<HistoryTf>(() => loadHistoryFilters().tf);
   const [groupBy, setGroupBy] = useState<Timeframe>(() => loadHistoryFilters().groupBy);
   const [periodSort, setPeriodSort] = useState<HistoryPeriodSort>('period');
@@ -102,20 +105,21 @@ export function HistoryPage() {
   const [openPeriod, setOpenPeriod] = useState<string | null>(null);
 
   useEffect(() => {
-    saveHistoryFilters({ tf, groupBy });
-  }, [tf, groupBy]);
+    saveHistoryFilters({ universe, tf, groupBy });
+  }, [universe, tf, groupBy]);
 
   const report = useQuery({
-    queryKey: ['history', tf, groupBy, periodSort, periodDir],
-    queryFn: () => api.history({ tf, groupBy, sort: periodSort, dir: periodDir }),
+    queryKey: ['history', universe, tf, groupBy, periodSort, periodDir],
+    queryFn: () => api.history({ universe, tf, groupBy, sort: periodSort, dir: periodDir }),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
   const trades = useQuery({
-    queryKey: ['history-trades', tf, groupBy, openPeriod, tradeSort, tradeDir],
+    queryKey: ['history-trades', universe, tf, groupBy, openPeriod, tradeSort, tradeDir],
     queryFn: () =>
       api.historyTrades({
+        universe,
         tf,
         groupBy,
         periodKey: openPeriod ?? undefined,
@@ -129,6 +133,11 @@ export function HistoryPage() {
 
   const data = report.data;
   const unit = holdLabel(tf);
+
+  const onUniverse = (next: Universe) => {
+    setUniverse(next);
+    setOpenPeriod(null);
+  };
 
   const onTf = (next: HistoryTf) => {
     setTf(next);
@@ -146,9 +155,11 @@ export function HistoryPage() {
       <section className="card">
         <h2>History</h2>
         <p className="muted small">
-          Trades closed by a sell-to-close break, on bars that have finished. Statistics follow the
-          timeframe you pick.
+          Trades closed by a sell-to-close break, on bars that have finished. P&amp;L follows the
+          current Max risk; Min RR from Settings filters what counts. Pick Stocks or ETF, then a
+          timeframe.
         </p>
+        <Chips label="Universe" value={universe} options={UNIVERSES} onChange={onUniverse} />
         <Chips label="Timeframe" value={tf} options={HISTORY_TFS} onChange={onTf} />
         <Chips label="Group by" value={groupBy} options={TIMEFRAMES} onChange={onGroupBy} />
       </section>

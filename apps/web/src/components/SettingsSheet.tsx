@@ -4,6 +4,7 @@ import {
   TIMEFRAMES,
   UNIVERSES,
   api,
+  type AppSettings,
   type ResultsSummary,
   type Timeframe,
   type Universe,
@@ -40,21 +41,31 @@ function lastFinished(data: ResultsSummary | undefined): string | null {
   return newest;
 }
 
+function invalidateLists(queryClient: ReturnType<typeof useQueryClient>) {
+  for (const key of ['results', 'results-summary', 'history', 'history-trades', 'tracked-signal', 'chart']) {
+    void queryClient.invalidateQueries({ queryKey: [key] });
+  }
+}
+
 /**
- * The whole settings surface: one risk number, rescanning, and maintenance. Scan parameters are
- * fixed in the backend (buy signals, no RR floor), so there is nothing else to tune here.
+ * Global knobs: risk per signal, RR floor for every list/stat, rescanning, and maintenance.
+ * Scan shape stays fixed in the backend (buy signals); Min RR only filters what is shown.
  */
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, enabled: open });
-  const [draft, setDraft] = useState('');
+  const [riskDraft, setRiskDraft] = useState('');
+  const [rrDraft, setRrDraft] = useState('');
   const [scanTf, setScanTf] = useState<ScanTf>('all');
   // Queued, but the first run document may not exist yet — without this the button would flick
   // back to idle in the seconds between the request returning and the scan showing up.
   const [awaiting, setAwaiting] = useState(false);
 
   useEffect(() => {
-    if (settings.data) setDraft(String(settings.data.maxRiskUsd));
+    if (settings.data) {
+      setRiskDraft(String(settings.data.maxRiskUsd));
+      setRrDraft(String(settings.data.minRr));
+    }
   }, [settings.data]);
 
   // Shares its key with the Results header, so opening this sheet is also what speeds that up
@@ -99,14 +110,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const scanAge = useMemo(() => formatAge(lastFinished(summary.data)), [summary.data]);
 
   const save = useMutation({
-    mutationFn: (maxRiskUsd: number) => api.saveSettings({ maxRiskUsd }),
+    mutationFn: (patch: Partial<AppSettings>) => api.saveSettings(patch),
     onSuccess: (next) => {
       queryClient.setQueryData(['settings'], next);
-      // The server re-sizes every open position before answering, so everything showing a share
-      // count or an unrealized number is now stale.
-      for (const key of ['results', 'results-summary', 'history', 'history-trades', 'tracked-signal', 'chart']) {
-        void queryClient.invalidateQueries({ queryKey: [key] });
-      }
+      // Max risk re-sizes open positions before the response; Min RR only changes what lists show.
+      // History always re-reads under the current risk, so it needs a refresh either way.
+      invalidateLists(queryClient);
     },
   });
 
@@ -122,14 +131,24 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 
   if (!open) return null;
 
-  const commit = () => {
-    const next = Number(draft);
+  const commitRisk = () => {
+    const next = Number(riskDraft);
     if (!Number.isFinite(next) || next <= 0) {
-      setDraft(String(settings.data?.maxRiskUsd ?? ''));
+      setRiskDraft(String(settings.data?.maxRiskUsd ?? ''));
       return;
     }
     if (next === settings.data?.maxRiskUsd) return;
-    save.mutate(next);
+    save.mutate({ maxRiskUsd: next });
+  };
+
+  const commitRr = () => {
+    const next = Number(rrDraft);
+    if (!Number.isFinite(next) || next < 0) {
+      setRrDraft(String(settings.data?.minRr ?? ''));
+      return;
+    }
+    if (next === settings.data?.minRr) return;
+    save.mutate({ minRr: next });
   };
 
   return (
@@ -151,9 +170,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           inputMode="decimal"
           min={1}
           step={1}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          value={riskDraft}
+          onChange={(e) => setRiskDraft(e.target.value)}
+          onBlur={commitRisk}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
@@ -161,7 +180,29 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </div>
       <p className="muted small">
         One risk for every signal: position size is this divided by the distance to SL. Changing it
-        re-sizes all open signals right away. Closed ones keep the size they were closed at.
+        re-sizes all open signals right away. History statistics recompute under this risk; closed
+        rows in Results keep the size they were closed at.
+      </p>
+
+      <div className="field">
+        <label htmlFor="min-rr">Min RR</label>
+        <input
+          id="min-rr"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={0.1}
+          value={rrDraft}
+          onChange={(e) => setRrDraft(e.target.value)}
+          onBlur={commitRr}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+        />
+      </div>
+      <p className="muted small">
+        Floor on entry RR for NEW, VALID, CLOSED and all History statistics. 0 shows everything.
+        Scans still track every signal; this only filters what the lists and stats include.
       </p>
 
       <div className="field">
