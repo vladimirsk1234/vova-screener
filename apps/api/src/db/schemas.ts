@@ -170,6 +170,11 @@ export const TrackedSignalSchema = new Schema(
      * actually paid, so the close-scan replay closes it but never re-prices it.
      */
     imported: { type: Boolean, default: false },
+    /**
+     * Written by History rebuild (`runCloseLedger` over the bar cache), not by a live scan
+     * adoption. Same shape as an adopted close; the flag is for audit / rebuild reports.
+     */
+    backfilled: { type: Boolean, default: false },
 
     /** Frozen at first appearance — the entry the P&L is measured from. */
     openedPeriodKey: { type: String, required: true },

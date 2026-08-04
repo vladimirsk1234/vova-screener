@@ -50,11 +50,12 @@ the sell rows; the scan screen filters them out.
 `{ runId, symbol, reason, createdAt }` with a 30-day TTL — audit data, not history.
 
 ### `trackedSignals`
-The single source for Results and History. Written only by `SignalTrackerService` after a
-background scan finishes, so both screens are indexed reads with no per-request maths.
+The single source for Results and History. Written by `SignalTrackerService` after a
+background scan finishes, and by `HistoryRebuildService` when Settings asks for a full ledger
+backfill, so both screens are indexed reads with no per-request maths.
 
 `{ yahooTicker, symbol, tvSymbol, companyName, universe, tf, status, provisional, provisionalClose,
-signalValid, imported, openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
+signalValid, imported, backfilled, openedPeriodKey, openedAsOf, entry, tp, sl, rrAtEntry, shares, riskUsd,
 lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, barsSinceValid, validSinceAsOf, isStrong,
 unrealizedUsd, unrealizedR, unrealizedPct,
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
@@ -78,6 +79,11 @@ Lifecycle:
   written down complete, entry and exit together. Those adopted trades are most of any close list.
   A close already written down (same symbol, same exit bar) is skipped, so the hourly cadence does
   not stack a copy of each trade an hour.
+- **History rebuild** (`POST /history/rebuild`) runs `runCloseLedger` over the `barSeries` cache for
+  every Stocks/ETF symbol and every timeframe, and inserts every *closed* ledger trade that is not
+  already recorded (`yahooTicker` + `exitDate`). Rows are marked `backfilled: true`. Open ledger
+  tails and `imported` journal rows are left alone. Depth is the Yahoo window already cached:
+  Daily ~2y, Weekly/Monthly ~10y (`intervalAndPeriod`).
 - **A record's entry follows the replay, not the day the app first met the symbol.** A position met
   four months into its run is priced from the bar it actually started on, and its `entry`, `sl`,
   `tp`, `rrAtEntry` and `openedAsOf` are re-aligned to the replay on every scan. `imported` journal

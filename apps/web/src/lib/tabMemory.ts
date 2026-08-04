@@ -1,7 +1,9 @@
 import {
   BUCKETS,
+  HISTORY_RANGES,
   TIMEFRAMES,
   UNIVERSES,
+  type HistoryRange,
   type HistoryTf,
   type Timeframe,
   type Universe,
@@ -13,6 +15,7 @@ const HISTORY_KEY = 'vova.historyFilters';
 export const DEFAULT_RESULTS_PATH = '/results/Stocks/Daily/new';
 
 const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
+const HISTORY_RANGE_OPTIONS = HISTORY_RANGES;
 
 const RESULTS_PATH_RE = new RegExp(
   `^/results/(${UNIVERSES.join('|')})/(${TIMEFRAMES.join('|')})/(${BUCKETS.join('|')})(/|\\?|$)`,
@@ -59,10 +62,19 @@ export function resultsPathForUniverse(universe: Universe): string {
   return `/results/${universe}/Daily/new`;
 }
 
-export type HistoryFilters = { universe: Universe; tf: HistoryTf; groupBy: Timeframe };
+export type HistoryFilters = {
+  universe: Universe;
+  tf: HistoryTf;
+  groupBy: Timeframe;
+  range: HistoryRange;
+};
 
 function isUniverse(value: string): value is Universe {
   return UNIVERSES.includes(value as Universe);
+}
+
+function isHistoryRange(value: string): value is HistoryRange {
+  return (HISTORY_RANGE_OPTIONS as readonly string[]).includes(value);
 }
 
 export function loadHistoryFilters(): HistoryFilters {
@@ -81,12 +93,14 @@ export function loadHistoryFilters(): HistoryFilters {
           : tf === 'All'
             ? 'Daily'
             : tf;
-      return { universe, tf, groupBy };
+      const range =
+        typeof parsed.range === 'string' && isHistoryRange(parsed.range) ? parsed.range : 'all';
+      return { universe, tf, groupBy, range };
     }
   } catch {
     // ignore
   }
-  return { universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' };
+  return { universe: 'Stocks', tf: 'Daily', groupBy: 'Daily', range: 'all' };
 }
 
 export function saveHistoryFilters(filters: HistoryFilters): void {

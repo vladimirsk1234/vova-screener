@@ -129,6 +129,35 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     },
   });
 
+  const [rebuildAwaiting, setRebuildAwaiting] = useState(false);
+  const rebuild = useMutation({
+    mutationFn: api.rebuildHistory,
+    onSuccess: (result) => {
+      if (result.started) setRebuildAwaiting(true);
+      void queryClient.invalidateQueries({ queryKey: ['history-rebuild'] });
+    },
+  });
+  const rebuildStatus = useQuery({
+    queryKey: ['history-rebuild'],
+    queryFn: api.historyRebuildStatus,
+    enabled: open,
+    refetchInterval: (query) =>
+      rebuildAwaiting || query.state.data?.status === 'running' ? 2_000 : false,
+  });
+  const rebuildRunning =
+    rebuildAwaiting || rebuild.isPending || rebuildStatus.data?.status === 'running';
+
+  useEffect(() => {
+    const status = rebuildStatus.data?.status;
+    if (!rebuildAwaiting) return;
+    if (status === 'running') return;
+    if (status === 'done' || status === 'failed') {
+      setRebuildAwaiting(false);
+      void queryClient.invalidateQueries({ queryKey: ['history'] });
+      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+    }
+  }, [rebuildAwaiting, rebuildStatus.data?.status, queryClient]);
+
   if (!open) return null;
 
   const commitRisk = () => {
@@ -241,8 +270,46 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       <div className="chart-settings-actions">
         <button
           type="button"
+          className="btn-sm"
+          disabled={rebuildRunning || running}
+          onClick={() => {
+            if (
+              !window.confirm(
+                'Replay the close-scan ledger over every cached symbol and add missing closed trades to History? Existing rows are kept.',
+              )
+            ) {
+              return;
+            }
+            rebuild.mutate();
+          }}
+        >
+          {rebuildRunning ? 'Rebuilding…' : 'Rebuild history'}
+        </button>
+      </div>
+      <p className="muted small">
+        Fills History from the close-scan replay on the bar cache (run a scan first if bars are
+        cold). Does not delete anything. Yahoo windows: Daily ~2y, Weekly and Monthly ~10y — that is
+        as far back as rebuild can go.
+        {rebuildStatus.data?.status === 'running' && rebuildStatus.data.progress.tf
+          ? ` Now ${rebuildStatus.data.progress.universe} ${TF_SHORT[rebuildStatus.data.progress.tf]} (${rebuildStatus.data.progress.symbolsDone}/${rebuildStatus.data.progress.symbolsTotal}).`
+          : ''}
+        {rebuildStatus.data?.status === 'done'
+          ? ` Last run inserted ${rebuildStatus.data.counts.inserted}, skipped ${rebuildStatus.data.counts.skipped}, no bars ${rebuildStatus.data.counts.noBars}.`
+          : ''}
+      </p>
+      {rebuild.data && !rebuild.data.started ? (
+        <p className="muted small">{rebuild.data.reason ?? 'A history rebuild is already running.'}</p>
+      ) : null}
+      {rebuildStatus.data?.status === 'failed' ? (
+        <p className="error">{rebuildStatus.data.error ?? 'History rebuild failed.'}</p>
+      ) : null}
+      {rebuild.error ? <p className="error">{(rebuild.error as Error).message}</p> : null}
+
+      <div className="chart-settings-actions">
+        <button
+          type="button"
           className="btn-sm danger"
-          disabled={reset.isPending}
+          disabled={reset.isPending || rebuildRunning}
           onClick={() => {
             if (!window.confirm('Delete every scan run and tracked signal? This cannot be undone.')) {
               return;
