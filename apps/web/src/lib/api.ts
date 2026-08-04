@@ -2,6 +2,8 @@
 
 export type Timeframe = 'Daily' | 'Weekly' | 'Monthly';
 export type HistoryTf = Timeframe | 'All';
+/** Exit-date lookback on History. `max` is accepted by the API as an alias of `all`. */
+export type HistoryRange = 'all' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'max';
 export type Universe = 'Stocks' | 'ETF';
 export type SourceLabel = Universe | 'MANUAL SCAN';
 export type Direction = 'buy' | 'sell';
@@ -16,6 +18,7 @@ export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost' | 'manual
 export const TIMEFRAMES = ['Daily', 'Weekly', 'Monthly'] as const satisfies readonly Timeframe[];
 export const UNIVERSES = ['Stocks', 'ETF'] as const satisfies readonly Universe[];
 export const BUCKETS = ['new', 'valid', 'closed'] as const satisfies readonly Bucket[];
+export const HISTORY_RANGES = ['all', 'ytd', '1m', '3m', '6m', '1y'] as const satisfies readonly HistoryRange[];
 
 export type ScanParams = {
   source: SourceLabel;
@@ -183,6 +186,7 @@ export type HistoryReport = {
   universe: Universe;
   tf: HistoryTf;
   groupBy: Timeframe;
+  range: HistoryRange;
   holdUnit: string;
   periods: HistoryPeriod[];
   equity: EquityPoint[];
@@ -198,6 +202,26 @@ export type HistoryReport = {
     avgR: number | null;
     avgRrEntry: number | null;
     avgHold: number | null;
+  };
+};
+
+/** Progress of `POST /history/rebuild` — poll until status is done/failed. */
+export type HistoryRebuildStatus = {
+  status: 'idle' | 'running' | 'done' | 'failed';
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  progress: {
+    universe: Universe | null;
+    tf: Timeframe | null;
+    symbolsDone: number;
+    symbolsTotal: number;
+  };
+  counts: {
+    inserted: number;
+    skipped: number;
+    noBars: number;
+    symbols: number;
   };
 };
 
@@ -427,6 +451,7 @@ export const api = {
     universe: Universe;
     tf: HistoryTf;
     groupBy: Timeframe;
+    range?: HistoryRange;
     sort?: HistoryPeriodSort;
     dir?: SortDir;
   }) => request<HistoryReport>(`/history${query(opts)}`),
@@ -435,11 +460,16 @@ export const api = {
     tf: HistoryTf;
     groupBy?: Timeframe;
     periodKey?: string;
+    range?: HistoryRange;
     sort?: HistoryTradeSort;
     dir?: SortDir;
     limit?: number;
     offset?: number;
   }) => request<{ total: number; rows: ResultRow[] }>(`/history/trades${query(opts)}`),
+  /** Replay close-ledger over the bar cache and insert missing closed trades into History. */
+  rebuildHistory: () =>
+    request<{ started: boolean; reason?: string }>('/history/rebuild', { method: 'POST' }),
+  historyRebuildStatus: () => request<HistoryRebuildStatus>('/history/rebuild'),
 
   // Settings
   settings: () => request<AppSettings>('/settings'),

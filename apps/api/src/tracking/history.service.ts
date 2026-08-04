@@ -17,6 +17,8 @@ import {
 } from './tracked-signal';
 
 export type HistoryTf = Timeframe | 'All';
+/** Lookback on exit date. `max` is an alias of `all` (everything already in DB). */
+export type HistoryRange = 'all' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'max';
 export type PeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
 export type TradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
 export type SortDir = 'asc' | 'desc';
@@ -55,6 +57,8 @@ export type HistoryReport = {
   universe: TrackedUniverse;
   tf: HistoryTf;
   groupBy: Timeframe;
+  /** Exit-date lookback applied to closed trades (`max` normalised to `all`). */
+  range: HistoryRange;
   holdUnit: string;
   periods: HistoryPeriod[];
   equity: EquityPoint[];
@@ -96,14 +100,16 @@ export class HistoryService {
     universe: TrackedUniverse;
     tf: HistoryTf;
     groupBy: Timeframe;
+    range?: HistoryRange;
     sort?: PeriodSort;
     dir?: SortDir;
   }): Promise<HistoryReport> {
     const { universe, tf, groupBy } = opts;
+    const range = normalizeRange(opts.range);
     const sort = opts.sort ?? 'period';
     const dir = opts.dir ?? 'desc';
     const { maxRiskUsd, minRr } = await this.settings.get();
-    const match = closedMatch(universe, tf, minRr);
+    const match = closedMatch(universe, tf, minRr, range);
 
     const [facet, active, timeframes] = await Promise.all([
       this.tracked
@@ -124,7 +130,7 @@ export class HistoryService {
         ])
         .exec(),
       this.tracked.countDocuments(activeMatch(universe, tf, minRr)).exec(),
-      this.byTimeframe(universe, minRr, maxRiskUsd),
+      this.byTimeframe(universe, minRr, maxRiskUsd, range),
     ]);
 
     const raw = (facet?.[0]?.periods ?? []) as any[];
@@ -140,6 +146,7 @@ export class HistoryService {
       universe,
       tf,
       groupBy,
+      range,
       holdUnit: holdUnitLabel(tf),
       periods: sortPeriods(ascending, sort, dir),
       equity,
@@ -171,12 +178,13 @@ export class HistoryService {
     universe: TrackedUniverse,
     minRr: number,
     maxRiskUsd: number,
+    range: HistoryRange,
   ): Promise<HistoryTimeframe[]> {
     return Promise.all(
       TIMEFRAMES.map(async (tf) => {
         const rows = await this.tracked
           .aggregate([
-            { $match: closedMatch(universe, tf, minRr) },
+            { $match: closedMatch(universe, tf, minRr, range) },
             ...resizeStages(maxRiskUsd),
             { $addFields: { bucket: bucketExpression(tf) } },
             { $group: { _id: '$bucket', ...GROUP_ACCUMULATORS } },
@@ -209,6 +217,7 @@ export class HistoryService {
     tf: HistoryTf;
     periodKey?: string;
     groupBy?: Timeframe;
+    range?: HistoryRange;
     sort?: TradeSort;
     dir?: SortDir;
     limit?: number;
@@ -217,10 +226,18 @@ export class HistoryService {
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
     const offset = Math.max(opts.offset ?? 0, 0);
     const { maxRiskUsd, minRr } = await this.settings.get();
-    const filter: Record<string, unknown> = closedMatch(opts.universe, opts.tf, minRr);
+    const lookback = normalizeRange(opts.range);
+    const filter: Record<string, unknown> = closedMatch(opts.universe, opts.tf, minRr, lookback);
     if (opts.periodKey) {
-      const range = periodDateRange(opts.periodKey, opts.groupBy ?? 'Daily');
-      if (range) filter.exitDate = range;
+      const bucket = periodDateRange(opts.periodKey, opts.groupBy ?? 'Daily');
+      if (bucket) {
+        // Drill-down intersects the lookback window so a period outside the range stays empty.
+        const existing = filter.exitDate as { $gte?: string; $lte?: string } | undefined;
+        filter.exitDate = {
+          $gte: maxDateStr(existing?.$gte, bucket.$gte),
+          $lte: minDateStr(existing?.$lte, bucket.$lte),
+        };
+      }
     }
 
     // Resize before sort so a P&L sort follows the same Max risk the cards display.
@@ -358,11 +375,45 @@ function closedMatch(
   universe: TrackedUniverse,
   tf: HistoryTf,
   minRr: number,
+  range: HistoryRange = 'all',
 ): Record<string, unknown> {
   const match: Record<string, unknown> = { status: 'closed', universe };
   if (tf !== 'All') match.tf = tf;
   if (minRr > 0) match.rrAtEntry = { $gte: minRr };
+  const from = lookbackFrom(range);
+  if (from) match.exitDate = { $gte: from };
   return match;
+}
+
+function normalizeRange(range?: HistoryRange): HistoryRange {
+  if (!range || range === 'max') return 'all';
+  return range;
+}
+
+/** Lower bound on `exitDate` (YYYY-MM-DD) for the History lookback chips. UTC calendar. */
+function lookbackFrom(range: HistoryRange, now = new Date()): string | null {
+  const normalised = normalizeRange(range);
+  if (normalised === 'all') return null;
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const d = now.getUTCDate();
+  if (normalised === 'ytd') return `${y}-01-01`;
+  const months =
+    normalised === '1m' ? 1 : normalised === '3m' ? 3 : normalised === '6m' ? 6 : 12;
+  const from = new Date(Date.UTC(y, m - months, d));
+  return from.toISOString().slice(0, 10);
+}
+
+function maxDateStr(a?: string, b?: string): string {
+  if (!a) return b ?? '';
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
+function minDateStr(a?: string, b?: string): string {
+  if (!a) return b ?? '';
+  if (!b) return a;
+  return a < b ? a : b;
 }
 
 /** Confirmed positions only — a provisional record is not a signal yet, so it is not "open". */

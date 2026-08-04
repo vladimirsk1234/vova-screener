@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
+  HISTORY_RANGES,
   TIMEFRAMES,
   UNIVERSES,
   api,
   type HistoryPeriodSort,
+  type HistoryRange,
   type HistoryTf,
   type HistoryTimeframe,
   type HistoryTradeSort,
@@ -19,6 +21,17 @@ import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
 
 const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
+
+type HistoryRangeChip = (typeof HISTORY_RANGES)[number];
+
+const RANGE_LABELS: Record<HistoryRangeChip, string> = {
+  all: 'All',
+  ytd: 'YTD',
+  '1m': '1M',
+  '3m': '3M',
+  '6m': '6M',
+  '1y': '1Y',
+};
 
 const PERIOD_SORTS: Array<{ value: HistoryPeriodSort; label: string }> = [
   { value: 'period', label: 'Date' },
@@ -98,6 +111,12 @@ export function HistoryPage() {
   const [universe, setUniverse] = useState<Universe>(() => loadHistoryFilters().universe);
   const [tf, setTf] = useState<HistoryTf>(() => loadHistoryFilters().tf);
   const [groupBy, setGroupBy] = useState<Timeframe>(() => loadHistoryFilters().groupBy);
+  const [range, setRange] = useState<HistoryRangeChip>(() => {
+    const saved = loadHistoryFilters().range;
+    return (HISTORY_RANGES as readonly HistoryRange[]).includes(saved)
+      ? (saved as HistoryRangeChip)
+      : 'all';
+  });
   const [periodSort, setPeriodSort] = useState<HistoryPeriodSort>('period');
   const [periodDir, setPeriodDir] = useState<SortDir>('desc');
   const [tradeSort, setTradeSort] = useState<HistoryTradeSort>('date');
@@ -105,23 +124,25 @@ export function HistoryPage() {
   const [openPeriod, setOpenPeriod] = useState<string | null>(null);
 
   useEffect(() => {
-    saveHistoryFilters({ universe, tf, groupBy });
-  }, [universe, tf, groupBy]);
+    saveHistoryFilters({ universe, tf, groupBy, range });
+  }, [universe, tf, groupBy, range]);
 
   const report = useQuery({
-    queryKey: ['history', universe, tf, groupBy, periodSort, periodDir],
-    queryFn: () => api.history({ universe, tf, groupBy, sort: periodSort, dir: periodDir }),
+    queryKey: ['history', universe, tf, groupBy, range, periodSort, periodDir],
+    queryFn: () =>
+      api.history({ universe, tf, groupBy, range, sort: periodSort, dir: periodDir }),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
   const trades = useQuery({
-    queryKey: ['history-trades', universe, tf, groupBy, openPeriod, tradeSort, tradeDir],
+    queryKey: ['history-trades', universe, tf, groupBy, range, openPeriod, tradeSort, tradeDir],
     queryFn: () =>
       api.historyTrades({
         universe,
         tf,
         groupBy,
+        range,
         periodKey: openPeriod ?? undefined,
         sort: tradeSort,
         dir: tradeDir,
@@ -150,6 +171,11 @@ export function HistoryPage() {
     setOpenPeriod(null);
   };
 
+  const onRange = (next: HistoryRangeChip) => {
+    setRange(next);
+    setOpenPeriod(null);
+  };
+
   return (
     <div>
       <section className="card">
@@ -157,11 +183,19 @@ export function HistoryPage() {
         <p className="muted small">
           Trades closed by a sell-to-close break, on bars that have finished. P&amp;L follows the
           current Max risk; Min RR from Settings filters what counts. Pick Stocks or ETF, then a
-          timeframe.
+          timeframe. Range filters by exit date (Daily bars go back ~2y, Weekly/Monthly ~10y after
+          Rebuild history).
         </p>
         <Chips label="Universe" value={universe} options={UNIVERSES} onChange={onUniverse} />
         <Chips label="Timeframe" value={tf} options={HISTORY_TFS} onChange={onTf} />
         <Chips label="Group by" value={groupBy} options={TIMEFRAMES} onChange={onGroupBy} />
+        <Chips
+          label="Range"
+          value={range}
+          options={HISTORY_RANGES}
+          onChange={onRange}
+          format={(v) => RANGE_LABELS[v]}
+        />
       </section>
 
       {report.isLoading ? <p className="empty">Loading…</p> : null}
