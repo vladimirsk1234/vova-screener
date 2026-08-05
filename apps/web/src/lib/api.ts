@@ -178,6 +178,8 @@ export type HistoryTimeframe = {
   wins: number;
   winRatePct: number;
   pnlUsd: number;
+  invested: number;
+  returnPct: number | null;
   avgR: number | null;
   equity: EquityPoint[];
 };

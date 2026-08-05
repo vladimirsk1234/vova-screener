@@ -14,7 +14,7 @@ import {
   type Timeframe,
   type Universe,
 } from '../lib/api';
-import { holdLabel, money, num, periodLabel, signedMoney } from '../lib/format';
+import { holdLabel, money, num, pct, periodLabel, signedMoney } from '../lib/format';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
@@ -98,7 +98,7 @@ function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
             </div>
             <Sparkline points={r.equity} className="sparkline sparkline-sm" />
             <p className="muted small" style={{ margin: '4px 0 0' }}>
-              {r.closed} closed · {r.winRatePct}% won · R {num(r.avgR)}
+              {r.closed} closed · {r.winRatePct}% won · R {num(r.avgR)} · ROI {pct(r.returnPct)}
             </p>
           </div>
         ))}
