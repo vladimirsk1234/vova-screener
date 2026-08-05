@@ -227,6 +227,15 @@ export type HistoryRebuildStatus = {
   };
 };
 
+/** Tracked signals whose ticker has since left its universe list file. */
+export type DelistedSummary = {
+  symbols: number;
+  records: number;
+  closed: number;
+  active: number;
+  sample: string[];
+};
+
 export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
 export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
 
@@ -507,6 +516,12 @@ export const api = {
     ),
   resetHistory: () =>
     request<{ ok: boolean; deletedRuns: number; deletedSignals: number }>('/scans/history', {
+      method: 'DELETE',
+    }),
+  /** Tracked signals left behind by tickers that are no longer in their universe list file. */
+  delistedPreview: () => request<DelistedSummary>('/scans/delisted'),
+  purgeDelisted: () =>
+    request<DelistedSummary & { ok: boolean; deletedSignals: number }>('/scans/delisted', {
       method: 'DELETE',
     }),
 

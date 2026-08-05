@@ -37,6 +37,16 @@ export class ScansController {
     return this.scans.resetHistory();
   }
 
+  @Get('delisted')
+  delisted() {
+    return this.scans.delistedPreview();
+  }
+
+  @Delete('delisted')
+  purgeDelisted() {
+    return this.scans.purgeDelisted();
+  }
+
   @Post()
   start(@Body() body: Partial<ScanParamsApi>) {
     return this.scans.start(body ?? {}, { trigger: 'manual' });

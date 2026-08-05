@@ -129,6 +129,23 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
     },
   });
 
+  const delisted = useQuery({
+    queryKey: ['delisted'],
+    queryFn: api.delistedPreview,
+    enabled: open,
+  });
+
+  const purge = useMutation({
+    mutationFn: api.purgeDelisted,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['delisted'] });
+      void queryClient.invalidateQueries({ queryKey: ['results'] });
+      void queryClient.invalidateQueries({ queryKey: ['results-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['history'] });
+      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+    },
+  });
+
   const [rebuildAwaiting, setRebuildAwaiting] = useState(false);
   const rebuild = useMutation({
     mutationFn: api.rebuildHistory,
@@ -304,6 +321,41 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         <p className="error">{rebuildStatus.data.error ?? 'History rebuild failed.'}</p>
       ) : null}
       {rebuild.error ? <p className="error">{(rebuild.error as Error).message}</p> : null}
+
+      <div className="chart-settings-actions">
+        <button
+          type="button"
+          className="btn-sm"
+          disabled={purge.isPending || rebuildRunning || !delisted.data?.records}
+          onClick={() => {
+            const summary = delisted.data;
+            if (!summary?.records) return;
+            if (
+              !window.confirm(
+                `Delete ${summary.records} tracked signals for ${summary.symbols} tickers that are no longer in the list files? This cannot be undone.`,
+              )
+            ) {
+              return;
+            }
+            purge.mutate();
+          }}
+        >
+          {purge.isPending ? 'Purging…' : 'Purge delisted'}
+        </button>
+      </div>
+      <p className="muted small">
+        Removes Results and History rows for symbols dropped from STOCK-TICKERS.txt or
+        TV-LIST-ETF.txt — scans already ignore them, but their past trades stay on screen.
+        {delisted.data
+          ? delisted.data.records
+            ? ` ${delisted.data.records} rows across ${delisted.data.symbols} tickers (${delisted.data.closed} closed, ${delisted.data.active} open): ${delisted.data.sample.join(', ')}${delisted.data.symbols > delisted.data.sample.length ? '…' : ''}.`
+            : ' Nothing to purge.'
+          : ''}
+      </p>
+      {purge.data ? (
+        <p className="muted small">Deleted {purge.data.deletedSignals} tracked signals.</p>
+      ) : null}
+      {purge.error ? <p className="error">{(purge.error as Error).message}</p> : null}
 
       <div className="chart-settings-actions">
         <button

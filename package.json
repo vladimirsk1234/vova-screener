@@ -22,6 +22,7 @@
     "smoke:age": "npm run smoke:age -w @vova/api",
     "smoke:legacy": "npm run smoke:legacy -w @vova/api",
     "smoke:close-live": "npm run smoke:close-live -w @vova/api",
+    "smoke:delisted": "npm run smoke:delisted -w @vova/api",
     "test:e2e": "npm run test:e2e -w @vova/web"
   },
   "devDependencies": {

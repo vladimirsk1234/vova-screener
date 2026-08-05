@@ -4,6 +4,7 @@ import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
+import { UniverseService } from '../universe/universe.service';
 import { isPeriodClosed, periodKey } from './period';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
@@ -22,6 +23,19 @@ const DEFAULTS: ScanParamsApi = {
 export type StartOpts = {
   trigger?: 'manual' | 'scheduled';
   wait?: boolean;
+};
+
+const TRACKED_UNIVERSES = ['Stocks', 'ETF'] as const;
+type TrackedUniverseName = (typeof TRACKED_UNIVERSES)[number];
+
+type DelistedGroup = { universe: TrackedUniverseName; symbols: string[] };
+
+export type DelistedSummary = {
+  symbols: number;
+  records: number;
+  closed: number;
+  active: number;
+  sample: string[];
 };
 
 const EMPTY_COUNTERS = {
@@ -46,6 +60,7 @@ export class ScansService {
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     private readonly runner: ScanRunnerService,
     private readonly tracker: SignalTrackerService,
+    private readonly universe: UniverseService,
   ) {}
 
   async start(input: Partial<ScanParamsApi>, opts: StartOpts = {}) {
@@ -147,6 +162,67 @@ export class ScansService {
       deletedRuns: result.deletedCount ?? 0,
       deletedSignals: tracked.deletedCount ?? 0,
     };
+  }
+
+  /**
+   * Tracked signals whose ticker has left its universe list file — e.g. a symbol dropped by the
+   * EPS rebuild of STOCK-TICKERS.txt. Scans stop covering them, but their rows stay in History
+   * because History only filters on status / universe / timeframe.
+   */
+  private async findDelisted(): Promise<DelistedGroup[]> {
+    const groups: DelistedGroup[] = [];
+    for (const universe of TRACKED_UNIVERSES) {
+      const entries = await this.universe.resolveEntries(universe);
+      // An unreadable or empty list file would otherwise condemn the whole universe.
+      if (!entries.length) {
+        this.log.warn(`Skipping ${universe}: universe resolved to no tickers`);
+        continue;
+      }
+      const live = new Set(entries.map((e) => e.yahoo));
+      const seen: string[] = await this.tracked.distinct('yahooTicker', { universe }).exec();
+      const symbols = seen.filter((t) => !live.has(t)).sort();
+      if (symbols.length) groups.push({ universe, symbols });
+    }
+    return groups;
+  }
+
+  private async summarizeDelisted(groups: DelistedGroup[]): Promise<DelistedSummary> {
+    let symbols = 0;
+    let records = 0;
+    let closed = 0;
+    const sample: string[] = [];
+    for (const group of groups) {
+      const filter = { universe: group.universe, yahooTicker: { $in: group.symbols } };
+      const [total, closedCount] = await Promise.all([
+        this.tracked.countDocuments(filter).exec(),
+        this.tracked.countDocuments({ ...filter, status: 'closed' }).exec(),
+      ]);
+      symbols += group.symbols.length;
+      records += total;
+      closed += closedCount;
+      sample.push(...group.symbols);
+    }
+    return { symbols, records, closed, active: records - closed, sample: sample.slice(0, 20) };
+  }
+
+  async delistedPreview(): Promise<DelistedSummary> {
+    return this.summarizeDelisted(await this.findDelisted());
+  }
+
+  async purgeDelisted() {
+    const groups = await this.findDelisted();
+    const summary = await this.summarizeDelisted(groups);
+    let deletedSignals = 0;
+    for (const group of groups) {
+      const res = await this.tracked
+        .deleteMany({ universe: group.universe, yahooTicker: { $in: group.symbols } })
+        .exec();
+      deletedSignals += res.deletedCount ?? 0;
+    }
+    if (deletedSignals) {
+      this.log.log(`Purged ${deletedSignals} tracked signals across ${summary.symbols} delisted tickers`);
+    }
+    return { ok: true, deletedSignals, ...summary };
   }
 
   async get(id: string) {
