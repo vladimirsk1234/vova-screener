@@ -68,9 +68,10 @@ _TV_TO_YAHOO_SUFFIX: dict[str, str] = {
 }
 _YAHOO_CANADIAN_SUFFIXES = frozenset(_TV_TO_YAHOO_SUFFIX.values())
 
-# Major US + Canada exchanges (no OTC / pink sheets)
+# Major US + Canada exchanges (no OTC / pink sheets).
+# Yahoo short codes: NMS/NGM/NCM = Nasdaq tiers, NYQ = NYSE, ASE = AMEX, PCX = Arca.
 MAJOR_US_EQUITY_EXCHANGES = {
-    "NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NYS", "PCX",
+    "NMS", "NYQ", "ASE", "BTS", "BAT", "NGM", "NCM", "NYS", "PCX",
     "NASDAQ", "NYSE", "AMEX", "BATS", "ARCA",
     "NASDAQGS", "NASDAQCM", "NASDAQGM",
 }

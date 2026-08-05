@@ -2,7 +2,8 @@
 """
 Layer-1 US + Canada symbol universe from exchange directories.
 
-Used by scripts/build_full_us_tsx_ohlc_list.py (no Yahoo .info / EPS filter).
+Used by scripts/build_full_us_tsx_ohlc_list.py and gap_scan_us_ca.py.
+Also provides dual-list dedup (prefer US when listed on both markets).
 """
 from __future__ import annotations
 
@@ -82,8 +83,139 @@ class Candidate:
     region: str
 
 
+# Corporate suffixes stripped before dual-list name matching (prefer US listing).
+_CORP_SUFFIX_RE = re.compile(
+    r"\b(INCORPORATED|CORPORATION|COMPANY|LIMITED|INC|CORP|LTD|CO|PLC|SA|AG|NV|LLC|LP|LLP)\b\.?",
+    re.IGNORECASE,
+)
+_PUNCT_RE = re.compile(r"[^\w\s]")
+_CA_YAHOO_SUFFIXES = (".TO", ".V", ".NE", ".CN")
+
+
+def normalize_company_name(name: str) -> str:
+    """Normalize company name for US/CA dual-list matching."""
+    n = str(name or "").upper().strip()
+    if not n:
+        return ""
+    n = _CORP_SUFFIX_RE.sub("", n)
+    n = _PUNCT_RE.sub(" ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
+
+
+def _ca_yahoo_base(yahoo: str) -> str | None:
+    y = str(yahoo or "").strip().upper()
+    for suf in _CA_YAHOO_SUFFIXES:
+        if y.endswith(suf):
+            return y[: -len(suf)]
+    return None
+
+
+def _names_similar(a: str, b: str) -> bool:
+    """True when two company names likely refer to the same issuer."""
+    na = normalize_company_name(a)
+    nb = normalize_company_name(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    if len(na) >= 4 and len(nb) >= 4 and (na in nb or nb in na):
+        return True
+    ta = [t for t in na.split() if len(t) >= 4]
+    tb = [t for t in nb.split() if len(t) >= 4]
+    if ta and tb and ta[0] == tb[0]:
+        return True
+    return False
+
+
+def dedupe_dual_listed(
+    candidates: list[Candidate],
+) -> tuple[list[Candidate], list[tuple[Candidate, Candidate]]]:
+    """
+    Drop Canadian listings when the same company also trades in the US.
+
+    Matching:
+      1) Same Yahoo base (SHOP.TO / SHOP.V vs SHOP) AND similar company names
+      2) Same normalized company name across US + CA
+
+    Base-only matches without name similarity are ignored (BBD.TO != NYSE:BBD).
+
+    Policy: prefer US. Returns (kept, dropped_pairs) where each pair is (us, dropped_ca).
+    """
+    us = [c for c in candidates if c.region == "US"]
+    ca = [c for c in candidates if c.region == "CA"]
+    other = [c for c in candidates if c.region not in ("US", "CA")]
+
+    us_by_yahoo = {c.yahoo.upper(): c for c in us}
+
+    dropped_yahoo: set[str] = set()
+    dropped_pairs: list[tuple[Candidate, Candidate]] = []
+
+    # Pass 1: CA base matches a US ticker AND names look like the same company.
+    for c in ca:
+        base = _ca_yahoo_base(c.yahoo)
+        if not base or base not in us_by_yahoo:
+            continue
+        us_c = us_by_yahoo[base]
+        if not _names_similar(c.name_hint, us_c.name_hint):
+            continue
+        dropped_yahoo.add(c.yahoo)
+        dropped_pairs.append((us_c, c))
+
+    # Pass 2: same normalized name, US + CA both present.
+    name_to_us: dict[str, Candidate] = {}
+    for c in us:
+        key = normalize_company_name(c.name_hint)
+        if key and key not in name_to_us:
+            name_to_us[key] = c
+
+    for c in ca:
+        if c.yahoo in dropped_yahoo:
+            continue
+        key = normalize_company_name(c.name_hint)
+        if not key or key not in name_to_us:
+            continue
+        # Require a reasonably specific name (avoid empty / very short collisions).
+        if len(key) < 4:
+            continue
+        us_c = name_to_us[key]
+        dropped_yahoo.add(c.yahoo)
+        dropped_pairs.append((us_c, c))
+
+    kept_ca = [c for c in ca if c.yahoo not in dropped_yahoo]
+    kept = us + kept_ca + other
+    kept.sort(key=lambda c: (c.region, c.yahoo))
+
+    if dropped_pairs:
+        print(
+            f"Dual-list dedup: dropped {len(dropped_pairs)} CA listings (prefer US)",
+            file=sys.stderr,
+        )
+        for us_c, ca_c in dropped_pairs[:20]:
+            print(
+                f"  drop {ca_c.tv_part} ({ca_c.yahoo}) keep {us_c.tv_part} ({us_c.yahoo}) "
+                f"| {ca_c.name_hint or us_c.name_hint}",
+                file=sys.stderr,
+            )
+        if len(dropped_pairs) > 20:
+            print(f"  ... and {len(dropped_pairs) - 20} more", file=sys.stderr)
+
+    return kept, dropped_pairs
+
+
 def _fetch_text(url: str, timeout: int = 60) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "vova-screener/1.0"})
+    # NasdaqTrader blocks bare/bot UAs with 403; use a normal browser UA.
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/plain,*/*",
+        },
+    )
     contexts: list[ssl.SSLContext | None] = []
     if certifi is not None:
         contexts.append(ssl.create_default_context(cafile=certifi.where()))

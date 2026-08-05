@@ -2,11 +2,12 @@
 """
 Gap-scan: find US/CA tickers missing from STOCK-TICKERS.txt.
 
-Same universe filters as the full build, plus positive trailing PE:
+Same universe filters as the full build:
   Layer 1: NasdaqTrader / adanos directories (no OTC; common stock; NYSE/NASDAQ/AMEX + TSX/TSXV)
+  Dual-list: drop CA when same company also lists in US (prefer US; vs file + candidates)
   Diff:    only symbols not already in STOCK-TICKERS.txt
   Layer 2: Yahoo OHLC Daily/Weekly/Monthly >= 50 bars
-  Layer 3: Yahoo trailingPE > 0
+  Layer 3: Yahoo trailingEps > 0 + EQUITY + not OTC
 
 Usage:
   python scripts/gap_scan_us_ca.py --limit 40
@@ -18,20 +19,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from collections import Counter
 from pathlib import Path
-
-import yfinance as yf
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPTS))
 
-from layer1_universe import load_layer1_candidates
+from fundamentals_yahoo import filter_positive_eps
+from layer1_universe import Candidate, dedupe_dual_listed, load_layer1_candidates
 from ohlc_yahoo import validate_ohlc_candidates
 from ticker_data import (
     TV_LIST_STOCK_TICKERS,
@@ -40,11 +39,8 @@ from ticker_data import (
 )
 
 OHLC_CACHE_PATH = ROOT / ".cache" / "gap_scan_ohlc.json"
-PE_CACHE_PATH = ROOT / ".cache" / "gap_scan_pe.json"
+EPS_CACHE_PATH = ROOT / ".cache" / "gap_scan_eps.json"
 REPORT_PATH = ROOT / ".cache" / "gap_scan_report.json"
-
-PE_RATE_LIMIT_PER_SEC = 4.0
-PE_RETRY_DELAY_SEC = 1.0
 
 
 def _load_json(path: Path) -> dict:
@@ -83,102 +79,19 @@ def _existing_entries() -> list[tuple[str, str, str]]:
     return out
 
 
-def _float_pe(val) -> float | None:
-    if val is None:
-        return None
-    try:
-        out = float(val)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(out):
-        return None
+def _existing_as_candidates() -> list[Candidate]:
+    """Map current file entries to Candidates so dual-list sees US already in the list."""
+    tickers, tv_map, name_map, err = read_list_file(TV_LIST_STOCK_TICKERS)
+    if err:
+        raise RuntimeError(err)
+    out: list[Candidate] = []
+    for yahoo in tickers:
+        tv = tv_map.get(yahoo) or yahoo
+        name = name_map.get(yahoo) or ""
+        y = yahoo.upper()
+        region = "CA" if y.endswith((".TO", ".V", ".NE", ".CN")) else "US"
+        out.append(Candidate(tv_part=tv, yahoo=yahoo, name_hint=name, region=region))
     return out
-
-
-def _check_positive_pe(yahoo: str) -> tuple[bool, str, float | None]:
-    """Return (ok, reason, trailing_pe)."""
-    try:
-        info = yf.Ticker(yahoo).info or {}
-    except Exception as exc:
-        msg = str(exc)
-        if "RateLimit" in msg or "Too Many Requests" in msg:
-            return False, "PE_RATE_LIMIT", None
-        return False, "PE_INFO_ERROR", None
-
-    quote_type = str(info.get("quoteType") or "").upper()
-    if quote_type and quote_type != "EQUITY":
-        return False, "NOT_EQUITY", None
-
-    pe = _float_pe(info.get("trailingPE"))
-    if pe is None:
-        return False, "NO_TRAILING_PE", None
-    if pe <= 0:
-        return False, "NON_POSITIVE_PE", pe
-    return True, "PASS", pe
-
-
-def filter_positive_pe(
-    entries: list[tuple[str, str, str]],
-    *,
-    cache_path: Path,
-    resume: bool = True,
-    retry_errors: bool = False,
-) -> tuple[list[tuple[str, str, str]], Counter]:
-    cache = _load_json(cache_path) if resume else {}
-    checked: dict = cache.setdefault("checked", {})
-    if retry_errors:
-        for key in list(checked):
-            if checked[key].get("reason") in {"PE_RATE_LIMIT", "PE_INFO_ERROR"}:
-                del checked[key]
-
-    passed: list[tuple[str, str, str]] = []
-    rejects: Counter = Counter()
-    pending: list[tuple[str, str, str]] = []
-
-    for tv, yahoo, name in entries:
-        prev = checked.get(yahoo)
-        if prev:
-            if prev.get("reason") == "PASS":
-                passed.append((tv, yahoo, name))
-            else:
-                rejects[prev.get("reason", "PE_INFO_ERROR")] += 1
-        else:
-            pending.append((tv, yahoo, name))
-
-    print(f"PE check pending: {len(pending)} (cached: {len(entries) - len(pending)})")
-    min_interval = 1.0 / PE_RATE_LIMIT_PER_SEC
-    last_t = 0.0
-
-    for i, (tv, yahoo, name) in enumerate(pending, start=1):
-        now = time.monotonic()
-        wait = min_interval - (now - last_t)
-        if wait > 0:
-            time.sleep(wait)
-        last_t = time.monotonic()
-
-        ok, reason, pe = _check_positive_pe(yahoo)
-        if reason == "PE_RATE_LIMIT":
-            time.sleep(PE_RETRY_DELAY_SEC * 4)
-            ok, reason, pe = _check_positive_pe(yahoo)
-
-        checked[yahoo] = {
-            "reason": reason,
-            "tv_part": tv,
-            "name": name,
-            "trailingPE": pe,
-        }
-        if ok:
-            passed.append((tv, yahoo, name))
-        else:
-            rejects[reason] += 1
-
-        if i % 25 == 0 or i == len(pending):
-            _save_json(cache_path, {"checked": checked})
-            print(f"  PE checked {i}/{len(pending)} - passed so far: {len(passed)}")
-
-    _save_json(cache_path, {"checked": checked})
-    passed.sort(key=lambda e: e[0])
-    return passed, rejects
 
 
 def gap_scan(
@@ -188,7 +101,7 @@ def gap_scan(
     limit: int = 0,
     resume: bool = True,
     retry_no_data: bool = False,
-    skip_pe: bool = False,
+    skip_eps: bool = False,
 ) -> dict:
     t0 = time.perf_counter()
     existing = _existing_yahoo_set()
@@ -198,6 +111,13 @@ def gap_scan(
     us_n = sum(1 for c in layer1 if c.region == "US")
     ca_n = sum(1 for c in layer1 if c.region == "CA")
     print(f"Layer-1 candidates: {len(layer1)} (US={us_n}, TSX+TSXV={ca_n})")
+
+    # Dual-list against existing file + Layer-1 so we do not add CA when US is present.
+    combined = _existing_as_candidates() + layer1
+    combined, dual_pairs = dedupe_dual_listed(combined)
+    kept_yahoo = {c.yahoo for c in combined}
+    layer1 = [c for c in layer1 if c.yahoo in kept_yahoo]
+    print(f"Dual-list: dropped {len(dual_pairs)} CA (prefer US); Layer-1 kept {len(layer1)}")
 
     missing = [c for c in layer1 if c.yahoo not in existing]
     missing.sort(key=lambda c: (c.region, c.yahoo))
@@ -216,18 +136,18 @@ def gap_scan(
     )
     print(f"OHLC passed: {len(ohlc_pass)}")
 
-    pe_rejects: Counter = Counter()
-    if skip_pe:
+    eps_rejects: Counter = Counter()
+    if skip_eps:
         accepted = ohlc_pass
-        print("Skipping PE filter (--skip-pe)")
+        print("Skipping EPS filter (--skip-eps)")
     else:
-        accepted, pe_rejects = filter_positive_pe(
+        accepted, eps_rejects = filter_positive_eps(
             ohlc_pass,
-            cache_path=PE_CACHE_PATH,
+            cache_path=EPS_CACHE_PATH,
             resume=resume,
             retry_errors=retry_no_data,
         )
-        print(f"Positive PE passed: {len(accepted)}")
+        print(f"Positive EPS passed: {len(accepted)}")
 
     elapsed = time.perf_counter() - t0
     report = {
@@ -235,11 +155,14 @@ def gap_scan(
         "layer1_count": len(layer1),
         "layer1_us": us_n,
         "layer1_ca": ca_n,
+        "dual_dropped_ca": len(dual_pairs),
         "missing_count": len(entries_in) if limit > 0 else len([c for c in layer1 if c.yahoo not in existing]),
         "ohlc_passed": len(ohlc_pass),
         "accepted_count": len(accepted),
         "ohlc_rejects": dict(ohlc_rejects),
-        "pe_rejects": dict(pe_rejects),
+        "eps_rejects": dict(eps_rejects),
+        # Keep pe_rejects alias empty for older report consumers.
+        "pe_rejects": {},
         "accepted": [
             {"tv": tv, "yahoo": yahoo, "name": name} for tv, yahoo, name in accepted
         ],
@@ -280,12 +203,17 @@ def main() -> int:
     parser.add_argument(
         "--retry-no-data",
         action="store_true",
-        help="Re-check OHLC NO_DAILY/RATE_LIMIT and PE info errors",
+        help="Re-check OHLC NO_DAILY/RATE_LIMIT and EPS info errors",
+    )
+    parser.add_argument(
+        "--skip-eps",
+        action="store_true",
+        help="Skip trailingEps > 0 filter (OHLC only)",
     )
     parser.add_argument(
         "--skip-pe",
         action="store_true",
-        help="Skip trailingPE > 0 filter (OHLC only)",
+        help="Deprecated alias for --skip-eps",
     )
     parser.add_argument(
         "--apply",
@@ -318,21 +246,21 @@ def main() -> int:
         limit=args.limit,
         resume=not args.no_resume,
         retry_no_data=args.retry_no_data,
-        skip_pe=args.skip_pe,
+        skip_eps=args.skip_eps or args.skip_pe,
     )
 
     print()
     print("=== GAP SCAN DONE ===")
     print(f"Missing checked: {report['missing_count']}")
     print(f"OHLC passed: {report['ohlc_passed']}")
-    print(f"Accepted (positive PE): {report['accepted_count']}")
+    print(f"Accepted (positive EPS): {report['accepted_count']}")
     if report.get("ohlc_rejects"):
         print("OHLC rejects:")
         for reason, n in sorted(report["ohlc_rejects"].items(), key=lambda x: -x[1]):
             print(f"  {reason}: {n}")
-    if report.get("pe_rejects"):
-        print("PE rejects:")
-        for reason, n in sorted(report["pe_rejects"].items(), key=lambda x: -x[1]):
+    if report.get("eps_rejects"):
+        print("EPS rejects:")
+        for reason, n in sorted(report["eps_rejects"].items(), key=lambda x: -x[1]):
             print(f"  {reason}: {n}")
 
     if args.apply:
