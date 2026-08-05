@@ -5,7 +5,13 @@ import { ManualPage } from './pages/ManualPage';
 import { RejectedPage } from './pages/RejectedPage';
 import { ResultsPage } from './pages/ResultsPage';
 import { SettingsSheet } from './components/SettingsSheet';
-import { DEFAULT_RESULTS_PATH, lastResultsPath, rememberResultsPath } from './lib/tabMemory';
+import {
+  DEFAULT_RESULTS_PATH,
+  lastHistoryPath,
+  lastResultsPath,
+  rememberHistoryPath,
+  rememberResultsPath,
+} from './lib/tabMemory';
 
 // Lightweight Charts is the heaviest dependency and only the chart screen needs it.
 const ChartPage = lazy(() =>
@@ -16,12 +22,16 @@ export function App() {
   const { pathname, search } = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resultsTo, setResultsTo] = useState(lastResultsPath);
+  const [historyTo, setHistoryTo] = useState(lastHistoryPath);
   const isChart = pathname.startsWith('/chart/');
 
   useEffect(() => {
     rememberResultsPath(pathname, search);
-    const next = lastResultsPath();
-    setResultsTo((prev) => (prev === next ? prev : next));
+    rememberHistoryPath(pathname);
+    const nextResults = lastResultsPath();
+    const nextHistory = lastHistoryPath();
+    setResultsTo((prev) => (prev === nextResults ? prev : nextResults));
+    setHistoryTo((prev) => (prev === nextHistory ? prev : nextHistory));
   }, [pathname, search]);
 
   return (
@@ -62,7 +72,8 @@ export function App() {
             <Route path="/results/:universe" element={<ResultsPage />} />
             <Route path="/results/:universe/:tf" element={<ResultsPage />} />
             <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
-            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/history" element={<Navigate to={historyTo} replace />} />
+            <Route path="/history/:universe" element={<HistoryPage />} />
             <Route path="/chart/:ticker" element={<ChartPage />} />
             <Route path="*" element={<Navigate to={DEFAULT_RESULTS_PATH} replace />} />
           </Routes>
@@ -79,7 +90,7 @@ export function App() {
             Results
           </NavLink>
           <NavLink
-            to="/history"
+            to={historyTo}
             className={() => (pathname.startsWith('/history') ? 'active' : undefined)}
           >
             <span className="dot" aria-hidden />

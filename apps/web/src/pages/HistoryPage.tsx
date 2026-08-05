@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Navigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   HISTORY_RANGES,
@@ -15,10 +16,15 @@ import {
   type Universe,
 } from '../lib/api';
 import { holdLabel, money, num, periodLabel, signedMoney } from '../lib/format';
-import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
+import { lastHistoryPath, loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
+import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
+
+function isUniverse(value: string | undefined): value is Universe {
+  return UNIVERSES.includes(value as Universe);
+}
 
 const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
 
@@ -108,7 +114,9 @@ function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
 }
 
 export function HistoryPage() {
-  const [universe, setUniverse] = useState<Universe>(() => loadHistoryFilters().universe);
+  const params = useParams();
+  const universe = isUniverse(params.universe) ? params.universe : null;
+
   const [tf, setTf] = useState<HistoryTf>(() => loadHistoryFilters().tf);
   const [groupBy, setGroupBy] = useState<Timeframe>(() => loadHistoryFilters().groupBy);
   const [range, setRange] = useState<HistoryRangeChip>(() => {
@@ -124,22 +132,36 @@ export function HistoryPage() {
   const [openPeriod, setOpenPeriod] = useState<string | null>(null);
 
   useEffect(() => {
-    saveHistoryFilters({ universe, tf, groupBy, range });
-  }, [universe, tf, groupBy, range]);
+    saveHistoryFilters({ tf, groupBy, range });
+  }, [tf, groupBy, range]);
+
+  // Switching Stocks/ETF is a route change; clear the drilled-in period so stats match the list.
+  useEffect(() => {
+    setOpenPeriod(null);
+  }, [universe]);
 
   const report = useQuery({
     queryKey: ['history', universe, tf, groupBy, range, periodSort, periodDir],
+    enabled: Boolean(universe),
     queryFn: () =>
-      api.history({ universe, tf, groupBy, range, sort: periodSort, dir: periodDir }),
+      api.history({
+        universe: universe as Universe,
+        tf,
+        groupBy,
+        range,
+        sort: periodSort,
+        dir: periodDir,
+      }),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
   const trades = useQuery({
     queryKey: ['history-trades', universe, tf, groupBy, range, openPeriod, tradeSort, tradeDir],
+    enabled: Boolean(universe),
     queryFn: () =>
       api.historyTrades({
-        universe,
+        universe: universe as Universe,
         tf,
         groupBy,
         range,
@@ -152,13 +174,10 @@ export function HistoryPage() {
     staleTime: 60_000,
   });
 
+  if (!universe) return <Navigate to={lastHistoryPath()} replace />;
+
   const data = report.data;
   const unit = holdLabel(tf);
-
-  const onUniverse = (next: Universe) => {
-    setUniverse(next);
-    setOpenPeriod(null);
-  };
 
   const onTf = (next: HistoryTf) => {
     setTf(next);
@@ -182,11 +201,18 @@ export function HistoryPage() {
         <h2>History</h2>
         <p className="muted small">
           Trades closed by a sell-to-close break, on bars that have finished. P&amp;L follows the
-          current Max risk; Min RR from Settings filters what counts. Pick Stocks or ETF, then a
+          current Max risk; Min RR from Settings filters what counts. Switch Stocks or ETF, then a
           timeframe. Range filters by exit date (Daily bars go back ~2y, Weekly/Monthly ~10y after
           Rebuild history).
         </p>
-        <Chips label="Universe" value={universe} options={UNIVERSES} onChange={onUniverse} />
+        <SegmentedTabs
+          label="Universe"
+          segments={UNIVERSES.map((u) => ({
+            value: u,
+            to: `/history/${u}`,
+            label: u,
+          }))}
+        />
         <Chips label="Timeframe" value={tf} options={HISTORY_TFS} onChange={onTf} />
         <Chips label="Group by" value={groupBy} options={TIMEFRAMES} onChange={onGroupBy} />
         <Chips
