@@ -48,6 +48,10 @@ export type HistoryTimeframe = {
   wins: number;
   winRatePct: number;
   pnlUsd: number;
+  /** Sum of entry × shares over closed trades in this timeframe. */
+  invested: number;
+  /** Net P&L / invested × 100; null when invested is 0. */
+  returnPct: number | null;
   avgR: number | null;
   /** Cumulative P&L over that timeframe's own periods, oldest first. */
   equity: EquityPoint[];
@@ -196,6 +200,7 @@ export class HistoryService {
         const closed = periods.reduce((sum, p) => sum + p.trades, 0);
         const wins = periods.reduce((sum, p) => sum + p.wins, 0);
         const pnlUsd = periods.reduce((sum, p) => sum + p.pnlUsd, 0);
+        const invested = periods.reduce((sum, p) => sum + p.invested, 0);
         // Weighted by trade count: averaging the period averages would let a one-trade week
         // count as much as a twenty-trade one.
         const rWeighted = periods.reduce((sum, p) => sum + (p.avgR ?? 0) * p.trades, 0);
@@ -205,6 +210,8 @@ export class HistoryService {
           wins,
           winRatePct: closed ? round2((wins / closed) * 100) : 0,
           pnlUsd: round2(pnlUsd),
+          invested: round2(invested),
+          returnPct: invested > 0 ? round2((pnlUsd / invested) * 100) : null,
           avgR: closed ? round2(rWeighted / closed) : null,
           equity: equityCurve(periods),
         };
