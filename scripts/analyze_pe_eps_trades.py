@@ -683,6 +683,9 @@ def write_summary_md(
     te_seg: list[dict],
     fe_seg: list[dict],
     path: Path,
+    *,
+    ticker_limit: int | None,
+    universe_size: int | None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     base_all = next(r for r in filter_rows if r["tf"] == "All" and r["filter"] == "baseline")
@@ -704,6 +707,14 @@ def write_summary_md(
     lines.append("")
     sources = Counter(r.get("source") for r in joined)
     lines.append(f"- Closed trades: **{len(joined)}** ({dict(sources)})")
+    if ticker_limit is not None and universe_size is not None:
+        lines.append(
+            f"- Sample: first **{ticker_limit}** tickers of "
+            f"**{universe_size}** in `{TV_LIST_STOCK_TICKERS}` "
+            f"(~{100.0 * ticker_limit / max(universe_size, 1):.0f}% of list order)"
+        )
+    elif universe_size is not None:
+        lines.append(f"- Universe size: **{universe_size}** tickers from `{TV_LIST_STOCK_TICKERS}`")
     lines.append(f"- Universe: Stocks only (`{TV_LIST_STOCK_TICKERS}`); ETFs excluded")
     lines.append(
         f"- Ledger params: `min_rr={LEDGER_OPTS['min_rr']}`, "
@@ -787,6 +798,12 @@ def write_summary_md(
         for r in filter_rows
         if r["filter"] != "baseline" and r.get("verdict") == "improves"
     ]
+    strong = [
+        r
+        for r in improves
+        if (r.get("deltaWinRatePct") or 0) >= 0.5
+        and (r.get("deltaPnlUsd") or 0) >= 0
+    ]
     if not improves:
         lines.append(
             "**No PE/EPS filter met the improve criterion** on any timeframe with "
@@ -802,9 +819,32 @@ def write_summary_md(
                 f"cut {r['cutLosses']} losses / {r['cutWins']} wins"
             )
         lines.append("")
+        if strong:
+            lines.append(
+                "Stronger hits (WR Δ ≥ 0.5pp **and** net P&L not down): "
+                + ", ".join(f"{r['filter']}/{r['tf']}" for r in strong)
+                + "."
+            )
+        else:
+            lines.append(
+                "No filter combined a meaningful WR lift (≥0.5pp) with non-negative Δ P&L "
+                "on this sample — treat weak All-TF hits (WR up, total P&L down) as soft."
+            )
+        lines.append("")
+        lines.append(
+            "Practical read: **F2 / F5 (`trailingEps > 0`)** and **F1 (`trailingPE > 0`)** "
+            "help most on **Daily** (WR and net P&L both up). **F3 value band [5,25]** "
+            "cuts too much winner P&L. **F4** lifts WR on Weekly/Monthly but often "
+            "sacrifices total P&L on All/Daily. Bucket note: PE (25,40] has the highest "
+            "raw WR here; cheap PE (0,15] underperforms — so a tight value band is not "
+            "supported. Forward EPS > 0 also shows a cleaner WR/P&L split than trailing "
+            "alone (see Forward EPS buckets)."
+        )
+        lines.append("")
         lines.append(
             "Even with uplift, persist PE/EPS at signal open before trusting History "
-            "segmentation — current Yahoo values still embed look-ahead."
+            "segmentation — current Yahoo values still embed look-ahead. Prefer optional "
+            "scan gates over hard defaults until point-in-time data exists."
         )
     lines.append("")
     lines.append("### Source recommendation")
@@ -835,6 +875,9 @@ def main() -> int:
     args = ap.parse_args()
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    full_universe = _ticker_universe(None)
+    universe_size = len(full_universe)
+    ticker_limit = args.limit
 
     if args.report_only:
         trades = [r for r in _load_trades_jsonl(TRADES_CACHE) if r.get("pnl_usd") is not None]
@@ -842,6 +885,11 @@ def main() -> int:
         if not trades:
             print("No cached closed trades; run without --report-only first")
             return 1
+        meta = _load_json(CACHE_DIR / "run_meta.json")
+        if meta.get("ticker_limit") is not None:
+            ticker_limit = int(meta["ticker_limit"])
+        if meta.get("universe_size") is not None:
+            universe_size = int(meta["universe_size"])
     else:
         mongo_trades = _try_mongo_closed_trades()
         if mongo_trades is not None:
@@ -850,11 +898,21 @@ def main() -> int:
             if TRADES_CACHE.exists():
                 TRADES_CACHE.unlink()
             _append_trades_jsonl(TRADES_CACHE, trades)
+            ticker_limit = None
         else:
-            universe = _ticker_universe(args.limit)
-            print(f"Universe size: {len(universe)}")
+            universe = full_universe if args.limit is None else full_universe[: args.limit]
+            print(f"Universe size: {len(universe)} (of {universe_size})")
             trades = collect_ledger_trades(universe, resume=args.resume)
         print(f"Closed trades collected: {len(trades)}")
+        _save_json(
+            CACHE_DIR / "run_meta.json",
+            {
+                "ticker_limit": ticker_limit,
+                "universe_size": universe_size,
+                "closed_trades": len(trades),
+                "generatedAt": _utcnow_iso(),
+            },
+        )
 
         if args.trades_only:
             return 0
@@ -868,7 +926,16 @@ def main() -> int:
     te_seg = segment_table(joined, "trailing_eps_bucket")
     fe_seg = segment_table(joined, "forward_eps_bucket")
     filter_rows = simulate_filters(joined)
-    write_summary_md(joined, filter_rows, pe_seg, te_seg, fe_seg, REPORT_MD)
+    write_summary_md(
+        joined,
+        filter_rows,
+        pe_seg,
+        te_seg,
+        fe_seg,
+        REPORT_MD,
+        ticker_limit=ticker_limit,
+        universe_size=universe_size,
+    )
 
     print(f"Wrote {REPORT_CSV}")
     print(f"Wrote {REPORT_MD}")
