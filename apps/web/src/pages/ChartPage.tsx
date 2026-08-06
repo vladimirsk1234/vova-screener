@@ -242,7 +242,7 @@ export function ChartPage() {
         </button>
         <div className="chart-head-title">
           <div className="chart-head-name ellipsis">
-            <strong>{chart.data?.tvSymbol ?? ticker}</strong>
+            <strong>{chart.data?.symbol ?? ticker}</strong>
             {chart.data?.companyName ? (
               <span className="muted small">{chart.data.companyName}</span>
             ) : null}

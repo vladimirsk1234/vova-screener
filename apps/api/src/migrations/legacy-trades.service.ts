@@ -8,7 +8,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Types, type Connection, type Model, type mongo } from 'mongoose';
-import type { Timeframe } from '@vova/engine';
+import { shortSymbol, type Timeframe } from '@vova/engine';
 import { INSTRUMENT, TRACKED_SIGNAL } from '../db/schemas';
 import { periodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
@@ -61,6 +61,13 @@ type LegacyTrade = {
   pnlUsd?: number;
   pnlR?: number;
   runId?: Types.ObjectId;
+};
+
+/** What the instrument list knows about a journal ticker: its universe and its one ticker format. */
+type InstrumentRow = {
+  universe: TrackedUniverse;
+  tvSymbol: string | null;
+  companyName: string | null;
 };
 
 export type LegacyImportReport = {
@@ -132,9 +139,9 @@ export class LegacyTradesMigration implements OnModuleInit {
     maxRiskUsd: number,
     report: LegacyImportReport,
   ) {
-    const universes = await this.universeByTicker(batch);
+    const instruments = await this.instrumentByTicker(batch);
     for (const trade of batch) {
-      const doc = this.toTrackedSignal(trade, universes, maxRiskUsd);
+      const doc = this.toTrackedSignal(trade, instruments, maxRiskUsd);
       if (!doc) {
         report.skipped += 1;
         await this.stamp(legacy, trade, 'unusable');
@@ -143,15 +150,18 @@ export class LegacyTradesMigration implements OnModuleInit {
 
       // A live scan may already track the same position; the journal copy would collide with the
       // one-active-signal-per-symbol index and add nothing.
-      if (
-        doc.status === 'active' &&
-        (await this.tracked.exists({
-          yahooTicker: doc.yahooTicker,
-          tf: doc.tf,
-          universe: doc.universe,
-          status: 'active',
-        }))
-      ) {
+      //
+      // That index only covers active records, so a trade the app already closed by itself used to
+      // let the journal copy through and show the same trade twice in History under two exits. The
+      // second check is the same trade rather than the same open position: one opening period per
+      // symbol and timeframe.
+      const position = { yahooTicker: doc.yahooTicker, tf: doc.tf, universe: doc.universe };
+      const taken =
+        doc.status === 'active' && (await this.tracked.exists({ ...position, status: 'active' }));
+      const sameTrade =
+        !taken &&
+        (await this.tracked.exists({ ...position, openedPeriodKey: doc.openedPeriodKey }));
+      if (taken || sameTrade) {
         report.superseded += 1;
         await this.stamp(legacy, trade, 'superseded');
         continue;
@@ -181,22 +191,40 @@ export class LegacyTradesMigration implements OnModuleInit {
     );
   }
 
-  /** The journal predates universes, so recover each one from the instrument list. */
-  private async universeByTicker(trades: LegacyTrade[]): Promise<Map<string, TrackedUniverse>> {
+  /**
+   * The journal predates universes and it recorded whatever ticker string the build of the day
+   * used, so both come from the instrument list instead — that is what keeps an imported trade
+   * reading the same as a scanned one.
+   */
+  private async instrumentByTicker(trades: LegacyTrade[]): Promise<Map<string, InstrumentRow>> {
     const tickers = [...new Set(trades.map((t) => t.yahooTicker).filter(Boolean))] as string[];
     const rows = await this.instruments
       .find({ yahooTicker: { $in: tickers } })
-      .select('yahooTicker universes')
-      .lean<Array<{ yahooTicker: string; universes?: string[] }>>()
+      .select('yahooTicker universes tvSymbol companyName')
+      .lean<
+        Array<{
+          yahooTicker: string;
+          universes?: string[];
+          tvSymbol?: string;
+          companyName?: string;
+        }>
+      >()
       .exec();
     return new Map(
-      rows.map((row) => [row.yahooTicker, row.universes?.includes('etf') ? 'ETF' : 'Stocks']),
+      rows.map((row) => [
+        row.yahooTicker,
+        {
+          universe: (row.universes?.includes('etf') ? 'ETF' : 'Stocks') as TrackedUniverse,
+          tvSymbol: row.tvSymbol ?? null,
+          companyName: row.companyName ?? null,
+        },
+      ]),
     );
   }
 
   private toTrackedSignal(
     trade: LegacyTrade,
-    universes: Map<string, TrackedUniverse>,
+    instruments: Map<string, InstrumentRow>,
     maxRiskUsd: number,
   ): Record<string, unknown> | null {
     const yahooTicker = trade.yahooTicker;
@@ -220,12 +248,16 @@ export class LegacyTradesMigration implements OnModuleInit {
     const interest: Interest | null =
       trade.status === 'interested' || trade.status === 'not_interested' ? trade.status : null;
 
+    const instrument = instruments.get(yahooTicker);
+    const tvSymbol = instrument?.tvSymbol ?? trade.symbol;
+    const symbol = shortSymbol(tvSymbol);
+
     const doc: Record<string, unknown> = {
       yahooTicker,
-      symbol: trade.symbol,
-      tvSymbol: trade.symbol,
-      companyName: trade.companyName ?? trade.symbol,
-      universe: universes.get(yahooTicker) ?? 'Stocks',
+      symbol,
+      tvSymbol,
+      companyName: instrument?.companyName ?? trade.companyName ?? symbol,
+      universe: instrument?.universe ?? 'Stocks',
       tf,
       status: closed ? 'closed' : 'active',
       provisional: false,

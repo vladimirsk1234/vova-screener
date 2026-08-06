@@ -30,6 +30,21 @@ export function normalizeYahooTicker(sym: string): string {
   return s.replace(/\./g, '-');
 }
 
+/**
+ * The one form a ticker is shown in: the symbol without its exchange prefix.
+ *
+ * `tvSymbol` stays behind the TradingView link and `yahooTicker` behind the bars, so this is the
+ * only string any screen prints — otherwise the same position reads as `NASDAQ:LMAT` in one list
+ * and `LMAT` in the next, depending on which code path wrote the record.
+ */
+export function shortSymbol(value: string): string {
+  const s = String(value || '')
+    .trim()
+    .toUpperCase();
+  const cut = s.includes(':') ? s.slice(s.indexOf(':') + 1).trim() : s;
+  return cut || s;
+}
+
 function tvToYahooSymbol(ex: string, rawSym: string): string {
   const exU = ex.trim().toUpperCase();
   const upper = rawSym.trim().toUpperCase();

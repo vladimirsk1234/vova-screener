@@ -10,6 +10,7 @@ import {
   buildSellSummary,
   evaluateClose,
   evaluateSymbol,
+  shortSymbol,
   type EvaluateParams,
   type SellSignal,
   type Signal,
@@ -236,7 +237,10 @@ export class ScanRunnerService {
             if (evaluation.status === 'rejected') {
               rejectionBuffer.push({
                 runId: runObjectId,
-                symbol: entry.yahoo,
+                // `symbol` is the display form the Rejected tab prints; `yahooTicker` is the key
+                // the tracker matches a record against.
+                symbol: shortSymbol(entry.tv || entry.yahoo),
+                yahooTicker: entry.yahoo,
                 reason: evaluation.reason,
                 detail: evaluation.detail ?? null,
               });

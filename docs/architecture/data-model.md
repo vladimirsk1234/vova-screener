@@ -12,6 +12,14 @@ Successor to `STOCK-TICKERS.txt` / `TV-LIST-ETF.txt`, imported on first boot.
 `{ yahooTicker, tvSymbol, exchange, companyName, assetType, universes[], active }`.
 Unique `yahooTicker`; index `universes`.
 
+**One ticker, three strings, one of them for the screen.** `yahooTicker` fetches the bars and keys
+every record; `tvSymbol` is the TradingView form (`NASDAQ:LMAT`) and is only ever put in a link or a
+deep-link URL; `symbol` is that form without its exchange prefix (`LMAT`) and is the only one any
+tab prints — Results, History, Rejected, Manual and the chart header alike. `shortSymbol` in the
+engine derives it, `companyName` comes from the same line of the list file, and both are applied on
+the way in and again on the way out (`toResultRow`), so a record written by an older build cannot
+put the same position on screen under two names.
+
 ### `barSeries`
 One document per `(yahooTicker, interval)` with packed binary columns:
 `{ yahooTicker, interval, firstDate, lastDate, barCount, dates, open, high, low, close, volume, updatedAt }`.
@@ -47,7 +55,9 @@ break puts the sequence down and so makes the symbol a reject for the buy scan. 
 the sell rows; the scan screen filters them out.
 
 ### `scanRejections`
-`{ runId, symbol, reason, createdAt }` with a 30-day TTL — audit data, not history.
+`{ runId, symbol, yahooTicker, reason, createdAt }` with a 30-day TTL — audit data, not history.
+`symbol` is the display form the Rejected tab prints; `yahooTicker` is what the tracker matches a
+position against when it asks which symbols a run could not evaluate.
 
 ### `trackedSignals`
 The single source for Results and History. Written by `SignalTrackerService` after a
@@ -81,8 +91,11 @@ Lifecycle:
   not stack a copy of each trade an hour.
 - **History rebuild** (`POST /history/rebuild`) runs `runCloseLedger` over the `barSeries` cache for
   every Stocks/ETF symbol and every timeframe, and inserts every *closed* ledger trade that is not
-  already recorded (`yahooTicker` + `exitDate`). Rows are marked `backfilled: true`. Open ledger
-  tails and `imported` journal rows are left alone. Depth is the Yahoo window already cached:
+  already recorded. A trade is already recorded when any record of that symbol and timeframe shares
+  the bar it started on (`openedAsOf`) or the bar it ended on (`exitDate`) — every record and not
+  only the closed ones, because a position the app is still carrying, open or breaking on the bar in
+  progress, is the same trade the replay is about to find. Rows are marked `backfilled: true`. Open
+  ledger tails and `imported` journal rows are left alone. Depth is the Yahoo window already cached:
   Daily ~2y, Weekly/Monthly ~10y (`intervalAndPeriod`).
 - **A record's entry follows the replay, not the day the app first met the symbol.** A position met
   four months into its run is priced from the bar it actually started on, and its `entry`, `sl`,
@@ -156,9 +169,20 @@ The pre-tracking journal (`trades`) is imported into this collection on boot by
 `LegacyTradesMigration`: closed rows arrive as closed signals with the P&L they were recorded
 with, open and marked rows as active ones, and `dismissed` rows are left behind. Each source row
 is stamped with `migratedAt` / `migratedAs` rather than deleted, so the journal stays as a backup
-and a repeat run only picks up what is left. Two things the journal never had are filled in:
-`universe`, recovered from `instruments.universes`, and the exit reason `manual`, which exists in
-the enum only because the old app let you close a trade by hand.
+and a repeat run only picks up what is left. Three things the journal never had are filled in from
+`instruments`: `universe`, the ticker strings (`symbol` / `tvSymbol`) and `companyName`; plus the
+exit reason `manual`, which exists in the enum only because the old app let you close a trade by
+hand. A journal row is skipped when the app already carries that position, or already has a record
+of a trade opened in the same period — a second copy of one trade is worse than a missing line.
+
+**One trade is one record**, matched on the symbol, the timeframe, the universe and the bar the
+trade started on or ended on — the bars rather than the periods, because a Monthly trade can close
+and another open inside one month. The partial-unique index only guards `status: 'active'`, so
+copies used to be possible where one side was closed; `NormalizeSymbols`
+([normalize-symbols.service.ts](../../apps/api/src/migrations/normalize-symbols.service.ts)) puts
+every record on the one ticker format on boot and drops the extra copies, logging each one because
+they carry realized P&L. Of two copies it keeps the scan record over a journal one, then a realized
+close over a break still settling on the bar in progress, then the one written most recently.
 
 Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`, plus
 `{ universe, tf, status, barsSinceValid }`, `{ universe, tf, status, openedPeriodKey }`,

@@ -119,7 +119,10 @@ SignalSchema.index({ runId: 1, symbol: 1 });
 export const RejectionSchema = new Schema(
   {
     runId: { type: Schema.Types.ObjectId, required: true, index: true },
+    /** Display form, no exchange prefix — the string the Rejected tab prints. */
     symbol: { type: String, required: true },
+    /** The key a tracked signal is matched by: which positions this run could not evaluate. */
+    yahooTicker: String,
     reason: { type: String, required: true },
     /** Engine numbers behind the reject (barDate, close, criticalLevel, seqState, rr, sl, tp, minRr). */
     detail: { type: Schema.Types.Mixed, default: null },

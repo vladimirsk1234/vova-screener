@@ -12,6 +12,7 @@ import {
   maxBarsForTf,
   runSequenceVovaFull,
   runSequenceVovaPine,
+  shortSymbol,
   signalAge,
   type IndicatorParams,
   type OhlcSeries,
@@ -105,6 +106,8 @@ export class InstrumentsService {
     const keep = maxBarsForTf(tf);
     const start = Math.max(0, bars.length - keep);
     const instrument = await this.universe.findOne(yahooTicker);
+    const tvSymbol = instrument?.tvSymbol ?? yahooTicker;
+    const symbol = shortSymbol(tvSymbol);
 
     // Trimmed the same way as the chart series: on a snapshot the D/W/M status has to read as it
     // did on that bar, not as it reads today.
@@ -140,7 +143,8 @@ export class InstrumentsService {
           params,
           dwmLines,
           chartTf: tf,
-          ticker: instrument?.tvSymbol ?? yahooTicker,
+          // Same string the cards print, so the chart and the lists never name a symbol differently.
+          ticker: symbol,
           tradeLine,
         })
       : null;
@@ -207,7 +211,9 @@ export class InstrumentsService {
 
     return {
       yahooTicker,
-      tvSymbol: instrument?.tvSymbol ?? yahooTicker,
+      /** Display form, no exchange prefix; `tvSymbol` is what the TradingView link needs. */
+      symbol,
+      tvSymbol,
       companyName: instrument?.companyName ?? yahooTicker,
       tf,
       /** The bar the series was cut at, or null when this is the live chart. */

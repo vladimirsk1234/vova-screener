@@ -333,6 +333,8 @@ export type ChartDrawing = {
 
 export type ChartPayload = {
   yahooTicker: string;
+  /** Display form, no exchange prefix. `tvSymbol` is only for the TradingView link. */
+  symbol: string;
   tvSymbol: string;
   companyName: string;
   tf: Timeframe;

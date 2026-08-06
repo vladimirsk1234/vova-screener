@@ -9,7 +9,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
-import { runCloseLedger, type CloseTrade, type Timeframe } from '@vova/engine';
+import { runCloseLedger, shortSymbol, type CloseTrade, type Timeframe } from '@vova/engine';
 import { TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { barPeriodKey } from '../scans/period';
@@ -128,10 +128,9 @@ export class HistoryRebuildService {
       const entries = await this.universe.resolveEntries(universe);
       const symbols: SymbolRow[] = entries.map((e) => {
         const tv = e.tv || e.yahoo;
-        const short = tv.includes(':') ? tv.slice(tv.indexOf(':') + 1) : tv;
         return {
           yahooTicker: e.yahoo,
-          symbol: short || e.yahoo,
+          symbol: shortSymbol(tv),
           tvSymbol: tv,
           companyName: e.name ?? e.yahoo,
         };
@@ -183,14 +182,16 @@ export class HistoryRebuildService {
 
         for (const trade of ledger.trades) {
           if (trade.exit_index == null || !trade.exit_date) continue;
-          const key = `${row.yahooTicker}@${trade.exit_date}`;
+          const entered = entryKey(row.yahooTicker, trade.entry_date);
+          const exited = exitKey(row.yahooTicker, trade.exit_date);
           // Set.add is sync; two workers can race a duplicate key only if the same ticker were
           // queued twice — the queue is unique per yahooTicker, so this stays safe.
-          if (recorded.has(key)) {
+          if (recorded.has(entered) || recorded.has(exited)) {
             this.state.counts.skipped += 1;
             continue;
           }
-          recorded.add(key);
+          recorded.add(entered);
+          recorded.add(exited);
           ops.push({
             insertOne: {
               document: closedDocument(row, trade, universe, tf, maxRiskUsd),
@@ -215,14 +216,26 @@ export class HistoryRebuildService {
     );
   }
 
-  /** Existing closes for this universe/tf as `ticker@exitDate`, so rebuild stays idempotent. */
+  /**
+   * Trades this universe/tf already has on record, keyed by the bar they started on and the bar
+   * they ended on.
+   *
+   * Both keys, and every record rather than the closed ones: a position the app is still carrying —
+   * open, or breaking on the bar in progress — is the same trade the replay is about to find, and
+   * inserting a close beside it is what used to put one trade on screen twice under two exits.
+   */
   private async loadRecorded(universe: TrackedUniverse, tf: Timeframe): Promise<Set<string>> {
     const rows = await this.tracked
-      .find({ universe, tf, status: 'closed', exitDate: { $exists: true, $ne: null } })
-      .select('yahooTicker exitDate')
-      .lean<Array<{ yahooTicker: string; exitDate: string }>>()
+      .find({ universe, tf })
+      .select('yahooTicker exitDate openedAsOf')
+      .lean<Array<{ yahooTicker: string; exitDate?: string; openedAsOf?: string }>>()
       .exec();
-    return new Set(rows.map((row) => `${row.yahooTicker}@${row.exitDate}`));
+    const keys = new Set<string>();
+    for (const row of rows) {
+      if (row.openedAsOf) keys.add(entryKey(row.yahooTicker, row.openedAsOf));
+      if (row.exitDate) keys.add(exitKey(row.yahooTicker, row.exitDate));
+    }
+    return keys;
   }
 
   private async flush(ops: any[]) {
@@ -293,6 +306,15 @@ function closedDocument(
 
 function atNoon(date: string): Date {
   return new Date(`${date}T12:00:00Z`);
+}
+
+/** One position per ticker at a time, so the bar a trade started on names it. */
+function entryKey(yahooTicker: string, entryDate: string): string {
+  return `${yahooTicker}#${entryDate}`;
+}
+
+function exitKey(yahooTicker: string, exitDate: string): string {
+  return `${yahooTicker}@${exitDate}`;
 }
 
 function emptyStatus(): RebuildStatus {

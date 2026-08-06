@@ -10,6 +10,7 @@
     "smoke:legacy": "node -r ts-node/register -r tsconfig-paths/register src/dev/legacy-import-smoke.ts",
     "smoke:close-live": "node -r ts-node/register -r tsconfig-paths/register src/dev/close-scan-live-smoke.ts",
     "smoke:delisted": "node -r ts-node/register -r tsconfig-paths/register src/dev/delisted-purge-smoke.ts",
+    "smoke:normalize": "node -r ts-node/register -r tsconfig-paths/register src/dev/normalize-symbols-smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

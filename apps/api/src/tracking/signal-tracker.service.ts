@@ -463,10 +463,12 @@ export class SignalTrackerService implements OnModuleInit {
   private async loadUnevaluated(runId: string): Promise<Set<string>> {
     const rows = await this.rejections
       .find({ runId: new Types.ObjectId(runId), reason: { $in: UNEVALUATED } })
-      .select('symbol')
-      .lean<Array<{ symbol: string }>>()
+      .select('yahooTicker symbol')
+      .lean<Array<{ yahooTicker?: string; symbol: string }>>()
       .exec();
-    return new Set(rows.map((row) => row.symbol));
+    // Rows written before `yahooTicker` existed kept the ticker in `symbol`, which now carries the
+    // display form instead. The two differ only outside the US listings.
+    return new Set(rows.map((row) => row.yahooTicker ?? row.symbol));
   }
 
   /** Ledger settings from the run, so a position is replayed the way the scan evaluated it. */

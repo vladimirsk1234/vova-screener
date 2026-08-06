@@ -4,6 +4,7 @@
  */
 import { explainInvalidBuy, runCloseLedger, runSequenceVovaPine } from './sequenceVova';
 import { signalAge } from './signalAge';
+import { shortSymbol } from './tickers';
 import { buildChartUrl, inferTvSymbol, tfToTvInterval } from './tradingview';
 import type { CloseTrade, OhlcSeries, PineResult, ScanDirection, Timeframe } from './types';
 
@@ -23,6 +24,7 @@ export type EvaluateParams = {
 
 export type BuySignal = {
   kind: 'buy';
+  /** Display form, no exchange prefix. `tvSymbol` is the TradingView one. */
   symbol: string;
   tvSymbol: string;
   yahooTicker: string;
@@ -50,6 +52,7 @@ export type BuySignal = {
 
 export type SellSignal = {
   kind: 'sell';
+  /** Display form, no exchange prefix. `tvSymbol` is the TradingView one. */
   symbol: string;
   tvSymbol: string;
   yahooTicker: string;
@@ -214,7 +217,7 @@ export function evaluateSymbol(input: {
     status: 'signal',
     signal: {
       kind: 'buy',
-      symbol: tvSymbol,
+      symbol: shortSymbol(tvSymbol),
       tvSymbol,
       yahooTicker,
       companyName,
@@ -271,7 +274,7 @@ function sellSignal(
   const entry = round2(trade.entry_price);
   return {
     kind: 'sell',
-    symbol: ids.tvSymbol,
+    symbol: shortSymbol(ids.tvSymbol),
     tvSymbol: ids.tvSymbol,
     yahooTicker: ids.yahooTicker,
     companyName: ids.companyName,

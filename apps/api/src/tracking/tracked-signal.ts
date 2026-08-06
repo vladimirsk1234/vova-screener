@@ -1,5 +1,5 @@
 /** Shared shapes and money maths for tracked signals (Results + History). */
-import type { Timeframe } from '@vova/engine';
+import { shortSymbol, type Timeframe } from '@vova/engine';
 
 export type TrackedUniverse = 'Stocks' | 'ETF';
 export type Bucket = 'new' | 'valid' | 'closed';
@@ -82,6 +82,7 @@ export function holdUnitLabel(tf: Timeframe | 'All'): string {
 /** One row as rendered by the Results and History lists. */
 export type ResultRow = {
   id: string;
+  /** Display form, no exchange prefix. `tvSymbol` is what a TradingView link needs. */
   symbol: string;
   tvSymbol: string;
   yahooTicker: string;
@@ -130,7 +131,9 @@ export function toResultRow(doc: any): ResultRow {
   const shares = doc.shares ?? 0;
   return {
     id: String(doc._id),
-    symbol: doc.symbol,
+    // Records written by older builds — and by the trade journal — kept the exchange prefix here,
+    // so the one display format is enforced on the way out as well as on the way in.
+    symbol: shortSymbol(doc.symbol ?? doc.yahooTicker),
     tvSymbol: doc.tvSymbol ?? doc.symbol,
     yahooTicker: doc.yahooTicker,
     companyName: doc.companyName ?? doc.yahooTicker,

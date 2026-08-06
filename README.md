@@ -113,6 +113,7 @@ npm run typecheck           # engine + api + web
 npm run smoke:tracker       # signal lifecycle end-to-end, no Yahoo needed
 npm run smoke:age           # New / Valid split by bar age, D / W / M
 npm run smoke:legacy        # import of the old trade journal
+npm run smoke:normalize     # one ticker format, one record per trade
 npm run smoke:close-live    # real scan vs the Closed tab (needs Yahoo)
 npm run test:e2e            # Playwright (Pixel 7 + desktop)
 ```

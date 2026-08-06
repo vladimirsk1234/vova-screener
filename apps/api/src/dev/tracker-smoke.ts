@@ -202,6 +202,7 @@ async function fakeScan(
       opts.noData.map((symbol) => ({
         runId: new Types.ObjectId(runId),
         symbol,
+        yahooTicker: symbol,
         reason: 'NO_DATA',
       })),
     );
