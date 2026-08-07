@@ -109,6 +109,14 @@ export function ChartPage() {
     enabled: Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data),
   });
 
+  // Live chart self-heals `signalValid` / age on the tracked row; refresh Results so a dead NEW
+  // card disappears (or a recovered setup returns) without waiting for the next list poll.
+  useEffect(() => {
+    if (!chart.isSuccess || asOf) return;
+    void queryClient.invalidateQueries({ queryKey: ['results'] });
+    void queryClient.invalidateQueries({ queryKey: ['tracked-signal', ticker, tf] });
+  }, [chart.isSuccess, chart.dataUpdatedAt, asOf, queryClient, ticker, tf]);
+
   const savePreset = useMutation({
     mutationFn: () => api.putPreset('chart', settings),
   });

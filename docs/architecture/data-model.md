@@ -119,6 +119,13 @@ Lifecycle:
   evaluate the symbol — a `NO_DATA` / `INSUFFICIENT_DATA` reject says nothing about the setup — so
   a Yahoo outage, or simply no scan having run yet, leaves a record showing exactly where it was.
   That is also why an imported journal trade is on screen from the moment it is imported.
+  **Live revalidation:** reading NEW or VALID (list or summary badges) also runs `signalAge` over
+  the bar cache for every active non-imported row and rewrites `signalValid` / `barsSinceValid` /
+  `validSinceAsOf`. A forming bar that kills Seq/Struct between hourly scans therefore leaves the
+  screen as soon as Results is opened, and a setup that recovers in the same period with age `0`
+  returns to NEW without waiting for the next cron tick. Missing cache is left alone, same as an
+  unevaluated scan. The live chart's `syncTrackedAge` does the same bidirectional write when a
+  symbol is opened.
 - `provisionalClose` is a break on the bar still in progress, which is the only bar that can take
   one back. The record stays `active` and carries the exit it would realize, so CLOSED shows the
   trade for the current period while History waits for the bar to finish; the period-close scan
