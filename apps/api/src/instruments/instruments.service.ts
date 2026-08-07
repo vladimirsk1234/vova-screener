@@ -292,11 +292,13 @@ export class InstrumentsService {
     age: { barsSinceValid: number | null; validSinceAsOf: string | null },
   ) {
     try {
+      // Bidirectional: hide when structure dies, and put the row back on screen when it recovers
+      // so Results does not wait for the next hourly scan after someone opened the chart.
       const set: Record<string, unknown> = {
         barsSinceValid: age.barsSinceValid,
         validSinceAsOf: age.validSinceAsOf,
+        signalValid: age.barsSinceValid != null,
       };
-      if (age.barsSinceValid == null) set.signalValid = false;
 
       await this.tracked
         .updateOne(

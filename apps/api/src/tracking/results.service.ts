@@ -1,9 +1,13 @@
-/** Reads for the Results screen. Every field is precomputed by the scans, so these are index scans. */
+/**
+ * Reads for the Results screen. Scans precompute most fields; NEW / VALID also re-check
+ * structural age against the bar cache so a setup that died between hourly passes leaves the list.
+ */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
-import type { Timeframe } from '@vova/engine';
+import { signalAge, type Timeframe } from '@vova/engine';
 import { SCAN_RUN, TRACKED_SIGNAL } from '../db/schemas';
+import { BarsService } from '../market/bars.service';
 import { barPeriodKey, periodKey as currentPeriodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
 import {
@@ -50,6 +54,7 @@ export class ResultsService {
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
     private readonly settings: SettingsService,
+    private readonly bars: BarsService,
   ) {}
 
   /**
@@ -102,6 +107,7 @@ export class ResultsService {
     const offset = Math.max(opts.offset ?? 0, 0);
 
     const scan = await this.scanMeta(universe, tf);
+    if (bucket !== 'closed') await this.revalidateLiveAges(universe, tf);
     const { minRr } = await this.settings.get();
     const filter = bucketFilter(universe, tf, bucket, scan, minRr);
 
@@ -130,6 +136,8 @@ export class ResultsService {
 
     const counted = await Promise.all(
       metas.map(async ({ universe, tf, scan }) => {
+        // Same live revalidation as list(), so badge counts do not keep dead NEW/VALID cards.
+        await this.revalidateLiveAges(universe, tf);
         const [newCount, valid, closed] = await Promise.all([
           this.tracked.countDocuments(bucketFilter(universe, tf, 'new', scan, minRr)).exec(),
           this.tracked.countDocuments(bucketFilter(universe, tf, 'valid', scan, minRr)).exec(),
@@ -183,6 +191,66 @@ export class ResultsService {
     if (!doc) throw new NotFoundException('signal not found');
     return toResultRow(doc);
   }
+
+  /**
+   * Align active rows with the structural age the chart badge uses (`signalAge`, RR off).
+   *
+   * Hourly scans write `signalValid` / `barsSinceValid`, but a forming bar can kill Seq/Struct
+   * between passes — overnight especially, when the cron is off. Reading the bar cache here drops
+   * dead setups off NEW/VALID immediately, and brings a recovered setup back (`signalValid: true`
+   * with age 0 → NEW again in the same period). Missing cache is treated like an unevaluated scan
+   * reject: leave the row alone. Imported journal trades and provisional closes are skipped.
+   */
+  async revalidateLiveAges(universe: TrackedUniverse, tf: Timeframe): Promise<void> {
+    const docs = await this.tracked
+      .find({
+        universe,
+        tf,
+        status: 'active',
+        provisionalClose: { $ne: true },
+        imported: { $ne: true },
+      })
+      .select('_id yahooTicker barsSinceValid validSinceAsOf signalValid')
+      .lean<any[]>()
+      .exec();
+    if (!docs.length) return;
+
+    const ages = await Promise.all(
+      docs.map(async (doc) => {
+        const bars = await this.bars.getCached(doc.yahooTicker, tf);
+        if (!bars?.length) return null;
+        return { doc, age: signalAge(bars) };
+      }),
+    );
+
+    const ops = [];
+    for (const row of ages) {
+      if (!row) continue;
+      const { doc, age } = row;
+      const nextValid = age.barsSinceValid != null;
+      const prevValid = doc.signalValid !== false;
+      if (
+        prevValid === nextValid &&
+        doc.barsSinceValid === age.barsSinceValid &&
+        (doc.validSinceAsOf ?? null) === (age.validSinceAsOf ?? null)
+      ) {
+        continue;
+      }
+      ops.push({
+        updateOne: {
+          filter: { _id: doc._id },
+          update: {
+            $set: {
+              barsSinceValid: age.barsSinceValid,
+              validSinceAsOf: age.validSinceAsOf,
+              signalValid: nextValid,
+            },
+          },
+        },
+      });
+    }
+    if (ops.length) await this.tracked.bulkWrite(ops, { ordered: false });
+  }
 }
 
 function bucketFilter(
@@ -212,9 +280,9 @@ function bucketFilter(
   } else {
     // A trade only ends on a break, so a position whose buy setup stopped being valid is still open
     // — it just leaves the screen. `signalValid: false` is written when a scan evaluates the symbol
-    // and does not report it, so this asks the scan directly instead of inferring an answer from
-    // which period a record was last priced in: a scan that has not run yet, or one Yahoo throttled,
-    // then cannot empty the list.
+    // and does not report it, and again by `revalidateLiveAges` against the bar cache when NEW/VALID
+    // are read. Missing cache (or an unevaluated scan reject) leaves the flag alone so a Yahoo
+    // outage cannot empty the list.
     //
     // The NEW / VALID split is the bar the signal became valid on, not the period the tracker first
     // recorded it in: a symbol the scan meets for the first time may already have been valid for

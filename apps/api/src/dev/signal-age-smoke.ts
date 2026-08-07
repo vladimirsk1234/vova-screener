@@ -65,6 +65,23 @@ function ageSeries(trail: number, tf: Timeframe, lastDate: string): OhlcSeries {
   }));
 }
 
+/** Flat series with no sequence-up — used to prove Results drops a dead setup off NEW. */
+function flatSeries(n: number, tf: Timeframe, lastDate: string): OhlcSeries {
+  const end = Date.parse(`${lastDate}T00:00:00Z`);
+  const stepMs = DAYS_PER_BAR[tf] * 86_400_000;
+  return Array.from({ length: n }, (_, i) => {
+    const close = 100;
+    return {
+      date: new Date(end - (n - 1 - i) * stepMs).toISOString().slice(0, 10),
+      open: close,
+      high: close + 0.5,
+      low: close - 0.5,
+      close,
+      volume: 1_000_000,
+    };
+  });
+}
+
 async function saveBars(
   barSeries: Model<any>,
   yahooTicker: string,
@@ -190,6 +207,54 @@ async function main() {
       [[4, validSince]],
     );
 
+    // Results revalidates age against the bar cache on every NEW/VALID read, so a setup that
+    // dies between hourly scans leaves the list immediately — and returns to NEW if it
+    // recovers on the same period with age 0.
+    const dead = flatSeries(fresh.length, tf, lastDate);
+    check(
+      `${tf}: the dead series has no buy setup`,
+      runSequenceVovaPine(dead, ENGINE_OPTS)?.Valid ?? false,
+      false,
+    );
+    await saveBars(barSeries, freshTicker, tf, dead);
+    const afterDeath = await buckets();
+    check(
+      `${tf}: a dead setup leaves NEW without waiting for a scan`,
+      afterDeath.split,
+      [[], [oldTicker]],
+    );
+    const hidden = await tracked
+      .findOne({ yahooTicker: freshTicker, tf })
+      .select('status signalValid barsSinceValid')
+      .lean<any>();
+    check(
+      `${tf}: the position stays open (hidden) when the setup dies`,
+      [hidden?.status, hidden?.signalValid, hidden?.barsSinceValid ?? null],
+      ['active', false, null],
+    );
+
+    await saveBars(barSeries, freshTicker, tf, fresh);
+    check(
+      `${tf}: the same-period recovery returns to NEW`,
+      (await buckets()).split,
+      [[freshTicker], [oldTicker]],
+    );
+
+    await saveBars(barSeries, freshTicker, tf, old);
+    check(
+      `${tf}: age greater than one bar moves the row to VALID`,
+      (await buckets()).split,
+      [[], [freshTicker, oldTicker].sort()],
+    );
+    check(
+      `${tf}: aging never closes the trade`,
+      (await tracked.findOne({ yahooTicker: freshTicker, tf }).select('status').lean<any>())?.status,
+      'active',
+    );
+    // Put the fresh signal back so the chart / backfill checks below still see age 0.
+    await saveBars(barSeries, freshTicker, tf, fresh);
+    await results.revalidateLiveAges('Stocks', tf);
+
     // The chart reads the same age as the tabs on the settings the chart screen actually sends —
     // `min_rr: 1.5` with the RR requirement on — because RR decides nothing about NEW vs VALID.
     check(
@@ -201,17 +266,26 @@ async function main() {
       [0, 4],
     );
 
-    // What a deploy finds in the database: records written before the age was stored. They can only
-    // land in VALID, which empties NEW for a whole timeframe until its next scan — so the boot
-    // backfill has to rebuild the ages from the bar cache.
+    // What a deploy finds in the database: records written before the age was stored. Hide the
+    // bar cache so list() cannot revalidate, then the missing field can only land in VALID —
+    // which empties NEW for a whole timeframe until its next scan or the boot backfill.
     await tracked.updateMany(
       { yahooTicker: { $in: tickers } },
       { $unset: { barsSinceValid: '', validSinceAsOf: '' } },
     );
+    const cachedBars = await barSeries.find({ yahooTicker: { $in: tickers } }).lean<any[]>();
+    await barSeries.deleteMany({ yahooTicker: { $in: tickers } });
     check(`${tf}: records with no age all fall into VALID`, (await buckets()).split, [
       [],
       [freshTicker, oldTicker].sort(),
     ]);
+
+    for (const doc of cachedBars) {
+      const { _id, ...rest } = doc;
+      await barSeries.updateOne({ yahooTicker: rest.yahooTicker, interval: rest.interval }, { $set: rest }, {
+        upsert: true,
+      });
+    }
 
     const report = await ageBackfill.run();
     check(`${tf}: the backfill fills both records`, [report.filled, report.skipped], [2, 0]);
