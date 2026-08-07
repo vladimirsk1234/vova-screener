@@ -16,7 +16,7 @@ reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card |
+| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED |
 | GET | `/results/summary` | Bucket counts and scan freshness for every universe × timeframe, for the tab badges |
 | GET | `/results/lookup?yahooTicker&tf` | The active tracked signal for a symbol, so a chart opened by URL can show and toggle the mark |
 | GET | `/results/signal/:id` | One tracked signal whatever its state — how a closed trade from History is opened on the chart |
@@ -49,7 +49,7 @@ Yahoo bar windows bound how far rebuild can go: Daily `2y`, Weekly/Monthly `10y`
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET/PUT | `/settings` | `{ maxRiskUsd }` — the only user-facing setting; scan parameters are fixed in code |
+| GET/PUT | `/settings` | `{ maxRiskUsd, minRr }` — user-facing settings; scan parameters are fixed in code. `minRr` floors Results NEW/VALID (and History active) on live `lastRr`, and CLOSED / History closed on entry `rrAtEntry`; `0` disables the filter |
 
 One risk for every signal: `maxRiskUsd` divided by the distance to SL is the position size
 everywhere — background scans, manual scans, the tracked signals and the chart. A `PUT` re-sizes

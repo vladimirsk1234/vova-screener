@@ -309,8 +309,10 @@ function bucketFilter(
       };
     }
   }
-  // Global Min RR from Settings: lists and badge counts share one floor on entry RR.
-  if (minRr > 0) filter.rrAtEntry = { $gte: minRr };
+  // Global Min RR from Settings: NEW/VALID use live RR (lastRr); CLOSED uses entry RR.
+  if (minRr > 0) {
+    filter[bucket === 'closed' ? 'rrAtEntry' : 'lastRr'] = { $gte: minRr };
+  }
   return filter;
 }
 

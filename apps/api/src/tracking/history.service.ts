@@ -435,7 +435,8 @@ function activeMatch(
     universe,
   };
   if (tf !== 'All') match.tf = tf;
-  if (minRr > 0) match.rrAtEntry = { $gte: minRr };
+  // Active / open count uses live RR, matching NEW/VALID on Results.
+  if (minRr > 0) match.lastRr = { $gte: minRr };
   return match;
 }
 

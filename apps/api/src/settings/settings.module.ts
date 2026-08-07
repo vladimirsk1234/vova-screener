@@ -6,7 +6,7 @@ import { PRESET } from '../db/schemas';
 
 export type AppSettings = {
   maxRiskUsd: number;
-  /** Floor on entry RR for Results and History. 0 = no filter. */
+  /** Floor on live RR for NEW/VALID (and History active); CLOSED/History closed use entry RR. 0 = no filter. */
   minRr: number;
 };
 

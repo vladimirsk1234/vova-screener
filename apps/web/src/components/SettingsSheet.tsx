@@ -247,8 +247,9 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         />
       </div>
       <p className="muted small">
-        Floor on entry RR for NEW, VALID, CLOSED and all History statistics. 0 shows everything.
-        Scans still track every signal; this only filters what the lists and stats include.
+        Floor on live RR for NEW and VALID (updated on each rescan). CLOSED and History closed
+        trades use entry RR. 0 shows everything. Scans still track every signal; this only filters
+        what the lists and stats include.
       </p>
 
       <div className="field">

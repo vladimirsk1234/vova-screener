@@ -81,7 +81,8 @@ Lifecycle:
 
 - Every completed Stocks/ETF scan refreshes `lastPrice`, `lastRr`, `barsSinceValid` and the
   unrealized numbers, and opens a `provisional` record for a symbol it has not seen before. That is
-  what makes a signal appearing mid-session visible straight away.
+  what makes a signal appearing mid-session visible straight away. Settings Min RR on NEW/VALID
+  reads that live `lastRr` (CLOSED keeps `rrAtEntry`).
 - **A break ends a trade whether or not this app recorded its start.** A symbol closing today is
   not a buy today — the break puts the sequence down — so it is a reject in the buy scan and would
   never be heard of again. Every buy pass therefore also runs the close scan over the same bars and
@@ -199,7 +200,7 @@ Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`
 
 ### `presets`
 `{ key, data }` for chart params (successor to Streamlit `session_state`) and the `app` key
-holding `{ maxRiskUsd }` behind `GET/PUT /api/settings`.
+holding `{ maxRiskUsd, minRr }` behind `GET/PUT /api/settings`.
 
 ## Deferred
 
