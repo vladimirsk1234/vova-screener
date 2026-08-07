@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { HistoryPage } from './pages/HistoryPage';
 import { ManualPage } from './pages/ManualPage';
 import { RejectedPage } from './pages/RejectedPage';
@@ -16,6 +16,28 @@ import {
 const ChartPage = lazy(() =>
   import('./pages/ChartPage').then((m) => ({ default: m.ChartPage })),
 );
+
+/**
+ * Restores the remembered route on a cold open. A plain replace would leave the restored screen as
+ * the only history entry, so Back would exit the app; seeding Results underneath keeps Back inside.
+ */
+function RestoreEntry({ appTo, resultsTo }: { appTo: string; resultsTo: string }) {
+  const navigate = useNavigate();
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (done.current) return;
+    done.current = true;
+    if (appTo === resultsTo) {
+      navigate(appTo, { replace: true });
+      return;
+    }
+    navigate(resultsTo, { replace: true });
+    navigate(appTo);
+  }, [appTo, resultsTo, navigate]);
+
+  return null;
+}
 
 export function App() {
   const { pathname, search } = useLocation();
@@ -64,7 +86,7 @@ export function App() {
       <main className={`app-main${isChart ? ' app-main-flush app-main--chart' : ''}`}>
         <Suspense fallback={<p className="empty">Loading…</p>}>
           <Routes>
-            <Route path="/" element={<Navigate to={appTo} replace />} />
+            <Route path="/" element={<RestoreEntry appTo={appTo} resultsTo={resultsTo} />} />
             <Route path="/results" element={<Navigate to={resultsTo} replace />} />
             <Route path="/results/manual" element={<ManualPage />} />
             <Route path="/results/manual/rejected/:runId" element={<RejectedPage />} />
@@ -73,7 +95,7 @@ export function App() {
             <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/chart/:ticker" element={<ChartPage />} />
-            <Route path="*" element={<Navigate to={appTo} replace />} />
+            <Route path="*" element={<RestoreEntry appTo={appTo} resultsTo={resultsTo} />} />
           </Routes>
         </Suspense>
       </main>

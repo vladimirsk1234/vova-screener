@@ -200,6 +200,17 @@ test.describe('results shell', () => {
     await page.evaluate(() => sessionStorage.clear());
     await page.goto('/');
     await expect(page).toHaveURL(/\/chart\/AAPL/);
+
+    // The restore seeds Results underneath the chart, so Back stays inside the app instead of
+    // leaving for whatever the tab was showing before.
+    await page.goBack();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Daily\/new$/);
+  });
+
+  test('Back on a chart opened straight from a URL lands on Results', async ({ page }) => {
+    await page.goto('/chart/AAPL');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Daily\/new$/);
   });
 
   test('Results bottom nav still returns to the last Results tabs after History', async ({
