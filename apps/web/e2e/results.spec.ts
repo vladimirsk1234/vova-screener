@@ -7,6 +7,8 @@ import { expect, test } from '@playwright/test';
 test.describe('results shell', () => {
   test('lands on Stocks / Daily / New and keeps the tabs in the URL', async ({ page }) => {
     await page.goto('/');
+    await page.evaluate(() => localStorage.clear());
+    await page.goto('/');
     await expect(page).toHaveURL(/\/results\/Stocks\/Daily\/new$/);
 
     await expect(page.getByRole('tab', { name: 'Stocks' })).toHaveClass(/active/);
@@ -166,5 +168,52 @@ test.describe('results shell', () => {
     await card.click();
     await expect(page).toHaveURL(/\/chart\//);
     await expect(page.getByRole('button', { name: 'Interested', exact: true })).toBeVisible();
+  });
+
+  test('Results tabs survive closing the session and reopening /', async ({ page }) => {
+    await page.goto('/results/ETF/Weekly/closed?sort=pnl&dir=desc');
+    await expect(page).toHaveURL(/\/results\/ETF\/Weekly\/closed\?sort=pnl&dir=desc/);
+
+    // sessionStorage dies with the tab; localStorage is what a cold PWA reopen keeps.
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/results\/ETF\/Weekly\/closed\?sort=pnl&dir=desc/);
+    await expect(page.getByRole('tab', { name: 'ETF' })).toHaveClass(/active/);
+    await expect(page.getByRole('tab', { name: 'W', exact: true })).toHaveClass(/active/);
+    await expect(page.getByRole('tab', { name: /^Closed/ })).toHaveClass(/active/);
+  });
+
+  test('History is restored from / after a cold reopen', async ({ page }) => {
+    await page.goto('/history');
+    await expect(page).toHaveURL(/\/history$/);
+
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/history$/);
+    await expect(page.getByText('Win rate')).toBeVisible();
+  });
+
+  test('Chart is restored from / after a cold reopen', async ({ page }) => {
+    await page.goto('/chart/AAPL');
+    await expect(page).toHaveURL(/\/chart\/AAPL/);
+
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/chart\/AAPL/);
+  });
+
+  test('Results bottom nav still returns to the last Results tabs after History', async ({
+    page,
+  }) => {
+    await page.goto('/results/Stocks/Monthly/valid?sort=rr&dir=asc');
+    await page.getByRole('link', { name: 'History' }).click();
+    await expect(page).toHaveURL(/\/history$/);
+
+    await page.evaluate(() => sessionStorage.clear());
+    await page.reload();
+    await expect(page).toHaveURL(/\/history$/);
+
+    await page.getByRole('link', { name: 'Results' }).click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Monthly\/valid\?sort=rr&dir=asc/);
   });
 });

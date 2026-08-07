@@ -10,6 +10,7 @@ import {
 } from './api';
 
 const RESULTS_KEY = 'vova.lastResultsPath';
+const APP_KEY = 'vova.lastAppPath';
 const HISTORY_KEY = 'vova.historyFilters';
 
 export const DEFAULT_RESULTS_PATH = '/results/Stocks/Daily/new';
@@ -18,8 +19,12 @@ const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies rea
 const HISTORY_RANGE_OPTIONS = HISTORY_RANGES;
 
 const RESULTS_PATH_RE = new RegExp(
-  `^/results/(${UNIVERSES.join('|')})/(${TIMEFRAMES.join('|')})/(${BUCKETS.join('|')})(/|\\?|$)`,
+  `^/results/(${UNIVERSES.join('|')})/(${TIMEFRAMES.join('|')})/(${BUCKETS.join('|')})$`,
 );
+
+const MANUAL_PATH_RE = /^\/results\/manual(\/rejected\/[^/]+)?$/;
+const HISTORY_PATH_RE = /^\/history$/;
+const CHART_PATH_RE = /^\/chart\/[^/]+$/;
 
 function isHistoryTf(value: string): value is HistoryTf {
   return (HISTORY_TFS as readonly string[]).includes(value);
@@ -29,24 +34,90 @@ function isTimeframe(value: string): value is Timeframe {
   return TIMEFRAMES.includes(value as Timeframe);
 }
 
-/** Remember a concrete Results route so Status / Timeframe survive leaving the tab. */
-export function rememberResultsPath(pathname: string, search = ''): void {
-  if (!RESULTS_PATH_RE.test(pathname)) return;
+function isUniverse(value: string): value is Universe {
+  return UNIVERSES.includes(value as Universe);
+}
+
+function isHistoryRange(value: string): value is HistoryRange {
+  return (HISTORY_RANGE_OPTIONS as readonly string[]).includes(value);
+}
+
+function readStorage(store: Storage, key: string): string | null {
   try {
-    sessionStorage.setItem(RESULTS_KEY, `${pathname}${search}`);
+    return store.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(store: Storage, key: string, value: string): void {
+  try {
+    store.setItem(key, value);
   } catch {
     // Private mode / quota — selection still works within the mounted page.
   }
 }
 
+/** One-shot: copy legacy sessionStorage values into localStorage when local is empty. */
+function migrateFromSession(key: string): string | null {
+  const local = readStorage(localStorage, key);
+  if (local != null && local !== '') return local;
+  const session = readStorage(sessionStorage, key);
+  if (session != null && session !== '') {
+    writeStorage(localStorage, key, session);
+    return session;
+  }
+  return null;
+}
+
+function splitPathSearch(saved: string): { path: string; search: string } {
+  const q = saved.indexOf('?');
+  if (q === -1) return { path: saved, search: '' };
+  return { path: saved.slice(0, q), search: saved.slice(q) };
+}
+
+function isValidResultsPath(path: string): boolean {
+  return RESULTS_PATH_RE.test(path);
+}
+
+function isValidAppPath(path: string): boolean {
+  return (
+    isValidResultsPath(path) ||
+    MANUAL_PATH_RE.test(path) ||
+    HISTORY_PATH_RE.test(path) ||
+    CHART_PATH_RE.test(path)
+  );
+}
+
+/** Remember a concrete Results route so Status / Timeframe survive leaving the tab. */
+export function rememberResultsPath(pathname: string, search = ''): void {
+  if (!isValidResultsPath(pathname)) return;
+  writeStorage(localStorage, RESULTS_KEY, `${pathname}${search}`);
+}
+
 export function lastResultsPath(): string {
-  try {
-    const saved = sessionStorage.getItem(RESULTS_KEY);
-    if (saved && RESULTS_PATH_RE.test(saved.split('?')[0] ?? '')) return saved;
-  } catch {
-    // ignore
+  const saved = migrateFromSession(RESULTS_KEY);
+  if (saved) {
+    const { path } = splitPathSearch(saved);
+    if (isValidResultsPath(path)) return saved;
   }
   return DEFAULT_RESULTS_PATH;
+}
+
+/** Remember any primary app route so / restores where the user left off across sessions. */
+export function rememberAppPath(pathname: string, search = ''): void {
+  if (!isValidAppPath(pathname)) return;
+  writeStorage(localStorage, APP_KEY, `${pathname}${search}`);
+}
+
+export function lastAppPath(): string {
+  const saved = migrateFromSession(APP_KEY);
+  if (saved) {
+    const { path } = splitPathSearch(saved);
+    if (isValidAppPath(path)) return saved;
+  }
+  // Fall back to last Results path (may itself migrate from sessionStorage).
+  return lastResultsPath();
 }
 
 /** Rebuild a Results URL for another universe, keeping the last timeframe / bucket / sort. */
@@ -69,17 +140,9 @@ export type HistoryFilters = {
   range: HistoryRange;
 };
 
-function isUniverse(value: string): value is Universe {
-  return UNIVERSES.includes(value as Universe);
-}
-
-function isHistoryRange(value: string): value is HistoryRange {
-  return (HISTORY_RANGE_OPTIONS as readonly string[]).includes(value);
-}
-
 export function loadHistoryFilters(): HistoryFilters {
   try {
-    const raw = sessionStorage.getItem(HISTORY_KEY);
+    const raw = migrateFromSession(HISTORY_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<HistoryFilters>;
       const universe =
@@ -104,9 +167,5 @@ export function loadHistoryFilters(): HistoryFilters {
 }
 
 export function saveHistoryFilters(filters: HistoryFilters): void {
-  try {
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(filters));
-  } catch {
-    // ignore
-  }
+  writeStorage(localStorage, HISTORY_KEY, JSON.stringify(filters));
 }

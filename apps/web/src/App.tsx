@@ -5,7 +5,12 @@ import { ManualPage } from './pages/ManualPage';
 import { RejectedPage } from './pages/RejectedPage';
 import { ResultsPage } from './pages/ResultsPage';
 import { SettingsSheet } from './components/SettingsSheet';
-import { DEFAULT_RESULTS_PATH, lastResultsPath, rememberResultsPath } from './lib/tabMemory';
+import {
+  lastAppPath,
+  lastResultsPath,
+  rememberAppPath,
+  rememberResultsPath,
+} from './lib/tabMemory';
 
 // Lightweight Charts is the heaviest dependency and only the chart screen needs it.
 const ChartPage = lazy(() =>
@@ -16,12 +21,16 @@ export function App() {
   const { pathname, search } = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resultsTo, setResultsTo] = useState(lastResultsPath);
+  const [appTo, setAppTo] = useState(lastAppPath);
   const isChart = pathname.startsWith('/chart/');
 
   useEffect(() => {
     rememberResultsPath(pathname, search);
-    const next = lastResultsPath();
-    setResultsTo((prev) => (prev === next ? prev : next));
+    rememberAppPath(pathname, search);
+    const nextResults = lastResultsPath();
+    setResultsTo((prev) => (prev === nextResults ? prev : nextResults));
+    const nextApp = lastAppPath();
+    setAppTo((prev) => (prev === nextApp ? prev : nextApp));
   }, [pathname, search]);
 
   return (
@@ -55,7 +64,7 @@ export function App() {
       <main className={`app-main${isChart ? ' app-main-flush app-main--chart' : ''}`}>
         <Suspense fallback={<p className="empty">Loading…</p>}>
           <Routes>
-            <Route path="/" element={<Navigate to={resultsTo} replace />} />
+            <Route path="/" element={<Navigate to={appTo} replace />} />
             <Route path="/results" element={<Navigate to={resultsTo} replace />} />
             <Route path="/results/manual" element={<ManualPage />} />
             <Route path="/results/manual/rejected/:runId" element={<RejectedPage />} />
@@ -64,7 +73,7 @@ export function App() {
             <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/chart/:ticker" element={<ChartPage />} />
-            <Route path="*" element={<Navigate to={DEFAULT_RESULTS_PATH} replace />} />
+            <Route path="*" element={<Navigate to={appTo} replace />} />
           </Routes>
         </Suspense>
       </main>
