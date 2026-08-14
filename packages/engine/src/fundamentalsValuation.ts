@@ -8,6 +8,9 @@ export type ValuationMetric = 'eps' | 'revenue' | 'fcf' | 'ownerEarnings';
 
 export type FairValueRule = 'pe15' | 'lynch_peg' | 'none';
 
+/** Chart / Normal P/E window. `null` = MAX (all complete years). */
+export type ValuationWindowYears = 5 | 10 | null;
+
 /** Below this 5y CAGR, fair value uses a 15× multiple instead of PEG=1. */
 export const GROWTH_PE_FLOOR = 15;
 
@@ -66,6 +69,8 @@ export type ValuationSummary = {
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
   years: number;
+  /** 5, 10, or null for MAX. */
+  windowYears: ValuationWindowYears;
 };
 
 function finite(n: unknown): n is number {
@@ -114,6 +119,35 @@ export function computeNormalMultiple(
   if (med != null && med > 0) return { multiple: Math.round(med * 10) / 10, source: 'median_pe' };
   const fallback = metric === 'revenue' ? 3 : 15;
   return { multiple: fallback, source: 'fallback' };
+}
+
+/** Drop fiscal years whose period-end date is still in the future (stubs / current FY). */
+export function completeFiscalYears(
+  points: AnnualFundamentalPoint[],
+  asOfIso = new Date().toISOString().slice(0, 10),
+): AnnualFundamentalPoint[] {
+  const byYear = new Map<number, AnnualFundamentalPoint>();
+  for (const p of points) {
+    if (p.date.slice(0, 10) > asOfIso) continue;
+    const prev = byYear.get(p.year);
+    if (!prev || p.date > prev.date) byYear.set(p.year, p);
+  }
+  return [...byYear.values()].sort((a, b) => a.year - b.year);
+}
+
+/**
+ * Keep the last `windowYears` calendar years ending at the latest complete FY.
+ * `null` keeps the full history (MAX).
+ */
+export function sliceToWindow(
+  points: AnnualFundamentalPoint[],
+  windowYears: ValuationWindowYears,
+): AnnualFundamentalPoint[] {
+  const sorted = completeFiscalYears(points);
+  if (windowYears == null || windowYears <= 0 || !sorted.length) return sorted;
+  const lastYear = sorted[sorted.length - 1]!.year;
+  const minYear = lastYear - windowYears + 1;
+  return sorted.filter((p) => p.year >= minYear);
 }
 
 export function cagrPct(first: number, last: number, years: number): number | null {
@@ -194,9 +228,15 @@ export function annualizedPriceReturnPct(
 export function buildValuationSeries(
   points: AnnualFundamentalPoint[],
   metric: ValuationMetric,
-  opts: { normalMultiple?: number; currentPrice?: number | null } = {},
+  opts: {
+    normalMultiple?: number;
+    currentPrice?: number | null;
+    /** Visible years for the chart and Normal P/E. Default MAX (all complete years). */
+    windowYears?: ValuationWindowYears;
+  } = {},
 ): { series: ValuationSeriesPoint[]; summary: ValuationSummary } {
-  const sorted = [...points].sort((a, b) => a.year - b.year);
+  const windowYears = opts.windowYears === undefined ? null : opts.windowYears;
+  const sorted = sliceToWindow(points, windowYears);
   const { multiple, source } =
     opts.normalMultiple != null && opts.normalMultiple > 0
       ? { multiple: opts.normalMultiple, source: 'median_pe' as const }
@@ -270,6 +310,7 @@ export function buildValuationSeries(
       fairValueRatio,
       fairValueRule,
       years: withMetric.length,
+      windowYears,
     },
   };
 }

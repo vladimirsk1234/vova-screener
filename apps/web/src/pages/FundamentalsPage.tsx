@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { buildValuationSeries, type ValuationMetric } from '@vova/engine';
+import { buildValuationSeries, sliceToWindow, type ValuationMetric, type ValuationWindowYears } from '@vova/engine';
 import { api, type HorizonReturns } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { mountValuationChart } from '../components/mountValuationChart';
@@ -65,6 +65,7 @@ export function FundamentalsPage() {
   const { ticker = '' } = useParams();
   const navigate = useNavigate();
   const [metric, setMetric] = useState<ValuationMetric>('eps');
+  const [windowYears, setWindowYears] = useState<ValuationWindowYears>(5);
   const [tab, setTab] = useState<FundTab>('summary');
   const hostRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
@@ -78,20 +79,29 @@ export function FundamentalsPage() {
 
   const valuation = useMemo(() => {
     if (!fundQ.data) return null;
-    if (metric === fundQ.data.valuation.summary.metric) return fundQ.data.valuation;
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
+      windowYears,
     });
-  }, [fundQ.data, metric]);
+  }, [fundQ.data, metric, windowYears]);
 
   const chartSeries = useMemo(() => {
     if (!fundQ.data || !valuation) return [];
-    if (tab === 'forecasting') {
-      if (metric === fundQ.data.valuation.summary.metric) return fundQ.data.forecastSeries;
-      return valuation.series;
-    }
-    return valuation.series;
-  }, [fundQ.data, valuation, tab, metric]);
+    if (tab !== 'forecasting') return valuation.series;
+    const lastYear = valuation.series[valuation.series.length - 1]?.year ?? 0;
+    const extra = fundQ.data.forecastSeries.filter(
+      (p) => p.estimated && p.year > lastYear,
+    );
+    return [...valuation.series, ...extra];
+  }, [fundQ.data, valuation, tab]);
+
+  const fyRows = useMemo(() => {
+    if (!fundQ.data) return [];
+    const windowed = sliceToWindow(fundQ.data.annual, windowYears);
+    const minYear = windowed[0]?.year;
+    if (minYear == null) return [];
+    return fundQ.data.incomeTrend.filter((row) => row.year >= minYear);
+  }, [fundQ.data, windowYears]);
 
   useEffect(() => {
     if (!hostRef.current || !chartSeries.length || (tab !== 'summary' && tab !== 'forecasting')) {
@@ -189,13 +199,23 @@ export function FundamentalsPage() {
             </dl>
           </section>
 
-          {tab === 'summary' ? (
-            <Chips
-              value={metric}
-              options={METRICS.map((m) => m.id)}
-              format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
-              onChange={setMetric}
-            />
+          {tab === 'summary' || tab === 'forecasting' ? (
+            <>
+              {tab === 'summary' ? (
+                <Chips
+                  value={metric}
+                  options={METRICS.map((m) => m.id)}
+                  format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
+                  onChange={setMetric}
+                />
+              ) : null}
+              <Chips
+                value={windowYears == null ? 'max' : String(windowYears)}
+                options={['5', '10', 'max']}
+                format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
+                onChange={(id) => setWindowYears(id === 'max' ? null : (Number(id) as 5 | 10))}
+              />
+            </>
           ) : null}
 
           <div className="fund-layout">
@@ -259,7 +279,7 @@ export function FundamentalsPage() {
         </>
       ) : null}
 
-      {tab === 'summary' && fundQ.data?.incomeTrend?.length ? (
+      {tab === 'summary' && fyRows.length ? (
         <section className="fund-section">
           <h3 className="fund-section-title">FY EPS / Chg / Div</h3>
           <div className="fund-table-wrap">
@@ -273,7 +293,7 @@ export function FundamentalsPage() {
                 </tr>
               </thead>
               <tbody>
-                {fundQ.data.incomeTrend.map((row) => (
+                {fyRows.map((row) => (
                   <tr key={row.date}>
                     <td>{row.year}</td>
                     <td>{money(row.eps)}</td>
@@ -368,9 +388,10 @@ export function FundamentalsPage() {
       ) : null}
 
       <p className="muted small fund-footnote">
-        Fair value = EPS × 15× when 5y EPS CAGR &lt; 15%, else PEG=1 (ratio = growth %). Normal P/E
-        is the median historical price/EPS. Figures from Financial Modeling Prep — GAAP, not FAST
-        Graphs operating EPS. S&amp;P credit rating is not in FMP.
+        Fair value = GAAP diluted EPS × 15× when 5y EPS CAGR &lt; 15%, else PEG=1 (ratio = growth %).
+        Normal P/E is the median price/EPS on the selected 5Y / 10Y / MAX window. Figures from
+        Financial Modeling Prep — GAAP diluted, not FAST Graphs adjusted operating EPS. S&amp;P
+        credit rating is not in FMP.
         {fundQ.data?.cached ? ' · cached' : ''}
       </p>
     </div>

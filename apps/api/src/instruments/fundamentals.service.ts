@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   annualizedPriceReturnPct,
   buildValuationSeries,
+  completeFiscalYears,
   yoyChgPct,
   type AnnualFundamentalPoint,
   type ValuationMetric,
@@ -172,6 +173,7 @@ export class FundamentalsService {
       if (other && Date.now() - other.at < CACHE_TTL_MS) {
         const valuation = buildValuationSeries(other.payload.annual, metric, {
           currentPrice: other.payload.profile.price,
+          windowYears: 5,
         });
         const payload: FundamentalsPayload = {
           ...other.payload,
@@ -324,7 +326,7 @@ export class FundamentalsService {
     const spyCloses = (spyBarsRes.bars ?? []).map((b) => ({ date: b.date, close: b.close }));
     const yearEnd = yearEndMap(tickerCloses);
 
-    const annual: AnnualFundamentalPoint[] = [];
+    let annual: AnnualFundamentalPoint[] = [];
     for (const date of dateList) {
       const y = yearOf(date);
       if (y == null) continue;
@@ -334,10 +336,10 @@ export class FundamentalsService {
       const rt = ratioByDate.get(date) ?? {};
 
       const eps =
-        fmpNum(km.netIncomePerShare) ??
         fmpNum(inc.epsdiluted) ??
         fmpNum(inc.epsDiluted) ??
-        fmpNum(inc.eps);
+        fmpNum(inc.eps) ??
+        fmpNum(km.netIncomePerShare);
       const revenuePerShare = fmpNum(km.revenuePerShare);
       const fcfPerShare =
         fmpNum(km.freeCashFlowPerShare) ??
@@ -373,14 +375,17 @@ export class FundamentalsService {
       });
     }
 
-    annual.sort((a, b) => a.year - b.year);
+    annual = completeFiscalYears(annual);
 
     if (!annual.length) {
       this.log.warn(`Empty annual series for ${fmpSymbol}`);
     }
 
     const price = profile.price ?? annual[annual.length - 1]?.price ?? null;
-    const valuation = buildValuationSeries(annual, metric, { currentPrice: price });
+    const valuation = buildValuationSeries(annual, metric, {
+      currentPrice: price,
+      windowYears: 5,
+    });
 
     const peTTM =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
