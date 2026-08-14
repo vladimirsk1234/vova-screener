@@ -12,6 +12,19 @@ class InstrumentsController {
     private readonly fundamentalsSvc: FundamentalsService,
   ) {}
 
+  /**
+   * Batch slim valuation for Results / History cards.
+   * Must be registered above `:ticker/...` or Nest treats the path as a ticker.
+   */
+  @Get('fundamentals-cards')
+  fundamentalsCards(@Query('tickers') tickers?: string) {
+    const list = String(tickers ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    return this.fundamentalsSvc.getCardMetrics(list);
+  }
+
   @Get(':ticker/chart')
   chart(
     @Param('ticker') ticker: string,

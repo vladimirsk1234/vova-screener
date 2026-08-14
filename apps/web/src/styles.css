@@ -513,6 +513,31 @@ a {
   flex-shrink: 0;
 }
 
+.signal-card-fundamentals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 2px;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.signal-card-fundamentals > span {
+  white-space: nowrap;
+}
+
+.signal-card-fundamentals .lbl {
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.signal-card-fundamentals .sep {
+  color: var(--muted);
+  margin: 0 5px;
+  flex-shrink: 0;
+}
+
 .signal-card.compact .card-actions {
   margin-top: 6px;
 }

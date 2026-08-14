@@ -14,6 +14,7 @@ import {
 } from '../lib/api';
 import { formatAge, TF_SHORT } from '../lib/format';
 import { lastResultsPath } from '../lib/tabMemory';
+import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips, type SortOption } from '../components/SortChips';
@@ -93,6 +94,8 @@ export function ResultsPage() {
   });
 
   const rows = useMemo(() => page.data?.pages.flatMap((p) => p.rows) ?? [], [page.data]);
+  const tickers = useMemo(() => rows.map((r) => r.yahooTicker), [rows]);
+  const cardFund = useCardFundamentals(tickers);
   const first = page.data?.pages[0];
   const counts = universe ? summary.data?.[universe]?.[tf]?.counts : undefined;
   const scan = first?.scan ?? (universe ? summary.data?.[universe]?.[tf]?.scan : undefined);
@@ -199,7 +202,12 @@ export function ResultsPage() {
       ) : null}
 
       {rows.map((row) => (
-        <SignalCard key={row.id} row={row} bucket={bucket} />
+        <SignalCard
+          key={row.id}
+          row={row}
+          bucket={bucket}
+          fundamentals={cardFund.data?.[row.yahooTicker.toUpperCase()] ?? null}
+        />
       ))}
 
       {page.hasNextPage ? (

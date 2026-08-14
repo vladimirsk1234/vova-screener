@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   HISTORY_RANGES,
@@ -16,6 +16,7 @@ import {
 } from '../lib/api';
 import { holdLabel, money, num, pct, periodLabel, signedMoney } from '../lib/format';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
+import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { Chips, Switch } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
@@ -164,6 +165,11 @@ export function HistoryPage() {
   });
   const data = report.data;
   const unit = holdLabel(tf);
+  const tradeTickers = useMemo(
+    () => (trades.data?.rows ?? []).map((r) => r.yahooTicker),
+    [trades.data?.rows],
+  );
+  const cardFund = useCardFundamentals(tradeTickers);
 
   const onUniverse = (next: Universe) => {
     setUniverse(next);
@@ -352,7 +358,14 @@ export function HistoryPage() {
         </p>
       </section>
 
-      {trades.data?.rows.map((row) => <SignalCard key={row.id} row={row} bucket="closed" />)}
+      {trades.data?.rows.map((row) => (
+        <SignalCard
+          key={row.id}
+          row={row}
+          bucket="closed"
+          fundamentals={cardFund.data?.[row.yahooTicker.toUpperCase()] ?? null}
+        />
+      ))}
     </div>
   );
 }

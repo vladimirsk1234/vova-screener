@@ -337,6 +337,14 @@ export type FundamentalsPayload = {
   cached: boolean;
 };
 
+/** Slim valuation fields for Results / History signal cards (FMP). */
+export type CardFundamentals = {
+  fairValue: number | null;
+  growthRatePct: number | null;
+  blendedPe: number | null;
+  ltDebtToCapitalTTM: number | null;
+};
+
 export type HistoryEpsEnrichResult = {
   configured: boolean;
   scanned: number;
@@ -688,6 +696,14 @@ export const api = {
     request<FundamentalsPayload>(
       `/instruments/${encodeURIComponent(ticker)}/fundamentals${query({ metric })}`,
     ),
+  /** Batch slim valuation for signal cards. Empty `{}` when FMP key is missing. */
+  fundamentalsCards: (tickers: string[]) => {
+    const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+    if (!unique.length) return Promise.resolve({} as Record<string, CardFundamentals>);
+    return request<Record<string, CardFundamentals>>(
+      `/instruments/fundamentals-cards${query({ tickers: unique.join(',') })}`,
+    );
+  },
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>

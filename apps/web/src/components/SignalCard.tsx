@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type Bucket, type Interest, type ResultRow } from '../lib/api';
+import { api, type Bucket, type CardFundamentals, type Interest, type ResultRow } from '../lib/api';
 import { barsLabel, money, num, pct, signedMoney } from '../lib/format';
 
 /**
@@ -40,7 +40,54 @@ function validFoot(row: ResultRow): string {
     .join(' · ');
 }
 
-export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) {
+/** FMP mixes decimals (0.18) and whole percents (18); normalize to percent points. */
+function asPctPoints(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  return Math.abs(n) <= 1.5 ? n * 100 : n;
+}
+
+function ratio(n: number | null | undefined, digits = 1): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n.toFixed(digits);
+}
+
+/** Mark-to-market premium vs fair value: lastPrice (else entry). */
+function premiumVsFair(row: ResultRow, fund: CardFundamentals | undefined): number | null {
+  if (!fund?.fairValue || fund.fairValue <= 0) return null;
+  const price = row.lastPrice ?? row.entry;
+  if (price == null || !Number.isFinite(price)) return null;
+  return ((price - fund.fairValue) / fund.fairValue) * 100;
+}
+
+function valuationLabel(premiumPct: number | null): { text: string; className: string } {
+  if (premiumPct == null || !Number.isFinite(premiumPct)) {
+    return { text: '—', className: '' };
+  }
+  const abs = Math.abs(premiumPct).toFixed(0);
+  if (premiumPct < 0) {
+    return {
+      text: `${abs}% undervalued`,
+      className: premiumPct < -10 ? 'fund-pos' : '',
+    };
+  }
+  if (premiumPct > 0) {
+    return {
+      text: `${abs}% overvalued`,
+      className: premiumPct > 10 ? 'fund-neg' : '',
+    };
+  }
+  return { text: 'fair', className: '' };
+}
+
+export function SignalCard({
+  row,
+  bucket,
+  fundamentals,
+}: {
+  row: ResultRow;
+  bucket: Bucket;
+  fundamentals?: CardFundamentals | null;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const markStatus: Interest | null = row.interest ?? null;
@@ -72,6 +119,10 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
 
   const showPnl = bucket !== 'new' && row.pnlUsd != null;
   const positive = (row.pnlUsd ?? 0) >= 0;
+
+  const premiumPct = premiumVsFair(row, fundamentals ?? undefined);
+  const valuation = valuationLabel(premiumPct);
+  const debtPct = asPctPoints(fundamentals?.ltDebtToCapitalTTM ?? null);
 
   return (
     <article
@@ -150,6 +201,23 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
         <span>
           <span className="lbl">RR</span>{' '}
           {num(bucket === 'closed' ? row.rr : (row.currentRr ?? row.rr))}
+        </span>
+      </div>
+
+      <div className="signal-card-fundamentals">
+        <span className={valuation.className}>{valuation.text}</span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">EPS 5Y</span> {pct(fundamentals?.growthRatePct)}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">P/E B</span> {ratio(fundamentals?.blendedPe)}
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">LT D/C</span>{' '}
+          {debtPct == null ? '—' : `${debtPct.toFixed(0)}%`}
         </span>
       </div>
 

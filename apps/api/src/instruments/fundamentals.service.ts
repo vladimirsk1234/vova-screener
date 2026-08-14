@@ -15,8 +15,20 @@ import { UniverseService } from '../universe/universe.service';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const METRICS: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
+const CARD_BATCH_LIMIT = 150;
+const CARD_CONCURRENCY = 5;
 
 type CacheEntry = { at: number; payload: FundamentalsPayload };
+
+/** Slim valuation fields for Results / History signal cards. */
+export type CardFundamentals = {
+  fairValue: number | null;
+  growthRatePct: number | null;
+  blendedPe: number | null;
+  ltDebtToCapitalTTM: number | null;
+};
+
+type CardCacheEntry = { at: number; metrics: CardFundamentals };
 
 export type EstimateRow = {
   year: number;
@@ -152,6 +164,7 @@ function asPctPoints(n: number | null | undefined): number | null {
 export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly cardCache = new Map<string, CardCacheEntry>();
 
   constructor(
     private readonly fmp: FmpClient,
@@ -206,6 +219,161 @@ export class FundamentalsService {
       positive: eps == null ? null : eps > 0,
       asOf,
       reportDate: date,
+    };
+  }
+
+  /**
+   * Batch card metrics for Results / History. Reuses the full fundamentals cache when warm;
+   * otherwise a slim FMP fetch (income + TTM + estimates + profile). Missing key → {}.
+   */
+  async getCardMetrics(tickers: string[]): Promise<Record<string, CardFundamentals>> {
+    if (!this.fmp.configured()) return {};
+
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of tickers) {
+      const t = String(raw || '')
+        .trim()
+        .toUpperCase();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      unique.push(t);
+      if (unique.length >= CARD_BATCH_LIMIT) break;
+    }
+    if (!unique.length) return {};
+
+    const out: Record<string, CardFundamentals> = {};
+    const needFetch: string[] = [];
+    const now = Date.now();
+
+    for (const ticker of unique) {
+      const fromFull = this.cardFromFullCache(ticker, now);
+      if (fromFull) {
+        out[ticker] = fromFull;
+        continue;
+      }
+      const cardHit = this.cardCache.get(ticker);
+      if (cardHit && now - cardHit.at < CACHE_TTL_MS) {
+        out[ticker] = cardHit.metrics;
+        continue;
+      }
+      needFetch.push(ticker);
+    }
+
+    for (let i = 0; i < needFetch.length; i += CARD_CONCURRENCY) {
+      const chunk = needFetch.slice(i, i + CARD_CONCURRENCY);
+      await Promise.all(
+        chunk.map(async (ticker) => {
+          try {
+            const metrics = await this.fetchCardSlim(ticker);
+            this.cardCache.set(ticker, { at: Date.now(), metrics });
+            out[ticker] = metrics;
+          } catch (err) {
+            this.log.warn(
+              `Card metrics failed for ${ticker}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }),
+      );
+    }
+
+    return out;
+  }
+
+  private cardFromFullCache(ticker: string, now: number): CardFundamentals | null {
+    const hit = this.cache.get(`${ticker}|eps`);
+    if (!hit || now - hit.at >= CACHE_TTL_MS) return null;
+    return this.metricsFromPayload(hit.payload);
+  }
+
+  private metricsFromPayload(payload: FundamentalsPayload): CardFundamentals {
+    return {
+      fairValue: payload.valuation.summary.fairValue,
+      growthRatePct: payload.valuation.summary.growthRatePct,
+      blendedPe: payload.snapshot.blendedPe,
+      ltDebtToCapitalTTM: payload.snapshot.ltDebtToCapitalTTM,
+    };
+  }
+
+  /** Income + TTM ratios + estimates + profile — enough for the four card fields. */
+  private async fetchCardSlim(yahooTicker: string): Promise<CardFundamentals> {
+    const fmpSymbol = yahooToFmpSymbol(yahooTicker);
+    const [profile, income, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
+      this.fmp.profile(fmpSymbol),
+      this.fmp.incomeAnnual(fmpSymbol),
+      this.fmp.keyMetricsTtm(fmpSymbol),
+      this.fmp.ratiosTtm(fmpSymbol),
+      this.fmp.analystEstimates(fmpSymbol),
+    ]);
+
+    const annual: AnnualFundamentalPoint[] = [];
+    for (const inc of income) {
+      const date = fmpStr(inc.date) ?? fmpStr(inc.calendarYear);
+      const y = yearOf(date) ?? Number(fmpStr(inc.calendarYear));
+      if (!date || !Number.isFinite(y)) continue;
+      const eps =
+        fmpNum(inc.epsdiluted) ??
+        fmpNum(inc.epsDiluted) ??
+        fmpNum(inc.eps);
+      annual.push({
+        date: date.slice(0, 10),
+        year: y,
+        price: null,
+        eps,
+        revenuePerShare: null,
+        fcfPerShare: null,
+        ownerEarningsPerShare: null,
+        pe: null,
+        revenue: fmpNum(inc.revenue),
+        netIncome: fmpNum(inc.netIncome),
+        operatingCashFlow: null,
+        freeCashFlow: null,
+      });
+    }
+    annual.sort((a, b) => a.year - b.year);
+    const completed = completeFiscalYears(annual);
+
+    const price = profile.price ?? null;
+    const valuation = buildValuationSeries(completed, 'eps', {
+      currentPrice: price,
+      windowYears: 5,
+    });
+
+    const peTTM =
+      fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
+      fmpNum(ratiosTtm?.peRatioTTM) ??
+      fmpNum(keyTtm?.peRatioTTM);
+    const ltDebtToCapitalTTM =
+      fmpNum(ratiosTtm?.longTermDebtToCapitalRatioTTM) ??
+      fmpNum(keyTtm?.longTermDebtToCapitalRatioTTM);
+
+    const lastHistYear = completed[completed.length - 1]?.year ?? 0;
+    const estimateParsed = estimatesRaw
+      .map((row) => {
+        const date = fmpStr(row.date) ?? '';
+        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+        return {
+          year: y,
+          eps:
+            fmpNum(row.estimatedEpsAvg) ??
+            fmpNum(row.estimatedEps) ??
+            fmpNum(row.epsAvg),
+        };
+      })
+      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
+      .sort((a, b) => a.year - b.year);
+
+    const fwdEps = estimateParsed[0]?.eps ?? null;
+    const fwdPe = price != null && fwdEps != null && fwdEps > 0 ? price / fwdEps : null;
+    const peForBlend = peTTM ?? valuation.summary.currentPe;
+    const blendedPe =
+      peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
+
+    return {
+      fairValue: valuation.summary.fairValue,
+      growthRatePct: valuation.summary.growthRatePct,
+      blendedPe,
+      ltDebtToCapitalTTM,
     };
   }
 
