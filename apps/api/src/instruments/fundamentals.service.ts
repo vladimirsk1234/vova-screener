@@ -6,6 +6,7 @@ import {
   completeFiscalYears,
   yoyChgPct,
   type AnnualFundamentalPoint,
+  type ForwardMetricPoint,
   type ValuationMetric,
   type ValuationSeriesPoint,
 } from '@vova/engine';
@@ -160,6 +161,15 @@ function asPctPoints(n: number | null | undefined): number | null {
   return Math.abs(n) <= 1.5 ? n * 100 : n;
 }
 
+/**
+ * FMP only estimates EPS, so revenue / FCF / owner-earnings views keep the trailing growth rate
+ * and the last reported year as their fair value anchor.
+ */
+function forwardFor(metric: ValuationMetric, estimates: EstimateRow[]): ForwardMetricPoint[] {
+  if (metric !== 'eps') return [];
+  return estimates.map((e) => ({ year: e.year, metric: e.eps }));
+}
+
 @Injectable()
 export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
@@ -187,6 +197,7 @@ export class FundamentalsService {
         const valuation = buildValuationSeries(other.payload.annual, metric, {
           currentPrice: other.payload.profile.price,
           windowYears: 5,
+          forward: forwardFor(metric, other.payload.estimates),
         });
         const payload: FundamentalsPayload = {
           ...other.payload,
@@ -334,19 +345,8 @@ export class FundamentalsService {
     const completed = completeFiscalYears(annual);
 
     const price = profile.price ?? null;
-    const valuation = buildValuationSeries(completed, 'eps', {
-      currentPrice: price,
-      windowYears: 5,
-    });
 
-    const peTTM =
-      fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
-      fmpNum(ratiosTtm?.peRatioTTM) ??
-      fmpNum(keyTtm?.peRatioTTM);
-    const ltDebtToCapitalTTM =
-      fmpNum(ratiosTtm?.longTermDebtToCapitalRatioTTM) ??
-      fmpNum(keyTtm?.longTermDebtToCapitalRatioTTM);
-
+    // Estimates first: they drive the FG-style growth rate and the fair value anchor.
     const lastHistYear = completed[completed.length - 1]?.year ?? 0;
     const estimateParsed = estimatesRaw
       .map((row) => {
@@ -362,6 +362,20 @@ export class FundamentalsService {
       })
       .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
+
+    const valuation = buildValuationSeries(completed, 'eps', {
+      currentPrice: price,
+      windowYears: 5,
+      forward: estimateParsed.map((e) => ({ year: e.year, metric: e.eps })),
+    });
+
+    const peTTM =
+      fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
+      fmpNum(ratiosTtm?.peRatioTTM) ??
+      fmpNum(keyTtm?.peRatioTTM);
+    const ltDebtToCapitalTTM =
+      fmpNum(ratiosTtm?.longTermDebtToCapitalRatioTTM) ??
+      fmpNum(keyTtm?.longTermDebtToCapitalRatioTTM);
 
     const fwdEps = estimateParsed[0]?.eps ?? null;
     const fwdPe = price != null && fwdEps != null && fwdEps > 0 ? price / fwdEps : null;
@@ -550,9 +564,45 @@ export class FundamentalsService {
     }
 
     const price = profile.price ?? annual[annual.length - 1]?.price ?? null;
+
+    // Estimates are parsed before the valuation because they drive the FG-style growth rate and
+    // the fair value anchor. Only EPS has forward data — revenue/FCF per share fall back to
+    // trailing growth.
+    const lastHistYear = annual[annual.length - 1]?.year ?? 0;
+    const estimateParsed: EstimateRow[] = estimatesRaw
+      .map((row) => {
+        const date = fmpStr(row.date) ?? '';
+        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+        return {
+          year: y,
+          date: date || (Number.isFinite(y) ? `${y}-12-31` : ''),
+          eps:
+            fmpNum(row.estimatedEpsAvg) ??
+            fmpNum(row.estimatedEps) ??
+            fmpNum(row.epsAvg),
+          epsChgPct: null as number | null,
+          dividend: null as number | null,
+          analysts:
+            fmpNum(row.numberAnalystEstimatedEps) ??
+            fmpNum(row.numberAnalysts) ??
+            fmpNum(row.analysts),
+          estimated: true,
+        };
+      })
+      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
+      .sort((a, b) => a.year - b.year);
+
+    const histEps = annual.map((a) => a.eps);
+    const lastHistEps = histEps[histEps.length - 1] ?? null;
+    for (let i = 0; i < estimateParsed.length; i++) {
+      const prev = i === 0 ? lastHistEps : estimateParsed[i - 1]!.eps;
+      estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
+    }
+
     const valuation = buildValuationSeries(annual, metric, {
       currentPrice: price,
       windowYears: 5,
+      forward: forwardFor(metric, estimateParsed),
     });
 
     const peTTM =
@@ -590,37 +640,6 @@ export class FundamentalsService {
       fmpNum(evRows[0]?.enterpriseValue) ??
       fmpNum(evRows[0]?.enterpriseValueTTM);
 
-    const lastHistYear = annual[annual.length - 1]?.year ?? 0;
-    const estimateParsed: EstimateRow[] = estimatesRaw
-      .map((row) => {
-        const date = fmpStr(row.date) ?? '';
-        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
-        return {
-          year: y,
-          date: date || (Number.isFinite(y) ? `${y}-12-31` : ''),
-          eps:
-            fmpNum(row.estimatedEpsAvg) ??
-            fmpNum(row.estimatedEps) ??
-            fmpNum(row.epsAvg),
-          epsChgPct: null as number | null,
-          dividend: null as number | null,
-          analysts:
-            fmpNum(row.numberAnalystEstimatedEps) ??
-            fmpNum(row.numberAnalysts) ??
-            fmpNum(row.analysts),
-          estimated: true,
-        };
-      })
-      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
-      .sort((a, b) => a.year - b.year);
-
-    const histEps = annual.map((a) => a.eps);
-    const lastHistEps = histEps[histEps.length - 1] ?? null;
-    for (let i = 0; i < estimateParsed.length; i++) {
-      const prev = i === 0 ? lastHistEps : estimateParsed[i - 1]!.eps;
-      estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
-    }
-
     const fwdEps = estimateParsed[0]?.eps ?? null;
     const fwdPe = price != null && fwdEps != null && fwdEps > 0 ? price / fwdEps : null;
     const peForBlend = peTTM ?? valuation.summary.currentPe;
@@ -628,7 +647,13 @@ export class FundamentalsService {
       peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
 
     const fvRatio = valuation.summary.fairValueRatio;
-    const futurePrice = fwdEps != null && fwdEps > 0 && fvRatio != null ? fwdEps * fvRatio : null;
+    // Fair value already sits on the first estimate, so the future price has to read the far end of
+    // the forecast — otherwise the two numbers are the same.
+    const horizonEps = [...estimateParsed]
+      .filter((e) => e.eps != null && Number.isFinite(e.eps) && e.eps > 0)
+      .pop()?.eps ?? null;
+    const futurePrice =
+      horizonEps != null && fvRatio != null ? horizonEps * fvRatio : null;
 
     const divYldPts = asPctPoints(dividendYieldTTM) ?? 0;
     const growth = valuation.summary.growthRatePct;

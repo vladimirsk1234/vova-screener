@@ -32,6 +32,15 @@ export type AnnualFundamentalPoint = {
   dividend?: number | null;
 };
 
+/**
+ * Forward analyst estimate for the selected metric. Fast Graphs reads its Growth Rate off the
+ * whole displayed window, estimates included, so these years drive both the ratio and the anchor.
+ */
+export type ForwardMetricPoint = {
+  year: number;
+  metric: number | null;
+};
+
 export type ValuationSeriesPoint = {
   date: string;
   year: number;
@@ -59,13 +68,18 @@ export type ValuationSummary = {
   currentPrice: number | null;
   latestMetric: number | null;
   fairValue: number | null;
+  /** Metric the fair value is anchored on: first forward estimate, else `latestMetric`. */
+  fairValueAnchor: number | null;
+  fairValueAnchorYear: number | null;
   /** (price − fairValue) / fairValue */
   premiumPct: number | null;
   currentPe: number | null;
   /** Full-span CAGR of the selected metric. */
   metricCagrPct: number | null;
-  /** 5-year CAGR used for the PE15 / Lynch rule (positive years only). */
+  /** CAGR behind the PE15 / Lynch rule (positive years only). */
   growthRatePct: number | null;
+  /** `forward` spans the window through the last estimate; `trailing` is history only. */
+  growthSource: 'trailing' | 'forward';
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
   years: number;
@@ -187,6 +201,44 @@ export function trailingMetricCagr(
 }
 
 /**
+ * Fast Graphs–style growth: base is the earliest positive year still in the window, end is the
+ * last positive analyst estimate. A trough-year base inflates this the same way it does in FG —
+ * the rate is a property of the displayed window, not of the trailing history alone.
+ */
+export function forwardMetricCagr(
+  windowed: AnnualFundamentalPoint[],
+  forward: ForwardMetricPoint[],
+  metric: ValuationMetric,
+): number | null {
+  const base = [...windowed]
+    .sort((a, b) => a.year - b.year)
+    .find((p) => {
+      const m = pickMetric(p, metric);
+      return finite(m) && m > 0;
+    });
+  if (!base) return null;
+  const end = [...forward]
+    .sort((a, b) => a.year - b.year)
+    .filter((p) => finite(p.metric) && (p.metric as number) > 0)
+    .pop();
+  if (!end) return null;
+  const span = end.year - base.year;
+  if (span < 2) return null;
+  const a = pickMetric(base, metric);
+  if (!finite(a)) return null;
+  return cagrPct(a, end.metric as number, span);
+}
+
+/** Earliest positive forward estimate — what Fast Graphs anchors its fair value line on. */
+function firstForwardPositive(forward: ForwardMetricPoint[]): ForwardMetricPoint | null {
+  return (
+    [...forward]
+      .sort((a, b) => a.year - b.year)
+      .find((p) => finite(p.metric) && (p.metric as number) > 0) ?? null
+  );
+}
+
+/**
  * Fair Value Ratio: growth < 15% → 15×; growth ≥ 15% → PEG=1 (ratio = growth %).
  */
 export function fairValueRatioFromGrowth(growthPct: number | null): {
@@ -233,6 +285,8 @@ export function buildValuationSeries(
     currentPrice?: number | null;
     /** Visible years for the chart and Normal P/E. Default MAX (all complete years). */
     windowYears?: ValuationWindowYears;
+    /** Analyst estimates for the same metric. Present → FG-style forward growth and anchor. */
+    forward?: ForwardMetricPoint[];
   } = {},
 ): { series: ValuationSeriesPoint[]; summary: ValuationSummary } {
   const windowYears = opts.windowYears === undefined ? null : opts.windowYears;
@@ -242,7 +296,10 @@ export function buildValuationSeries(
       ? { multiple: opts.normalMultiple, source: 'median_pe' as const }
       : computeNormalMultiple(sorted, metric);
 
-  const growthRatePct = trailingMetricCagr(sorted, metric, 5);
+  const forward = opts.forward ?? [];
+  const forwardGrowth = forwardMetricCagr(sorted, forward, metric);
+  const growthSource: 'trailing' | 'forward' = forwardGrowth != null ? 'forward' : 'trailing';
+  const growthRatePct = forwardGrowth ?? trailingMetricCagr(sorted, metric, 5);
   const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct);
   const earningsScale = fairValueRatio ?? multiple;
 
@@ -276,9 +333,15 @@ export function buildValuationSeries(
       : null;
 
   const latestMetric = last?.metric ?? null;
+  // Anchoring on the last reported year values a company mid-ramp off its trough. Fast Graphs
+  // reads the fair value line at the current fiscal year, so the first estimate wins when there
+  // is one.
+  const anchorPoint = firstForwardPositive(forward);
+  const fairValueAnchor = anchorPoint?.metric ?? latestMetric;
+  const fairValueAnchorYear = anchorPoint?.year ?? last?.year ?? null;
   const fairValue =
-    finite(latestMetric) && latestMetric > 0 && fairValueRatio != null
-      ? latestMetric * fairValueRatio
+    finite(fairValueAnchor) && fairValueAnchor > 0 && fairValueRatio != null
+      ? fairValueAnchor * fairValueRatio
       : null;
   const currentPrice =
     opts.currentPrice != null && finite(opts.currentPrice)
@@ -303,10 +366,13 @@ export function buildValuationSeries(
       currentPrice,
       latestMetric,
       fairValue,
+      fairValueAnchor: finite(fairValueAnchor) ? fairValueAnchor : null,
+      fairValueAnchorYear,
       premiumPct,
       currentPe,
       metricCagrPct,
       growthRatePct,
+      growthSource,
       fairValueRatio,
       fairValueRule,
       years: withMetric.length,

@@ -61,6 +61,11 @@ function fvRuleLabel(rule: string | undefined) {
   return 'N/A';
 }
 
+/** Forward growth spans the window through the last estimate, so "5y" would be wrong. */
+function growthLabel(source: string | undefined) {
+  return source === 'forward' ? 'Growth (fwd)' : 'Growth (5y)';
+}
+
 export function FundamentalsPage() {
   const { ticker = '' } = useParams();
   const navigate = useNavigate();
@@ -82,6 +87,11 @@ export function FundamentalsPage() {
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
       windowYears,
+      // FMP only estimates EPS; the other metrics stay on trailing growth.
+      forward:
+        metric === 'eps'
+          ? fundQ.data.estimates.map((e) => ({ year: e.year, metric: e.eps }))
+          : [],
     });
   }, [fundQ.data, metric, windowYears]);
 
@@ -191,7 +201,7 @@ export function FundamentalsPage() {
             </div>
             <dl className="fund-hero-stats">
               <div>
-                <dt>Growth (5y)</dt>
+                <dt>{growthLabel(summary?.growthSource)}</dt>
                 <dd>{pct(summary?.growthRatePct)}</dd>
               </div>
               <div>
@@ -248,7 +258,12 @@ export function FundamentalsPage() {
 
             {tab === 'summary' && snap ? (
               <aside className="fund-sidebar">
-                <Metric label="Growth Rate" value={pct(summary?.growthRatePct)} />
+                <Metric
+                  label={
+                    summary?.growthSource === 'forward' ? 'Growth Rate (fwd)' : 'Growth Rate'
+                  }
+                  value={pct(summary?.growthRatePct)}
+                />
                 <Metric
                   label="Fair Value Ratio"
                   value={

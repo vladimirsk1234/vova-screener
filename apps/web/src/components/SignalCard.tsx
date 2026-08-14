@@ -208,7 +208,7 @@ export function SignalCard({
         <span className={valuation.className}>{valuation.text}</span>
         <span className="sep">·</span>
         <span>
-          <span className="lbl">EPS 5Y</span> {pct(fundamentals?.growthRatePct)}
+          <span className="lbl">Growth</span> {pct(fundamentals?.growthRatePct)}
         </span>
         <span className="sep">·</span>
         <span>
