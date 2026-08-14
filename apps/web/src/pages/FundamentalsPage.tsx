@@ -130,18 +130,27 @@ export function FundamentalsPage() {
 
   return (
     <div className="fund-page">
-      <header className="chart-topbar">
-        <button type="button" className="chart-icon-btn" aria-label="Back" onClick={() => navigate(-1)}>
+      <div className="chart-head">
+        <button
+          type="button"
+          className="chart-icon-btn ghost"
+          aria-label="Back"
+          onClick={() => navigate(-1)}
+        >
           ←
         </button>
-        <div className="chart-title-block">
-          <h1 className="chart-title">{ticker}</h1>
-          <p className="muted small">{profile?.companyName ?? 'Fundamentals'}</p>
+        <div className="chart-head-title">
+          <div className="chart-head-name ellipsis">
+            <strong>{ticker}</strong>
+            {profile?.companyName ? (
+              <span className="muted small">{profile.companyName}</span>
+            ) : null}
+          </div>
         </div>
         <Link className="btn-sm ghost" to={`/chart/${encodeURIComponent(ticker)}`}>
           Price chart
         </Link>
-      </header>
+      </div>
 
       <Chips
         value={tab}
