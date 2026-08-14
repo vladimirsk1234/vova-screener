@@ -1003,11 +1003,20 @@ a {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 12px var(--gutter) calc(24px + var(--safe-bottom));
+  padding: 0 var(--gutter) calc(24px + var(--safe-bottom));
   flex: 1;
   min-height: 0;
   overflow: auto;
   background: linear-gradient(180deg, #0c0e12 0%, var(--bg) 40%);
+}
+
+.fund-page .chart-head {
+  margin-inline: calc(var(--gutter) * -1);
+}
+
+.fund-page .chart-head .btn-sm {
+  flex: 0 0 auto;
+  padding: 0 12px;
 }
 
 .fund-hero {
