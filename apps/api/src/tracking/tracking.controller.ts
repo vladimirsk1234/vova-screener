@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import type { Timeframe } from '@vova/engine';
 import { HistoryRebuildService } from './history-rebuild.service';
+import { HistoryEpsService } from './history-eps.service';
 import {
   HistoryService,
   type HistoryRange,
@@ -99,6 +100,7 @@ export class HistoryController {
   constructor(
     private readonly history: HistoryService,
     private readonly rebuild: HistoryRebuildService,
+    private readonly historyEps: HistoryEpsService,
   ) {}
 
   @Get('rebuild')
@@ -109,6 +111,12 @@ export class HistoryController {
   @Post('rebuild')
   startRebuild() {
     return this.rebuild.start();
+  }
+
+  /** Fill `epsPositiveAtEntry` from FMP on trades that are still untagged. */
+  @Post('enrich-eps')
+  enrichEps(@Query('limit') limit?: string) {
+    return this.historyEps.enrich(parseInt0(limit) ?? 40);
   }
 
   @Get()
@@ -145,6 +153,7 @@ export class HistoryController {
     @Query('dir') dir?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('hideUnprofitable') hideUnprofitable?: string,
   ) {
     return this.history.trades({
       universe: parseUniverse(universe),
@@ -160,6 +169,7 @@ export class HistoryController {
       dir: parseDir(dir),
       limit: parseInt0(limit),
       offset: parseInt0(offset),
+      hideUnprofitable: hideUnprofitable === 'true' || hideUnprofitable === '1',
     });
   }
 }

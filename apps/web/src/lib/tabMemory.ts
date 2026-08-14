@@ -25,6 +25,7 @@ const RESULTS_PATH_RE = new RegExp(
 const MANUAL_PATH_RE = /^\/results\/manual(\/rejected\/[^/]+)?$/;
 const HISTORY_PATH_RE = /^\/history$/;
 const CHART_PATH_RE = /^\/chart\/[^/]+$/;
+const FUNDAMENTALS_PATH_RE = /^\/fundamentals\/[^/]+$/;
 
 function isHistoryTf(value: string): value is HistoryTf {
   return (HISTORY_TFS as readonly string[]).includes(value);
@@ -85,7 +86,8 @@ function isValidAppPath(path: string): boolean {
     isValidResultsPath(path) ||
     MANUAL_PATH_RE.test(path) ||
     HISTORY_PATH_RE.test(path) ||
-    CHART_PATH_RE.test(path)
+    CHART_PATH_RE.test(path) ||
+    FUNDAMENTALS_PATH_RE.test(path)
   );
 }
 

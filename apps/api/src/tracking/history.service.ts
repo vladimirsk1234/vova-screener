@@ -229,12 +229,17 @@ export class HistoryService {
     dir?: SortDir;
     limit?: number;
     offset?: number;
+    hideUnprofitable?: boolean;
   }): Promise<{ total: number; rows: ResultRow[] }> {
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
     const offset = Math.max(opts.offset ?? 0, 0);
     const { maxRiskUsd, minRr } = await this.settings.get();
     const lookback = normalizeRange(opts.range);
     const filter: Record<string, unknown> = closedMatch(opts.universe, opts.tf, minRr, lookback);
+    if (opts.hideUnprofitable) {
+      // Keep unknown (not tagged yet) and profitable; hide known EPS≤0 at entry.
+      filter.epsPositiveAtEntry = { $ne: false };
+    }
     if (opts.periodKey) {
       const bucket = periodDateRange(opts.periodKey, opts.groupBy ?? 'Daily');
       if (bucket) {

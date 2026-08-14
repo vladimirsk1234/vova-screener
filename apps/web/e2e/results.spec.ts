@@ -165,7 +165,9 @@ test.describe('results shell', () => {
       if ((await card.count()) > 0) break;
     }
     if ((await card.count()) === 0) test.skip(true, 'no tracked signals in this database');
-    await card.click();
+    await expect(card.getByRole('button', { name: 'Interested', exact: true })).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Not Interested' })).toBeVisible();
+    await card.locator('.signal-card-title').click();
     await expect(page).toHaveURL(/\/chart\//);
     await expect(page.getByRole('button', { name: 'Interested', exact: true })).toBeVisible();
   });

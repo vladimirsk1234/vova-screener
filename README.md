@@ -38,6 +38,10 @@ npm run dev
 Only the web port needs to be reachable from the phone — the browser talks to `/api`,
 which Vite proxies to the API.
 
+Put `FMP_API_KEY=` in a repo-root `.env` (Premium; Starter has no Canada / short history).
+Without it, scans and charts still work; the Fundamentals page and History EPS tagging do not.
+Rebuild the profitable-stock list with `python scripts/fundamentals_fmp.py` (add `--write` to overwrite `STOCK-TICKERS.txt`).
+
 ## Home PC server + phone from anywhere (no Railway)
 
 ```bat
@@ -84,6 +88,7 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
   signals, for D / W / M / All
 - Manual scan for ad-hoc tickers with live SSE progress and a rejected-reason breakdown
 - Bars cached in MongoDB (`barSeries`), so repeat scans skip Yahoo
+- Fundamentals (Fast Graphs–style): FMP Premium via `FMP_API_KEY` in a repo-root `.env`. Yahoo stays the EOD/TA source. Chart button **Fundamentals** opens Summary / Forecasting / Performance / Profile.
 - One setting: Max risk per signal. It is the single source of position size across scans, lists
   and charts, and changing it re-sizes every open signal immediately
 - Trades from the old journal are imported on first boot, so History still covers everything closed

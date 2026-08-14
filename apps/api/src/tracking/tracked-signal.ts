@@ -120,6 +120,9 @@ export type ResultRow = {
   exitReason: ExitReason | null;
   holdPeriods: number | null;
   interest: Interest | null;
+  /** FMP EPS on/before openedAsOf. null = not tagged yet. */
+  epsAtEntry: number | null;
+  epsPositiveAtEntry: boolean | null;
 };
 
 export function toResultRow(doc: any): ResultRow {
@@ -167,5 +170,8 @@ export function toResultRow(doc: any): ResultRow {
     exitReason: doc.exitReason ?? null,
     holdPeriods: finiteOrNull(doc.holdPeriods),
     interest: doc.interest ?? null,
+    epsAtEntry: finiteOrNull(doc.epsAtEntry),
+    epsPositiveAtEntry:
+      doc.epsPositiveAtEntry == null ? null : Boolean(doc.epsPositiveAtEntry),
   };
 }

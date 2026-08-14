@@ -1,190 +1,201 @@
-# FMP full migration + Fast Graphs DIY — saved plan
+# FMP fundamentals + Fast Graphs DIY — saved plan
 
-**Saved:** 2026-08-09  
-**Cursor plan copy:** `.cursor/plans/finviz_vs_fast_graphs_53e8f742.plan.md`  
-**Baseline commit at save time:** `fe50e89` (`main`, `FIX BACK BUTTON`)  
-**Status:** research / decision plan — **not executed** yet  
+**Updated:** 2026-08-13  
+**Cursor plan:** `.cursor/plans/finviz_vs_fast_graphs_53e8f742.plan.md`  
+**Baseline commit (first save):** `fe50e89` (`main`, `FIX BACK BUTTON`)  
+**Status:** executed in app (2026-08-13) — needs `FMP_API_KEY` to fetch live data
 
-**User decision:** fully migrate to FMP (EOD + fundamentals), drop yfinance as data source; build FG-like DIY module; History `epsPositiveAtEntry`; US+CA universe on FMP Premium.
+## Текущее решение (2026-08-13)
 
-**Before execute:** git tag/branch `backup/pre-fmp-…` + mongodump; need `FMP_API_KEY` on **Premium**.
+**yfinance оставляем на EOD/TA. Fast Graphs заменяем модулем на FMP.**
+
+Полный отказ от Yahoo как источника цен **отменён**. FMP — fundamentals, FG-like график, фильтр прибыли, History EPS-at-entry.
+
+| Слой | Источник |
+|---|---|
+| Sequence Vova OHLC / сканы US+CA | **yfinance / Yahoo** |
+| Fundamentals, FG-view, profit filter, History EPS | **FMP Premium** (~$59; Starter мало — нет CA / 5y) |
+| Fair value | своя формула PE 15 / PEG Линча |
+
+После готовности модуля можно отменить Fast Graphs $20. Yahoo $0 остаётся.
 
 ---
 
 ## Todos
 
-- [ ] `backup-pre-fmp` — git tag+branch + mongodump
-- [ ] `fmp-premium-key` — FMP Premium + `FMP_API_KEY`
-- [ ] `replace-yahoo-eod` — FMP `historical-price-eod` → Mongo `barSeries`
-- [ ] `replace-yahoo-fundamentals` — EPS>0 / watermark from FMP
-- [ ] `build-fg-module` — sidebar DIY, chart, forecast, tests
-- [ ] `history-eps-at-entry` — EPS>0 at `openedAsOf`
-- [ ] `universe-us-ca-fmp` — full US+CA valid list via FMP
-
-**ETA:** MVP ~5–8 days; production ~2–3 weeks.
+- [x] `backup-pre-fmp` — git tag+branch locally (`backup/pre-fmp-2026-08-13`); mongodump skipped (tool not installed); no push
+- [ ] `fmp-premium-key` — FMP Premium + `FMP_API_KEY` in repo-root `.env`
+- [x] `keep-yfinance-eod` — не трогать Yahoo OHLC / scan path
+- [x] `fmp-profit-filter` — скрипт `scripts/fundamentals_fmp.py` (TTM EPS > 0); не запускали без ключа
+- [ ] `rebuild-stock-tickers` — перезаписать STOCK-TICKERS.txt: `python scripts/fundamentals_fmp.py --write`
+- [x] `results-card-interest` — кнопки Interested / Not Interested на карточках Results (как Chart)
+- [x] `fg-module` — FmpClient + GET `/instruments/:ticker/fundamentals` + PE15/Lynch
+- [x] `fg-forecasting` — Forecasting: EPS estimates, ROR, Fair Value $, future price
+- [x] `fg-performance` — Performance: цена vs SPY (Yahoo) + EPS рост (FMP) + annualized 1/3/5/10Y
+- [x] `fg-company-profile` — описание, sector/industry, website, country из FMP profile
+- [x] `history-eps-at-entry` — POST `/history/enrich-eps` + Hide EPS≤0 + бейдж на карточке
 
 ---
 
-## База сравнения (ваш текущий стек)
+## Карточки Results: Interested / Not Interested
 
-| Сейчас | Роль | Цена |
+Сейчас на графике (`ChartPage`) есть кнопки **Interested** / **Not Interested** → `api.setInterest`. На карточках Results (`SignalCard`) только бейджи INTERESTED / NO INTEREST, клик открывает график.
+
+**Сделать:** те же две кнопки на карточке (Results и History — один `SignalCard`). Клик по кнопке не открывает график (`stopPropagation`). Toggle как на чарте: повторный клик снимает метку (`null`). Те же стили `btn-sm selected` / `danger selected`. Filter **Marked** уже есть — начнёт подхватывать метки с ленты без нового API.
+
+**ETA:** MVP ~3–6 рабочих дней; production ~1–2 недели (EOD не мигрируем). Rebuild вселенной + чистка History — в том же окне, не отдельный месяц.
+
+---
+
+## Неверный STOCK-TICKERS.txt и History: решит ли FMP?
+
+Сейчас в [`STOCK-TICKERS.txt`](STOCK-TICKERS.txt) **2803** строки. Фильтр EPS>0 уже задуман (`fundamentals_yahoo.py` → Yahoo `.info` `trailingEps > 0`), но на практике список **грязный**: CEF/трасты в файле, Yahoo часто отдаёт пустой/устаревший EPS или падает на 429 — тикеры проскакивают без прибыли. Сканы пишут History по этой вселенной → **исторические сделки на «не тех» именах**.
+
+### Сэкономит ли время vs ручной фильтр?
+
+| Способ | На 2800 тикеров | Итог |
 |---|---|---|
-| Yahoo / yfinance | EOD OHLC US + CA (`.TO` `.V` `.NE` `.CN`) | **$0** |
-| Fast Graphs | Historical EPS / fair value / forecast UI | **~$20/мес** |
-| **Итого** | TA-скринер + ручной FG | **~$20/мес** |
+| Вручную в Fast Graphs / Yahoo | ~1–2 мин/тикер → **40–90 часов** | нереально поддерживать |
+| Снова Yahoo `.info` | часы–сутки + те же дыры | уже не сработало |
+| **FMP TTM EPS / screener / bulk** | **минуты–пара часов** на полный проход + кэш | да, это смысл FMP |
 
-Критерии «может заменить»:
-1. Надёжный **EOD OHLCV** (желательно US **и** Canada native).
-2. Длинная **история EPS / statements / dividends** для своего FG-графика.
-3. Ratios: Market Cap, EV/TEV, P/E, debt, growth, country/industry.
-4. Self-serve API (без sales).
-5. Цена vs ценность относительно **$20 FG + $0 Yahoo**.
+Экономия: не десятки часов кликов, а один rebuild вселенной. Дальше фильтр прибыльных — ночной/по расписанию, не руками.
 
-Ни один retail API **не копирует 1:1** methodology Fast Graphs (adjusted operating EPS, Normal P/E, Fair Value, Est. Annual ROR). Все дают сырьё; fair value вы считаете сами.
+### Что FMP **решит**
 
----
+- Пересобрать список: только EQUITY + **TTM EPS > 0** (или netIncome > 0) из statements, не из дырявого `.info`
+- Убрать фонды/трасты надёжнее (quote type / industry)
+- Новые сканы Sequence Vova — только по чистой вселенной
+- History: пометить `epsPositiveAtEntry` на дату входа
 
-## Рейтинг по цене / ценности (для вашего кейса)
+### Что FMP **не** решит само
 
-Ранг = насколько хорошо закрывает **EOD US+CA + FG-like fundamentals** за разумные деньги vs текущие $20.
+- Уже записанные `trackedSignals` **не исправятся** от подключения API. Старые сделки на убыточных тикерах останутся в Mongo, пока не отфильтруем/не пересоберём History после нового списка.
+- EOD «валидный тикер» по-прежнему Yahoo (как договорились). FMP чистит **прибыль**, не магию OHLC.
 
-### 1. FMP Premium — лучший баланс (рекомендация)
-
-- **Цена:** ~[$59/мес](https://site.financialmodelingprep.com/pricing-plans) (billed annually на сайте); Starter ~$22 только US / 5 лет.
-- **EOD:** да.
-- **Fundamentals:** 30+ лет statements/ratios; earnings, dividends, estimates, EV, DCF helpers.
-- **Canada:** да на **Premium** (UK+Canada); Starter — нет.
-- **Почему #1:** ветка `cursor/fmp-fundamentals-fastgraph-46fa`; закрывает FG-сырьё + CA.
-- **Минус:** качество EPS ≠ «adjusted operating» FG; нужна валидация на тикерах вроде CPA.
-
-### 2. Yahoo EOD ($0) + EODHD Fundamentals ($59.99)
-
-- **EODHD Fundamentals:** [$59.99/мес](https://eodhd.com/pricing); All-In-One $99.99.
-- **Canada:** `TO` / `V`; 70+ бирж.
-- Лучший single-vendor global; дороже FMP All-In-One path.
-
-### 3. Finnhub All-In-One (~$50/мес)
-
-Хорошая цена; проверить глубину CA.
-
-### 4. Tiingo Power ($30) + Fundamentals add-on
-
-EOD сильный; fundamentals add-on / sales; CA fundamentals слабо.
-
-### 5–9. SimFin, Alpha Vantage, Polygon/Massive, Finviz Elite, Intrinio
-
-См. детали в Cursor plan; Finviz Elite **не** замена EOD+FG; Polygon без native TSX; Intrinio дорого.
-
-### Сводная матрица (кратко)
-
-| Vendor | ~$/мес | Fit для full US+CA + FG DIY |
-|---|---|---|
-| **FMP Premium** | **59** | **Выбранный путь (full FMP)** |
-| EODHD All-In-One | 100 | Альтернатива one-vendor |
-| Finviz Elite | 25–40 | Только US screener snapshot |
-| Текущее FG+Yahoo | 20 | Дешевле, нет своего API/скриннера |
+**Нужный порядок:** FMP EPS-gate → перезаписать `STOCK-TICKERS.txt` → новые сканы → History: скрыть/пометить сделки, у которых EPS≤0 на `openedAsOf` (и опционально тикер больше не в списке).
 
 ---
 
-## Аудит FMP vs Fast Graphs (CPA) + DIY
+## Fair value: PE 15 или PEG Питера Линча
 
-**Вердикт:** ~85–90% UX из сырья FMP; не 1:1 FG. Нужен **Premium**.
+Рост = **5-year EPS CAGR** из FMP `income-statement` (annual). Годы с EPS ≤ 0 в CAGR не входят. Мало точек → growth N/A, fair-value линии нет.
 
-| Метрика FG | DIY из FMP? |
+Правило (совпадает с логикой ваших скринов FG: NVDA growth 63.47% → FV 63.47x; ADBE 16.39% → 16.39x):
+
+- `growthRate < 15%` → **Fair Value Ratio = 15x**
+- `growthRate >= 15%` → **Fair Value Ratio = growthRate** (PEG = 1, Питер Линч: справедливый P/E = темп роста в %)
+
+Fair value price = `EPS × FairValueRatio`.
+
+**Normal P/E** — отдельная метрика: среднее `yearEndPrice / annualEPS` (EPS > 0), не fair value.
+
+---
+
+## Все метрики (сайдбар FG)
+
+| Метрика | FMP / расчёт |
 |---|---|
-| Market Cap, TEV, Div Yld, EPS Yld, LT Debt/Capital, Country | Да (поля / TTM) |
-| Growth, Blended P/E, Normal P/E, Fair Value, Est. ROR | Да (свои формулы) |
-| Operating / Adj. EPS как у FG | Приблизительно (GAAP / operatingIncome/shares / owner-earnings) |
-| S&P Credit Rating | Нет |
-| FG Score | Свой score, не их |
+| Growth Rate | 5y EPS CAGR |
+| Fair Value Ratio | 15x или Lynch (выше) |
+| Normal P/E | среднее historical PE |
+| Blended P/E | `(PE_TTM + Price/EPS_fwd) / 2` |
+| EPS Yld | `earningsYieldTTM` или EPS/Price |
+| Div Yld | `dividendYieldTTM` |
+| S&P Credit Rating | **нет в FMP** → «—» |
+| Market Cap | `profile.marketCap` |
+| TEV | `enterprise-values` / `enterpriseValueTTM` |
+| LT Debt/Capital | `longTermDebtToCapitalRatioTTM` |
+| Country | `profile.country` |
+| Industry | `profile.industry` (не официальный GICS) |
+| Est. Annual ROR | DivYld + growth + reversion к FairValueRatio |
 
-Ключевые endpoints: `income-statement`, `historical-price-eod`, `dividends`, `ratios-ttm`, `key-metrics-ttm`, `analyst-estimates`, `enterprise-values`; optional `owner-earnings`, `financial-scores`, `ratings-snapshot`.
+Сайдбар **обязан** показывать этот набор (пример TSM-подобных значений): Blended P/E, EPS Yld, Div Yld, S&P Credit Rating, Market Cap, TEV, LT Debt/Capital, Country, GICS Sub-industry. Плюс сверху Growth / Fair Value Ratio / Normal P/E.
 
-Ветка: `origin/cursor/fmp-fundamentals-fastgraph-46fa`.
+- **Есть из FMP:** Blended P/E (считаем), EPS Yld, Div Yld, Market Cap, TEV, LT Debt/Capital, Country, industry.
+- **Нет в FMP:** S&P Credit Rating (AA−) → всегда «—», пока нет другого источника. GICS — подпись industry FMP, не код MSCI/S&P.
+| FY EPS / %Chg / Div | income-statement + dividends |
+| Price на FG-графике | Yahoo bars из существующего кэша |
 
----
+Endpoints: `income-statement`, `dividends`, `ratios-ttm`, `key-metrics-ttm`, `analyst-estimates`, `enterprise-values`, `profile`; optional `owner-earnings`, `financial-scores`.
 
-## yfinance paid?
-
-**Нет.** yfinance free/unofficial. Yahoo Premium = website, not API. RapidAPI wrappers ≠ FMP. Full stack → FMP Premium.
-
----
-
-## Сроки
-
-| Цель | Срок |
-|---|---|
-| MVP (FMP EOD + basic FG + History EPS) | ~5–8 рабочих дней |
-| Production (full US+CA, DIY, tests, Yahoo out) | ~2–3 недели |
-| Polish FG UX / dual Streamlit+Nest | +1–2 недели |
-
----
-
-## Backup before migrate
-
-```bash
-git tag -a backup/pre-fmp-2026-08-09 -m "Exact app before full FMP migration"
-git branch backup/pre-fmp-2026-08-09
-git push origin backup/pre-fmp-2026-08-09
-git push origin refs/tags/backup/pre-fmp-2026-08-09
-mongodump --uri="$MONGO_URI" --out=./backups/mongo-pre-fmp-2026-08-09
-```
-
-Baseline SHA note: `fe50e89` — re-check `git rev-parse HEAD` before migrate.
+Ветка-заготовка: `origin/cursor/fmp-fundamentals-fastgraph-46fa`.
 
 ---
 
-## Full FMP architecture
+## FMP эффективнее Yahoo для прибыльных?
+
+**Да.** Сейчас `scripts/fundamentals_yahoo.py` дергает `yf.Ticker.info` / `trailingEps > 0` по одному тикеру — медленно и ломается на 429. FMP отдаёт TTM EPS / net income / screener / bulk key-metrics: один проход по вселенной вместо тысяч `.info`. OHLC-валидность тикера по-прежнему Yahoo (`ohlc_yahoo.py`). Только EPS-gate переносим на FMP.
+
+## FMP точнее yfinance по fundamentals?
+
+**Да, обычно.** FMP: statements из filings, стабильные TTM ratios, estimates. yfinance `.info`: scrape, дыры, устаревший PE. Для **цен баров TA** Yahoo оставляем — иначе сдвинутся сигналы Sequence Vova. FMP ≠ Fast Graphs 1:1 (GAAP vs adjusted operating EPS).
+
+---
+
+## Архитектура
 
 ```mermaid
 flowchart LR
-  FMP[FMP Premium API]
-  Cache[Mongo barSeries + fundamentals cache]
-  Engine[Sequence Vova]
-  FG[FG DIY module]
-  Hist[History epsPositiveAtEntry]
-  Univ[US+CA universe build]
-  FMP --> Cache
-  Cache --> Engine
-  Cache --> FG
+  Yahoo[yfinance EOD]
+  FMP[FMP Premium]
+  TA[Sequence Vova]
+  FG[FG-like module]
+  Filter[Profit filter]
+  Hist[History EPS at entry]
+  Yahoo --> TA
+  FMP --> FG
+  FMP --> Filter
   FMP --> Hist
-  FMP --> Univ
 ```
 
-1. Yahoo OHLC → FMP historical-price-eod  
-2. fundamentals_yahoo → FMP EPS gate  
-3. FG module + DIY metrics  
-4. History EPS at entry  
-5. A/B then remove yfinance  
+---
 
-**Risks:** rate limits; CA symbol mapping; OHLC drift vs Yahoo → TA signal shifts.
+## Backup перед работой
+
+```bash
+git tag -a backup/pre-fmp-2026-08-13 -m "App before FMP fundamentals module"
+git branch backup/pre-fmp-2026-08-13
+git push origin backup/pre-fmp-2026-08-13
+git push origin refs/tags/backup/pre-fmp-2026-08-13
+mongodump --uri="$MONGO_URI" --out=./backups/mongo-pre-fmp-2026-08-13
+```
 
 ---
 
-## Feasibility (short)
-
-1. One-shot zero mistakes — **no** (iterate).  
-2. Build + test each FG function — **yes**.  
-3. Accuracy vs yfinance — **will differ**; document sample.  
-4. History EPS>0 at trade — **yes** via `openedAsOf`.  
-5. Full US+CA valid tickers — **yes** (rebuild on FMP + cache).
-
----
-
-## Execute order
+## Порядок execute
 
 1. Backup tag + mongodump  
-2. FMP Premium key + FmpClient  
-3. EOD replacement + A/B  
-4. Universe US+CA  
-5. FG module iterative  
-6. History `epsPositiveAtEntry`  
-7. Remove yfinance from prod  
+2. FMP Premium key  
+3. Profit filter на FMP (Yahoo OHLC universe без изменений)  
+4. FG module: метрики + график + PE15/Lynch  
+5. History `epsPositiveAtEntry`  
+6. Отменить Fast Graphs $20 после spot-check (NVDA, ADBE, CPA)
 
-**Blocker:** Premium `FMP_API_KEY` + explicit «execute / implement».
+**Блокер:** `FMP_API_KEY` на Premium + явное execute.
 
 ---
 
-## Finviz
+## Будет ли график как FAST Graphs (NVDA / ADBE)?
 
-US-only CSV screener; not EOD backbone; not FG clone. Not chosen.
+**Похожий по структуре — да. Клон UI Fast Graphs — нет.**
+
+Будет: Price (белая), Fair Value (оранжевая, 15x или PEG=1), Normal P/E (синяя), заливка EPS + дивиденды, таблица FY EPS/Chg/Div, сайдбар метрик, 5Y/10Y/MAX.
+
+Не будет 1:1: GAAP EPS ≠ FG operating → другие высоты линий; нет FG Score и S&P rating; первая версия без всех тумблеров FG. Это экран в вашем приложении с той же логикой оценки.
+
+## Company profile, Forecasting, Performance
+
+Да, эти экраны входят в модуль (вкладки рядом с Summary).
+
+**Forecasting v1:** график forward EPS + таблица EPS/Chg/Div/#analysts; ROR; Fair Value $; Future Stock Price. Без pie Analyst Scorecard FG.
+
+**Performance v1:** цена vs SPY (Yahoo) + EPS % компании (FMP) + annualized 1/3/5/10Y. Без линии SPY EPS.
+
+**Company profile v1:** FMP description, country, sector, industry, website. Не полное дерево GICS S&P.
+
+---
+
+## Finviz / полный отказ от yfinance
+
+Finviz Elite не берём. Полный переход EOD на FMP **не делаем** (решение от 2026-08-13).

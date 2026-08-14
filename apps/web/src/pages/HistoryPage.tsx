@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   HISTORY_RANGES,
   TIMEFRAMES,
@@ -16,7 +16,7 @@ import {
 } from '../lib/api';
 import { holdLabel, money, num, pct, periodLabel, signedMoney } from '../lib/format';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
-import { Chips } from '../components/Chips';
+import { Chips, Switch } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
 
@@ -122,6 +122,8 @@ export function HistoryPage() {
   const [tradeSort, setTradeSort] = useState<HistoryTradeSort>('date');
   const [tradeDir, setTradeDir] = useState<SortDir>('desc');
   const [openPeriod, setOpenPeriod] = useState<string | null>(null);
+  const [hideUnprofitable, setHideUnprofitable] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     saveHistoryFilters({ universe, tf, groupBy, range });
@@ -136,7 +138,7 @@ export function HistoryPage() {
   });
 
   const trades = useQuery({
-    queryKey: ['history-trades', universe, tf, groupBy, range, openPeriod, tradeSort, tradeDir],
+    queryKey: ['history-trades', universe, tf, groupBy, range, openPeriod, tradeSort, tradeDir, hideUnprofitable],
     queryFn: () =>
       api.historyTrades({
         universe,
@@ -147,11 +149,19 @@ export function HistoryPage() {
         sort: tradeSort,
         dir: tradeDir,
         limit: 200,
+        hideUnprofitable,
       }),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
+  const enrichEps = useMutation({
+    mutationFn: () => api.enrichHistoryEps(80),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+      void queryClient.invalidateQueries({ queryKey: ['history'] });
+    },
+  });
   const data = report.data;
   const unit = holdLabel(tf);
 
@@ -196,6 +206,33 @@ export function HistoryPage() {
           onChange={onRange}
           format={(v) => RANGE_LABELS[v]}
         />
+        <Switch
+          label="Hide EPS≤0 at entry"
+          checked={hideUnprofitable}
+          onChange={setHideUnprofitable}
+        />
+        <div className="stack-row" style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn-sm ghost"
+            disabled={enrichEps.isPending}
+            onClick={() => enrichEps.mutate()}
+          >
+            {enrichEps.isPending ? 'Tagging EPS…' : 'Tag EPS at entry'}
+          </button>
+          {enrichEps.data ? (
+            <span className="muted small">
+              tagged {enrichEps.data.updated}, remaining {enrichEps.data.remaining}
+            </span>
+          ) : null}
+        </div>
+        {enrichEps.error ? (
+          <p className="error">
+            {(enrichEps.error as Error).message.includes('FMP_API_KEY')
+              ? 'Set FMP_API_KEY to tag History EPS at entry.'
+              : (enrichEps.error as Error).message}
+          </p>
+        ) : null}
       </section>
 
       {report.isLoading ? <p className="empty">Loading…</p> : null}

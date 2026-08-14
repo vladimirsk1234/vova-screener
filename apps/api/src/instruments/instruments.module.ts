@@ -1,12 +1,16 @@
 import { Controller, Get, Module, Param, Query } from '@nestjs/common';
-import type { IndicatorParams, Timeframe } from '@vova/engine';
+import type { IndicatorParams, Timeframe, ValuationMetric } from '@vova/engine';
 import { MarketModule } from '../market/market.module';
 import { UniverseModule } from '../universe/universe.module';
+import { FundamentalsService } from './fundamentals.service';
 import { InstrumentsService } from './instruments.service';
 
 @Controller('instruments')
 class InstrumentsController {
-  constructor(private readonly instruments: InstrumentsService) {}
+  constructor(
+    private readonly instruments: InstrumentsService,
+    private readonly fundamentalsSvc: FundamentalsService,
+  ) {}
 
   @Get(':ticker/chart')
   chart(
@@ -57,11 +61,20 @@ class InstrumentsController {
   status(@Param('ticker') ticker: string) {
     return this.instruments.status(ticker);
   }
+
+  /** Fast Graphs–style fundamental valuation (FMP-backed). Yahoo OHLC is unchanged. */
+  @Get(':ticker/fundamentals')
+  fundamentals(@Param('ticker') ticker: string, @Query('metric') metric?: string) {
+    const allowed: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
+    const m = allowed.includes(metric as ValuationMetric) ? (metric as ValuationMetric) : 'eps';
+    return this.fundamentalsSvc.get(ticker, m);
+  }
 }
 
 @Module({
   imports: [MarketModule, UniverseModule],
   controllers: [InstrumentsController],
-  providers: [InstrumentsService],
+  providers: [InstrumentsService, FundamentalsService],
+  exports: [FundamentalsService],
 })
 export class InstrumentsModule {}

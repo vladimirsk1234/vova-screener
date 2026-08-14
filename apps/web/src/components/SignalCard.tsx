@@ -1,5 +1,7 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Bucket, ResultRow } from '../lib/api';
+import { api, type Bucket, type Interest, type ResultRow } from '../lib/api';
 import { barsLabel, money, num, pct, signedMoney } from '../lib/format';
 
 /**
@@ -40,6 +42,21 @@ function validFoot(row: ResultRow): string {
 
 export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const markStatus: Interest | null = row.interest ?? null;
+
+  const markInterest = useMutation({
+    mutationFn: (next: Interest | null) => api.setInterest(row.id, next),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['results'] });
+      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+      void queryClient.invalidateQueries({ queryKey: ['tracked-signal'] });
+      void queryClient.invalidateQueries({ queryKey: ['tracked-signal-by-id'] });
+    },
+  });
+
+  const marking = markInterest.isPending;
+
   // A closed trade opens as a snapshot of itself — the chart cut at the bar it broke on, with the
   // entry and the exit marked. Anything still running opens on the live chart.
   const openChart = () =>
@@ -47,6 +64,11 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
       `/chart/${encodeURIComponent(row.yahooTicker)}${bucket === 'closed' ? `?trade=${row.id}` : ''}`,
       { state: { row } },
     );
+
+  const onCardClick = (e: MouseEvent | KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    openChart();
+  };
 
   const showPnl = bucket !== 'new' && row.pnlUsd != null;
   const positive = (row.pnlUsd ?? 0) >= 0;
@@ -56,9 +78,10 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
       className="card signal-card compact clickable"
       role="button"
       tabIndex={0}
-      onClick={openChart}
+      onClick={onCardClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
+          if ((e.target as HTMLElement).closest('button')) return;
           e.preventDefault();
           openChart();
         }
@@ -78,7 +101,11 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
       </div>
 
       <div className="signal-card-badges">
-        {row.interest === 'interested' ? <span className="badge up">INTERESTED</span> : null}
+        {row.epsPositiveAtEntry === false ? (
+          <span className="badge down" title="FMP EPS was ≤ 0 on the last report before entry">
+            EPS≤0 AT ENTRY
+          </span>
+        ) : null}
         {row.interest === 'not_interested' ? <span className="badge down">NO INTEREST</span> : null}
         {row.isStrong ? <span className="badge">STRONG</span> : null}
         {row.provisional && bucket === 'new' ? (
@@ -133,6 +160,34 @@ export function SignalCard({ row, bucket }: { row: ResultRow; bucket: Bucket }) 
             ? validFoot(row)
             : `signal bar ${signalBar(row)}`}
       </p>
+
+      <div className="card-actions">
+        <button
+          type="button"
+          className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
+          disabled={marking}
+          onClick={(e) => {
+            e.stopPropagation();
+            markInterest.mutate(markStatus === 'interested' ? null : 'interested');
+          }}
+        >
+          {marking && markInterest.variables === 'interested' ? 'Saving…' : 'Interested'}
+        </button>
+        <button
+          type="button"
+          className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
+          disabled={marking}
+          onClick={(e) => {
+            e.stopPropagation();
+            markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested');
+          }}
+        >
+          {marking && markInterest.variables === 'not_interested' ? 'Saving…' : 'Not Interested'}
+        </button>
+      </div>
+      {markInterest.error ? (
+        <p className="error small signal-card-foot">{(markInterest.error as Error).message}</p>
+      ) : null}
     </article>
   );
 }

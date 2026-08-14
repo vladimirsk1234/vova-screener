@@ -1,5 +1,12 @@
 /** REST client for @vova/api. Same-origin /api (Vite proxy in dev). */
 
+export type {
+  AnnualFundamentalPoint,
+  ValuationMetric,
+  ValuationSeriesPoint,
+  ValuationSummary,
+} from '@vova/engine';
+
 export type Timeframe = 'Daily' | 'Weekly' | 'Monthly';
 export type HistoryTf = Timeframe | 'All';
 /** Exit-date lookback on History. `max` is accepted by the API as an alias of `all`. */
@@ -124,6 +131,8 @@ export type ResultRow = {
   exitReason: ExitReason | null;
   holdPeriods: number | null;
   interest: Interest | null;
+  epsAtEntry: number | null;
+  epsPositiveAtEntry: boolean | null;
 };
 
 export type ScanMeta = {
@@ -225,6 +234,116 @@ export type HistoryRebuildStatus = {
     noBars: number;
     symbols: number;
   };
+};
+
+export type HorizonReturns = {
+  y1: number | null;
+  y3: number | null;
+  y5: number | null;
+  y10: number | null;
+};
+
+export type EstimateRow = {
+  year: number;
+  date: string;
+  eps: number | null;
+  epsChgPct: number | null;
+  dividend: number | null;
+  analysts: number | null;
+  estimated: boolean;
+};
+
+export type PerformanceYear = {
+  year: number;
+  tickerClose: number | null;
+  spyClose: number | null;
+  tickerRetPct: number | null;
+  spyRetPct: number | null;
+  eps: number | null;
+  epsChgPct: number | null;
+};
+
+export type FundamentalsPayload = {
+  provider: 'fmp';
+  yahooTicker: string;
+  fmpSymbol: string;
+  tvSymbol: string;
+  profile: {
+    companyName: string;
+    currency: string | null;
+    exchange: string | null;
+    sector: string | null;
+    industry: string | null;
+    description: string | null;
+    mktCap: number | null;
+    price: number | null;
+    beta: number | null;
+    country: string | null;
+    website: string | null;
+    image: string | null;
+  };
+  snapshot: {
+    peTTM: number | null;
+    pbTTM: number | null;
+    psTTM: number | null;
+    pegTTM: number | null;
+    roeTTM: number | null;
+    roicTTM: number | null;
+    dividendYieldTTM: number | null;
+    earningsYieldTTM: number | null;
+    blendedPe: number | null;
+    fwdPe: number | null;
+    fwdEps: number | null;
+    tev: number | null;
+    ltDebtToCapitalTTM: number | null;
+    spCreditRating: null;
+    estAnnualRorPct: number | null;
+    futurePrice: number | null;
+    debtToEquityTTM: number | null;
+    currentRatioTTM: number | null;
+    profitMarginTTM: number | null;
+    operatingMarginTTM: number | null;
+    fcfYieldTTM: number | null;
+    dcf: number | null;
+    dcfPremiumPct: number | null;
+    altmanZScore: number | null;
+    piotroskiScore: number | null;
+  };
+  valuation: {
+    series: import('@vova/engine').ValuationSeriesPoint[];
+    summary: import('@vova/engine').ValuationSummary;
+  };
+  forecastSeries: import('@vova/engine').ValuationSeriesPoint[];
+  estimates: EstimateRow[];
+  performance: {
+    price: HorizonReturns;
+    spy: HorizonReturns;
+    eps: HorizonReturns;
+    years: PerformanceYear[];
+  };
+  annual: import('@vova/engine').AnnualFundamentalPoint[];
+  incomeTrend: Array<{
+    year: number;
+    date: string;
+    revenue: number | null;
+    netIncome: number | null;
+    eps: number | null;
+    epsChgPct: number | null;
+    dividend: number | null;
+    operatingCashFlow: number | null;
+    freeCashFlow: number | null;
+  }>;
+  asOf: string;
+  cached: boolean;
+};
+
+export type HistoryEpsEnrichResult = {
+  configured: boolean;
+  scanned: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  remaining: number;
 };
 
 /** Tracked signals whose ticker has since left its universe list file. */
@@ -428,7 +547,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function query(params: Record<string, string | number | undefined>): string {
+function query(params: Record<string, string | number | boolean | undefined>): string {
   const q = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') q.set(key, String(value));
@@ -478,11 +597,14 @@ export const api = {
     dir?: SortDir;
     limit?: number;
     offset?: number;
+    hideUnprofitable?: boolean;
   }) => request<{ total: number; rows: ResultRow[] }>(`/history/trades${query(opts)}`),
   /** Replay close-ledger over the bar cache and insert missing closed trades into History. */
   rebuildHistory: () =>
     request<{ started: boolean; reason?: string }>('/history/rebuild', { method: 'POST' }),
   historyRebuildStatus: () => request<HistoryRebuildStatus>('/history/rebuild'),
+  enrichHistoryEps: (limit = 40) =>
+    request<HistoryEpsEnrichResult>(`/history/enrich-eps${query({ limit })}`, { method: 'POST' }),
 
   // Settings
   settings: () => request<AppSettings>('/settings'),
@@ -562,6 +684,10 @@ export const api = {
     }
     return request<ChartPayload>(`/instruments/${encodeURIComponent(ticker)}/chart?${q.toString()}`);
   },
+  fundamentals: (ticker: string, metric: import('@vova/engine').ValuationMetric = 'eps') =>
+    request<FundamentalsPayload>(
+      `/instruments/${encodeURIComponent(ticker)}/fundamentals${query({ metric })}`,
+    ),
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>

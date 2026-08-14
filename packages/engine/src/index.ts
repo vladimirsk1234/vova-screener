@@ -17,3 +17,4 @@ export {
   explainInvalidBuy,
   type CloseScanOptions,
 } from './sequenceVova';
+export * from './fundamentalsValuation';

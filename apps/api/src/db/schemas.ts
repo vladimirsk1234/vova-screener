@@ -224,6 +224,14 @@ export const TrackedSignalSchema = new Schema(
     interestRank: { type: Number, default: 1 },
     interestAt: Date,
 
+    /**
+     * FMP diluted EPS on the last report dated on or before `openedAsOf`.
+     * `epsPositiveAtEntry === false` means the name was not profitable at entry.
+     */
+    epsAtEntry: Number,
+    epsPositiveAtEntry: Boolean,
+    epsAtEntryAsOf: String,
+
     runId: Schema.Types.ObjectId,
   },
   { timestamps: true },

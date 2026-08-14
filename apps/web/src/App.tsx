@@ -16,6 +16,9 @@ import {
 const ChartPage = lazy(() =>
   import('./pages/ChartPage').then((m) => ({ default: m.ChartPage })),
 );
+const FundamentalsPage = lazy(() =>
+  import('./pages/FundamentalsPage').then((m) => ({ default: m.FundamentalsPage })),
+);
 
 /**
  * Restores the remembered route on a cold open. A plain replace would leave the restored screen as
@@ -44,7 +47,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resultsTo, setResultsTo] = useState(lastResultsPath);
   const [appTo, setAppTo] = useState(lastAppPath);
-  const isChart = pathname.startsWith('/chart/');
+  const isChart = pathname.startsWith('/chart/') || pathname.startsWith('/fundamentals/');
 
   useEffect(() => {
     rememberResultsPath(pathname, search);
@@ -95,6 +98,7 @@ export function App() {
             <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/chart/:ticker" element={<ChartPage />} />
+            <Route path="/fundamentals/:ticker" element={<FundamentalsPage />} />
             <Route path="*" element={<RestoreEntry appTo={appTo} resultsTo={resultsTo} />} />
           </Routes>
         </Suspense>
