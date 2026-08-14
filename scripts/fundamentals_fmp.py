@@ -6,12 +6,15 @@ import argparse
 import json
 import math
 import os
+import socket
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +29,9 @@ RETRY_REASONS = frozenset({"FMP_HTTP", "FMP_RATE_LIMIT", "FMP_ERROR"})
 GROWTH_PE_FLOOR = 15.0
 GROWTH_LOOKBACK_YEARS = 5
 FMP_HTTP_RATE_PER_SEC = 12.0
+FMP_SCAN_WORKERS = 8
 _last_http_at = 0.0
+_http_lock = threading.Lock()
 
 
 def _load_json(path: Path) -> dict:
@@ -50,13 +55,15 @@ def _save_json(path: Path, data: dict) -> None:
 
 
 def _throttle_fmp_http(rate_per_sec: float = FMP_HTTP_RATE_PER_SEC) -> None:
+    """Thread-safe global pacer so concurrent workers still respect the FMP cap."""
     global _last_http_at
     interval = 1.0 / max(rate_per_sec, 0.1)
-    now = time.monotonic()
-    wait = interval - (now - _last_http_at)
-    if wait > 0:
-        time.sleep(wait)
-    _last_http_at = time.monotonic()
+    with _http_lock:
+        now = time.monotonic()
+        wait = interval - (now - _last_http_at)
+        if wait > 0:
+            time.sleep(wait)
+        _last_http_at = time.monotonic()
 
 
 def yahoo_to_fmp(yahoo: str) -> str:
@@ -68,6 +75,19 @@ def yahoo_to_fmp(yahoo: str) -> str:
     if len(s) >= 3 and s[-2] == "-" and s[-1].isalpha():
         return f"{s[:-2]}.{s[-1]}"
     return s.replace("-", ".")
+
+
+def fmp_symbol_candidates(yahoo: str) -> list[str]:
+    """
+    Symbol forms to try, in order. FMP serves US class shares under the dash
+    form (BRK-B); the dotted form answers HTTP 402, so keep it only as fallback.
+    """
+    raw = (yahoo or "").strip().upper()
+    forms = [raw] if raw else []
+    mapped = yahoo_to_fmp(yahoo)
+    if mapped and mapped not in forms:
+        forms.append(mapped)
+    return forms
 
 
 def _num(v) -> float | None:
@@ -108,7 +128,7 @@ def _fmp_get(path: str, api_key: str, params: dict[str, str]) -> object:
     for attempt in range(5):
         _throttle_fmp_http()
         try:
-            with urllib.request.urlopen(req, timeout=30) as res:
+            with urllib.request.urlopen(req, timeout=60) as res:
                 data = json.loads(res.read().decode("utf-8"))
             if isinstance(data, dict) and data.get("Error Message"):
                 raise RuntimeError(str(data.get("Error Message")))
@@ -119,6 +139,12 @@ def _fmp_get(path: str, api_key: str, params: dict[str, str]) -> object:
                 time.sleep(2.0 * (attempt + 1))
                 continue
             raise
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            # Transient network/read timeout: retry with backoff instead of
+            # dropping a whole screener exchange or a ticker on the first hiccup.
+            last_err = exc
+            time.sleep(1.5 * (attempt + 1))
+            continue
     if last_err:
         raise last_err
     raise RuntimeError(f"FMP request failed for {path}")
@@ -366,6 +392,7 @@ def scan_eps_and_valuation(
     resume: bool = True,
     retry_errors: bool = False,
     rate_per_sec: float = 4.0,
+    workers: int = FMP_SCAN_WORKERS,
 ) -> tuple[list[tuple[str, str, str]], Counter, list[dict]]:
     eps_cache = _load_json(eps_cache_path) if resume else {}
     val_cache = _load_json(val_cache_path) if resume else {}
@@ -399,7 +426,11 @@ def scan_eps_and_valuation(
                 rejects[reason] += 1
         else:
             pending.append((tv, yahoo, name))
-    print(f"FMP EPS+valuation pending: {len(pending)} (cached: {len(entries) - len(pending)})")
+    workers = max(1, int(workers))
+    print(
+        f"FMP EPS+valuation pending: {len(pending)} "
+        f"(cached: {len(entries) - len(pending)}, workers={workers})"
+    )
     _ = rate_per_sec
 
     def _persist() -> None:
@@ -409,12 +440,54 @@ def scan_eps_and_valuation(
         except OSError as exc:
             print(f"  cache save failed ({exc}); continuing in memory", file=sys.stderr)
 
-    for i, (tv, yahoo, name) in enumerate(pending, start=1):
+    def _scan_one(item: tuple[str, str, str]) -> tuple[tuple[str, str, str], str, str, float | None, float | None, float | None]:
+        tv, yahoo, name = item
         symbol = yahoo_to_fmp(yahoo)
-        ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
-        if reason == "FMP_RATE_LIMIT":
-            time.sleep(4.0)
-            ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+        reason = "FMP_ERROR"
+        eps = pe = growth = None
+        for candidate in fmp_symbol_candidates(yahoo):
+            symbol = candidate
+            _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+            if reason == "FMP_RATE_LIMIT":
+                time.sleep(4.0)
+                _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+            if reason not in ("FMP_HTTP", "FMP_ERROR"):
+                break
+        return item, symbol, reason, eps, pe, growth
+
+    # Concurrent fetch: the global _throttle_fmp_http lock still caps total
+    # request rate, but overlapping network latency instead of paying it per
+    # ticker cuts a full uncached pass from hours to ~20 min.
+    results: dict[str, tuple[str, str, float | None, float | None, float | None]] = {}
+    pending_by_yahoo = {yahoo: (tv, yahoo, name) for tv, yahoo, name in pending}
+    done = 0
+
+    def _write_cache(item: tuple[str, str, str], res: tuple[str, str, float | None, float | None, float | None]) -> None:
+        tv_i, yahoo_i, name_i = item
+        symbol_i, reason_i, eps_i, pe_i, growth_i = res
+        eps_checked[yahoo_i] = {"reason": reason_i, "tv_part": tv_i, "name": name_i, "trailingEps": eps_i, "fmp": symbol_i}
+        val_checked[yahoo_i] = {"reason": reason_i, "tv_part": tv_i, "name": name_i, "epsTtm": eps_i, "peTtm": pe_i, "growth5y": growth_i, "fmp": symbol_i}
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_scan_one, item): item for item in pending}
+        for fut in as_completed(futures):
+            item, symbol, reason, eps, pe, growth = fut.result()
+            _tv, yahoo, _name = item
+            results[yahoo] = (symbol, reason, eps, pe, growth)
+            done += 1
+            if done % 100 == 0 or done == len(pending):
+                # Persist incrementally so an interrupt keeps a warm cache.
+                for y, res in results.items():
+                    _write_cache(pending_by_yahoo[y], res)
+                _persist()
+                print(f"  {done}/{len(pending)}  last={yahoo} {reason}")
+
+    # Materialize in original (sorted) pending order for deterministic output.
+    for tv, yahoo, name in pending:
+        res = results.get(yahoo)
+        if res is None:
+            continue
+        symbol, reason, eps, pe, growth = res
         eps_checked[yahoo] = {
             "reason": reason,
             "tv_part": tv,
@@ -431,14 +504,11 @@ def scan_eps_and_valuation(
             "growth5y": growth,
             "fmp": symbol,
         }
-        if ok:
+        if reason == "PASS":
             passed.append((tv, yahoo, name))
             rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason))
         else:
             rejects[reason] += 1
-        if i % 100 == 0 or i == len(pending):
-            _persist()
-            print(f"  {i}/{len(pending)}  passed={len(passed)}  last={yahoo} {reason}")
     _persist()
     return passed, rejects, rows
 

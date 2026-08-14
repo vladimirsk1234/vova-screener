@@ -27,6 +27,12 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPTS))
 
+# Windows consoles default to cp1252 and the progress/summary lines use arrows;
+# without this the run dies right before writing the list file.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from fundamentals_fmp import (  # noqa: E402
     load_fmp_api_key,
     scan_eps_and_valuation,
