@@ -79,6 +79,8 @@ export type FundamentalsPayload = {
   };
   snapshot: {
     peTTM: number | null;
+    /** Trailing-twelve-month diluted EPS (anchor fallback when no forward estimate). */
+    ttmEps: number | null;
     pbTTM: number | null;
     psTTM: number | null;
     pegTTM: number | null;
@@ -170,6 +172,29 @@ function forwardFor(metric: ValuationMetric, estimates: EstimateRow[]): ForwardM
   return estimates.map((e) => ({ year: e.year, metric: e.eps }));
 }
 
+/**
+ * TTM diluted EPS for the fair-value anchor when analyst estimates are missing.
+ * Prefer an explicit per-share TTM field; otherwise invert price / PE_TTM.
+ */
+function ttmEpsFrom(
+  keyTtm: Record<string, unknown> | null | undefined,
+  ratiosTtm: Record<string, unknown> | null | undefined,
+  price: number | null,
+  peTTM: number | null,
+): number | null {
+  const fromFields =
+    fmpNum(keyTtm?.netIncomePerShareTTM) ??
+    fmpNum(keyTtm?.epsTTM) ??
+    fmpNum(keyTtm?.netIncomePerShare) ??
+    fmpNum(ratiosTtm?.netIncomePerShareTTM);
+  if (fromFields != null && fromFields > 0) return fromFields;
+  if (price != null && peTTM != null && peTTM > 0 && price > 0) {
+    const implied = price / peTTM;
+    return Number.isFinite(implied) && implied > 0 ? implied : null;
+  }
+  return null;
+}
+
 @Injectable()
 export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
@@ -198,6 +223,7 @@ export class FundamentalsService {
           currentPrice: other.payload.profile.price,
           windowYears: 5,
           forward: forwardFor(metric, other.payload.estimates),
+          ttmMetric: metric === 'eps' ? other.payload.snapshot.ttmEps : null,
         });
         const payload: FundamentalsPayload = {
           ...other.payload,
@@ -363,16 +389,19 @@ export class FundamentalsService {
       .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
 
-    const valuation = buildValuationSeries(completed, 'eps', {
-      currentPrice: price,
-      windowYears: 5,
-      forward: estimateParsed.map((e) => ({ year: e.year, metric: e.eps })),
-    });
-
     const peTTM =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
+    const ttmEps = ttmEpsFrom(keyTtm, ratiosTtm, price, peTTM);
+
+    const valuation = buildValuationSeries(completed, 'eps', {
+      currentPrice: price,
+      windowYears: 5,
+      forward: estimateParsed.map((e) => ({ year: e.year, metric: e.eps })),
+      ttmMetric: ttmEps,
+    });
+
     const ltDebtToCapitalTTM =
       fmpNum(ratiosTtm?.longTermDebtToCapitalRatioTTM) ??
       fmpNum(keyTtm?.longTermDebtToCapitalRatioTTM);
@@ -599,16 +628,19 @@ export class FundamentalsService {
       estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
     }
 
-    const valuation = buildValuationSeries(annual, metric, {
-      currentPrice: price,
-      windowYears: 5,
-      forward: forwardFor(metric, estimateParsed),
-    });
-
     const peTTM =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
+    const ttmEps = metric === 'eps' ? ttmEpsFrom(keyTtm, ratiosTtm, price, peTTM) : null;
+
+    const valuation = buildValuationSeries(annual, metric, {
+      currentPrice: price,
+      windowYears: 5,
+      forward: forwardFor(metric, estimateParsed),
+      ttmMetric: ttmEps,
+    });
+
     const pbTTM = fmpNum(ratiosTtm?.priceToBookRatioTTM) ?? fmpNum(keyTtm?.pbRatioTTM);
     const psTTM = fmpNum(ratiosTtm?.priceToSalesRatioTTM) ?? fmpNum(keyTtm?.ptbRatioTTM);
     const pegTTM = fmpNum(ratiosTtm?.priceToEarningsGrowthRatioTTM) ?? fmpNum(ratiosTtm?.pegRatioTTM);
@@ -714,6 +746,7 @@ export class FundamentalsService {
       },
       snapshot: {
         peTTM,
+        ttmEps,
         pbTTM,
         psTTM,
         pegTTM,

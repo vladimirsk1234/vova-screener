@@ -150,7 +150,8 @@ export function completeFiscalYears(
 }
 
 /**
- * Keep the last `windowYears` calendar years ending at the latest complete FY.
+ * Keep enough complete FYs for a true `windowYears` span ending at the latest FY.
+ * A 5Y window means lastYear − 5 … lastYear (6 points, 5-year CAGR), not 5 points / 4 years.
  * `null` keeps the full history (MAX).
  */
 export function sliceToWindow(
@@ -160,7 +161,7 @@ export function sliceToWindow(
   const sorted = completeFiscalYears(points);
   if (windowYears == null || windowYears <= 0 || !sorted.length) return sorted;
   const lastYear = sorted[sorted.length - 1]!.year;
-  const minYear = lastYear - windowYears + 1;
+  const minYear = lastYear - windowYears;
   return sorted.filter((p) => p.year >= minYear);
 }
 
@@ -287,6 +288,11 @@ export function buildValuationSeries(
     windowYears?: ValuationWindowYears;
     /** Analyst estimates for the same metric. Present → FG-style forward growth and anchor. */
     forward?: ForwardMetricPoint[];
+    /**
+     * Trailing-twelve-month metric (EPS for the EPS view). Used as the fair-value anchor when
+     * there is no forward estimate — closer to “current earnings” than the last closed FY.
+     */
+    ttmMetric?: number | null;
   } = {},
 ): { series: ValuationSeriesPoint[]; summary: ValuationSummary } {
   const windowYears = opts.windowYears === undefined ? null : opts.windowYears;
@@ -333,12 +339,12 @@ export function buildValuationSeries(
       : null;
 
   const latestMetric = last?.metric ?? null;
-  // Anchoring on the last reported year values a company mid-ramp off its trough. Fast Graphs
-  // reads the fair value line at the current fiscal year, so the first estimate wins when there
-  // is one.
+  // Anchor order: first forward estimate (FG) → TTM (microcaps without coverage) → last FY.
   const anchorPoint = firstForwardPositive(forward);
-  const fairValueAnchor = anchorPoint?.metric ?? latestMetric;
-  const fairValueAnchorYear = anchorPoint?.year ?? last?.year ?? null;
+  const ttm =
+    opts.ttmMetric != null && finite(opts.ttmMetric) && opts.ttmMetric > 0 ? opts.ttmMetric : null;
+  const fairValueAnchor = anchorPoint?.metric ?? ttm ?? latestMetric;
+  const fairValueAnchorYear = anchorPoint?.year ?? (ttm != null ? null : last?.year ?? null);
   const fairValue =
     finite(fairValueAnchor) && fairValueAnchor > 0 && fairValueRatio != null
       ? fairValueAnchor * fairValueRatio

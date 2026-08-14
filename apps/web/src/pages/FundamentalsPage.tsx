@@ -92,6 +92,7 @@ export function FundamentalsPage() {
         metric === 'eps'
           ? fundQ.data.estimates.map((e) => ({ year: e.year, metric: e.eps }))
           : [],
+      ttmMetric: metric === 'eps' ? fundQ.data.snapshot.ttmEps : null,
     });
   }, [fundQ.data, metric, windowYears]);
 

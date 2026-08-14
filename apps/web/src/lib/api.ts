@@ -284,6 +284,7 @@ export type FundamentalsPayload = {
   };
   snapshot: {
     peTTM: number | null;
+    ttmEps: number | null;
     pbTTM: number | null;
     psTTM: number | null;
     pegTTM: number | null;
