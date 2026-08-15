@@ -769,6 +769,10 @@ a {
   text-align: center;
 }
 
+.chart-period-chips {
+  flex: 0 0 auto;
+}
+
 .chart-view-toggle {
   display: flex;
   gap: 8px;
