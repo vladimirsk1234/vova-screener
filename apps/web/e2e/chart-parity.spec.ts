@@ -39,9 +39,12 @@ test.describe('chart parity UI', () => {
 
     await page.getByRole('tab', { name: 'Fundamentals', exact: true }).click();
     await expect(page).toHaveURL(/\/chart\/AAPL\?view=fundamentals/);
-    await expect(page.locator('.chart-fund-price-host')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
-    await expect(page.getByText('Valuation', { exact: true })).toBeVisible();
+    await expect(page.locator('.chart-stage .chart-host')).toBeVisible();
+    await expect(page.locator('.chart-host')).toHaveCount(1);
+    await expect(page.locator('.fund-chart-host')).toHaveCount(0);
+    await expect(page.getByText('fair value')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
 
     await page.getByRole('tab', { name: 'TA', exact: true }).click();
     await expect(page).toHaveURL(/\/chart\/AAPL$/);
@@ -53,7 +56,8 @@ test.describe('chart parity UI', () => {
     await page.goto('/fundamentals/AAPL');
     await expect(page).toHaveURL(/\/chart\/AAPL\?view=fundamentals/);
     await expect(page.getByRole('tab', { name: 'Fundamentals', exact: true })).toHaveClass(/active/);
-    await expect(page.locator('.chart-fund-price-host')).toBeVisible();
+    await expect(page.locator('.chart-stage .chart-host')).toBeVisible();
+    await expect(page.locator('.fund-chart-host')).toHaveCount(0);
   });
 
   test('default chart host uses Streamlit-grey canvas area', async ({ page }) => {

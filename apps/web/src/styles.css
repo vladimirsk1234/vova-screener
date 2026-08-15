@@ -773,7 +773,11 @@ a {
   display: flex;
   gap: 8px;
   flex: 0 0 auto;
-  padding: 6px 4px calc(8px + var(--safe-bottom));
+  padding: 6px 4px 8px;
+}
+
+.chart-page:not(.chart-page--fundamentals) .chart-view-toggle {
+  padding-bottom: calc(8px + var(--safe-bottom));
 }
 
 .chart-view-toggle .chip {
@@ -782,26 +786,28 @@ a {
   text-align: center;
 }
 
-.chart-fund-price {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0 4px;
-}
-
-.chart-fund-price-host {
-  flex: 0 0 auto;
-  height: clamp(140px, 28vh, 200px);
-  min-height: 140px;
-}
-
-.chart-fund-scroll {
-  flex: 1;
+.chart-fund-metrics {
+  flex: 0 1 auto;
+  max-height: min(42vh, 360px);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  padding: 0 4px calc(8px + var(--safe-bottom));
+}
+
+.chart-fund-metrics .fund-panel {
+  padding: 0 4px 4px;
+  gap: 8px;
+  background: none;
+}
+
+.chart-fund-metrics .fund-headline {
+  font-size: 1.35rem;
+}
+
+.chart-fund-metrics .chip-row {
+  margin: 4px 0 6px;
 }
 
 .chart-stage {

@@ -11,7 +11,7 @@ import {
 } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
-import { FundamentalsPanel } from '../components/FundamentalsPanel';
+import { FundamentalsMetricsPanel } from '../components/FundamentalsMetricsPanel';
 import { mountSequenceChart, type ChartTrade } from '../components/mountSequenceChart';
 import { barsLabel, signedMoney } from '../lib/format';
 import {
@@ -24,6 +24,7 @@ import { lastResultsPath } from '../lib/tabMemory';
 
 type ChartNavState = { row?: ResultRow };
 type ChartView = 'ta' | 'fundamentals';
+const EMPTY_DRAWINGS: ChartDrawing[] = [];
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -67,8 +68,6 @@ export function ChartPage() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
-  const weeklyHostRef = useRef<HTMLDivElement | null>(null);
-  const weeklyDestroyRef = useRef<(() => void) | null>(null);
 
   const presetQ = useQuery({
     queryKey: ['preset', 'chart'],
@@ -125,16 +124,12 @@ export function ChartPage() {
 
   const asOf = snapshot ? (trade.data?.exitDate ?? null) : null;
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
+  const visibleTf: Timeframe = view === 'fundamentals' ? 'Weekly' : tf;
   const chartReady = Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data);
   const chart = useQuery({
-    queryKey: ['chart', ticker, tf, numeric, maxRiskUsd, asOf],
-    queryFn: () => api.chart(ticker, tf, numeric, maxRiskUsd, asOf),
+    queryKey: ['chart', ticker, visibleTf, numeric, maxRiskUsd, asOf],
+    queryFn: () => api.chart(ticker, visibleTf, numeric, maxRiskUsd, asOf),
     enabled: chartReady,
-  });
-  const weeklyChart = useQuery({
-    queryKey: ['chart', ticker, 'Weekly', numeric, maxRiskUsd, asOf],
-    queryFn: () => api.chart(ticker, 'Weekly', numeric, maxRiskUsd, asOf),
-    enabled: view === 'fundamentals' && chartReady,
   });
 
   // Live chart self-heals `signalValid` / age on the tracked row; refresh Results so a dead NEW
@@ -184,14 +179,17 @@ export function ChartPage() {
     [tradeId, trade.data],
   );
 
+  // Daily drawings do not map onto a Weekly series; keep the stored state, just do not apply it.
+  const visibleDrawings = view === 'fundamentals' && tf !== 'Weekly' ? EMPTY_DRAWINGS : drawings;
+
   useEffect(() => {
-    if (view !== 'ta' || !containerRef.current || !chart.data) return;
+    if (!containerRef.current || !chart.data) return;
     destroyRef.current?.();
     const mounted = mountSequenceChart(
       containerRef.current,
       chart.data,
       settings,
-      drawings,
+      visibleDrawings,
       chartTrade,
     );
     destroyRef.current = mounted.destroy;
@@ -227,24 +225,7 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [view, chart.data, settings, drawings, chartTrade]);
-
-  useEffect(() => {
-    if (view !== 'fundamentals' || !weeklyHostRef.current || !weeklyChart.data) return;
-    weeklyDestroyRef.current?.();
-    const mounted = mountSequenceChart(
-      weeklyHostRef.current,
-      weeklyChart.data,
-      settings,
-      [],
-      chartTrade,
-    );
-    weeklyDestroyRef.current = mounted.destroy;
-    return () => {
-      weeklyDestroyRef.current?.();
-      weeklyDestroyRef.current = null;
-    };
-  }, [view, weeklyChart.data, settings, chartTrade]);
+  }, [chart.data, settings, visibleDrawings, chartTrade]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -282,8 +263,8 @@ export function ChartPage() {
   const canMark = Boolean(row?.id);
   const marking = markInterest.isPending;
 
-  const titleSymbol = chart.data?.symbol ?? weeklyChart.data?.symbol ?? ticker;
-  const titleName = chart.data?.companyName ?? weeklyChart.data?.companyName;
+  const titleSymbol = chart.data?.symbol ?? ticker;
+  const titleName = chart.data?.companyName;
 
   return (
     <div className={`chart-page${view === 'fundamentals' ? ' chart-page--fundamentals' : ''}`}>
@@ -303,27 +284,25 @@ export function ChartPage() {
           </div>
         </div>
         {view === 'ta' ? (
-          <>
-            <a
-              className="btn-sm ghost chart-head-tv"
-              href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-                chart.data?.tvSymbol ?? ticker,
-              )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              TradingView
-            </a>
-            <button
-              type="button"
-              className="chart-icon-btn"
-              aria-label="Settings"
-              onClick={() => setSettingsOpen(true)}
-            >
-              ⚙
-            </button>
-          </>
+          <a
+            className="btn-sm ghost chart-head-tv"
+            href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+              chart.data?.tvSymbol ?? ticker,
+            )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            TradingView
+          </a>
         ) : null}
+        <button
+          type="button"
+          className="chart-icon-btn"
+          aria-label="Settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          ⚙
+        </button>
       </div>
 
       {view === 'ta' ? (
@@ -426,53 +405,38 @@ export function ChartPage() {
           ) : null}
 
           <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
-
-          <div className="chart-stage">
-            <div className="chart-host" ref={containerRef} />
-            {crosshair ? (
-              <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
-                {crosshair}
-              </p>
-            ) : null}
-            {settings.show_watermark && wm?.lines?.length ? (
-              <div
-                className="chart-watermark"
-                style={{ color: settings.wm_text_color, fontSize: settings.wm_font_size }}
-              >
-                {wm.lines.map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
-          {chart.error ? (
-            <p className="error chart-status-line">{(chart.error as Error).message}</p>
-          ) : null}
-          {markInterest.error ? (
-            <p className="error chart-status-line">{(markInterest.error as Error).message}</p>
-          ) : null}
         </>
-      ) : (
-        <>
-          <div className="chart-fund-price">
-            <div className="chart-host chart-fund-price-host" ref={weeklyHostRef} />
-            {weeklyChart.isLoading ? (
-              <p className="muted small chart-status-line">Loading weekly bars…</p>
-            ) : null}
-            {weeklyChart.error ? (
-              <p className="error chart-status-line">{(weeklyChart.error as Error).message}</p>
-            ) : null}
+      ) : null}
+
+      <div className="chart-stage">
+        <div className="chart-host" ref={containerRef} />
+        {crosshair ? (
+          <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
+            {crosshair}
+          </p>
+        ) : null}
+        {settings.show_watermark && wm?.lines?.length ? (
+          <div
+            className="chart-watermark"
+            style={{ color: settings.wm_text_color, fontSize: settings.wm_font_size }}
+          >
+            {wm.lines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
           </div>
-          <div className="chart-fund-scroll">
-            <FundamentalsPanel ticker={ticker} />
-          </div>
-        </>
-      )}
+        ) : null}
+      </div>
+
+      {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
+      {chart.error ? (
+        <p className="error chart-status-line">{(chart.error as Error).message}</p>
+      ) : null}
+      {markInterest.error ? (
+        <p className="error chart-status-line">{(markInterest.error as Error).message}</p>
+      ) : null}
 
       <ChartSettingsPanel
-        open={settingsOpen && view === 'ta'}
+        open={settingsOpen}
         value={settings}
         onChange={setSettings}
         onClose={() => setSettingsOpen(false)}
@@ -500,6 +464,12 @@ export function ChartPage() {
           Fundamentals
         </button>
       </div>
+
+      {view === 'fundamentals' ? (
+        <div className="chart-fund-metrics">
+          <FundamentalsMetricsPanel ticker={ticker} />
+        </div>
+      ) : null}
     </div>
   );
 }
