@@ -10,6 +10,9 @@ import {
   type ValuationMetric,
   type ValuationSeriesPoint,
 } from '@vova/engine';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
+import { INSTRUMENT_FUNDAMENTALS } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { FmpClient, fmpNum, fmpStr, yahooToFmpSymbol } from '../market/fmp.client';
 import type { FundamentalsFilter } from '../settings/settings.module';
@@ -253,6 +256,7 @@ export class FundamentalsService {
   private warming = false;
 
   constructor(
+    @InjectModel(INSTRUMENT_FUNDAMENTALS) private readonly store: Model<any>,
     private readonly fmp: FmpClient,
     private readonly universe: UniverseService,
     private readonly bars: BarsService,
@@ -260,39 +264,22 @@ export class FundamentalsService {
 
   async get(yahooTicker: string, metric: ValuationMetric = 'eps'): Promise<FundamentalsPayload> {
     if (!METRICS.includes(metric)) metric = 'eps';
-    const cacheKey = `${yahooTicker.toUpperCase()}|${metric}`;
+    const ticker = yahooTicker.toUpperCase();
+    const cacheKey = `${ticker}|${metric}`;
     const hit = this.cache.get(cacheKey);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
       return { ...hit.payload, cached: true };
     }
 
-    for (const m of METRICS) {
-      if (m === metric) continue;
-      const other = this.cache.get(`${yahooTicker.toUpperCase()}|${m}`);
-      if (other && Date.now() - other.at < CACHE_TTL_MS) {
-        const valuation = buildValuationSeries(other.payload.annual, metric, {
-          currentPrice: other.payload.profile.price,
-          windowYears: 5,
-          forward: forwardFor(metric, other.payload.estimates),
-          ttmMetric: metric === 'eps' ? other.payload.snapshot.ttmEps : null,
-        });
-        const payload: FundamentalsPayload = {
-          ...other.payload,
-          valuation,
-          forecastSeries: this.extendForecast(
-            valuation.series,
-            other.payload.estimates,
-            valuation.summary.fairValueRatio,
-          ),
-          cached: true,
-        };
-        this.cache.set(cacheKey, { at: other.at, payload: { ...payload, cached: false } });
-        return payload;
-      }
+    const stored = await this.loadStored(ticker);
+    if (stored) {
+      const payload = this.payloadForMetric(stored, metric);
+      this.remember(ticker, payload);
+      return { ...payload, cached: true };
     }
 
-    const payload = await this.fetchFresh(yahooTicker, metric);
-    this.cache.set(cacheKey, { at: Date.now(), payload: { ...payload, cached: false } });
+    const payload = await this.fetchFresh(ticker, metric);
+    await this.persist(ticker, payload, 'full');
     return payload;
   }
 
@@ -311,28 +298,15 @@ export class FundamentalsService {
   }
 
   /**
-   * Batch card metrics for Results / History. Reuses the full fundamentals cache when warm;
-   * otherwise a slim FMP fetch (income + TTM + estimates + profile). Missing key → {}.
+   * Batch card metrics. Mongo first; FMP only for names that have never been stored.
    */
   async getCardMetrics(tickers: string[]): Promise<Record<string, CardFundamentals>> {
-    if (!this.fmp.configured()) return {};
-
-    const unique: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of tickers) {
-      const t = String(raw || '')
-        .trim()
-        .toUpperCase();
-      if (!t || seen.has(t)) continue;
-      seen.add(t);
-      unique.push(t);
-      if (unique.length >= CARD_BATCH_LIMIT) break;
-    }
+    const unique = uniqueTickers(tickers).slice(0, CARD_BATCH_LIMIT);
     if (!unique.length) return {};
 
     const out: Record<string, CardFundamentals> = {};
-    const needFetch: string[] = [];
     const now = Date.now();
+    const needStore: string[] = [];
 
     for (const ticker of unique) {
       const fromFull = this.cardFromFullCache(ticker, now);
@@ -345,8 +319,25 @@ export class FundamentalsService {
         out[ticker] = cardHit.metrics;
         continue;
       }
-      needFetch.push(ticker);
+      needStore.push(ticker);
     }
+
+    if (needStore.length) {
+      const docs = await this.store
+        .find({ yahooTicker: { $in: needStore } })
+        .lean<any[]>()
+        .exec();
+      for (const doc of docs) {
+        const metrics = this.cardFromDoc(doc);
+        if (!metrics) continue;
+        out[doc.yahooTicker] = metrics;
+        this.cardCache.set(doc.yahooTicker, { at: now, metrics });
+        if (doc.payload) this.remember(doc.yahooTicker, doc.payload as FundamentalsPayload);
+      }
+    }
+
+    const needFetch = unique.filter((t) => !out[t]);
+    if (!needFetch.length || !this.fmp.configured()) return out;
 
     for (let i = 0; i < needFetch.length; i += CARD_CONCURRENCY) {
       const chunk = needFetch.slice(i, i + CARD_CONCURRENCY);
@@ -355,6 +346,7 @@ export class FundamentalsService {
           try {
             const metrics = await this.fetchCardSlim(ticker);
             this.cardCache.set(ticker, { at: Date.now(), metrics });
+            await this.persistCard(ticker, metrics);
             out[ticker] = metrics;
           } catch (err) {
             this.failedAt.set(ticker, Date.now());
@@ -369,38 +361,198 @@ export class FundamentalsService {
     return out;
   }
 
-  /**
-   * Classify from the in-memory card cache only — never call FMP on the Results / History
-   * read path. A previous version fetched every distinct ticker here and rate-limited FMP
-   * (429/503 on /profile), which emptied the filter and broke the Fundamentals page.
-   */
-  async valuationSets(
-    tickers: string[],
-    opts: { warm?: boolean } = {},
-  ): Promise<ValuationSets> {
-    const unique = uniqueTickers(tickers);
-    const metrics = this.peekCardMetrics(unique);
-    if (opts.warm !== false) this.enqueueWarm(unique.filter((t) => !metrics[t]));
-    const undervalued: string[] = [];
-    const overvalued: string[] = [];
-    for (const ticker of unique) {
-      const premium = metrics[ticker]?.premiumPct;
-      if (premium == null || !Number.isFinite(premium) || premium === 0) continue;
-      if (premium < 0) undervalued.push(ticker);
-      else overvalued.push(ticker);
-    }
-    return { undervalued, overvalued };
-  }
-
   /** Tickers that pass the Settings valuation filter, or null when the filter is off. */
   async tickersForFilter(
     filter: FundamentalsFilter,
     tickers: string[],
-    opts: { warm?: boolean } = {},
+    _opts: { warm?: boolean } = {},
   ): Promise<string[] | null> {
     if (filter !== 'undervalued' && filter !== 'overvalued') return null;
-    const sets = await this.valuationSets(tickers, opts);
-    return filter === 'undervalued' ? sets.undervalued : sets.overvalued;
+    const unique = uniqueTickers(tickers);
+    if (!unique.length) return [];
+    const premium = filter === 'undervalued' ? { $lt: 0 } : { $gt: 0 };
+    const rows = await this.store
+      .find({ yahooTicker: { $in: unique }, premiumPct: premium })
+      .select('yahooTicker')
+      .lean<Array<{ yahooTicker: string }>>()
+      .exec();
+    return rows.map((r) => r.yahooTicker);
+  }
+
+  /** Daily job: /profile + recompute premium from stored annual. No-op without a full payload. */
+  async refreshPrice(yahooTicker: string): Promise<boolean> {
+    const ticker = yahooTicker.toUpperCase();
+    const stored = await this.loadStored(ticker);
+    if (!stored) return false;
+    const profile = await this.fmp.profile(yahooToFmpSymbol(ticker)).catch(() => null);
+    const price = profile?.price;
+    if (price == null || !Number.isFinite(price) || price <= 0) return false;
+    const next = this.repricePayload(stored, price, profile);
+    await this.persist(ticker, next, 'price');
+    return true;
+  }
+
+  async storedCount(): Promise<number> {
+    return this.store.countDocuments().exec();
+  }
+
+  /** Weekly / first-fill job: full 13-endpoint fetch. Keeps the old doc on failure. */
+  async refreshFull(yahooTicker: string): Promise<boolean> {
+    const ticker = yahooTicker.toUpperCase();
+    try {
+      const payload = await this.fetchFresh(ticker, 'eps');
+      await this.persist(ticker, payload, 'full');
+      return true;
+    } catch (err) {
+      this.log.warn(
+        `Full fundamentals refresh failed for ${ticker}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+  }
+
+  private async loadStored(ticker: string): Promise<FundamentalsPayload | null> {
+    const doc = await this.store.findOne({ yahooTicker: ticker }).lean<any>().exec();
+    if (!doc?.payload || typeof doc.payload !== 'object') return null;
+    return doc.payload as FundamentalsPayload;
+  }
+
+  private remember(ticker: string, payload: FundamentalsPayload) {
+    const t = ticker.toUpperCase();
+    this.cache.set(`${t}|eps`, { at: Date.now(), payload: { ...payload, cached: false } });
+    const metrics = this.metricsFromPayload(payload);
+    this.cardCache.set(t, { at: Date.now(), metrics });
+  }
+
+  private async persist(
+    ticker: string,
+    payload: FundamentalsPayload,
+    kind: 'full' | 'price',
+  ): Promise<void> {
+    const t = ticker.toUpperCase();
+    const card = this.metricsFromPayload(payload);
+    const now = new Date();
+    const set: Record<string, unknown> = {
+      yahooTicker: t,
+      payload: { ...payload, cached: false },
+      fairValue: card.fairValue,
+      premiumPct: card.premiumPct,
+      growthRatePct: card.growthRatePct,
+      blendedPe: card.blendedPe,
+      ltDebtToCapitalTTM: card.ltDebtToCapitalTTM,
+      updatedAt: now,
+    };
+    if (kind === 'full') set.fetchedAt = now;
+    await this.store.updateOne({ yahooTicker: t }, { $set: set }, { upsert: true }).exec();
+    this.remember(t, payload);
+  }
+
+  private async persistCard(ticker: string, metrics: CardFundamentals): Promise<void> {
+    const t = ticker.toUpperCase();
+    await this.store
+      .updateOne(
+        { yahooTicker: t },
+        {
+          $set: {
+            yahooTicker: t,
+            fairValue: metrics.fairValue,
+            premiumPct: metrics.premiumPct,
+            growthRatePct: metrics.growthRatePct,
+            blendedPe: metrics.blendedPe,
+            ltDebtToCapitalTTM: metrics.ltDebtToCapitalTTM,
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      )
+      .exec();
+  }
+
+  private cardFromDoc(doc: any): CardFundamentals | null {
+    if (doc?.payload && typeof doc.payload === 'object') {
+      return this.metricsFromPayload(doc.payload as FundamentalsPayload);
+    }
+    if (doc?.premiumPct == null && doc?.fairValue == null) return null;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    return {
+      fairValue: num(doc.fairValue),
+      premiumPct: num(doc.premiumPct),
+      growthRatePct: num(doc.growthRatePct),
+      blendedPe: num(doc.blendedPe),
+      ltDebtToCapitalTTM: num(doc.ltDebtToCapitalTTM),
+    };
+  }
+
+  private payloadForMetric(stored: FundamentalsPayload, metric: ValuationMetric): FundamentalsPayload {
+    if (metric === 'eps') return stored;
+    const valuation = buildValuationSeries(stored.annual, metric, {
+      currentPrice: stored.profile.price,
+      windowYears: 5,
+      forward: forwardFor(metric, stored.estimates),
+      ttmMetric: null,
+    });
+    return {
+      ...stored,
+      valuation,
+      forecastSeries: this.extendForecast(
+        valuation.series,
+        stored.estimates,
+        valuation.summary.fairValueRatio,
+      ),
+    };
+  }
+
+  private repricePayload(
+    stored: FundamentalsPayload,
+    price: number,
+    profile: { companyName?: string | null; mktCap?: number | null; beta?: number | null } | null,
+  ): FundamentalsPayload {
+    const valuation = buildValuationSeries(stored.annual, 'eps', {
+      currentPrice: price,
+      windowYears: 5,
+      forward: forwardFor('eps', stored.estimates),
+      ttmMetric: stored.snapshot.ttmEps,
+    });
+    const fwdEps = stored.snapshot.fwdEps;
+    const fwdPe = fwdEps != null && fwdEps > 0 ? price / fwdEps : null;
+    const peForBlend = stored.snapshot.peTTM ?? valuation.summary.currentPe;
+    const blendedPe =
+      peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
+    const dcfVal = stored.snapshot.dcf;
+    const dcfPremiumPct =
+      dcfVal != null && dcfVal > 0 ? ((price - dcfVal) / dcfVal) * 100 : stored.snapshot.dcfPremiumPct;
+    const fv = valuation.summary.fairValue;
+    const growth = valuation.summary.growthRatePct;
+    const divYldPts = asPctPoints(stored.snapshot.dividendYieldTTM) ?? 0;
+    const reversion =
+      fv != null && fv > 0 && price > 0 ? (Math.pow(fv / price, 1 / 5) - 1) * 100 : 0;
+    const estAnnualRorPct =
+      growth == null && fv == null ? null : (growth ?? 0) + divYldPts + reversion;
+    return {
+      ...stored,
+      profile: {
+        ...stored.profile,
+        price,
+        companyName: profile?.companyName ?? stored.profile.companyName,
+        mktCap: profile?.mktCap ?? stored.profile.mktCap,
+        beta: profile?.beta ?? stored.profile.beta,
+      },
+      snapshot: {
+        ...stored.snapshot,
+        blendedPe,
+        fwdPe,
+        dcfPremiumPct,
+        estAnnualRorPct,
+      },
+      valuation,
+      forecastSeries: this.extendForecast(
+        valuation.series,
+        stored.estimates,
+        valuation.summary.fairValueRatio,
+      ),
+      asOf: new Date().toISOString(),
+      cached: false,
+    };
   }
 
   /** Cached card metrics only. Missing key → omitted (caller treats as unknown). */
