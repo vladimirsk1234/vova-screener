@@ -282,6 +282,16 @@ export type FundamentalsPayload = {
     website: string | null;
     image: string | null;
   };
+  scale?: {
+    version: number;
+    reportedCurrency: string | null;
+    listingCurrency: string | null;
+    fxToListing: number;
+    adrRatio: number;
+    shareScale: 'ordinary' | 'ads' | 'double_adr' | 'unknown';
+    perShareFactor: number;
+    reliable: boolean;
+  } | null;
   snapshot: {
     peTTM: number | null;
     ttmEps: number | null;

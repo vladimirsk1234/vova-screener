@@ -37,6 +37,8 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type ForexCacheEntry = { at: number; rates: Map<number, number> };
+
 @Injectable()
 export class FmpClient {
   private readonly log = new Logger(FmpClient.name);
@@ -44,6 +46,8 @@ export class FmpClient {
   private readonly waiters: Array<() => void> = [];
   /** Keep the shared key under FMP's burst limit — cards + a Fundamentals page share this. */
   private readonly maxConcurrent = 2;
+  private readonly forexCache = new Map<string, ForexCacheEntry>();
+  private readonly forexTtlMs = 24 * 60 * 60 * 1000;
 
   private apiKey(): string {
     const key = process.env.FMP_API_KEY?.trim();
@@ -333,6 +337,94 @@ export class FmpClient {
     }
     return out;
   }
+
+  /**
+   * Year-end "foreign units per 1 USD" (USDCNY ≈ 7). Used to turn filing-currency
+   * amounts into USD (or another listing currency via two legs).
+   */
+  async forexForeignPerUsd(currency: string, years: number[]): Promise<Map<number, number>> {
+    const out = new Map<number, number>();
+    const cur = String(currency || '')
+      .trim()
+      .toUpperCase();
+    if (cur === 'USD') {
+      for (const y of years) out.set(y, 1);
+      return out;
+    }
+    if (!cur || !years.length) return out;
+
+    const cacheKey = cur;
+    const hit = this.forexCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < this.forexTtlMs) {
+      for (const y of years) {
+        const v = hit.rates.get(y);
+        if (v != null) out.set(y, v);
+      }
+      if (out.size === years.length) return out;
+    }
+
+    const pair = forexPairFor(cur);
+    if (pair) {
+      try {
+        const closes = await this.yearEndCloses(pair.symbol, years);
+        const merged = hit?.rates ?? new Map<number, number>();
+        for (const y of years) {
+          const raw = closes.get(y);
+          if (raw == null || !(raw > 0)) continue;
+          const oriented = orientForexClose(raw, pair.fallback);
+          const value = pair.multiplier * oriented;
+          merged.set(y, value);
+          out.set(y, value);
+        }
+        this.forexCache.set(cacheKey, { at: Date.now(), rates: merged });
+      } catch (err) {
+        this.log.warn(
+          `Forex ${pair.symbol} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return out;
+  }
+}
+
+function forexPairFor(currency: string): { symbol: string; fallback: number; multiplier: number } | null {
+  if (currency === 'GBX' || currency === 'GBP') {
+    return { symbol: 'USDGBP', fallback: 0.79, multiplier: currency === 'GBX' ? 100 : 1 };
+  }
+  if (currency === 'ZAC' || currency === 'ZAR') {
+    return { symbol: 'USDZAR', fallback: 18, multiplier: currency === 'ZAC' ? 100 : 1 };
+  }
+  const aliases: Record<string, string> = { RMB: 'CNY', CNH: 'CNY' };
+  const iso = aliases[currency] ?? currency;
+  if (iso === 'USD') return null;
+  const fallback = (
+    {
+      CNY: 7.2,
+      TWD: 32,
+      HKD: 7.8,
+      JPY: 150,
+      KRW: 1350,
+      INR: 84,
+      EUR: 0.92,
+      CAD: 1.37,
+      AUD: 1.55,
+      BRL: 5.5,
+      ARS: 1100,
+      MXN: 18,
+      SGD: 1.34,
+      CHF: 0.88,
+    } as Record<string, number>
+  )[iso];
+  return { symbol: `USD${iso}`, fallback: fallback ?? 1, multiplier: 1 };
+}
+
+/** FMP sometimes stores the inverse pair. Keep the value nearer the known USD cross. */
+function orientForexClose(close: number, fallback: number): number {
+  if (!(close > 0) || !(fallback > 0)) return close;
+  const inv = 1 / close;
+  const dFwd = Math.abs(Math.log(close / fallback));
+  const dInv = Math.abs(Math.log(inv / fallback));
+  return dInv + 0.15 < dFwd ? inv : close;
 }
 
 export type FmpEarningsRow = {

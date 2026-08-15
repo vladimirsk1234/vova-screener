@@ -18,6 +18,7 @@
     "tunnel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/home-server/start-tunnel.ps1 -Quick",
     "parity": "npm run parity -w @vova/engine",
     "typecheck": "npm run typecheck -w @vova/engine && npm run typecheck -w @vova/api && npm run typecheck -w @vova/web",
+    "test:engine": "npm run test -w @vova/engine",
     "smoke:tracker": "npm run smoke:tracker -w @vova/api",
     "smoke:age": "npm run smoke:age -w @vova/api",
     "smoke:legacy": "npm run smoke:legacy -w @vova/api",
