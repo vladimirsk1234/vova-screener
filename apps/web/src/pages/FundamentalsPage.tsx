@@ -1,7 +1,10 @@
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 
 /** Legacy `/fundamentals/:ticker` links land on the unified chart window. */
 export function FundamentalsPage() {
   const { ticker = '' } = useParams();
-  return <Navigate to={`/chart/${encodeURIComponent(ticker)}?view=fundamentals`} replace />;
+  const [search] = useSearchParams();
+  const params = new URLSearchParams(search);
+  params.set('view', 'fundamentals');
+  return <Navigate to={`/chart/${encodeURIComponent(ticker)}?${params.toString()}`} replace />;
 }
