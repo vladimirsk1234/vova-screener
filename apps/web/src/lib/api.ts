@@ -309,6 +309,7 @@ export type FundamentalsPayload = {
     dcfPremiumPct: number | null;
     altmanZScore: number | null;
     piotroskiScore: number | null;
+    nextEarningsDate?: string | null;
   };
   valuation: {
     series: import('@vova/engine').ValuationSeriesPoint[];
