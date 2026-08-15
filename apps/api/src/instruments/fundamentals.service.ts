@@ -16,9 +16,48 @@ import type { FundamentalsFilter } from '../settings/settings.module';
 import { UniverseService } from '../universe/universe.service';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FAIL_TTL_MS = 30 * 60 * 1000;
+const WARM_GAP_MS = 250;
+const WARM_QUEUE_CAP = 300;
 const METRICS: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
 const CARD_BATCH_LIMIT = 150;
 const CARD_CONCURRENCY = 5;
+
+function uniqueTickers(tickers: string[]): string[] {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of tickers) {
+    const t = String(raw || '')
+      .trim()
+      .toUpperCase();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    unique.push(t);
+  }
+  return unique;
+}
+
+function emptyProfile(symbol: string) {
+  return {
+    symbol,
+    companyName: null as string | null,
+    currency: null as string | null,
+    exchange: null as string | null,
+    industry: null as string | null,
+    sector: null as string | null,
+    description: null as string | null,
+    mktCap: null as number | null,
+    price: null as number | null,
+    beta: null as number | null,
+    lastDiv: null as number | null,
+    image: null as string | null,
+    country: null as string | null,
+    website: null as string | null,
+    isEtf: false,
+    isFund: false,
+    isActivelyTrading: true,
+  };
+}
 
 type CacheEntry = { at: number; payload: FundamentalsPayload };
 
@@ -208,6 +247,10 @@ export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
   private readonly cache = new Map<string, CacheEntry>();
   private readonly cardCache = new Map<string, CardCacheEntry>();
+  private readonly failedAt = new Map<string, number>();
+  private readonly warmQueued = new Set<string>();
+  private readonly warmQueue: string[] = [];
+  private warming = false;
 
   constructor(
     private readonly fmp: FmpClient,
@@ -314,6 +357,7 @@ export class FundamentalsService {
             this.cardCache.set(ticker, { at: Date.now(), metrics });
             out[ticker] = metrics;
           } catch (err) {
+            this.failedAt.set(ticker, Date.now());
             this.log.warn(
               `Card metrics failed for ${ticker}: ${err instanceof Error ? err.message : String(err)}`,
             );
@@ -326,31 +370,24 @@ export class FundamentalsService {
   }
 
   /**
-   * Classify tickers by current premium vs fair value. Chunks past the card-batch UI limit
-   * so Results / History filters can cover every distinct name in the match.
+   * Classify from the in-memory card cache only — never call FMP on the Results / History
+   * read path. A previous version fetched every distinct ticker here and rate-limited FMP
+   * (429/503 on /profile), which emptied the filter and broke the Fundamentals page.
    */
-  async valuationSets(tickers: string[]): Promise<ValuationSets> {
+  async valuationSets(
+    tickers: string[],
+    opts: { warm?: boolean } = {},
+  ): Promise<ValuationSets> {
+    const unique = uniqueTickers(tickers);
+    const metrics = this.peekCardMetrics(unique);
+    if (opts.warm !== false) this.enqueueWarm(unique.filter((t) => !metrics[t]));
     const undervalued: string[] = [];
     const overvalued: string[] = [];
-    const unique: string[] = [];
-    const seen = new Set<string>();
-    for (const raw of tickers) {
-      const t = String(raw || '')
-        .trim()
-        .toUpperCase();
-      if (!t || seen.has(t)) continue;
-      seen.add(t);
-      unique.push(t);
-    }
-    for (let i = 0; i < unique.length; i += CARD_BATCH_LIMIT) {
-      const chunk = unique.slice(i, i + CARD_BATCH_LIMIT);
-      const metrics = await this.getCardMetrics(chunk);
-      for (const ticker of chunk) {
-        const premium = metrics[ticker]?.premiumPct;
-        if (premium == null || !Number.isFinite(premium) || premium === 0) continue;
-        if (premium < 0) undervalued.push(ticker);
-        else overvalued.push(ticker);
-      }
+    for (const ticker of unique) {
+      const premium = metrics[ticker]?.premiumPct;
+      if (premium == null || !Number.isFinite(premium) || premium === 0) continue;
+      if (premium < 0) undervalued.push(ticker);
+      else overvalued.push(ticker);
     }
     return { undervalued, overvalued };
   }
@@ -359,10 +396,63 @@ export class FundamentalsService {
   async tickersForFilter(
     filter: FundamentalsFilter,
     tickers: string[],
+    opts: { warm?: boolean } = {},
   ): Promise<string[] | null> {
     if (filter !== 'undervalued' && filter !== 'overvalued') return null;
-    const sets = await this.valuationSets(tickers);
+    const sets = await this.valuationSets(tickers, opts);
     return filter === 'undervalued' ? sets.undervalued : sets.overvalued;
+  }
+
+  /** Cached card metrics only. Missing key → omitted (caller treats as unknown). */
+  peekCardMetrics(tickers: string[]): Record<string, CardFundamentals> {
+    const out: Record<string, CardFundamentals> = {};
+    const now = Date.now();
+    for (const ticker of uniqueTickers(tickers)) {
+      const fromFull = this.cardFromFullCache(ticker, now);
+      if (fromFull) {
+        out[ticker] = fromFull;
+        continue;
+      }
+      const cardHit = this.cardCache.get(ticker);
+      if (cardHit && now - cardHit.at < CACHE_TTL_MS) out[ticker] = cardHit.metrics;
+    }
+    return out;
+  }
+
+  /** One-at-a-time FMP fill so a filter click cannot stampede /profile. */
+  private enqueueWarm(tickers: string[]) {
+    const now = Date.now();
+    for (const ticker of tickers) {
+      if (this.warmQueue.length >= WARM_QUEUE_CAP) break;
+      const failed = this.failedAt.get(ticker);
+      if (failed && now - failed < FAIL_TTL_MS) continue;
+      if (this.warmQueued.has(ticker)) continue;
+      this.warmQueued.add(ticker);
+      this.warmQueue.push(ticker);
+    }
+    void this.drainWarm();
+  }
+
+  private async drainWarm() {
+    if (this.warming) return;
+    this.warming = true;
+    try {
+      while (this.warmQueue.length) {
+        const ticker = this.warmQueue.shift();
+        if (!ticker) break;
+        this.warmQueued.delete(ticker);
+        try {
+          const got = await this.getCardMetrics([ticker]);
+          if (!got[ticker]) this.failedAt.set(ticker, Date.now());
+        } catch {
+          this.failedAt.set(ticker, Date.now());
+        }
+        await new Promise((resolve) => setTimeout(resolve, WARM_GAP_MS));
+      }
+    } finally {
+      this.warming = false;
+      if (this.warmQueue.length) void this.drainWarm();
+    }
   }
 
   private cardFromFullCache(ticker: string, now: number): CardFundamentals | null {
@@ -385,8 +475,8 @@ export class FundamentalsService {
   private async fetchCardSlim(yahooTicker: string): Promise<CardFundamentals> {
     const fmpSymbol = yahooToFmpSymbol(yahooTicker);
     const [profile, income, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
-      this.fmp.profile(fmpSymbol),
-      this.fmp.incomeAnnual(fmpSymbol),
+      this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
+      this.fmp.incomeAnnual(fmpSymbol).catch(() => []),
       this.fmp.keyMetricsTtm(fmpSymbol),
       this.fmp.ratiosTtm(fmpSymbol),
       this.fmp.analystEstimates(fmpSymbol),
@@ -521,8 +611,8 @@ export class FundamentalsService {
       tickerBarsRes,
       spyBarsRes,
     ] = await Promise.all([
-      this.fmp.profile(fmpSymbol),
-      this.fmp.incomeAnnual(fmpSymbol),
+      this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
+      this.fmp.incomeAnnual(fmpSymbol).catch(() => []),
       this.fmp.cashFlowAnnual(fmpSymbol),
       this.fmp.keyMetricsAnnual(fmpSymbol),
       this.fmp.ratiosAnnual(fmpSymbol),

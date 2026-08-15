@@ -145,6 +145,7 @@ export class ResultsService {
         : await this.fundamentals.tickersForFilter(
             fundamentalsFilter,
             await this.tracked.distinct('yahooTicker'),
+            { warm: false },
           );
     const metas = await Promise.all(
       UNIVERSES.flatMap((universe) =>
