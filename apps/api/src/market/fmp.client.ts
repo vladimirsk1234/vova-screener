@@ -199,6 +199,20 @@ export class FmpClient {
     }
   }
 
+  /**
+   * Unlevered Custom DCF. Query overrides are optional — omit them and FMP fills
+   * historical averages. Not the simple `/discounted-cash-flow` single number.
+   */
+  async customDcf(symbol: string, assumptions: CustomDcfAssumptions = {}): Promise<CustomDcfPayload> {
+    const params: Record<string, string | number> = { symbol };
+    const clean = sanitizeCustomDcfAssumptions(assumptions);
+    for (const [k, v] of Object.entries(clean)) {
+      if (v != null && Number.isFinite(v)) params[k] = v;
+    }
+    const raw = await this.get('/custom-discounted-cash-flow', params);
+    return mapCustomDcf(symbol, symbol, raw, clean);
+  }
+
   async financialScores(symbol: string) {
     try {
       const rows = asArr(await this.get('/financial-scores', { symbol }));
@@ -303,6 +317,274 @@ export class FmpClient {
     }
     return out;
   }
+}
+
+export const CUSTOM_DCF_ASSUMPTION_KEYS = [
+  'revenueGrowthPct',
+  'ebitdaPct',
+  'operatingCashFlowPct',
+  'capitalExpenditurePct',
+  'longTermGrowthRate',
+  'taxRate',
+  'riskFreeRate',
+  'marketRiskPremium',
+  'costOfEquity',
+  'costOfDebt',
+] as const;
+
+export type CustomDcfAssumptionKey = (typeof CUSTOM_DCF_ASSUMPTION_KEYS)[number];
+export type CustomDcfAssumptions = Partial<Record<CustomDcfAssumptionKey, number>>;
+
+export type CustomDcfYear = {
+  year: number;
+  revenue: number | null;
+  ebitda: number | null;
+  ebit: number | null;
+  depreciation: number | null;
+  capitalExpenditure: number | null;
+  ufcf: number | null;
+  pvUfcf: number | null;
+};
+
+export type CustomDcfPayload = {
+  yahooTicker: string;
+  fmpSymbol: string;
+  model: 'unlevered';
+  price: number | null;
+  equityValuePerShare: number | null;
+  premiumPct: number | null;
+  enterpriseValue: number | null;
+  equityValue: number | null;
+  netDebt: number | null;
+  terminalValue: number | null;
+  presentTerminalValue: number | null;
+  sumPvUfcf: number | null;
+  dilutedShares: number | null;
+  wacc: number | null;
+  beta: number | null;
+  costOfEquity: number | null;
+  costOfDebt: number | null;
+  afterTaxCostOfDebt: number | null;
+  taxRate: number | null;
+  riskFreeRate: number | null;
+  marketRiskPremium: number | null;
+  debtWeighting: number | null;
+  equityWeighting: number | null;
+  longTermGrowthRate: number | null;
+  revenueGrowthPct: number | null;
+  ebitdaPct: number | null;
+  capitalExpenditurePct: number | null;
+  operatingCashFlowPct: number | null;
+  years: CustomDcfYear[];
+  /** True when WACC − g is under 1pp — Gordon growth is unstable. */
+  fragile: boolean;
+  /** presentTerminalValue / enterpriseValue × 100. */
+  terminalSharePct: number | null;
+  asOf: string;
+  cached: boolean;
+};
+
+/** FMP wants 0.08 for 8%. Accept 8 or 0.08 from query/UI. */
+export function toFmpDecimal(n: number): number {
+  return Math.abs(n) > 1.5 ? n / 100 : n;
+}
+
+export function sanitizeCustomDcfAssumptions(raw: Record<string, unknown>): CustomDcfAssumptions {
+  const out: CustomDcfAssumptions = {};
+  for (const key of CUSTOM_DCF_ASSUMPTION_KEYS) {
+    const n = num(raw[key]);
+    if (n == null) continue;
+    out[key] = toFmpDecimal(n);
+  }
+  return out;
+}
+
+export function customDcfCacheKey(symbol: string, assumptions: CustomDcfAssumptions): string {
+  const parts = CUSTOM_DCF_ASSUMPTION_KEYS.map((k) => {
+    const v = assumptions[k];
+    return v == null || !Number.isFinite(v) ? '' : `${k}=${v}`;
+  });
+  return `${symbol.toUpperCase()}|${parts.join('&')}`;
+}
+
+export function emptyCustomDcf(yahooTicker: string, fmpSymbol: string): CustomDcfPayload {
+  return {
+    yahooTicker,
+    fmpSymbol,
+    model: 'unlevered',
+    price: null,
+    equityValuePerShare: null,
+    premiumPct: null,
+    enterpriseValue: null,
+    equityValue: null,
+    netDebt: null,
+    terminalValue: null,
+    presentTerminalValue: null,
+    sumPvUfcf: null,
+    dilutedShares: null,
+    wacc: null,
+    beta: null,
+    costOfEquity: null,
+    costOfDebt: null,
+    afterTaxCostOfDebt: null,
+    taxRate: null,
+    riskFreeRate: null,
+    marketRiskPremium: null,
+    debtWeighting: null,
+    equityWeighting: null,
+    longTermGrowthRate: null,
+    revenueGrowthPct: null,
+    ebitdaPct: null,
+    capitalExpenditurePct: null,
+    operatingCashFlowPct: null,
+    years: [],
+    fragile: false,
+    terminalSharePct: null,
+    asOf: new Date().toISOString(),
+    cached: false,
+  };
+}
+
+function asRows(v: unknown): Json[] {
+  if (Array.isArray(v)) return v as Json[];
+  if (v && typeof v === 'object') {
+    const obj = v as Json;
+    if (Array.isArray(obj.data)) return obj.data as Json[];
+    if (obj.year != null || obj.symbol != null || obj.equityValuePerShare != null || obj.dcf != null) {
+      return [obj];
+    }
+  }
+  return [];
+}
+
+function pickNum(r: Json, ...keys: string[]): number | null {
+  for (const k of keys) {
+    const n = num(r[k]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** Rates in the FMP payload mix 0.08 and 8. Store as decimals. */
+function asDecimal(n: number | null): number | null {
+  if (n == null) return null;
+  return toFmpDecimal(n);
+}
+
+function mapCustomDcf(
+  yahooTicker: string,
+  fmpSymbol: string,
+  raw: unknown,
+  requested: CustomDcfAssumptions,
+): CustomDcfPayload {
+  const rows = asRows(raw)
+    .slice()
+    .sort((a, b) => (num(a.year) ?? 0) - (num(b.year) ?? 0));
+  const empty = emptyCustomDcf(yahooTicker, fmpSymbol);
+  if (!rows.length) return empty;
+
+  const last = rows[rows.length - 1] ?? {};
+  const first = rows[0] ?? {};
+  const wacc = asDecimal(pickNum(last, 'wacc', 'WACC'));
+  const years: CustomDcfYear[] = rows.map((r, i) => {
+    const year = num(r.year) ?? i + 1;
+    const ufcf =
+      pickNum(r, 'ufcf', 'unleveredFreeCashFlow', 'freeCashFlow', 'fcf') ?? null;
+    const pvGiven = pickNum(r, 'pvUfcf', 'presentValueUfcf', 'pvFreeCashFlow');
+    const pvUfcf =
+      pvGiven ??
+      (ufcf != null && wacc != null && wacc > -0.99
+        ? ufcf / Math.pow(1 + wacc, i + 1)
+        : null);
+    return {
+      year,
+      revenue: pickNum(r, 'revenue'),
+      ebitda: pickNum(r, 'ebitda'),
+      ebit: pickNum(r, 'ebit'),
+      depreciation: pickNum(r, 'depreciation'),
+      capitalExpenditure: pickNum(r, 'capitalExpenditure', 'capex'),
+      ufcf,
+      pvUfcf,
+    };
+  });
+
+  const price = pickNum(last, 'price', 'Stock Price') ?? pickNum(first, 'price', 'Stock Price');
+  const equityValuePerShare =
+    pickNum(last, 'equityValuePerShare', 'dcf', 'equityValuePerShareToday') ??
+    pickNum(first, 'equityValuePerShare', 'dcf');
+  const enterpriseValue = pickNum(last, 'enterpriseValue') ?? pickNum(first, 'enterpriseValue');
+  const presentTerminalValue =
+    pickNum(last, 'presentTerminalValue', 'pvTerminalValue') ??
+    pickNum(first, 'presentTerminalValue', 'pvTerminalValue');
+  const g = asDecimal(
+    requested.longTermGrowthRate ?? pickNum(last, 'longTermGrowthRate', 'terminalGrowthRate'),
+  );
+  const premiumPct =
+    price != null && equityValuePerShare != null && equityValuePerShare > 0
+      ? ((price - equityValuePerShare) / equityValuePerShare) * 100
+      : null;
+  const terminalSharePct =
+    presentTerminalValue != null && enterpriseValue != null && enterpriseValue !== 0
+      ? (presentTerminalValue / enterpriseValue) * 100
+      : null;
+  const fragile = wacc != null && g != null && wacc - g < 0.01;
+
+  return {
+    ...empty,
+    price,
+    equityValuePerShare,
+    premiumPct,
+    enterpriseValue,
+    equityValue: pickNum(last, 'equityValue') ?? pickNum(first, 'equityValue'),
+    netDebt: pickNum(last, 'netDebt') ?? pickNum(first, 'netDebt'),
+    terminalValue: pickNum(last, 'terminalValue') ?? pickNum(first, 'terminalValue'),
+    presentTerminalValue,
+    sumPvUfcf: pickNum(last, 'sumPvUfcf') ?? pickNum(first, 'sumPvUfcf'),
+    dilutedShares:
+      pickNum(last, 'dilutedSharesOutstanding', 'dilutedShares', 'sharesOutstanding') ??
+      pickNum(first, 'dilutedSharesOutstanding', 'dilutedShares', 'sharesOutstanding'),
+    wacc,
+    beta: pickNum(last, 'beta') ?? pickNum(first, 'beta'),
+    costOfEquity: asDecimal(
+      requested.costOfEquity ?? pickNum(last, 'costOfEquity') ?? pickNum(first, 'costOfEquity'),
+    ),
+    costOfDebt: asDecimal(
+      requested.costOfDebt ?? pickNum(last, 'costOfDebt') ?? pickNum(first, 'costOfDebt'),
+    ),
+    afterTaxCostOfDebt: asDecimal(
+      pickNum(last, 'afterTaxCostOfDebt') ?? pickNum(first, 'afterTaxCostOfDebt'),
+    ),
+    taxRate: asDecimal(requested.taxRate ?? pickNum(last, 'taxRate') ?? pickNum(first, 'taxRate')),
+    riskFreeRate: asDecimal(
+      requested.riskFreeRate ?? pickNum(last, 'riskFreeRate') ?? pickNum(first, 'riskFreeRate'),
+    ),
+    marketRiskPremium: asDecimal(
+      requested.marketRiskPremium ??
+        pickNum(last, 'marketRiskPremium') ??
+        pickNum(first, 'marketRiskPremium'),
+    ),
+    debtWeighting: asDecimal(pickNum(last, 'debtWeighting') ?? pickNum(first, 'debtWeighting')),
+    equityWeighting: asDecimal(pickNum(last, 'equityWeighting') ?? pickNum(first, 'equityWeighting')),
+    longTermGrowthRate: g,
+    revenueGrowthPct: asDecimal(
+      requested.revenueGrowthPct ??
+        pickNum(first, 'revenuePercentage', 'revenueGrowthPct', 'revenueGrowth'),
+    ),
+    ebitdaPct: asDecimal(
+      requested.ebitdaPct ?? pickNum(first, 'ebitdaPercentage', 'ebitdaPct', 'ebitdaMargin'),
+    ),
+    capitalExpenditurePct: asDecimal(
+      requested.capitalExpenditurePct ??
+        pickNum(first, 'capitalExpenditurePercentage', 'capitalExpenditurePct'),
+    ),
+    operatingCashFlowPct: asDecimal(
+      requested.operatingCashFlowPct ??
+        pickNum(first, 'operatingCashFlowPercentage', 'operatingCashFlowPct'),
+    ),
+    years,
+    fragile,
+    terminalSharePct,
+  };
 }
 
 export const fmpNum = num;

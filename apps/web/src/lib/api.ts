@@ -338,6 +338,66 @@ export type FundamentalsPayload = {
   cached: boolean;
 };
 
+export type CustomDcfAssumptions = {
+  revenueGrowthPct?: number;
+  ebitdaPct?: number;
+  operatingCashFlowPct?: number;
+  capitalExpenditurePct?: number;
+  longTermGrowthRate?: number;
+  taxRate?: number;
+  riskFreeRate?: number;
+  marketRiskPremium?: number;
+  costOfEquity?: number;
+  costOfDebt?: number;
+};
+
+export type CustomDcfYear = {
+  year: number;
+  revenue: number | null;
+  ebitda: number | null;
+  ebit: number | null;
+  depreciation: number | null;
+  capitalExpenditure: number | null;
+  ufcf: number | null;
+  pvUfcf: number | null;
+};
+
+export type CustomDcfPayload = {
+  yahooTicker: string;
+  fmpSymbol: string;
+  model: 'unlevered';
+  price: number | null;
+  equityValuePerShare: number | null;
+  premiumPct: number | null;
+  enterpriseValue: number | null;
+  equityValue: number | null;
+  netDebt: number | null;
+  terminalValue: number | null;
+  presentTerminalValue: number | null;
+  sumPvUfcf: number | null;
+  dilutedShares: number | null;
+  wacc: number | null;
+  beta: number | null;
+  costOfEquity: number | null;
+  costOfDebt: number | null;
+  afterTaxCostOfDebt: number | null;
+  taxRate: number | null;
+  riskFreeRate: number | null;
+  marketRiskPremium: number | null;
+  debtWeighting: number | null;
+  equityWeighting: number | null;
+  longTermGrowthRate: number | null;
+  revenueGrowthPct: number | null;
+  ebitdaPct: number | null;
+  capitalExpenditurePct: number | null;
+  operatingCashFlowPct: number | null;
+  years: CustomDcfYear[];
+  fragile: boolean;
+  terminalSharePct: number | null;
+  asOf: string;
+  cached: boolean;
+};
+
 /** Slim valuation fields for Results / History signal cards (FMP). */
 export type CardFundamentals = {
   fairValue: number | null;
@@ -709,6 +769,11 @@ export const api = {
   fundamentals: (ticker: string, metric: import('@vova/engine').ValuationMetric = 'eps') =>
     request<FundamentalsPayload>(
       `/instruments/${encodeURIComponent(ticker)}/fundamentals${query({ metric })}`,
+    ),
+  /** Unlevered Custom DCF. Rates as decimals (0.08 = 8%). Empty object = FMP defaults. */
+  customDcf: (ticker: string, assumptions: CustomDcfAssumptions = {}) =>
+    request<CustomDcfPayload>(
+      `/instruments/${encodeURIComponent(ticker)}/dcf${query(assumptions)}`,
     ),
   /** Batch slim valuation for signal cards. Empty `{}` when FMP key is missing. */
   fundamentalsCards: (tickers: string[]) => {

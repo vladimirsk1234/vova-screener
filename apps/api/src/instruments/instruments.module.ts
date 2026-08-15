@@ -84,6 +84,15 @@ class InstrumentsController {
     const m = allowed.includes(metric as ValuationMetric) ? (metric as ValuationMetric) : 'eps';
     return this.fundamentalsSvc.get(ticker, m);
   }
+
+  /**
+   * Unlevered Custom DCF. Hits FMP on miss of a 1h in-memory cache keyed by ticker+assumptions.
+   * Not stored in Mongo and not part of the scheduled fundamentals refresh.
+   */
+  @Get(':ticker/dcf')
+  customDcf(@Param('ticker') ticker: string, @Query() query: Record<string, string>) {
+    return this.fundamentalsSvc.getCustomDcf(ticker, query);
+  }
 }
 
 @Module({

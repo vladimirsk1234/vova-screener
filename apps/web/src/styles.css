@@ -1297,3 +1297,31 @@ a {
   margin: 4px 0 0;
   line-height: 1.4;
 }
+
+.fund-dcf-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+@media (min-width: 640px) {
+  .fund-dcf-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.fund-dcf-form .field {
+  margin-bottom: 0;
+}
+
+.fund-dcf-form .field span {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fund-dcf-actions {
+  display: flex;
+  gap: 8px;
+}

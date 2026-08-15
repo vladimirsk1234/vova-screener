@@ -1,5 +1,5 @@
 /** Assemble Fast Graphs–style fundamentals payload from FMP (prices for Performance via Yahoo). */
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import {
   annualizedPriceReturnPct,
   buildValuationSeries,
@@ -14,11 +14,21 @@ import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import { INSTRUMENT_FUNDAMENTALS } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
-import { FmpClient, fmpNum, fmpStr, yahooToFmpSymbol } from '../market/fmp.client';
+import {
+  FmpClient,
+  customDcfCacheKey,
+  emptyCustomDcf,
+  fmpNum,
+  fmpStr,
+  sanitizeCustomDcfAssumptions,
+  yahooToFmpSymbol,
+  type CustomDcfPayload,
+} from '../market/fmp.client';
 import type { FundamentalsFilter } from '../settings/settings.module';
 import { UniverseService } from '../universe/universe.service';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const DCF_TTL_MS = 60 * 60 * 1000;
 const FAIL_TTL_MS = 30 * 60 * 1000;
 const WARM_GAP_MS = 250;
 const WARM_QUEUE_CAP = 300;
@@ -63,6 +73,7 @@ function emptyProfile(symbol: string) {
 }
 
 type CacheEntry = { at: number; payload: FundamentalsPayload };
+type DcfCacheEntry = { at: number; payload: CustomDcfPayload };
 
 /** Slim valuation fields for Results / History signal cards. */
 export type CardFundamentals = {
@@ -249,6 +260,7 @@ function ttmEpsFrom(
 export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly dcfCache = new Map<string, DcfCacheEntry>();
   private readonly cardCache = new Map<string, CardCacheEntry>();
   private readonly failedAt = new Map<string, number>();
   private readonly warmQueued = new Set<string>();
@@ -281,6 +293,45 @@ export class FundamentalsService {
     const payload = await this.fetchFresh(ticker, metric);
     await this.persist(ticker, payload, 'full');
     return payload;
+  }
+
+  /**
+   * Unlevered Custom DCF from FMP. In-memory only — never written to the Lynch Mongo snapshot
+   * and never called from the scheduled fundamentals refresh.
+   */
+  async getCustomDcf(
+    yahooTicker: string,
+    rawAssumptions: Record<string, unknown> = {},
+  ): Promise<CustomDcfPayload> {
+    const ticker = yahooTicker.toUpperCase();
+    const fmpSymbol = yahooToFmpSymbol(ticker);
+    const assumptions = sanitizeCustomDcfAssumptions(rawAssumptions);
+    const cacheKey = customDcfCacheKey(fmpSymbol, assumptions);
+    const hit = this.dcfCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < DCF_TTL_MS) {
+      return { ...hit.payload, yahooTicker: ticker, cached: true };
+    }
+
+    if (!this.fmp.configured()) {
+      throw new ServiceUnavailableException(
+        'FMP_API_KEY is not set. Add your Financial Modeling Prep key to use fundamentals analysis.',
+      );
+    }
+
+    try {
+      const payload = await this.fmp.customDcf(fmpSymbol, assumptions);
+      const next: CustomDcfPayload = { ...payload, yahooTicker: ticker, fmpSymbol, cached: false };
+      this.dcfCache.set(cacheKey, { at: Date.now(), payload: next });
+      return next;
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException && String(err.message).includes('FMP_API_KEY')) {
+        throw err;
+      }
+      this.log.warn(
+        `Custom DCF failed for ${ticker}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return emptyCustomDcf(ticker, fmpSymbol);
+    }
   }
 
   async epsAsOf(

@@ -93,6 +93,8 @@ Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `di
 | GET | `/instruments/:ticker/status` | Multi-TF watermark from cached bars |
 | GET | `/instruments/fundamentals-cards?tickers=` | Slim valuation for Results / History cards. Reads `instrumentFundamentals` in Mongo; FMP only for names that have never been stored |
 | GET | `/instruments/:ticker/fundamentals?metric=` | Fast Graphs–style payload. Reads Mongo; FMP only on a first miss. `metric` = `eps` (default) / `revenue` / `fcf` / `ownerEarnings` (recomputed from stored `annual`) |
+| GET | `/instruments/:ticker/dcf?revenueGrowthPct=&ebitdaPct=&capitalExpenditurePct=&longTermGrowthRate=&riskFreeRate=&marketRiskPremium=&taxRate=&costOfEquity=&costOfDebt=&operatingCashFlowPct=` | Unlevered Custom DCF from FMP (`/custom-discounted-cash-flow`). Optional rates as decimals (`0.08` = 8%; `8` is also accepted). Omit them for FMP defaults. In-memory cache 1h keyed by ticker+assumptions — not Mongo, not the scheduled refresh. Lynch fair value is unchanged |
+
 | GET | `/universe/summary` | Counts per universe |
 | POST | `/universe/import` | Re-import root ticker text files into `instruments` |
 
