@@ -9,7 +9,7 @@ export type ValuationMetric = 'eps' | 'revenue' | 'fcf' | 'ownerEarnings';
 export type FairValueRule = 'pe15' | 'lynch_peg' | 'none';
 
 /** Chart / Normal P/E window. `null` = MAX (all complete years). */
-export type ValuationWindowYears = 5 | 10 | null;
+export type ValuationWindowYears = 1 | 5 | 10 | null;
 
 /** Below this 5y CAGR, fair value uses a 15× multiple instead of PEG=1. */
 export const GROWTH_PE_FLOOR = 15;
@@ -85,7 +85,7 @@ export type ValuationSummary = {
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
   years: number;
-  /** 5, 10, or null for MAX. */
+  /** 1, 5, 10, or null for MAX. */
   windowYears: ValuationWindowYears;
 };
 
@@ -181,9 +181,9 @@ export function cagrPct(first: number, last: number, years: number): number | nu
 }
 
 /**
- * 5-year (or `lookbackYears`) CAGR using the last positive point and the
- * positive point at or before `last.year - lookbackYears`. Years with metric ≤ 0
- * are skipped. Needs at least a 2-year span.
+ * Window-span CAGR using the last positive point and the positive point at or
+ * before `last.year - lookbackYears`. Years with metric ≤ 0 are skipped.
+ * A 1-year window is a simple YoY; longer windows need at least that span.
  */
 export function trailingMetricCagr(
   points: AnnualFundamentalPoint[],
@@ -204,11 +204,16 @@ export function trailingMetricCagr(
     if (p.year <= targetYear) first = p;
   }
   const span = last.year - first.year;
-  if (span < 2) return null;
+  if (span < 1) return null;
   const a = pickMetric(first, metric);
   const b = pickMetric(last, metric);
   if (!finite(a) || !finite(b)) return null;
   return cagrPct(a, b, span);
+}
+
+/** Lookback for trailing CAGR: 1 / 5 / 10, or a long span for MAX. */
+export function windowLookbackYears(windowYears: ValuationWindowYears): number {
+  return windowYears ?? 1000;
 }
 
 /**
@@ -315,7 +320,8 @@ export function buildValuationSeries(
   const forward = opts.forward ?? [];
   const forwardGrowth = forwardMetricCagr(sorted, forward, metric);
   const growthSource: 'trailing' | 'forward' = forwardGrowth != null ? 'forward' : 'trailing';
-  const growthRatePct = forwardGrowth ?? trailingMetricCagr(sorted, metric, 5);
+  const growthRatePct =
+    forwardGrowth ?? trailingMetricCagr(sorted, metric, windowLookbackYears(windowYears));
   const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct);
   const earningsScale = fairValueRatio ?? multiple;
 

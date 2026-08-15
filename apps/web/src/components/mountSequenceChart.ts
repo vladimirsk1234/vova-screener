@@ -1,4 +1,5 @@
 import {
+  AreaSeries,
   CandlestickSeries,
   LineSeries,
   LineType,
@@ -9,6 +10,7 @@ import {
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
+import type { ValuationWindowYears } from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
 
 type LinePoint = { time: Time; value: number; color?: string };
@@ -134,12 +136,10 @@ export type ChartTrade = {
 
 export type ChartMountMode = 'ta' | 'fundamentals';
 
-function addValuationLines(
-  chart: IChartApi,
-  lines: ISeriesApi<'Line'>[],
-  valuationSeries: ValuationSeriesPoint[],
-) {
-  if (!valuationSeries.length) return;
+function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
+  fairPts: LinePoint[];
+  normalPts: LinePoint[];
+} {
   const fairPts: LinePoint[] = [];
   const normalPts: LinePoint[] = [];
   for (const p of valuationSeries) {
@@ -147,7 +147,7 @@ function addValuationLines(
     if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
       fairPts.push({ time, value: p.fairValue });
     }
-    // Forward estimates stay on the fair-value stepline only — no Normal P/E.
+    // Forward estimates stay on the fair-value line only — no Normal P/E.
     if (
       !p.estimated &&
       p.normalValue != null &&
@@ -157,12 +157,37 @@ function addValuationLines(
       normalPts.push({ time, value: p.normalValue });
     }
   }
+  return { fairPts, normalPts };
+}
+
+/** Green fill under fair value — added before candles so price stays on top. */
+function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
+  if (!fairPts.length) return;
+  const fill = chart.addSeries(AreaSeries, {
+    lineColor: 'rgba(76, 175, 80, 0)',
+    topColor: 'rgba(76, 175, 80, 0.38)',
+    bottomColor: 'rgba(46, 125, 50, 0.06)',
+    lineWidth: 1,
+    lineType: LineType.Simple,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+  fill.setData(fairPts);
+}
+
+function addValuationLines(
+  chart: IChartApi,
+  lines: ISeriesApi<'Line'>[],
+  fairPts: LinePoint[],
+  normalPts: LinePoint[],
+) {
   if (fairPts.length) {
     const fair = chart.addSeries(LineSeries, {
       color: '#ff9800',
       lineWidth: 2,
       lineStyle: 0,
-      lineType: LineType.WithSteps,
+      lineType: LineType.Simple,
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
@@ -175,7 +200,7 @@ function addValuationLines(
       color: '#42a5f5',
       lineWidth: 2,
       lineStyle: 0,
-      lineType: LineType.WithSteps,
+      lineType: LineType.Simple,
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
@@ -183,6 +208,28 @@ function addValuationLines(
     lines.push(normal);
     normal.setData(normalPts);
   }
+}
+
+function applyValuationVisibleRange(
+  chart: IChartApi,
+  bars: ChartPayload['bars'],
+  valuationSeries: ValuationSeriesPoint[],
+  windowYears: ValuationWindowYears | undefined,
+) {
+  if (windowYears == null || !bars.length) {
+    chart.timeScale().fitContent();
+    return;
+  }
+  const lastBar = bars[bars.length - 1]!;
+  const lastMs = parseBarTimeMs(lastBar.date);
+  const fromMs = lastMs - windowYears * 365.25 * DAY_MS;
+  const lastVal = valuationSeries[valuationSeries.length - 1];
+  const lastValMs = lastVal ? parseBarTimeMs(lastVal.date.slice(0, 10)) : lastMs;
+  const toMs = Math.max(lastMs, lastValMs) + barStepMs(bars) * 2;
+  chart.timeScale().setVisibleRange({
+    from: formatBarTime(Math.max(fromMs, parseBarTimeMs(bars[0]!.date))) as Time,
+    to: formatBarTime(toMs) as Time,
+  });
 }
 
 export function mountSequenceChart(
@@ -193,6 +240,7 @@ export function mountSequenceChart(
   trade: ChartTrade | null = null,
   valuationSeries: ValuationSeriesPoint[] = [],
   mode: ChartMountMode = 'ta',
+  windowYears?: ValuationWindowYears,
 ): { destroy: () => void; fitContent: () => void; chart: IChartApi } {
   const chart = createChart(container, {
     autoSize: true,
@@ -211,6 +259,11 @@ export function mountSequenceChart(
     handleScroll: true,
     handleScale: true,
   });
+
+  const { fairPts, normalPts } = valuationLinePoints(valuationSeries);
+  if (mode === 'fundamentals') {
+    addFairValueFill(chart, fairPts);
+  }
 
   const candle = chart.addSeries(CandlestickSeries, {
     upColor: settings.candle_up,
@@ -234,8 +287,8 @@ export function mountSequenceChart(
   const lines: ISeriesApi<'Line'>[] = [];
 
   if (mode === 'fundamentals') {
-    addValuationLines(chart, lines, valuationSeries);
-    chart.timeScale().fitContent();
+    addValuationLines(chart, lines, fairPts, normalPts);
+    applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears);
     return {
       chart,
       fitContent: () => chart.timeScale().fitContent(),

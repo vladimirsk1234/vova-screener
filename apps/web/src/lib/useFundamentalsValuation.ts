@@ -64,7 +64,25 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
   const chartSeries = useMemo(() => {
     if (!fundQ.data || !valuation) return [];
     const lastYear = valuation.series[valuation.series.length - 1]?.year ?? 0;
-    const extra = fundQ.data.forecastSeries.filter((p) => p.estimated && p.year > lastYear);
+    const ratio = valuation.summary.fairValueRatio;
+    const extra = fundQ.data.estimates
+      .filter((e) => e.year > lastYear)
+      .map((e) => {
+        const eps = e.eps;
+        const positive = eps != null && Number.isFinite(eps) && eps > 0;
+        const fv = positive && ratio != null ? eps * ratio : null;
+        return {
+          date: e.date,
+          year: e.year,
+          price: null,
+          metric: eps,
+          earningsPower: fv,
+          fairValue: fv,
+          normalValue: null,
+          pe: null,
+          estimated: true as const,
+        };
+      });
     return [...valuation.series, ...extra];
   }, [fundQ.data, valuation]);
 

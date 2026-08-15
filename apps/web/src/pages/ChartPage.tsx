@@ -204,6 +204,7 @@ export function ChartPage() {
       visibleTrade,
       valuationSeries,
       view === 'fundamentals' ? 'fundamentals' : 'ta',
+      view === 'fundamentals' ? fund.windowYears : undefined,
     );
     destroyRef.current = mounted.destroy;
 
@@ -238,7 +239,7 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [chart.data, visibleSettings, visibleDrawings, visibleTrade, valuationSeries, view]);
+  }, [chart.data, visibleSettings, visibleDrawings, visibleTrade, valuationSeries, view, fund.windowYears]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {

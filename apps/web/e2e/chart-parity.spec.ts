@@ -45,6 +45,7 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '1Y', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
     await expect(page.getByText('Fair value', { exact: true })).toBeVisible();
     await expect(page.getByText('Normal P/E').first()).toBeVisible();
@@ -55,6 +56,8 @@ test.describe('chart parity UI', () => {
     await expect(stage).toBeVisible();
     const box = await stage.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThan(280);
+    await expect(page.locator('.chart-page--fundamentals')).toHaveCSS('overflow-y', 'auto');
+    await expect(page.locator('.chart-fund-metrics')).toHaveCSS('max-height', 'none');
 
     await page.getByRole('tab', { name: 'TA', exact: true }).click();
     await expect(page).toHaveURL(/\/chart\/AAPL$/);
