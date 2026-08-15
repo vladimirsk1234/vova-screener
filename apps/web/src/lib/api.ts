@@ -341,6 +341,8 @@ export type FundamentalsPayload = {
 /** Slim valuation fields for Results / History signal cards (FMP). */
 export type CardFundamentals = {
   fairValue: number | null;
+  /** (price − fairValue) / fairValue × 100. Same number the Settings valuation filter uses. */
+  premiumPct: number | null;
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
@@ -367,7 +369,18 @@ export type DelistedSummary = {
 export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
 export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
 
-export type AppSettings = { maxRiskUsd: number; minRr: number };
+export type FundamentalsFilter = 'all' | 'undervalued' | 'overvalued';
+export const FUNDAMENTALS_FILTERS = [
+  'all',
+  'undervalued',
+  'overvalued',
+] as const satisfies readonly FundamentalsFilter[];
+
+export type AppSettings = {
+  maxRiskUsd: number;
+  minRr: number;
+  fundamentalsFilter: FundamentalsFilter;
+};
 
 /** What `POST /scans/run-now` answers: the pass is queued, or one was already going. */
 export type ScanNowResult = { started: boolean; timeframes: Timeframe[]; reason?: string };

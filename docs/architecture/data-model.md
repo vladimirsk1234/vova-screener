@@ -200,7 +200,7 @@ Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`
 
 ### `presets`
 `{ key, data }` for chart params (successor to Streamlit `session_state`) and the `app` key
-holding `{ maxRiskUsd, minRr }` behind `GET/PUT /api/settings`.
+holding `{ maxRiskUsd, minRr, fundamentalsFilter }` behind `GET/PUT /api/settings`.
 
 ## Deferred
 

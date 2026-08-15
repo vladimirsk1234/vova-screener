@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { signalAge, type Timeframe } from '@vova/engine';
 import { SCAN_RUN, TRACKED_SIGNAL } from '../db/schemas';
+import { FundamentalsService } from '../instruments/fundamentals.service';
 import { BarsService } from '../market/bars.service';
 import { barPeriodKey, periodKey as currentPeriodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
@@ -15,6 +16,7 @@ import {
   TIMEFRAMES,
   UNIVERSES,
   toResultRow,
+  withYahooTickers,
   type Bucket,
   type Interest,
   type ResultRow,
@@ -55,6 +57,7 @@ export class ResultsService {
     @InjectModel(SCAN_RUN) private readonly runs: Model<any>,
     private readonly settings: SettingsService,
     private readonly bars: BarsService,
+    private readonly fundamentals: FundamentalsService,
   ) {}
 
   /**
@@ -108,18 +111,26 @@ export class ResultsService {
 
     const scan = await this.scanMeta(universe, tf);
     if (bucket !== 'closed') await this.revalidateLiveAges(universe, tf);
-    const { minRr } = await this.settings.get();
+    const { minRr, fundamentalsFilter } = await this.settings.get();
     const filter = bucketFilter(universe, tf, bucket, scan, minRr);
+    const matching =
+      fundamentalsFilter === 'all'
+        ? null
+        : await this.fundamentals.tickersForFilter(
+            fundamentalsFilter,
+            await this.tracked.distinct('yahooTicker', filter),
+          );
+    const filtered = withYahooTickers(filter, matching);
 
     const [rows, total] = await Promise.all([
       this.tracked
-        .find(filter)
+        .find(filtered)
         .sort(sortSpec(bucket, sort, dir))
         .skip(offset)
         .limit(limit)
         .lean<any[]>()
         .exec(),
-      this.tracked.countDocuments(filter).exec(),
+      this.tracked.countDocuments(filtered).exec(),
     ]);
 
     return { universe, tf, bucket, sort, dir, total, rows: rows.map(toResultRow), scan };
@@ -127,7 +138,14 @@ export class ResultsService {
 
   /** Bucket counts for every universe + timeframe, for the tab badges. */
   async summary() {
-    const { minRr } = await this.settings.get();
+    const { minRr, fundamentalsFilter } = await this.settings.get();
+    const matching =
+      fundamentalsFilter === 'all'
+        ? null
+        : await this.fundamentals.tickersForFilter(
+            fundamentalsFilter,
+            await this.tracked.distinct('yahooTicker'),
+          );
     const metas = await Promise.all(
       UNIVERSES.flatMap((universe) =>
         TIMEFRAMES.map(async (tf) => ({ universe, tf, scan: await this.scanMeta(universe, tf) })),
@@ -139,9 +157,17 @@ export class ResultsService {
         // Same live revalidation as list(), so badge counts do not keep dead NEW/VALID cards.
         await this.revalidateLiveAges(universe, tf);
         const [newCount, valid, closed] = await Promise.all([
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'new', scan, minRr)).exec(),
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'valid', scan, minRr)).exec(),
-          this.tracked.countDocuments(bucketFilter(universe, tf, 'closed', scan, minRr)).exec(),
+          this.tracked
+            .countDocuments(withYahooTickers(bucketFilter(universe, tf, 'new', scan, minRr), matching))
+            .exec(),
+          this.tracked
+            .countDocuments(withYahooTickers(bucketFilter(universe, tf, 'valid', scan, minRr), matching))
+            .exec(),
+          this.tracked
+            .countDocuments(
+              withYahooTickers(bucketFilter(universe, tf, 'closed', scan, minRr), matching),
+            )
+            .exec(),
         ]);
         return { universe, tf, scan, counts: { new: newCount, valid, closed } };
       }),

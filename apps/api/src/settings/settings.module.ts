@@ -1,18 +1,27 @@
-/** The app's user-facing settings: risk per signal and the RR floor for lists/stats. */
+/** The app's user-facing settings: risk per signal and the RR / valuation floors for lists/stats. */
 import { Body, Controller, Get, Injectable, Module, Put } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import { PRESET } from '../db/schemas';
 
+export const FUNDAMENTALS_FILTERS = ['all', 'undervalued', 'overvalued'] as const;
+export type FundamentalsFilter = (typeof FUNDAMENTALS_FILTERS)[number];
+
 export type AppSettings = {
   maxRiskUsd: number;
   /** Floor on live RR for NEW/VALID (and History active); CLOSED/History closed use entry RR. 0 = no filter. */
   minRr: number;
+  /** Current fair-value premium: undervalued / overvalued / all. Display filter only. */
+  fundamentalsFilter: FundamentalsFilter;
 };
 
 export type SettingsListener = (next: AppSettings, prev: AppSettings) => Promise<void> | void;
 
-export const DEFAULT_SETTINGS: AppSettings = { maxRiskUsd: 100, minRr: 0 };
+export const DEFAULT_SETTINGS: AppSettings = {
+  maxRiskUsd: 100,
+  minRr: 0,
+  fundamentalsFilter: 'all',
+};
 
 const SETTINGS_KEY = 'app';
 
@@ -23,6 +32,12 @@ function sanitize(patch: Partial<AppSettings>): Partial<AppSettings> {
   if (patch.minRr !== undefined) {
     const minRr = Number(patch.minRr);
     if (Number.isFinite(minRr) && minRr >= 0) out.minRr = Math.round(minRr * 100) / 100;
+  }
+  if (
+    patch.fundamentalsFilter !== undefined &&
+    (FUNDAMENTALS_FILTERS as readonly string[]).includes(patch.fundamentalsFilter)
+  ) {
+    out.fundamentalsFilter = patch.fundamentalsFilter;
   }
   return out;
 }
@@ -43,7 +58,11 @@ export class SettingsService {
 
   async get(): Promise<AppSettings> {
     const doc = await this.presets.findOne({ key: SETTINGS_KEY }).lean<any>().exec();
-    return { ...DEFAULT_SETTINGS, ...(doc?.data ?? {}) };
+    const merged = { ...DEFAULT_SETTINGS, ...(doc?.data ?? {}) };
+    if (!(FUNDAMENTALS_FILTERS as readonly string[]).includes(merged.fundamentalsFilter)) {
+      merged.fundamentalsFilter = DEFAULT_SETTINGS.fundamentalsFilter;
+    }
+    return merged;
   }
 
   async put(patch: Partial<AppSettings>): Promise<AppSettings> {

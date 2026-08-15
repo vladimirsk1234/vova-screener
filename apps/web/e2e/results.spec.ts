@@ -74,13 +74,17 @@ test.describe('results shell', () => {
     await expect(page.getByRole('button', { name: 'START SCAN' })).toBeVisible();
   });
 
-  test('settings sheet holds max risk, min RR, rescan and reset', async ({ page }) => {
+  test('settings sheet holds max risk, min RR, fundamentals, rescan and reset', async ({ page }) => {
     await page.goto('/results/Stocks/Daily/new');
     await page.getByRole('button', { name: 'Settings' }).click();
     const sheet = page.getByRole('dialog', { name: 'Settings' });
     await expect(sheet.getByLabel('Max risk per signal ($)')).toBeVisible();
     await expect(sheet.getByLabel('Min RR')).toBeVisible();
-    for (const label of ['All', 'D', 'W', 'M']) {
+    for (const label of ['Undervalued', 'Overvalued']) {
+      await expect(sheet.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+    await expect(sheet.getByRole('button', { name: 'All', exact: true })).toHaveCount(2);
+    for (const label of ['D', 'W', 'M']) {
       await expect(sheet.getByRole('button', { name: label, exact: true })).toBeVisible();
     }
     await expect(sheet.getByRole('button', { name: /Run scan now|Scanning/ })).toBeVisible();

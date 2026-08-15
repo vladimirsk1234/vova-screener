@@ -16,7 +16,7 @@ reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED |
+| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED. Settings `fundamentalsFilter` (`all` / `undervalued` / `overvalued`) further restricts rows to tickers whose current FMP premium vs fair value matches; names without a fair value only appear in `all` |
 | GET | `/results/summary` | Bucket counts and scan freshness for every universe × timeframe, for the tab badges |
 | GET | `/results/lookup?yahooTicker&tf` | The active tracked signal for a symbol, so a chart opened by URL can show and toggle the mark |
 | GET | `/results/signal/:id` | One tracked signal whatever its state — how a closed trade from History is opened on the chart |
@@ -38,8 +38,8 @@ evaluate is a different thing and keeps showing on its last numbers.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/history?tf=Daily\|Weekly\|Monthly\|All&groupBy=Daily\|Weekly\|Monthly&range=all\|ytd\|1m\|3m\|6m\|1y\|max&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over realized trades; aggregated in Mongo. `range` filters by `exitDate` (`max` ≡ `all`). `sort` = `period`, `pnl`, `winRate`, `trades`, `rr` (avg RR at entry). Also carries `timeframes`: each of Daily / Weekly / Monthly with its own trades, win rate, net P&L, avg R and equity curve under the same `range` |
-| GET | `/history/trades?tf&groupBy&periodKey&range&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket (intersected with `range`). `sort` = `date`, `pnl`, `r`, `rr`, `interest`, `symbol` |
+| GET | `/history?tf=Daily\|Weekly\|Monthly\|All&groupBy=Daily\|Weekly\|Monthly&range=all\|ytd\|1m\|3m\|6m\|1y\|max&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over realized trades; aggregated in Mongo. `range` filters by `exitDate` (`max` ≡ `all`). `sort` = `period`, `pnl`, `winRate`, `trades`, `rr` (avg RR at entry). Also carries `timeframes`: each of Daily / Weekly / Monthly with its own trades, win rate, net P&L, avg R and equity curve under the same `range`. Settings Min RR and `fundamentalsFilter` apply here the same way they do on Results |
+| GET | `/history/trades?tf&groupBy&periodKey&range&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket (intersected with `range`). `sort` = `date`, `pnl`, `r`, `rr`, `interest`, `symbol`. Settings Min RR and `fundamentalsFilter` apply the same way they do on `/history` |
 | POST | `/history/rebuild` | Start a background rebuild: `runCloseLedger` over every cached symbol in Stocks/ETF × Daily/Weekly/Monthly, insert missing closed trades into `trackedSignals`. Idempotent; does not delete. Returns `{ started }` immediately |
 | GET | `/history/rebuild` | Rebuild job status: `idle\|running\|done\|failed`, progress and insert/skip/noBars counts |
 
@@ -49,7 +49,7 @@ Yahoo bar windows bound how far rebuild can go: Daily `2y`, Weekly/Monthly `10y`
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET/PUT | `/settings` | `{ maxRiskUsd, minRr }` — user-facing settings; scan parameters are fixed in code. `minRr` floors Results NEW/VALID (and History active) on live `lastRr`, and CLOSED / History closed on entry `rrAtEntry`; `0` disables the filter |
+| GET/PUT | `/settings` | `{ maxRiskUsd, minRr, fundamentalsFilter }` — user-facing settings; scan parameters are fixed in code. `minRr` floors Results NEW/VALID (and History active) on live `lastRr`, and CLOSED / History closed on entry `rrAtEntry`; `0` disables the filter. `fundamentalsFilter` is `all` (default) / `undervalued` / `overvalued` on current fair-value premium and applies to the same Results lists/counts and History trades/stats; scans still write every signal |
 
 One risk for every signal: `maxRiskUsd` divided by the distance to SL is the position size
 everywhere — background scans, manual scans, the tracked signals and the chart. A `PUT` re-sizes

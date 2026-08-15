@@ -24,6 +24,15 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Restrict a Mongo match to the Settings valuation set, or leave it unchanged when the filter is off. */
+export function withYahooTickers(
+  match: Record<string, unknown>,
+  tickers: string[] | null,
+): Record<string, unknown> {
+  if (!tickers) return match;
+  return { ...match, yahooTicker: { $in: tickers } };
+}
+
 export function finiteOrNull(n: unknown): number | null {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
