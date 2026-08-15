@@ -8,6 +8,7 @@ export const SIGNAL = 'Signal';
 export const REJECTION = 'ScanRejection';
 export const TRACKED_SIGNAL = 'TrackedSignal';
 export const PRESET = 'Preset';
+export const INSTRUMENT_FUNDAMENTALS = 'InstrumentFundamentals';
 
 export const InstrumentSchema = new Schema(
   {
@@ -256,4 +257,24 @@ export const PresetSchema = new Schema(
     data: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true },
+);
+
+/**
+ * FMP fundamentals snapshot. Reads never hit FMP when a document exists.
+ * `fetchedAt` = last full 13-endpoint pull; `updatedAt` = last write (price or full).
+ * No Mongo TTL — stale is better than empty (same idea as barSeries).
+ */
+export const InstrumentFundamentalsSchema = new Schema(
+  {
+    yahooTicker: { type: String, required: true, unique: true, index: true },
+    payload: { type: Schema.Types.Mixed },
+    fairValue: Number,
+    premiumPct: Number,
+    growthRatePct: Number,
+    blendedPe: Number,
+    ltDebtToCapitalTTM: Number,
+    fetchedAt: Date,
+    updatedAt: { type: Date, default: Date.now },
+  },
+  { versionKey: false },
 );

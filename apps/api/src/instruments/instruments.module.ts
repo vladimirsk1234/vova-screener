@@ -1,7 +1,9 @@
 import { Controller, Get, Module, Param, Query } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import type { IndicatorParams, Timeframe, ValuationMetric } from '@vova/engine';
 import { MarketModule } from '../market/market.module';
 import { UniverseModule } from '../universe/universe.module';
+import { FundamentalsRefreshService } from './fundamentals-refresh.service';
 import { FundamentalsService } from './fundamentals.service';
 import { InstrumentsService } from './instruments.service';
 
@@ -75,7 +77,7 @@ class InstrumentsController {
     return this.instruments.status(ticker);
   }
 
-  /** Fast Graphs–style fundamental valuation (FMP-backed). Yahoo OHLC is unchanged. */
+  /** Fast Graphs–style fundamental valuation. Reads Mongo; FMP only on a first miss. */
   @Get(':ticker/fundamentals')
   fundamentals(@Param('ticker') ticker: string, @Query('metric') metric?: string) {
     const allowed: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
@@ -85,9 +87,9 @@ class InstrumentsController {
 }
 
 @Module({
-  imports: [MarketModule, UniverseModule],
+  imports: [MarketModule, UniverseModule, ScheduleModule.forRoot()],
   controllers: [InstrumentsController],
-  providers: [InstrumentsService, FundamentalsService],
+  providers: [InstrumentsService, FundamentalsService, FundamentalsRefreshService],
   exports: [FundamentalsService],
 })
 export class InstrumentsModule {}

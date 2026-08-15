@@ -129,4 +129,24 @@ export class UniverseService implements OnModuleInit {
   async findOne(yahooTicker: string) {
     return this.instruments.findOne({ yahooTicker }).lean<any>().exec();
   }
+
+  /** Active Stocks + ETF yahoo tickers — the daily/weekly fundamentals refresh set. */
+  async listActiveYahooTickers(): Promise<string[]> {
+    const docs = await this.instruments
+      .find({ active: true, universes: { $in: ['stocks', 'etf'] } })
+      .select('yahooTicker')
+      .lean<Array<{ yahooTicker: string }>>()
+      .exec();
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const d of docs) {
+      const t = String(d.yahooTicker || '')
+        .trim()
+        .toUpperCase();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  }
 }

@@ -270,10 +270,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         />
       </div>
       <p className="muted small">
-        Current price vs fair value from fundamentals already loaded for the cards. Applies to
-        Results lists and counts and to History trades and stats. Names without a fair value only
-        appear in All. Scans still track every signal; this only filters what the lists and stats
-        include.
+        Current price vs fair value from stored fundamentals (Mongo, refreshed daily/weekly).
+        Applies to Results lists and counts and to History trades and stats. Names without a fair
+        value only appear in All. Scans still track every signal; this only filters what the lists
+        and stats include.
       </p>
 
       <div className="field">
