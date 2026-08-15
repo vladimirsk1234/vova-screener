@@ -754,10 +754,12 @@ export const api = {
     params?: Partial<ChartSettings>,
     riskUsd?: number,
     asOf?: string | null,
+    fullSeries?: boolean,
   ) => {
     const q = new URLSearchParams({ tf });
     if (riskUsd != null && Number.isFinite(riskUsd)) q.set('riskPerTrade', String(riskUsd));
     if (asOf) q.set('asOf', asOf);
+    if (fullSeries) q.set('fullSeries', '1');
     if (params) {
       const num: Array<[string, number | undefined]> = [
         ['minRr', params.min_rr],
