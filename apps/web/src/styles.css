@@ -786,18 +786,24 @@ a {
   text-align: center;
 }
 
-.chart-page--fundamentals .chart-stage {
-  flex: 1 1 auto;
-  min-height: 52vh;
-}
-
-.chart-fund-metrics {
-  flex: 0 1 auto;
-  max-height: min(28vh, 240px);
-  min-height: 0;
+.chart-page--fundamentals {
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.chart-page--fundamentals .chart-stage {
+  flex: 0 0 auto;
+  height: 46vh;
+  min-height: 280px;
+  max-height: 480px;
+}
+
+.chart-fund-metrics {
+  flex: 0 0 auto;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
   padding: 0 4px calc(8px + var(--safe-bottom));
 }
 

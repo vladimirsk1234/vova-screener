@@ -78,9 +78,17 @@ function fvRuleLabel(rule: string | undefined) {
   return 'N/A';
 }
 
-/** Forward growth spans the window through the last estimate, so "5y" would be wrong. */
-function growthLabel(source: string | undefined) {
-  return source === 'forward' ? 'Growth (fwd)' : 'Growth (5y)';
+/** Forward growth spans the window through the last estimate, so a fixed "5y" would be wrong. */
+function growthLabel(source: string | undefined, windowYears: ValuationWindowYears) {
+  if (source === 'forward') return 'Growth (fwd)';
+  if (windowYears == null) return 'Growth (max)';
+  return `Growth (${windowYears}y)`;
+}
+
+function growthRateLabel(source: string | undefined, windowYears: ValuationWindowYears) {
+  if (source === 'forward') return 'Growth Rate (fwd)';
+  if (windowYears == null) return 'Growth Rate (max)';
+  return `Growth Rate (${windowYears}y)`;
 }
 
 export function FundamentalsPanel({
@@ -166,7 +174,7 @@ export function FundamentalsPanel({
             </div>
             <dl className="fund-hero-stats">
               <div>
-                <dt>{growthLabel(summary?.growthSource)}</dt>
+                <dt>{growthLabel(summary?.growthSource, windowYears)}</dt>
                 <dd>{pct(summary?.growthRatePct)}</dd>
               </div>
               <div>
@@ -195,9 +203,11 @@ export function FundamentalsPanel({
               ) : null}
               <Chips
                 value={windowYears == null ? 'max' : String(windowYears)}
-                options={['5', '10', 'max']}
+                options={['1', '5', '10', 'max']}
                 format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
-                onChange={(id) => setWindowYears(id === 'max' ? null : (Number(id) as 5 | 10))}
+                onChange={(id) =>
+                  setWindowYears(id === 'max' ? null : (Number(id) as 1 | 5 | 10))
+                }
               />
             </>
           ) : null}
@@ -206,9 +216,7 @@ export function FundamentalsPanel({
             {tab === 'summary' && snap ? (
               <aside className="fund-sidebar">
                 <Metric
-                  label={
-                    summary?.growthSource === 'forward' ? 'Growth Rate (fwd)' : 'Growth Rate'
-                  }
+                  label={growthRateLabel(summary?.growthSource, windowYears)}
                   value={pct(summary?.growthRatePct)}
                 />
                 <Metric
