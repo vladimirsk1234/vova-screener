@@ -319,108 +319,117 @@ export function ChartPage() {
         </button>
       </div>
 
-      {view === 'ta' ? (
-        <>
-          <div className="chart-ta-tools">
-            <button
-              type="button"
-              className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
-              disabled={!canMark || marking}
-              onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
-            >
-              {marking ? 'Saving…' : 'Interested'}
-            </button>
-            <button
-              type="button"
-              className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
-              disabled={!canMark || marking}
-              onClick={() =>
-                markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
-              }
-            >
-              Not Interested
-            </button>
-          </div>
+      <div className="chart-ta-tools">
+        <button
+          type="button"
+          className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
+          disabled={!canMark || marking}
+          onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
+        >
+          {marking ? 'Saving…' : 'Interested'}
+        </button>
+        <button
+          type="button"
+          className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
+          disabled={!canMark || marking}
+          onClick={() =>
+            markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
+          }
+        >
+          Not Interested
+        </button>
+      </div>
 
-          {closedTrade ? (
-            <div className="chart-trade-row">
-              <span className="badge">
-                {closedTrade.provisionalClose ? 'CLOSING' : 'SELL TO CLOSE'}
-              </span>
-              <span className="chart-pine-metric">
-                <span>In</span> {closedTrade.openedAsOf ?? '—'} @ {money(closedTrade.entry)}
-              </span>
-              <span className="chart-pine-metric">
-                <span>Out</span> {closedTrade.exitDate ?? '—'} @{' '}
-                {closedTrade.exitPrice != null ? money(closedTrade.exitPrice) : '—'}
-              </span>
-              <span
-                className={`chart-pine-metric ${(closedTrade.pnlUsd ?? 0) >= 0 ? 'up-text' : 'down-text'}`}
-              >
-                <span>P&amp;L</span> {signedMoney(closedTrade.pnlUsd)}
-                {closedTrade.pnlR != null ? ` · ${closedTrade.pnlR.toFixed(2)}R` : ''}
-              </span>
-              <button
-                type="button"
-                className={`btn-sm${snapshot ? ' selected' : ' ghost'}`}
-                title="Bars up to the exit, structure as it was when the trade closed"
-                onClick={() => setSnapshot(!snapshot)}
-              >
-                {snapshot ? 'Snapshot' : 'Live'}
-              </button>
-            </div>
-          ) : null}
-
-          {showMetrics ? (
-            <div className="chart-pine-row">
-              {pine && !closedTrade ? (
-                <>
-                  {/* Same rule and the same number as the Results tabs: the signal is NEW on the bar it
-                      appeared on and VALID on every bar after it. Nothing else — the RR settings below
-                      do not move a signal between the two. */}
-                  {pine.barsSinceValid === 0 ? (
-                    <span className="badge up" title={`New signal on the current ${tf} bar`}>
-                      NEW
-                    </span>
-                  ) : (
-                    <span
-                      className={`badge ${pine.barsSinceValid != null ? 'up' : 'down'}`}
-                      title={pine.validSinceAsOf ? `Signal bar ${pine.validSinceAsOf}` : undefined}
-                    >
-                      {pine.barsSinceValid != null
-                        ? `VALID · ${barsLabel(pine.barsSinceValid)}`
-                        : 'NO SIGNAL'}
-                    </span>
-                  )}
-                  {pine.strong ? <span className="badge">STRONG</span> : null}
-                </>
-              ) : null}
-              <span className="chart-pine-metric">
-                <span>RR</span>{' '}
-                {tradeMetrics.rr != null && Number.isFinite(tradeMetrics.rr)
-                  ? tradeMetrics.rr.toFixed(2)
-                  : 'n/a'}
-              </span>
-              <span className="chart-pine-metric">
-                <span>TP</span>{' '}
-                {tradeMetrics.tp != null ? money(tradeMetrics.tp) : 'n/a'}
-              </span>
-              <span className="chart-pine-metric">
-                <span>SL</span>{' '}
-                {tradeMetrics.sl != null ? money(tradeMetrics.sl) : 'n/a'}
-              </span>
-              <span className="chart-pine-metric">
-                <span>Sh</span> {tradeMetrics.shares}
-              </span>
-              <span className="chart-pine-metric">
-                <span>$</span> {money(tradeMetrics.dollars)}
-              </span>
-            </div>
-          ) : null}
-
-          <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
-        </>
+      {view === 'ta' && closedTrade ? (
+        <div className="chart-trade-row">
+          <span className="badge">
+            {closedTrade.provisionalClose ? 'CLOSING' : 'SELL TO CLOSE'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>In</span> {closedTrade.openedAsOf ?? '—'} @ {money(closedTrade.entry)}
+          </span>
+          <span className="chart-pine-metric">
+            <span>Out</span> {closedTrade.exitDate ?? '—'} @{' '}
+            {closedTrade.exitPrice != null ? money(closedTrade.exitPrice) : '—'}
+          </span>
+          <span
+            className={`chart-pine-metric ${(closedTrade.pnlUsd ?? 0) >= 0 ? 'up-text' : 'down-text'}`}
+          >
+            <span>P&amp;L</span> {signedMoney(closedTrade.pnlUsd)}
+            {closedTrade.pnlR != null ? ` · ${closedTrade.pnlR.toFixed(2)}R` : ''}
+          </span>
+          <button
+            type="button"
+            className={`btn-sm${snapshot ? ' selected' : ' ghost'}`}
+            title="Bars up to the exit, structure as it was when the trade closed"
+            onClick={() => setSnapshot(!snapshot)}
+          >
+            {snapshot ? 'Snapshot' : 'Live'}
+          </button>
+        </div>
       ) : null}
+
+      {view === 'ta' && showMetrics ? (
+        <div className="chart-pine-row">
+          {pine && !closedTrade ? (
+            <>
+              {/* Same rule and the same number as the Results tabs: the signal is NEW on the bar it
+                  appeared on and VALID on every bar after it. Nothing else — the RR settings below
+                  do not move a signal between the two. */}
+              {pine.barsSinceValid === 0 ? (
+                <span className="badge up" title={`New signal on the current ${tf} bar`}>
+                  NEW
+                </span>
+              ) : (
+                <span
+                  className={`badge ${pine.barsSinceValid != null ? 'up' : 'down'}`}
+                  title={pine.validSinceAsOf ? `Signal bar ${pine.validSinceAsOf}` : undefined}
+                >
+                  {pine.barsSinceValid != null
+                    ? `VALID · ${barsLabel(pine.barsSinceValid)}`
+                    : 'NO SIGNAL'}
+                </span>
+              )}
+              {pine.strong ? <span className="badge">STRONG</span> : null}
+            </>
+          ) : null}
+          <span className="chart-pine-metric">
+            <span>RR</span>{' '}
+            {tradeMetrics.rr != null && Number.isFinite(tradeMetrics.rr)
+              ? tradeMetrics.rr.toFixed(2)
+              : 'n/a'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>TP</span>{' '}
+            {tradeMetrics.tp != null ? money(tradeMetrics.tp) : 'n/a'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>SL</span>{' '}
+            {tradeMetrics.sl != null ? money(tradeMetrics.sl) : 'n/a'}
+          </span>
+          <span className="chart-pine-metric">
+            <span>Sh</span> {tradeMetrics.shares}
+          </span>
+          <span className="chart-pine-metric">
+            <span>$</span> {money(tradeMetrics.dollars)}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="chart-period-chips">
+        {view === 'ta' ? (
+          <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
+        ) : (
+          <Chips
+            value={fund.windowYears == null ? 'max' : String(fund.windowYears)}
+            options={['1', '5', '10', 'max']}
+            format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
+            onChange={(id) =>
+              fund.setWindowYears(id === 'max' ? null : (Number(id) as 1 | 5 | 10))
+            }
+          />
+        )}
+      </div>
 
       <div className="chart-stage">
         <div className="chart-host" ref={containerRef} />
@@ -518,7 +527,6 @@ export function ChartPage() {
             metric={fund.metric}
             setMetric={fund.setMetric}
             windowYears={fund.windowYears}
-            setWindowYears={fund.setWindowYears}
             fundQ={fund.fundQ}
             valuation={fund.valuation}
           />

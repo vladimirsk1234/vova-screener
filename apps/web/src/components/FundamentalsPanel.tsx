@@ -96,7 +96,6 @@ export function FundamentalsPanel({
   metric,
   setMetric,
   windowYears,
-  setWindowYears,
   fundQ,
   valuation,
 }: {
@@ -104,7 +103,6 @@ export function FundamentalsPanel({
   metric: ValuationMetric;
   setMetric: (metric: ValuationMetric) => void;
   windowYears: ValuationWindowYears;
-  setWindowYears: (windowYears: ValuationWindowYears) => void;
   fundQ: UseQueryResult<FundamentalsPayload>;
   valuation: { summary: ValuationSummary } | null;
 }) {
@@ -191,25 +189,13 @@ export function FundamentalsPanel({
             </dl>
           </section>
 
-          {tab === 'summary' || tab === 'forecasting' ? (
-            <>
-              {tab === 'summary' ? (
-                <Chips
-                  value={metric}
-                  options={METRICS.map((m) => m.id)}
-                  format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
-                  onChange={setMetric}
-                />
-              ) : null}
-              <Chips
-                value={windowYears == null ? 'max' : String(windowYears)}
-                options={['1', '5', '10', 'max']}
-                format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
-                onChange={(id) =>
-                  setWindowYears(id === 'max' ? null : (Number(id) as 1 | 5 | 10))
-                }
-              />
-            </>
+          {tab === 'summary' ? (
+            <Chips
+              value={metric}
+              options={METRICS.map((m) => m.id)}
+              format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
+              onChange={setMetric}
+            />
           ) : null}
 
           <div className="fund-layout">
