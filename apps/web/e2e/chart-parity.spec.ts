@@ -21,7 +21,8 @@ test.describe('chart parity UI', () => {
     await page.getByRole('button', { name: 'Weekly' }).click();
     // Exact: Lightweight Charts injects its own "Charting by TradingView" attribution link.
     await expect(page.getByRole('link', { name: 'TradingView', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Fundamentals' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'TA', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Fundamentals', exact: true })).toBeVisible();
   });
 
   /** The mark lives on the tracked signal, so it is disabled for symbols nothing is tracking. */
@@ -29,6 +30,30 @@ test.describe('chart parity UI', () => {
     await page.goto('/chart/ZZ-NOT-TRACKED');
     await expect(page.getByRole('button', { name: 'Interested', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Not Interested' })).toBeDisabled();
+  });
+
+  test('TA / Fundamentals toggle keeps the selected timeframe', async ({ page }) => {
+    await page.goto('/chart/AAPL');
+    await page.getByRole('button', { name: 'Weekly' }).click();
+    await expect(page.getByRole('button', { name: 'Weekly' })).toHaveClass(/active/);
+
+    await page.getByRole('tab', { name: 'Fundamentals', exact: true }).click();
+    await expect(page).toHaveURL(/\/chart\/AAPL\?view=fundamentals/);
+    await expect(page.locator('.chart-fund-price-host')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
+    await expect(page.getByText('Valuation', { exact: true })).toBeVisible();
+
+    await page.getByRole('tab', { name: 'TA', exact: true }).click();
+    await expect(page).toHaveURL(/\/chart\/AAPL$/);
+    await expect(page.getByRole('button', { name: 'Weekly' })).toHaveClass(/active/);
+    await expect(page.getByRole('link', { name: 'TradingView', exact: true })).toBeVisible();
+  });
+
+  test('legacy fundamentals URL redirects into the chart window', async ({ page }) => {
+    await page.goto('/fundamentals/AAPL');
+    await expect(page).toHaveURL(/\/chart\/AAPL\?view=fundamentals/);
+    await expect(page.getByRole('tab', { name: 'Fundamentals', exact: true })).toHaveClass(/active/);
+    await expect(page.locator('.chart-fund-price-host')).toBeVisible();
   });
 
   test('default chart host uses Streamlit-grey canvas area', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
+import { FundamentalsPanel } from '../components/FundamentalsPanel';
 import { mountSequenceChart, type ChartTrade } from '../components/mountSequenceChart';
 import { barsLabel, signedMoney } from '../lib/format';
 import {
@@ -22,6 +23,7 @@ import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
 import { lastResultsPath } from '../lib/tabMemory';
 
 type ChartNavState = { row?: ResultRow };
+type ChartView = 'ta' | 'fundamentals';
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,6 +37,18 @@ export function ChartPage() {
   const queryClient = useQueryClient();
   const navState = (location.state as ChartNavState | null) ?? {};
   const tradeId = search.get('trade');
+  const view: ChartView = search.get('view') === 'fundamentals' ? 'fundamentals' : 'ta';
+
+  const setView = (next: ChartView) => {
+    const params = new URLSearchParams(search);
+    if (next === 'fundamentals') params.set('view', 'fundamentals');
+    else params.delete('view');
+    const qs = params.toString();
+    navigate(
+      { pathname: location.pathname, search: qs ? `?${qs}` : '' },
+      { state: location.state },
+    );
+  };
 
   // 'default' is the initial history entry: the chart was opened straight from a URL, so stepping
   // back would leave the app entirely. Fall back to Results instead.
@@ -53,6 +67,8 @@ export function ChartPage() {
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
+  const weeklyHostRef = useRef<HTMLDivElement | null>(null);
+  const weeklyDestroyRef = useRef<(() => void) | null>(null);
 
   const presetQ = useQuery({
     queryKey: ['preset', 'chart'],
@@ -109,10 +125,16 @@ export function ChartPage() {
 
   const asOf = snapshot ? (trade.data?.exitDate ?? null) : null;
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
+  const chartReady = Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data);
   const chart = useQuery({
     queryKey: ['chart', ticker, tf, numeric, maxRiskUsd, asOf],
     queryFn: () => api.chart(ticker, tf, numeric, maxRiskUsd, asOf),
-    enabled: Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data),
+    enabled: chartReady,
+  });
+  const weeklyChart = useQuery({
+    queryKey: ['chart', ticker, 'Weekly', numeric, maxRiskUsd, asOf],
+    queryFn: () => api.chart(ticker, 'Weekly', numeric, maxRiskUsd, asOf),
+    enabled: view === 'fundamentals' && chartReady,
   });
 
   // Live chart self-heals `signalValid` / age on the tracked row; refresh Results so a dead NEW
@@ -163,7 +185,7 @@ export function ChartPage() {
   );
 
   useEffect(() => {
-    if (!containerRef.current || !chart.data) return;
+    if (view !== 'ta' || !containerRef.current || !chart.data) return;
     destroyRef.current?.();
     const mounted = mountSequenceChart(
       containerRef.current,
@@ -205,7 +227,24 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [chart.data, settings, drawings, chartTrade]);
+  }, [view, chart.data, settings, drawings, chartTrade]);
+
+  useEffect(() => {
+    if (view !== 'fundamentals' || !weeklyHostRef.current || !weeklyChart.data) return;
+    weeklyDestroyRef.current?.();
+    const mounted = mountSequenceChart(
+      weeklyHostRef.current,
+      weeklyChart.data,
+      settings,
+      [],
+      chartTrade,
+    );
+    weeklyDestroyRef.current = mounted.destroy;
+    return () => {
+      weeklyDestroyRef.current?.();
+      weeklyDestroyRef.current = null;
+    };
+  }, [view, weeklyChart.data, settings, chartTrade]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -243,8 +282,11 @@ export function ChartPage() {
   const canMark = Boolean(row?.id);
   const marking = markInterest.isPending;
 
+  const titleSymbol = chart.data?.symbol ?? weeklyChart.data?.symbol ?? ticker;
+  const titleName = chart.data?.companyName ?? weeklyChart.data?.companyName;
+
   return (
-    <div className="chart-page">
+    <div className={`chart-page${view === 'fundamentals' ? ' chart-page--fundamentals' : ''}`}>
       <div className="chart-head">
         <button
           type="button"
@@ -256,169 +298,208 @@ export function ChartPage() {
         </button>
         <div className="chart-head-title">
           <div className="chart-head-name ellipsis">
-            <strong>{chart.data?.symbol ?? ticker}</strong>
-            {chart.data?.companyName ? (
-              <span className="muted small">{chart.data.companyName}</span>
+            <strong>{titleSymbol}</strong>
+            {titleName ? <span className="muted small">{titleName}</span> : null}
+          </div>
+        </div>
+        {view === 'ta' ? (
+          <>
+            <a
+              className="btn-sm ghost chart-head-tv"
+              href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+                chart.data?.tvSymbol ?? ticker,
+              )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              TradingView
+            </a>
+            <button
+              type="button"
+              className="chart-icon-btn"
+              aria-label="Settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              ⚙
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {view === 'ta' ? (
+        <>
+          <div className="chart-ta-tools">
+            <button
+              type="button"
+              className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
+              disabled={!canMark || marking}
+              onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
+            >
+              {marking ? 'Saving…' : 'Interested'}
+            </button>
+            <button
+              type="button"
+              className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
+              disabled={!canMark || marking}
+              onClick={() =>
+                markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
+              }
+            >
+              Not Interested
+            </button>
+          </div>
+
+          {closedTrade ? (
+            <div className="chart-trade-row">
+              <span className="badge">
+                {closedTrade.provisionalClose ? 'CLOSING' : 'SELL TO CLOSE'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>In</span> {closedTrade.openedAsOf ?? '—'} @ {money(closedTrade.entry)}
+              </span>
+              <span className="chart-pine-metric">
+                <span>Out</span> {closedTrade.exitDate ?? '—'} @{' '}
+                {closedTrade.exitPrice != null ? money(closedTrade.exitPrice) : '—'}
+              </span>
+              <span
+                className={`chart-pine-metric ${(closedTrade.pnlUsd ?? 0) >= 0 ? 'up-text' : 'down-text'}`}
+              >
+                <span>P&amp;L</span> {signedMoney(closedTrade.pnlUsd)}
+                {closedTrade.pnlR != null ? ` · ${closedTrade.pnlR.toFixed(2)}R` : ''}
+              </span>
+              <button
+                type="button"
+                className={`btn-sm${snapshot ? ' selected' : ' ghost'}`}
+                title="Bars up to the exit, structure as it was when the trade closed"
+                onClick={() => setSnapshot(!snapshot)}
+              >
+                {snapshot ? 'Snapshot' : 'Live'}
+              </button>
+            </div>
+          ) : null}
+
+          {showMetrics ? (
+            <div className="chart-pine-row">
+              {pine && !closedTrade ? (
+                <>
+                  {/* Same rule and the same number as the Results tabs: the signal is NEW on the bar it
+                      appeared on and VALID on every bar after it. Nothing else — the RR settings below
+                      do not move a signal between the two. */}
+                  {pine.barsSinceValid === 0 ? (
+                    <span className="badge up" title={`New signal on the current ${tf} bar`}>
+                      NEW
+                    </span>
+                  ) : (
+                    <span
+                      className={`badge ${pine.barsSinceValid != null ? 'up' : 'down'}`}
+                      title={pine.validSinceAsOf ? `Signal bar ${pine.validSinceAsOf}` : undefined}
+                    >
+                      {pine.barsSinceValid != null
+                        ? `VALID · ${barsLabel(pine.barsSinceValid)}`
+                        : 'NO SIGNAL'}
+                    </span>
+                  )}
+                  {pine.strong ? <span className="badge">STRONG</span> : null}
+                </>
+              ) : null}
+              <span className="chart-pine-metric">
+                <span>RR</span>{' '}
+                {tradeMetrics.rr != null && Number.isFinite(tradeMetrics.rr)
+                  ? tradeMetrics.rr.toFixed(2)
+                  : 'n/a'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>TP</span>{' '}
+                {tradeMetrics.tp != null ? money(tradeMetrics.tp) : 'n/a'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>SL</span>{' '}
+                {tradeMetrics.sl != null ? money(tradeMetrics.sl) : 'n/a'}
+              </span>
+              <span className="chart-pine-metric">
+                <span>Sh</span> {tradeMetrics.shares}
+              </span>
+              <span className="chart-pine-metric">
+                <span>$</span> {money(tradeMetrics.dollars)}
+              </span>
+            </div>
+          ) : null}
+
+          <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
+
+          <div className="chart-stage">
+            <div className="chart-host" ref={containerRef} />
+            {crosshair ? (
+              <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
+                {crosshair}
+              </p>
+            ) : null}
+            {settings.show_watermark && wm?.lines?.length ? (
+              <div
+                className="chart-watermark"
+                style={{ color: settings.wm_text_color, fontSize: settings.wm_font_size }}
+              >
+                {wm.lines.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
             ) : null}
           </div>
-        </div>
-        <button
-          type="button"
-          className="chart-icon-btn"
-          aria-label="Settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          ⚙
-        </button>
-      </div>
 
-      {closedTrade ? (
-        <div className="chart-trade-row">
-          <span className="badge">
-            {closedTrade.provisionalClose ? 'CLOSING' : 'SELL TO CLOSE'}
-          </span>
-          <span className="chart-pine-metric">
-            <span>In</span> {closedTrade.openedAsOf ?? '—'} @ {money(closedTrade.entry)}
-          </span>
-          <span className="chart-pine-metric">
-            <span>Out</span> {closedTrade.exitDate ?? '—'} @{' '}
-            {closedTrade.exitPrice != null ? money(closedTrade.exitPrice) : '—'}
-          </span>
-          <span
-            className={`chart-pine-metric ${(closedTrade.pnlUsd ?? 0) >= 0 ? 'up-text' : 'down-text'}`}
-          >
-            <span>P&amp;L</span> {signedMoney(closedTrade.pnlUsd)}
-            {closedTrade.pnlR != null ? ` · ${closedTrade.pnlR.toFixed(2)}R` : ''}
-          </span>
-          <button
-            type="button"
-            className={`btn-sm${snapshot ? ' selected' : ' ghost'}`}
-            title="Bars up to the exit, structure as it was when the trade closed"
-            onClick={() => setSnapshot(!snapshot)}
-          >
-            {snapshot ? 'Snapshot' : 'Live'}
-          </button>
-        </div>
-      ) : null}
-
-      {showMetrics ? (
-        <div className="chart-pine-row">
-          {pine && !closedTrade ? (
-            <>
-              {/* Same rule and the same number as the Results tabs: the signal is NEW on the bar it
-                  appeared on and VALID on every bar after it. Nothing else — the RR settings below
-                  do not move a signal between the two. */}
-              {pine.barsSinceValid === 0 ? (
-                <span className="badge up" title={`New signal on the current ${tf} bar`}>
-                  NEW
-                </span>
-              ) : (
-                <span
-                  className={`badge ${pine.barsSinceValid != null ? 'up' : 'down'}`}
-                  title={pine.validSinceAsOf ? `Signal bar ${pine.validSinceAsOf}` : undefined}
-                >
-                  {pine.barsSinceValid != null
-                    ? `VALID · ${barsLabel(pine.barsSinceValid)}`
-                    : 'NO SIGNAL'}
-                </span>
-              )}
-              {pine.strong ? <span className="badge">STRONG</span> : null}
-            </>
+          {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
+          {chart.error ? (
+            <p className="error chart-status-line">{(chart.error as Error).message}</p>
           ) : null}
-          <span className="chart-pine-metric">
-            <span>RR</span>{' '}
-            {tradeMetrics.rr != null && Number.isFinite(tradeMetrics.rr)
-              ? tradeMetrics.rr.toFixed(2)
-              : 'n/a'}
-          </span>
-          <span className="chart-pine-metric">
-            <span>TP</span>{' '}
-            {tradeMetrics.tp != null ? money(tradeMetrics.tp) : 'n/a'}
-          </span>
-          <span className="chart-pine-metric">
-            <span>SL</span>{' '}
-            {tradeMetrics.sl != null ? money(tradeMetrics.sl) : 'n/a'}
-          </span>
-          <span className="chart-pine-metric">
-            <span>Sh</span> {tradeMetrics.shares}
-          </span>
-          <span className="chart-pine-metric">
-            <span>$</span> {money(tradeMetrics.dollars)}
-          </span>
-        </div>
-      ) : null}
-
-      <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
-
-      <div className="chart-stage">
-        <div className="chart-host" ref={containerRef} />
-        {crosshair ? (
-          <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
-            {crosshair}
-          </p>
-        ) : null}
-        {settings.show_watermark && wm?.lines?.length ? (
-          <div
-            className="chart-watermark"
-            style={{ color: settings.wm_text_color, fontSize: settings.wm_font_size }}
-          >
-            {wm.lines.map((line) => (
-              <div key={line}>{line}</div>
-            ))}
+          {markInterest.error ? (
+            <p className="error chart-status-line">{(markInterest.error as Error).message}</p>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <div className="chart-fund-price">
+            <div className="chart-host chart-fund-price-host" ref={weeklyHostRef} />
+            {weeklyChart.isLoading ? (
+              <p className="muted small chart-status-line">Loading weekly bars…</p>
+            ) : null}
+            {weeklyChart.error ? (
+              <p className="error chart-status-line">{(weeklyChart.error as Error).message}</p>
+            ) : null}
           </div>
-        ) : null}
-      </div>
-
-      {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
-      {chart.error ? (
-        <p className="error chart-status-line">{(chart.error as Error).message}</p>
-      ) : null}
-      {markInterest.error ? (
-        <p className="error chart-status-line">{(markInterest.error as Error).message}</p>
-      ) : null}
-
-      <div className="card-actions chart-actions">
-        <button
-          type="button"
-          className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
-          disabled={!canMark || marking}
-          onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
-        >
-          {marking ? 'Saving…' : 'Interested'}
-        </button>
-        <button
-          type="button"
-          className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
-          disabled={!canMark || marking}
-          onClick={() =>
-            markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
-          }
-        >
-          Not Interested
-        </button>
-        <Link className="btn-sm ghost" to={`/fundamentals/${encodeURIComponent(ticker)}`}>
-          Fundamentals
-        </Link>
-        <a
-          className="btn-sm ghost"
-          href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-            chart.data?.tvSymbol ?? ticker,
-          )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          TradingView
-        </a>
-      </div>
+          <div className="chart-fund-scroll">
+            <FundamentalsPanel ticker={ticker} />
+          </div>
+        </>
+      )}
 
       <ChartSettingsPanel
-        open={settingsOpen}
+        open={settingsOpen && view === 'ta'}
         value={settings}
         onChange={setSettings}
         onClose={() => setSettingsOpen(false)}
         onSave={() => savePreset.mutate()}
         onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
       />
+
+      <div className="chart-view-toggle" role="tablist" aria-label="Chart view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'ta'}
+          className={`chip${view === 'ta' ? ' active' : ''}`}
+          onClick={() => setView('ta')}
+        >
+          TA
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'fundamentals'}
+          className={`chip${view === 'fundamentals' ? ' active' : ''}`}
+          onClick={() => setView('fundamentals')}
+        >
+          Fundamentals
+        </button>
+      </div>
     </div>
   );
 }
