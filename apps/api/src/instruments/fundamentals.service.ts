@@ -12,6 +12,7 @@ import {
 } from '@vova/engine';
 import { BarsService } from '../market/bars.service';
 import { FmpClient, fmpNum, fmpStr, yahooToFmpSymbol } from '../market/fmp.client';
+import type { FundamentalsFilter } from '../settings/settings.module';
 import { UniverseService } from '../universe/universe.service';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -24,9 +25,16 @@ type CacheEntry = { at: number; payload: FundamentalsPayload };
 /** Slim valuation fields for Results / History signal cards. */
 export type CardFundamentals = {
   fairValue: number | null;
+  /** (price − fairValue) / fairValue × 100. Null when either side is missing. */
+  premiumPct: number | null;
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
+};
+
+export type ValuationSets = {
+  undervalued: string[];
+  overvalued: string[];
 };
 
 type CardCacheEntry = { at: number; metrics: CardFundamentals };
@@ -317,6 +325,46 @@ export class FundamentalsService {
     return out;
   }
 
+  /**
+   * Classify tickers by current premium vs fair value. Chunks past the card-batch UI limit
+   * so Results / History filters can cover every distinct name in the match.
+   */
+  async valuationSets(tickers: string[]): Promise<ValuationSets> {
+    const undervalued: string[] = [];
+    const overvalued: string[] = [];
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of tickers) {
+      const t = String(raw || '')
+        .trim()
+        .toUpperCase();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      unique.push(t);
+    }
+    for (let i = 0; i < unique.length; i += CARD_BATCH_LIMIT) {
+      const chunk = unique.slice(i, i + CARD_BATCH_LIMIT);
+      const metrics = await this.getCardMetrics(chunk);
+      for (const ticker of chunk) {
+        const premium = metrics[ticker]?.premiumPct;
+        if (premium == null || !Number.isFinite(premium) || premium === 0) continue;
+        if (premium < 0) undervalued.push(ticker);
+        else overvalued.push(ticker);
+      }
+    }
+    return { undervalued, overvalued };
+  }
+
+  /** Tickers that pass the Settings valuation filter, or null when the filter is off. */
+  async tickersForFilter(
+    filter: FundamentalsFilter,
+    tickers: string[],
+  ): Promise<string[] | null> {
+    if (filter !== 'undervalued' && filter !== 'overvalued') return null;
+    const sets = await this.valuationSets(tickers);
+    return filter === 'undervalued' ? sets.undervalued : sets.overvalued;
+  }
+
   private cardFromFullCache(ticker: string, now: number): CardFundamentals | null {
     const hit = this.cache.get(`${ticker}|eps`);
     if (!hit || now - hit.at >= CACHE_TTL_MS) return null;
@@ -326,6 +374,7 @@ export class FundamentalsService {
   private metricsFromPayload(payload: FundamentalsPayload): CardFundamentals {
     return {
       fairValue: payload.valuation.summary.fairValue,
+      premiumPct: payload.valuation.summary.premiumPct,
       growthRatePct: payload.valuation.summary.growthRatePct,
       blendedPe: payload.snapshot.blendedPe,
       ltDebtToCapitalTTM: payload.snapshot.ltDebtToCapitalTTM,
@@ -414,6 +463,7 @@ export class FundamentalsService {
 
     return {
       fairValue: valuation.summary.fairValue,
+      premiumPct: valuation.summary.premiumPct,
       growthRatePct: valuation.summary.growthRatePct,
       blendedPe,
       ltDebtToCapitalTTM,

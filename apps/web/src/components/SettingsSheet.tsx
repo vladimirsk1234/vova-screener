@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  FUNDAMENTALS_FILTERS,
   TIMEFRAMES,
   UNIVERSES,
   api,
   type AppSettings,
+  type FundamentalsFilter,
   type ResultsSummary,
   type Timeframe,
   type Universe,
@@ -48,8 +50,8 @@ function invalidateLists(queryClient: ReturnType<typeof useQueryClient>) {
 }
 
 /**
- * Global knobs: risk per signal, RR floor for every list/stat, rescanning, and maintenance.
- * Scan shape stays fixed in the backend (buy signals); Min RR only filters what is shown.
+ * Global knobs: risk per signal, RR / valuation floors for every list/stat, rescanning, and maintenance.
+ * Scan shape stays fixed in the backend (buy signals); Min RR and Fundamentals only filter what is shown.
  */
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -250,6 +252,27 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         Floor on live RR for NEW and VALID (updated on each rescan). CLOSED and History closed
         trades use entry RR. 0 shows everything. Scans still track every signal; this only filters
         what the lists and stats include.
+      </p>
+
+      <div className="field">
+        <Chips
+          label="Fundamentals"
+          value={settings.data?.fundamentalsFilter ?? 'all'}
+          options={FUNDAMENTALS_FILTERS}
+          disabled={save.isPending}
+          onChange={(next: FundamentalsFilter) => {
+            if (next === (settings.data?.fundamentalsFilter ?? 'all')) return;
+            save.mutate({ fundamentalsFilter: next });
+          }}
+          format={(v) =>
+            v === 'all' ? 'All' : v === 'undervalued' ? 'Undervalued' : 'Overvalued'
+          }
+        />
+      </div>
+      <p className="muted small">
+        Current price vs fair value from fundamentals. Applies to Results lists and counts and to
+        History trades and stats. Names without a fair value only appear in All. Scans still track
+        every signal; this only filters what the lists and stats include.
       </p>
 
       <div className="field">

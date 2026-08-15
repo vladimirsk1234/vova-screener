@@ -51,8 +51,9 @@ function ratio(n: number | null | undefined, digits = 1): string {
   return n.toFixed(digits);
 }
 
-/** Mark-to-market premium vs fair value: lastPrice (else entry). */
+/** Current premium vs fair value — same number Settings uses to filter lists. */
 function premiumVsFair(row: ResultRow, fund: CardFundamentals | undefined): number | null {
+  if (fund?.premiumPct != null && Number.isFinite(fund.premiumPct)) return fund.premiumPct;
   if (!fund?.fairValue || fund.fairValue <= 0) return null;
   const price = row.lastPrice ?? row.entry;
   if (price == null || !Number.isFinite(price)) return null;
