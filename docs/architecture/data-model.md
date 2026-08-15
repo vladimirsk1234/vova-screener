@@ -202,16 +202,32 @@ Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`
 `{ key, data }` for chart params (successor to Streamlit `session_state`) and the `app` key
 holding `{ maxRiskUsd, minRr, fundamentalsFilter }` behind `GET/PUT /api/settings`.
 
+### `instrumentFundamentals`
+FMP snapshot for the Fundamentals page, Results/History cards, and the Settings valuation filter.
+One document per `yahooTicker`:
+
+`{ yahooTicker, payload, fairValue, premiumPct, growthRatePct, blendedPe, ltDebtToCapitalTTM,
+fetchedAt, updatedAt }`.
+
+`payload` is the assembled `FundamentalsPayload` (metric `eps`; other metrics recompute from
+`annual` without FMP). Card fields are denormalized for list/filter reads.
+
+Reads never call FMP when a document exists. Writes:
+
+- first miss (page or card) — one `fetchFresh` / slim fetch, then upsert
+- daily cron (`VOVA_FUNDAMENTALS_CRON`, default 02:15 ET) — `/profile` + recompute premium
+- weekly cron (`VOVA_FUNDAMENTALS_FULL_CRON`, default Sunday 03:15 ET) — full 13-endpoint pull
+
+No Mongo TTL: a stale document is served rather than hitting FMP. A failed refresh keeps the
+previous document (same stale-fallback idea as `barSeries`).
+
 ## Deferred
 
 - `users` / auth — added with the Railway deploy phase
-- `instrumentFundamentals` (Yahoo `.info` TTL cache) — the current scan path never calls `.info`;
-  the `LOW_VOL` filter is derived from cached bar volume instead
 - Full overlay series (EMA/BB/MACD…) — recomputed from `barSeries` by the engine
 - Multi-TF watermark — compute-on-read via `GET /instruments/:ticker/status`
 
 ## Retention
 
 - `scanRejections`: TTL 30 days
-- `instrumentFundamentals` (when added): TTL 24h
 - Old `scanRuns` / `signals`: retention policy (e.g. 90 days) before the Railway volume grows

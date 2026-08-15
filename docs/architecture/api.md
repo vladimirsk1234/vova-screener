@@ -16,7 +16,7 @@ reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED. Settings `fundamentalsFilter` (`all` / `undervalued` / `overvalued`) further restricts rows to tickers whose current FMP premium vs fair value matches; names without a fair value only appear in `all` |
+| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED. Settings `fundamentalsFilter` (`all` / `undervalued` / `overvalued`) further restricts rows to tickers whose Mongo `premiumPct` matches; it does not fetch FMP on the read path. Names without a fair value only appear in `all` |
 | GET | `/results/summary` | Bucket counts and scan freshness for every universe × timeframe, for the tab badges |
 | GET | `/results/lookup?yahooTicker&tf` | The active tracked signal for a symbol, so a chart opened by URL can show and toggle the mark |
 | GET | `/results/signal/:id` | One tracked signal whatever its state — how a closed trade from History is opened on the chart |
@@ -91,6 +91,8 @@ Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `di
 |--------|------|-------|
 | GET | `/instruments/:ticker/chart?tf=&asOf=&minRr=&useLastHlSl=&riskPerTrade=&noRrReq=&lenFast=&lenSlow=&lengthMajor=&lookback=&multiplier=&bbLength=&bbMult=` | Bars + full overlays + watermark + pine; numeric params recompute overlays live. `asOf=YYYY-MM-DD` cuts the series at that bar before the engine sees it, which is what makes the chart behind a closed trade a snapshot of the trade rather than a view of today |
 | GET | `/instruments/:ticker/status` | Multi-TF watermark from cached bars |
+| GET | `/instruments/fundamentals-cards?tickers=` | Slim valuation for Results / History cards. Reads `instrumentFundamentals` in Mongo; FMP only for names that have never been stored |
+| GET | `/instruments/:ticker/fundamentals?metric=` | Fast Graphs–style payload. Reads Mongo; FMP only on a first miss. `metric` = `eps` (default) / `revenue` / `fcf` / `ownerEarnings` (recomputed from stored `annual`) |
 | GET | `/universe/summary` | Counts per universe |
 | POST | `/universe/import` | Re-import root ticker text files into `instruments` |
 

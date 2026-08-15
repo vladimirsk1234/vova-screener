@@ -5,6 +5,8 @@ import {
   BAR_SERIES,
   BarSeriesSchema,
   INSTRUMENT,
+  INSTRUMENT_FUNDAMENTALS,
+  InstrumentFundamentalsSchema,
   InstrumentSchema,
   PRESET,
   PresetSchema,
@@ -20,6 +22,7 @@ import {
 
 const models = MongooseModule.forFeature([
   { name: INSTRUMENT, schema: InstrumentSchema },
+  { name: INSTRUMENT_FUNDAMENTALS, schema: InstrumentFundamentalsSchema },
   { name: BAR_SERIES, schema: BarSeriesSchema },
   { name: SCAN_RUN, schema: ScanRunSchema },
   { name: SIGNAL, schema: SignalSchema },

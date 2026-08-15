@@ -33,9 +33,17 @@ export function yahooToFmpSymbol(yahooTicker: string): string {
   return s.replace(/-/g, '.');
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class FmpClient {
   private readonly log = new Logger(FmpClient.name);
+  private inflight = 0;
+  private readonly waiters: Array<() => void> = [];
+  /** Keep the shared key under FMP's burst limit — cards + a Fundamentals page share this. */
+  private readonly maxConcurrent = 2;
 
   private apiKey(): string {
     const key = process.env.FMP_API_KEY?.trim();
@@ -51,7 +59,28 @@ export class FmpClient {
     return Boolean(process.env.FMP_API_KEY?.trim());
   }
 
+  private async limit<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.inflight >= this.maxConcurrent) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.inflight += 1;
+    try {
+      return await fn();
+    } finally {
+      this.inflight -= 1;
+      this.waiters.shift()?.();
+    }
+  }
+
   private async get<T = unknown>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+    return this.limit(() => this.getOnce<T>(path, params, true));
+  }
+
+  private async getOnce<T>(
+    path: string,
+    params: Record<string, string | number>,
+    retry: boolean,
+  ): Promise<T> {
     const q = new URLSearchParams({ apikey: this.apiKey() });
     for (const [k, v] of Object.entries(params)) q.set(k, String(v));
     const url = `${BASE}${path}?${q.toString()}`;
@@ -61,6 +90,10 @@ export class FmpClient {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       this.log.warn(`FMP ${path} → ${res.status} ${body.slice(0, 200)}`);
+      if (retry && (res.status === 429 || res.status === 503)) {
+        await sleep(800);
+        return this.getOnce<T>(path, params, false);
+      }
       throw new ServiceUnavailableException(`FMP request failed (${res.status}) for ${path}`);
     }
     return (await res.json()) as T;
