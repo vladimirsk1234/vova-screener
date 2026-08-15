@@ -28,6 +28,25 @@ VALUATION_CACHE_PATH = ROOT / ".cache" / "fmp_valuation.json"
 RETRY_REASONS = frozenset({"FMP_HTTP", "FMP_RATE_LIMIT", "FMP_ERROR"})
 GROWTH_PE_FLOOR = 15.0
 GROWTH_LOOKBACK_YEARS = 5
+KNOWN_ADR_RATIO = {"XYF": 6, "TSM": 5, "BABA": 8, "BIDU": 8, "JD": 2, "HDB": 3, "PDD": 4, "NTES": 5}
+FALLBACK_FOREIGN_PER_USD = {
+    "USD": 1.0,
+    "CNY": 7.2,
+    "RMB": 7.2,
+    "CNH": 7.2,
+    "TWD": 32.0,
+    "HKD": 7.8,
+    "JPY": 150.0,
+    "KRW": 1350.0,
+    "INR": 84.0,
+    "ARS": 1100.0,
+    "BRL": 5.5,
+    "EUR": 0.92,
+    "GBP": 0.79,
+    "CAD": 1.37,
+    "AUD": 1.55,
+}
+COMMON_ADR = (2, 3, 4, 5, 6, 8, 10, 20, 25, 40)
 FMP_HTTP_RATE_PER_SEC = 12.0
 FMP_SCAN_WORKERS = 8
 _last_http_at = 0.0
@@ -204,6 +223,8 @@ def lynch_peg(pe: float | None, growth_pct: float | None) -> float | None:
 def is_undervalued(pe: float | None, growth_pct: float | None) -> bool:
     if pe is None or pe <= 0 or growth_pct is None or not math.isfinite(growth_pct):
         return False
+    if pe < 0.15 or pe > 200:
+        return False
     rule = fair_value_rule(growth_pct)
     if rule == "pe15":
         return pe < GROWTH_PE_FLOOR
@@ -211,6 +232,108 @@ def is_undervalued(pe: float | None, growth_pct: float | None) -> bool:
         peg = lynch_peg(pe, growth_pct)
         return peg is not None and peg < 1.0
     return False
+
+
+def _norm_ccy(code: object) -> str | None:
+    s = _str(code)
+    if not s:
+        return None
+    u = s.upper()
+    if u in {"RMB", "CNH", "CNY"}:
+        return "CNY"
+    return u
+
+
+def _rel_close(a: float, b: float, tol: float = 0.15) -> bool:
+    denom = max(abs(a), abs(b), 1e-12)
+    return abs(a - b) / denom <= tol
+
+
+def _fx_to_listing(reported: str | None, listing: str | None) -> float:
+    frm = _norm_ccy(reported) or "USD"
+    to = _norm_ccy(listing) or "USD"
+    if frm == to:
+        return 1.0
+    from_per = FALLBACK_FOREIGN_PER_USD.get(frm, 1.0)
+    to_per = FALLBACK_FOREIGN_PER_USD.get(to, 1.0)
+    if from_per <= 0 or to_per <= 0:
+        return 1.0
+    return to_per / from_per
+
+
+def _infer_adr(ticker: str, net_income: float | None, fmp_eps: float | None, shares: float | None) -> int:
+    known = KNOWN_ADR_RATIO.get(ticker.split(".")[0].upper(), 1)
+    if net_income is None or fmp_eps is None or shares is None or shares <= 0 or fmp_eps == 0:
+        return known
+    ordinary = net_income / shares
+    candidates = [known, *[r for r in COMMON_ADR if r != known]] if known > 1 else list(COMMON_ADR)
+    for ratio in candidates:
+        if _rel_close(fmp_eps, ordinary * ratio) or _rel_close(fmp_eps, ordinary * ratio * ratio):
+            return ratio
+    return known
+
+
+def _share_scale(net_income: float | None, fmp_eps: float | None, shares: float | None, adr: int) -> str:
+    if net_income is None or fmp_eps is None or shares is None or shares <= 0 or fmp_eps == 0:
+        return "unknown"
+    ordinary = net_income / shares
+    if _rel_close(fmp_eps, ordinary):
+        return "ordinary" if adr > 1 else "ads"
+    if adr > 1:
+        ads = ordinary * adr
+        if _rel_close(fmp_eps, ads):
+            return "ads"
+        if _rel_close(fmp_eps, ads * adr) or _rel_close(fmp_eps, ordinary * adr * adr):
+            return "double_adr"
+    return "unknown"
+
+
+def _per_share_factor(share_scale: str, adr: int) -> float:
+    if share_scale == "ordinary":
+        return float(adr)
+    if share_scale == "double_adr":
+        return 1.0 / adr
+    return 1.0
+
+
+def _scale_eps_row(
+    ticker: str,
+    *,
+    fmp_eps: float | None,
+    net_income: float | None,
+    shares: float | None,
+    reported: str | None,
+    listing: str | None,
+    price: float | None,
+) -> tuple[float | None, float | None, bool]:
+    """Return (eps_listing_per_ads, pe, reliable)."""
+    fx = _fx_to_listing(reported, listing)
+    adr = _infer_adr(ticker, net_income, fmp_eps, shares)
+    scale = _share_scale(net_income, fmp_eps, shares, adr)
+    if scale == "unknown" and adr > 1 and fmp_eps is not None and price is not None and price > 0:
+        fx_eps = fmp_eps * fx
+        pe_ads = price / fx_eps if fx_eps else None
+        pe_double = price / (fx_eps / adr) if fx_eps else None
+        if pe_double is not None and 0.15 <= pe_double <= 200 and not (pe_ads is not None and 0.15 <= pe_ads <= 200):
+            scale = "double_adr"
+    factor = _per_share_factor(scale, adr)
+    scaled = fmp_eps * fx * factor if fmp_eps is not None else None
+    from_ni = None
+    if net_income is not None and shares is not None and shares > 0:
+        ads_shares = shares / adr if adr > 1 else shares
+        if ads_shares > 0:
+            from_ni = (net_income * fx) / ads_shares
+    pe_scaled = price / scaled if price and scaled and scaled > 0 else None
+    pe_ni = price / from_ni if price and from_ni and from_ni > 0 else None
+    eps = scaled
+    if from_ni is not None and pe_ni is not None and 0.15 <= pe_ni <= 200:
+        if pe_scaled is None or not (0.15 <= pe_scaled <= 200) or (
+            scaled is not None and not _rel_close(from_ni, scaled, 0.3)
+        ):
+            eps = from_ni
+    pe = price / eps if price and eps and eps > 0 else None
+    reliable = pe is not None and 0.15 <= pe <= 200
+    return eps, pe, reliable
 
 
 def fetch_eps_pe_growth(
@@ -227,9 +350,9 @@ def fetch_eps_pe_growth(
             {"symbol": fmp_symbol, "period": "annual", "limit": "8"},
         )
         inc_rows = inc_raw if isinstance(inc_raw, list) else []
+        inc0 = inc_rows[0] if inc_rows and isinstance(inc_rows[0], dict) else {}
         eps = _num(ttm.get("netIncomePerShareTTM")) or _num(ttm.get("epsTTM"))
-        if eps is None and inc_rows:
-            inc0 = inc_rows[0] if isinstance(inc_rows[0], dict) else {}
+        if eps is None:
             eps = _num(inc0.get("epsdiluted")) or _num(inc0.get("eps"))
         pe = _num(ttm.get("peRatioTTM")) or _num(ttm.get("priceToEarningsRatioTTM"))
         if pe is None:
@@ -240,6 +363,38 @@ def fetch_eps_pe_growth(
                 pe = _num(rat.get("priceToEarningsRatioTTM")) or _num(rat.get("peRatioTTM"))
             except Exception:
                 pe = None
+        reported = _norm_ccy(inc0.get("reportedCurrency"))
+        net_income = _num(inc0.get("netIncome"))
+        shares = _num(inc0.get("weightedAverageShsOutDil")) or _num(inc0.get("weightedAverageShsOut"))
+        need_scale = bool(
+            (reported and reported != "USD")
+            or fmp_symbol.split(".")[0].upper() in KNOWN_ADR_RATIO
+            or (pe is not None and (pe < 0.15 or pe > 200))
+        )
+        listing = "USD"
+        price = None
+        if need_scale:
+            try:
+                profile_raw = _fmp_get("/profile", api_key, {"symbol": fmp_symbol})
+                profile_rows = profile_raw if isinstance(profile_raw, list) else []
+                profile = profile_rows[0] if profile_rows and isinstance(profile_rows[0], dict) else {}
+                listing = _norm_ccy(profile.get("currency")) or "USD"
+                price = _num(profile.get("price"))
+            except Exception:
+                listing = "USD"
+            scaled, pe2, _reliable = _scale_eps_row(
+                fmp_symbol,
+                fmp_eps=eps,
+                net_income=net_income,
+                shares=shares,
+                reported=reported,
+                listing=listing,
+                price=price,
+            )
+            if scaled is not None:
+                eps = scaled
+            if pe2 is not None:
+                pe = pe2
         points: list[tuple[int, float]] = []
         for row in inc_rows:
             if not isinstance(row, dict):

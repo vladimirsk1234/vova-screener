@@ -30,6 +30,8 @@ export type AnnualFundamentalPoint = {
   operatingCashFlow: number | null;
   freeCashFlow: number | null;
   dividend?: number | null;
+  /** Diluted weighted average shares from the filing (ordinary, not ADS). */
+  dilutedShares?: number | null;
 };
 
 /**
@@ -130,9 +132,17 @@ export function computeNormalMultiple(
     if (r > 0 && r < 120) ratios.push(r);
   }
   const med = median(ratios);
-  if (med != null && med > 0) return { multiple: Math.round(med * 10) / 10, source: 'median_pe' };
+  if (med != null && med > 0) return { multiple: roundMultiple(med), source: 'median_pe' };
   const fallback = metric === 'revenue' ? 3 : 15;
   return { multiple: fallback, source: 'fallback' };
+}
+
+/** 1 decimal at ≥1× so 6.29 → 6.3; extra digits below 1 so 0.28 does not become 0.0. */
+export function roundMultiple(n: number): number {
+  if (!Number.isFinite(n) || n <= 0) return n;
+  if (n >= 1) return Math.round(n * 10) / 10;
+  if (n >= 0.1) return Math.round(n * 100) / 100;
+  return Math.round(n * 1000) / 1000;
 }
 
 /** Drop fiscal years whose period-end date is still in the future (stubs / current FY). */

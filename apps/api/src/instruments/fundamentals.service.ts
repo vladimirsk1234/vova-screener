@@ -1,13 +1,20 @@
 /** Assemble Fast Graphs–style fundamentals payload from FMP (prices for Performance via Yahoo). */
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import {
+  FUNDAMENTALS_SCALE_VERSION,
   annualizedPriceReturnPct,
   buildValuationSeries,
   completeFiscalYears,
+  impliedPe,
+  peInBand,
+  scaleDcf,
+  scalePerShare,
+  scaleTev,
   yoyChgPct,
   type AnnualFundamentalPoint,
   type ChartFundamentals,
   type ForwardMetricPoint,
+  type FundamentalsScale,
   type ValuationMetric,
   type ValuationSeriesPoint,
 } from '@vova/engine';
@@ -28,6 +35,14 @@ import {
 } from '../market/fmp.client';
 import type { FundamentalsFilter } from '../settings/settings.module';
 import { UniverseService } from '../universe/universe.service';
+import {
+  buildScaleForTicker,
+  fxToListingByYear,
+  hasCurrentScale,
+  incomeAnchor,
+  mostCommonReportedCurrency,
+  scaleAnnualPoint,
+} from './listing-scale';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DCF_TTL_MS = 60 * 60 * 1000;
@@ -140,6 +155,8 @@ export type FundamentalsPayload = {
     website: string | null;
     image: string | null;
   };
+  /** Listing-currency / ADR alignment applied before PE15. Missing on pre-fix cache. */
+  scale?: FundamentalsScale | null;
   snapshot: {
     peTTM: number | null;
     /** Trailing-twelve-month diluted EPS (anchor fallback when no forward estimate). */
@@ -379,7 +396,7 @@ export class FundamentalsService {
     }
 
     const stored = await this.loadStored(ticker);
-    if (stored) {
+    if (stored && hasCurrentScale(stored, FUNDAMENTALS_SCALE_VERSION)) {
       const payload = this.payloadForMetric(stored, metric);
       this.remember(ticker, payload);
       return { ...payload, cached: true };
@@ -580,9 +597,9 @@ export class FundamentalsService {
       await Promise.all(
         chunk.map(async (ticker) => {
           try {
-            const metrics = await this.fetchCardSlim(ticker);
+            const { metrics, scale } = await this.fetchCardSlim(ticker);
             this.cardCache.set(ticker, { at: Date.now(), metrics });
-            await this.persistCard(ticker, metrics);
+            await this.persistCard(ticker, metrics, scale);
             out[ticker] = metrics;
           } catch (err) {
             this.failedAt.set(ticker, Date.now());
@@ -608,18 +625,54 @@ export class FundamentalsService {
     if (!unique.length) return [];
     const premium = filter === 'undervalued' ? { $lt: 0 } : { $gt: 0 };
     const rows = await this.store
-      .find({ yahooTicker: { $in: unique }, premiumPct: premium })
+      .find({
+        yahooTicker: { $in: unique },
+        premiumPct: premium,
+        scaleVersion: FUNDAMENTALS_SCALE_VERSION,
+        valuationReliable: { $ne: false },
+      })
       .select('yahooTicker')
       .lean<Array<{ yahooTicker: string }>>()
       .exec();
     return rows.map((r) => r.yahooTicker);
   }
 
+  /** Drop pre-normalization Mongo snapshots so XYF-style unit errors cannot linger. */
+  async invalidateUnscaledStore(): Promise<number> {
+    const res = await this.store
+      .updateMany(
+        {
+          $or: [
+            { scaleVersion: { $exists: false } },
+            { scaleVersion: { $ne: FUNDAMENTALS_SCALE_VERSION } },
+          ],
+        },
+        {
+          $unset: {
+            payload: 1,
+            fairValue: 1,
+            premiumPct: 1,
+            growthRatePct: 1,
+            blendedPe: 1,
+            ltDebtToCapitalTTM: 1,
+          },
+          $set: { updatedAt: new Date() },
+        },
+      )
+      .exec();
+    this.cache.clear();
+    this.cardCache.clear();
+    this.chartFundCache.clear();
+    const n = res.modifiedCount ?? 0;
+    if (n) this.log.log(`Cleared ${n} unscaled instrumentFundamentals snapshots`);
+    return n;
+  }
+
   /** Daily job: /profile + recompute premium from stored annual. No-op without a full payload. */
   async refreshPrice(yahooTicker: string): Promise<boolean> {
     const ticker = yahooTicker.toUpperCase();
     const stored = await this.loadStored(ticker);
-    if (!stored) return false;
+    if (!stored || !hasCurrentScale(stored, FUNDAMENTALS_SCALE_VERSION)) return false;
     const profile = await this.fmp.profile(yahooToFmpSymbol(ticker)).catch(() => null);
     const price = profile?.price;
     if (price == null || !Number.isFinite(price) || price <= 0) return false;
@@ -650,7 +703,9 @@ export class FundamentalsService {
   private async loadStored(ticker: string): Promise<FundamentalsPayload | null> {
     const doc = await this.store.findOne({ yahooTicker: ticker }).lean<any>().exec();
     if (!doc?.payload || typeof doc.payload !== 'object') return null;
-    return doc.payload as FundamentalsPayload;
+    const payload = doc.payload as FundamentalsPayload;
+    if (!hasCurrentScale(payload, FUNDAMENTALS_SCALE_VERSION)) return null;
+    return payload;
   }
 
   private remember(ticker: string, payload: FundamentalsPayload) {
@@ -679,11 +734,17 @@ export class FundamentalsService {
       updatedAt: now,
     };
     if (kind === 'full') set.fetchedAt = now;
+    set.scaleVersion = payload.scale?.version ?? FUNDAMENTALS_SCALE_VERSION;
+    set.valuationReliable = payload.scale?.reliable !== false;
     await this.store.updateOne({ yahooTicker: t }, { $set: set }, { upsert: true }).exec();
     this.remember(t, payload);
   }
 
-  private async persistCard(ticker: string, metrics: CardFundamentals): Promise<void> {
+  private async persistCard(
+    ticker: string,
+    metrics: CardFundamentals,
+    scale?: FundamentalsScale | null,
+  ): Promise<void> {
     const t = ticker.toUpperCase();
     await this.store
       .updateOne(
@@ -696,6 +757,8 @@ export class FundamentalsService {
             growthRatePct: metrics.growthRatePct,
             blendedPe: metrics.blendedPe,
             ltDebtToCapitalTTM: metrics.ltDebtToCapitalTTM,
+            scaleVersion: scale?.version ?? FUNDAMENTALS_SCALE_VERSION,
+            valuationReliable: scale?.reliable !== false,
             updatedAt: new Date(),
           },
         },
@@ -705,18 +768,23 @@ export class FundamentalsService {
   }
 
   private cardFromDoc(doc: any): CardFundamentals | null {
-    if (doc?.payload && typeof doc.payload === 'object') {
-      return this.metricsFromPayload(doc.payload as FundamentalsPayload);
+    if (doc?.scaleVersion != null && doc.scaleVersion !== FUNDAMENTALS_SCALE_VERSION) return null;
+    const payload = doc?.payload && typeof doc.payload === 'object' ? (doc.payload as FundamentalsPayload) : null;
+    if (payload && hasCurrentScale(payload, FUNDAMENTALS_SCALE_VERSION)) {
+      return this.metricsFromPayload(payload);
     }
-    if (doc?.premiumPct == null && doc?.fairValue == null) return null;
-    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-    return {
-      fairValue: num(doc.fairValue),
-      premiumPct: num(doc.premiumPct),
-      growthRatePct: num(doc.growthRatePct),
-      blendedPe: num(doc.blendedPe),
-      ltDebtToCapitalTTM: num(doc.ltDebtToCapitalTTM),
-    };
+    if (doc?.scaleVersion === FUNDAMENTALS_SCALE_VERSION) {
+      if (doc?.premiumPct == null && doc?.fairValue == null) return null;
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      return {
+        fairValue: num(doc.fairValue),
+        premiumPct: num(doc.premiumPct),
+        growthRatePct: num(doc.growthRatePct),
+        blendedPe: num(doc.blendedPe),
+        ltDebtToCapitalTTM: num(doc.ltDebtToCapitalTTM),
+      };
+    }
+    return null;
   }
 
   private payloadForMetric(stored: FundamentalsPayload, metric: ValuationMetric): FundamentalsPayload {
@@ -851,9 +919,10 @@ export class FundamentalsService {
   }
 
   private metricsFromPayload(payload: FundamentalsPayload): CardFundamentals {
+    const reliable = payload.scale?.reliable !== false;
     return {
-      fairValue: payload.valuation.summary.fairValue,
-      premiumPct: payload.valuation.summary.premiumPct,
+      fairValue: reliable ? payload.valuation.summary.fairValue : null,
+      premiumPct: reliable ? payload.valuation.summary.premiumPct : null,
       growthRatePct: payload.valuation.summary.growthRatePct,
       blendedPe: payload.snapshot.blendedPe,
       ltDebtToCapitalTTM: payload.snapshot.ltDebtToCapitalTTM,
@@ -861,7 +930,9 @@ export class FundamentalsService {
   }
 
   /** Income + TTM ratios + estimates + profile — enough for the four card fields. */
-  private async fetchCardSlim(yahooTicker: string): Promise<CardFundamentals> {
+  private async fetchCardSlim(
+    yahooTicker: string,
+  ): Promise<{ metrics: CardFundamentals; scale: FundamentalsScale }> {
     const fmpSymbol = yahooToFmpSymbol(yahooTicker);
     const [profile, income, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
       this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
@@ -893,6 +964,8 @@ export class FundamentalsService {
         netIncome: fmpNum(inc.netIncome),
         operatingCashFlow: null,
         freeCashFlow: null,
+        dilutedShares:
+          fmpNum(inc.weightedAverageShsOutDil) ?? fmpNum(inc.weightedAverageShsOut),
       });
     }
     annual.sort((a, b) => a.year - b.year);
@@ -917,36 +990,136 @@ export class FundamentalsService {
       .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
 
-    const peTTM =
+    const peTTMRaw =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
-    const ttmEps = ttmEpsFrom(keyTtm, ratiosTtm, price, peTTM);
+    const ttmEpsRaw = ttmEpsFrom(keyTtm, ratiosTtm, price, peTTMRaw);
+    const aligned = await this.alignToListing({
+      yahooTicker,
+      listingCurrency: profile.currency,
+      price,
+      income,
+      annual: completed,
+      estimateEps: estimateParsed,
+      ttmEps: ttmEpsRaw,
+      peTTM: peTTMRaw,
+      tev: null,
+      dcf: null,
+      mktCap: profile.mktCap,
+    });
 
-    const valuation = buildValuationSeries(completed, 'eps', {
+    const valuation = buildValuationSeries(aligned.annual, 'eps', {
       currentPrice: price,
       windowYears: 5,
-      forward: estimateParsed.map((e) => ({ year: e.year, metric: e.eps })),
-      ttmMetric: ttmEps,
+      forward: aligned.estimateEps.map((e) => ({ year: e.year, metric: e.eps })),
+      ttmMetric: aligned.ttmEps,
     });
 
     const ltDebtToCapitalTTM =
       fmpNum(ratiosTtm?.longTermDebtToCapitalRatioTTM) ??
       fmpNum(keyTtm?.longTermDebtToCapitalRatioTTM);
 
-    const fwdEps = estimateParsed[0]?.eps ?? null;
+    const fwdEps = aligned.estimateEps[0]?.eps ?? null;
     const fwdPe = price != null && fwdEps != null && fwdEps > 0 ? price / fwdEps : null;
-    const peForBlend = peTTM ?? valuation.summary.currentPe;
+    const peForBlend = aligned.peTTM ?? valuation.summary.currentPe;
     const blendedPe =
       peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
 
+    const reliable = aligned.scale.reliable !== false;
     return {
-      fairValue: valuation.summary.fairValue,
-      premiumPct: valuation.summary.premiumPct,
-      growthRatePct: valuation.summary.growthRatePct,
-      blendedPe,
-      ltDebtToCapitalTTM,
+      metrics: {
+        fairValue: reliable ? valuation.summary.fairValue : null,
+        premiumPct: reliable ? valuation.summary.premiumPct : null,
+        growthRatePct: valuation.summary.growthRatePct,
+        blendedPe,
+        ltDebtToCapitalTTM,
+      },
+      scale: aligned.scale,
     };
+  }
+
+  private async alignToListing(opts: {
+    yahooTicker: string;
+    listingCurrency: string | null;
+    price: number | null;
+    income: Record<string, unknown>[];
+    annual: AnnualFundamentalPoint[];
+    estimateEps: Array<{ year: number; eps: number | null }>;
+    ttmEps: number | null;
+    peTTM: number | null;
+    tev: number | null;
+    dcf: number | null;
+    mktCap: number | null;
+  }): Promise<{
+    annual: AnnualFundamentalPoint[];
+    estimateEps: Array<{ year: number; eps: number | null }>;
+    ttmEps: number | null;
+    peTTM: number | null;
+    tev: number | null;
+    dcf: number | null;
+    mktCap: number | null;
+    scale: FundamentalsScale;
+  }> {
+    const reported =
+      mostCommonReportedCurrency(opts.income) ?? incomeAnchor(opts.income)?.reportedCurrency ?? null;
+    const years = [...new Set(opts.annual.map((p) => p.year))].sort((a, b) => a - b);
+    const fxByYear = await fxToListingByYear(
+      this.fmp,
+      reported,
+      opts.listingCurrency,
+      years.length ? years : [new Date().getUTCFullYear()],
+    );
+    const lastYear = years[years.length - 1];
+    const latestFx = (lastYear != null ? fxByYear.get(lastYear) : undefined) ?? 1;
+    const last = opts.annual[opts.annual.length - 1];
+    const anchor = incomeAnchor(opts.income);
+    const scale = buildScaleForTicker({
+      ticker: opts.yahooTicker,
+      listingCurrency: opts.listingCurrency,
+      reportedCurrency: reported ?? anchor?.reportedCurrency ?? null,
+      fxToListing: latestFx,
+      netIncome: last?.netIncome ?? anchor?.netIncome ?? null,
+      fmpEps: last?.eps ?? anchor?.fmpEps ?? opts.ttmEps,
+      dilutedShares: last?.dilutedShares ?? anchor?.dilutedShares ?? null,
+      price: opts.price,
+    });
+
+    const annual = opts.annual.map((p) => scaleAnnualPoint(p, scale, fxByYear.get(p.year)));
+    const estimateEps = opts.estimateEps.map((e) => ({
+      ...e,
+      eps: scalePerShare(e.eps, scale),
+    }));
+    let ttmEps = scalePerShare(opts.ttmEps, scale);
+    const lastEps = annual[annual.length - 1]?.eps ?? null;
+    if (!peInBand(impliedPe(opts.price, ttmEps)) && peInBand(impliedPe(opts.price, lastEps))) {
+      ttmEps = lastEps;
+    }
+    const scaledUnits = scale.fxToListing !== 1 || scale.perShareFactor !== 1;
+    let peTTM = impliedPe(opts.price, ttmEps);
+    if (!scaledUnits && peInBand(opts.peTTM)) peTTM = opts.peTTM;
+    if (!peInBand(peTTM)) peTTM = impliedPe(opts.price, lastEps);
+
+    const latestShares = last?.dilutedShares ?? anchor?.dilutedShares ?? null;
+    let mktCap = opts.mktCap;
+    if (opts.price != null && opts.price > 0 && latestShares != null && latestShares > 0) {
+      const ads = scale.adrRatio > 1 ? latestShares / scale.adrRatio : latestShares;
+      const implied = opts.price * ads;
+      if (
+        implied > 0 &&
+        (mktCap == null || mktCap <= 0 || mktCap / implied < 0.4 || mktCap / implied > 2.5)
+      ) {
+        mktCap = implied;
+      }
+    }
+
+    const tev = scaleTev(opts.tev, mktCap, scale);
+    const dcf = scaleDcf(opts.dcf, scale, opts.price);
+    if (!peInBand(impliedPe(opts.price, ttmEps ?? lastEps))) {
+      scale.reliable = false;
+    }
+
+    return { annual, estimateEps, ttmEps, peTTM, tev, dcf, mktCap, scale };
   }
 
   private extendForecast(
@@ -1114,6 +1287,10 @@ export class FundamentalsService {
         operatingCashFlow: fmpNum(cf.operatingCashFlow),
         freeCashFlow: fmpNum(cf.freeCashFlow),
         dividend: divByYear.get(y) ?? null,
+        dilutedShares:
+          fmpNum(inc.weightedAverageShsOutDil) ??
+          fmpNum(inc.weightedAverageShsOut) ??
+          fmpNum(km.weightedAverageShsOut),
       });
     }
 
@@ -1159,11 +1336,39 @@ export class FundamentalsService {
       estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
     }
 
-    const peTTM =
+    const peTTMRaw =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
-    const ttmEps = metric === 'eps' ? ttmEpsFrom(keyTtm, ratiosTtm, price, peTTM) : null;
+    const ttmEpsRaw = metric === 'eps' ? ttmEpsFrom(keyTtm, ratiosTtm, price, peTTMRaw) : null;
+    const aligned = await this.alignToListing({
+      yahooTicker,
+      listingCurrency: profile.currency,
+      price,
+      income,
+      annual,
+      estimateEps: estimateParsed.map((e) => ({ year: e.year, eps: e.eps })),
+      ttmEps: ttmEpsRaw,
+      peTTM: peTTMRaw,
+      tev:
+        fmpNum(keyTtm?.enterpriseValueTTM) ??
+        fmpNum(evRows[0]?.enterpriseValue) ??
+        fmpNum(evRows[0]?.enterpriseValueTTM),
+      dcf: dcf.dcf,
+      mktCap: profile.mktCap,
+    });
+    annual = aligned.annual;
+    for (let i = 0; i < estimateParsed.length; i++) {
+      const scaled = aligned.estimateEps[i]?.eps ?? null;
+      estimateParsed[i]!.eps = scaled;
+    }
+    const lastHistEpsScaled = annual[annual.length - 1]?.eps ?? null;
+    for (let i = 0; i < estimateParsed.length; i++) {
+      const prev = i === 0 ? lastHistEpsScaled : estimateParsed[i - 1]!.eps;
+      estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
+    }
+    const peTTM = aligned.peTTM;
+    const ttmEps = aligned.ttmEps;
 
     const valuation = buildValuationSeries(annual, metric, {
       currentPrice: price,
@@ -1179,14 +1384,23 @@ export class FundamentalsService {
     const roicTTM = fmpNum(keyTtm?.returnOnInvestedCapitalTTM) ?? fmpNum(keyTtm?.roicTTM);
     const dividendYieldTTM =
       fmpNum(ratiosTtm?.dividendYieldTTM) ?? fmpNum(keyTtm?.dividendYieldTTM);
-    const earningsYieldTTM =
-      fmpNum(ratiosTtm?.earningsYieldTTM) ??
-      fmpNum(keyTtm?.earningsYieldTTM) ??
-      (price != null &&
-      valuation.summary.latestMetric != null &&
-      valuation.summary.latestMetric > 0
-        ? valuation.summary.latestMetric / price
-        : null);
+    const earningsYieldFromPrice =
+      price != null &&
+      ttmEps != null &&
+      ttmEps > 0 &&
+      price > 0
+        ? ttmEps / price
+        : price != null &&
+            valuation.summary.latestMetric != null &&
+            valuation.summary.latestMetric > 0
+          ? valuation.summary.latestMetric / price
+          : null;
+    const scaledUnits = aligned.scale.fxToListing !== 1 || aligned.scale.perShareFactor !== 1;
+    const earningsYieldTTM = scaledUnits
+      ? earningsYieldFromPrice
+      : (fmpNum(ratiosTtm?.earningsYieldTTM) ??
+        fmpNum(keyTtm?.earningsYieldTTM) ??
+        earningsYieldFromPrice);
     const debtToEquityTTM =
       fmpNum(ratiosTtm?.debtEquityRatioTTM) ?? fmpNum(ratiosTtm?.debtToEquityTTM);
     const currentRatioTTM = fmpNum(ratiosTtm?.currentRatioTTM);
@@ -1198,10 +1412,7 @@ export class FundamentalsService {
     const ltDebtToCapitalTTM =
       fmpNum(ratiosTtm?.longTermDebtToCapitalRatioTTM) ??
       fmpNum(keyTtm?.longTermDebtToCapitalRatioTTM);
-    const tev =
-      fmpNum(keyTtm?.enterpriseValueTTM) ??
-      fmpNum(evRows[0]?.enterpriseValue) ??
-      fmpNum(evRows[0]?.enterpriseValueTTM);
+    const tev = aligned.tev;
 
     const fwdEps = estimateParsed[0]?.eps ?? null;
     const fwdPe = price != null && fwdEps != null && fwdEps > 0 ? price / fwdEps : null;
@@ -1230,7 +1441,7 @@ export class FundamentalsService {
         ? null
         : (growth ?? 0) + divYldPts + reversion;
 
-    const dcfVal = dcf.dcf;
+    const dcfVal = aligned.dcf;
     const dcfPremiumPct =
       dcfVal != null && price != null && dcfVal > 0 ? ((price - dcfVal) / dcfVal) * 100 : null;
 
@@ -1268,13 +1479,14 @@ export class FundamentalsService {
         sector: profile.sector,
         industry: profile.industry,
         description: profile.description,
-        mktCap: profile.mktCap,
+        mktCap: aligned.mktCap,
         price,
         beta: profile.beta,
         country: profile.country ?? null,
         website: profile.website ?? null,
         image: profile.image ?? null,
       },
+      scale: aligned.scale,
       snapshot: {
         peTTM,
         ttmEps,

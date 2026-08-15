@@ -273,6 +273,8 @@ export const InstrumentFundamentalsSchema = new Schema(
     growthRatePct: Number,
     blendedPe: Number,
     ltDebtToCapitalTTM: Number,
+    scaleVersion: Number,
+    valuationReliable: Boolean,
     fetchedAt: Date,
     updatedAt: { type: Date, default: Date.now },
   },

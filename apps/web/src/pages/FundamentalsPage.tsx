@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { buildValuationSeries, sliceToWindow, type ValuationMetric, type ValuationWindowYears } from '@vova/engine';
+import {
+  buildValuationSeries,
+  formatScaleCaption,
+  sliceToWindow,
+  type ValuationMetric,
+  type ValuationWindowYears,
+} from '@vova/engine';
 import { api, type CustomDcfAssumptions, type CustomDcfPayload, type HorizonReturns } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { mountValuationChart } from '../components/mountValuationChart';
@@ -45,6 +51,12 @@ function asPctPoints(n: number | null | undefined): number | null {
 
 function ratio(n: number | null | undefined, digits = 2) {
   if (n == null || !Number.isFinite(n)) return '—';
+  return n.toFixed(digits);
+}
+
+function multiple(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const digits = n >= 1 ? 1 : n >= 0.1 ? 2 : 3;
   return n.toFixed(digits);
 }
 
@@ -199,6 +211,9 @@ export function FundamentalsPage() {
                 {tab === 'forecasting' && snap?.estAnnualRorPct != null ? (
                   <> · Est. ROR {pct(snap.estAnnualRorPct)}</>
                 ) : null}
+                {formatScaleCaption(fundQ.data?.scale ?? null) ? (
+                  <> · {formatScaleCaption(fundQ.data?.scale ?? null)}</>
+                ) : null}
               </p>
             </div>
             <dl className="fund-hero-stats">
@@ -215,7 +230,7 @@ export function FundamentalsPage() {
               </div>
               <div>
                 <dt>Normal P/E</dt>
-                <dd>{summary ? money(summary.normalMultiple, 1) : '—'}×</dd>
+                <dd>{summary ? `${multiple(summary.normalMultiple)}×` : '—'}</dd>
               </div>
             </dl>
           </section>
@@ -274,7 +289,7 @@ export function FundamentalsPage() {
                       : '—'
                   }
                 />
-                <Metric label="Normal P/E" value={`${ratio(summary?.normalMultiple, 1)}×`} />
+                <Metric label="Normal P/E" value={`${multiple(summary?.normalMultiple)}×`} />
                 <Metric label="Blended P/E" value={ratio(snap.blendedPe)} />
                 <Metric label="EPS Yld" value={pct(asPctPoints(snap.earningsYieldTTM))} />
                 <Metric label="Div Yld" value={pct(asPctPoints(snap.dividendYieldTTM))} />
@@ -287,6 +302,10 @@ export function FundamentalsPage() {
                 />
                 <Metric label="Country" value={profile?.country ?? '—'} />
                 <Metric label="Industry" value={profile?.industry ?? '—'} />
+                <Metric
+                  label="Units"
+                  value={formatScaleCaption(fundQ.data?.scale ?? null) ?? (profile?.currency ?? '—')}
+                />
               </aside>
             ) : null}
 
@@ -392,6 +411,10 @@ export function FundamentalsPage() {
             <Metric label="Industry" value={profile.industry ?? '—'} />
             <Metric label="Country" value={profile.country ?? '—'} />
             <Metric label="Exchange" value={profile.exchange ?? '—'} />
+            <Metric
+              label="Units"
+              value={formatScaleCaption(fundQ.data?.scale ?? null) ?? (profile.currency ?? '—')}
+            />
             <Metric label="Market Cap" value={compact(profile.mktCap)} />
             <Metric label="Beta" value={ratio(profile.beta)} />
           </div>
@@ -424,9 +447,10 @@ export function FundamentalsPage() {
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
           Fair value = GAAP diluted EPS × 15× when 5y EPS CAGR &lt; 15%, else PEG=1 (ratio = growth %).
-          Normal P/E is the median price/EPS on the selected 5Y / 10Y / MAX window. Figures from
-          Financial Modeling Prep — GAAP diluted, not FAST Graphs adjusted operating EPS. S&amp;P
-          credit rating is not in FMP.
+          Normal P/E is the median price/EPS on the selected 5Y / 10Y / MAX window. Per-share
+          figures are converted to the listing currency (and per ADS when the ADR ratio is known).
+          Source: Financial Modeling Prep GAAP diluted, not FAST Graphs adjusted operating EPS.
+          S&amp;P credit rating is not in FMP.
           {fundQ.data?.cached ? ' · cached' : ''}
         </p>
       ) : null}

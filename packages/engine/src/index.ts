@@ -18,3 +18,4 @@ export {
   type CloseScanOptions,
 } from './sequenceVova';
 export * from './fundamentalsValuation';
+export * from './fundamentalsScale';
