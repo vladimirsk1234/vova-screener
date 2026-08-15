@@ -786,9 +786,14 @@ a {
   text-align: center;
 }
 
+.chart-page--fundamentals .chart-stage {
+  flex: 1 1 auto;
+  min-height: 52vh;
+}
+
 .chart-fund-metrics {
   flex: 0 1 auto;
-  max-height: min(42vh, 360px);
+  max-height: min(28vh, 240px);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -803,7 +808,20 @@ a {
 }
 
 .chart-fund-metrics .fund-headline {
-  font-size: 1.35rem;
+  font-size: 1.2rem;
+}
+
+.chart-fund-metrics .fund-hero {
+  gap: 6px;
+  padding: 0;
+}
+
+.chart-fund-metrics .fund-hero-stats {
+  gap: 4px;
+}
+
+.chart-fund-metrics .fund-hero-stats div {
+  padding: 4px 0;
 }
 
 .chart-fund-metrics .chip-row {
@@ -840,27 +858,39 @@ a {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
-.chart-fund-legend {
+.chart-fund-hud {
   position: absolute;
   top: 10px;
   left: 12px;
   z-index: 3;
+  max-width: min(92%, 360px);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(12, 14, 18, 0.62);
+  pointer-events: none;
+}
+
+.chart-fund-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px 12px;
   margin: 0;
   padding: 0;
   list-style: none;
   font-size: 0.78rem;
   color: var(--text);
-  pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .chart-fund-legend li {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.chart-fund-div {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--text);
 }
 
 .chart-watermark {

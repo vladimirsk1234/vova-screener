@@ -63,6 +63,8 @@ export class InstrumentsService {
       noRrReq?: boolean;
       asOf?: string;
       chartParams?: Partial<IndicatorParams>;
+      /** Skip the TA window trim (80 weekly bars) so Fundamentals can show the full cached series. */
+      fullSeries?: boolean;
     } = {},
   ) {
     const { bars: series } = await this.bars.getBars(yahooTicker, tf, {
@@ -105,7 +107,7 @@ export class InstrumentsService {
       await this.syncTrackedAge(yahooTicker, tf, bars[bars.length - 1].date, age);
     }
 
-    const keep = maxBarsForTf(tf);
+    const keep = opts.fullSeries ? bars.length : maxBarsForTf(tf);
     const start = Math.max(0, bars.length - keep);
     const instrument = await this.universe.findOne(yahooTicker);
     const tvSymbol = instrument?.tvSymbol ?? yahooTicker;
