@@ -73,6 +73,27 @@ export function mergeChartSettings(partial?: Partial<ChartSettings> | null): Cha
   return applyHardcodedSettings({ ...DEFAULT_CHART_SETTINGS, ...(partial ?? {}) });
 }
 
+/** Fundamentals view: weekly candles only. Does not go through applyHardcodedSettings. */
+export function stripTaOverlays(settings: ChartSettings): ChartSettings {
+  return {
+    ...settings,
+    show_crit_level: false,
+    show_hhll: false,
+    show_extension_lines: false,
+    show_fib: false,
+    show_short_ema: false,
+    show_center_ema: false,
+    show_sma_major: false,
+    show_elder_envelope: false,
+    show_elder_impulse: false,
+    show_bb: false,
+    show_bb_background: false,
+    show_breaks: false,
+    show_tp_sl: false,
+    show_watermark: false,
+  };
+}
+
 /** Numeric params that require server recompute. */
 export function numericChartParams(s: ChartSettings): Partial<ChartSettings> {
   return {

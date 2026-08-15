@@ -42,9 +42,12 @@ test.describe('chart parity UI', () => {
     await expect(page.locator('.chart-stage .chart-host')).toBeVisible();
     await expect(page.locator('.chart-host')).toHaveCount(1);
     await expect(page.locator('.fund-chart-host')).toHaveCount(0);
-    await expect(page.getByText('fair value')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
+    await expect(page.getByText('Fair value', { exact: true })).toBeVisible();
+    await expect(page.getByText('Normal P/E').first()).toBeVisible();
 
     await page.getByRole('tab', { name: 'TA', exact: true }).click();
     await expect(page).toHaveURL(/\/chart\/AAPL$/);
@@ -58,6 +61,7 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('tab', { name: 'Fundamentals', exact: true })).toHaveClass(/active/);
     await expect(page.locator('.chart-stage .chart-host')).toBeVisible();
     await expect(page.locator('.fund-chart-host')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
   });
 
   test('default chart host uses Streamlit-grey canvas area', async ({ page }) => {

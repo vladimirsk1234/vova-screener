@@ -9,7 +9,7 @@ import {
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
-import type { ChartDrawing, ChartPayload, ChartSettings } from '../lib/api';
+import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
 
 type LinePoint = { time: Time; value: number; color?: string };
 
@@ -138,6 +138,7 @@ export function mountSequenceChart(
   settings: ChartSettings,
   drawings: ChartDrawing[] = [],
   trade: ChartTrade | null = null,
+  valuationSeries: ValuationSeriesPoint[] = [],
 ): { destroy: () => void; fitContent: () => void; chart: IChartApi } {
   const chart = createChart(container, {
     autoSize: true,
@@ -447,6 +448,46 @@ export function mountSequenceChart(
 
   markers.sort((a, b) => String(a.time).localeCompare(String(b.time)));
   createSeriesMarkers(candle, markers);
+
+  if (valuationSeries.length) {
+    const fairPts: LinePoint[] = [];
+    const normalPts: LinePoint[] = [];
+    for (const p of valuationSeries) {
+      const time = p.date.slice(0, 10) as Time;
+      if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
+        fairPts.push({ time, value: p.fairValue });
+      }
+      if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue > 0) {
+        normalPts.push({ time, value: p.normalValue });
+      }
+    }
+    if (fairPts.length) {
+      const fair = chart.addSeries(LineSeries, {
+        color: '#ff9800',
+        lineWidth: 2,
+        lineStyle: 0,
+        lineType: LineType.WithSteps,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: true,
+      });
+      lines.push(fair);
+      fair.setData(fairPts);
+    }
+    if (normalPts.length) {
+      const normal = chart.addSeries(LineSeries, {
+        color: '#42a5f5',
+        lineWidth: 2,
+        lineStyle: 0,
+        lineType: LineType.WithSteps,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: true,
+      });
+      lines.push(normal);
+      normal.setData(normalPts);
+    }
+  }
 
   chart.timeScale().fitContent();
 

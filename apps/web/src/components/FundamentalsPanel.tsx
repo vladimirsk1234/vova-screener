@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import {
-  buildValuationSeries,
   formatScaleCaption,
   sliceToWindow,
   type ValuationMetric,
+  type ValuationSummary,
   type ValuationWindowYears,
 } from '@vova/engine';
-import { api, type CustomDcfAssumptions, type CustomDcfPayload, type HorizonReturns } from '../lib/api';
+import {
+  api,
+  type CustomDcfAssumptions,
+  type CustomDcfPayload,
+  type FundamentalsPayload,
+  type HorizonReturns,
+} from '../lib/api';
 import { Chips } from '../components/Chips';
-import { mountValuationChart } from '../components/mountValuationChart';
 
 const METRICS = [
   { id: 'eps' as const, label: 'EPS' },
@@ -78,42 +83,24 @@ function growthLabel(source: string | undefined) {
   return source === 'forward' ? 'Growth (fwd)' : 'Growth (5y)';
 }
 
-export function FundamentalsPanel({ ticker }: { ticker: string }) {
-  const [metric, setMetric] = useState<ValuationMetric>('eps');
-  const [windowYears, setWindowYears] = useState<ValuationWindowYears>(5);
+export function FundamentalsPanel({
+  ticker,
+  metric,
+  setMetric,
+  windowYears,
+  setWindowYears,
+  fundQ,
+  valuation,
+}: {
+  ticker: string;
+  metric: ValuationMetric;
+  setMetric: (metric: ValuationMetric) => void;
+  windowYears: ValuationWindowYears;
+  setWindowYears: (windowYears: ValuationWindowYears) => void;
+  fundQ: UseQueryResult<FundamentalsPayload>;
+  valuation: { summary: ValuationSummary } | null;
+}) {
   const [tab, setTab] = useState<FundTab>('summary');
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const destroyRef = useRef<(() => void) | null>(null);
-
-  const fundQ = useQuery({
-    queryKey: ['fundamentals', ticker],
-    queryFn: () => api.fundamentals(ticker, 'eps'),
-    enabled: Boolean(ticker),
-    staleTime: 60_000,
-  });
-
-  const valuation = useMemo(() => {
-    if (!fundQ.data) return null;
-    return buildValuationSeries(fundQ.data.annual, metric, {
-      currentPrice: fundQ.data.profile.price,
-      windowYears,
-      // FMP only estimates EPS; the other metrics stay on trailing growth.
-      forward:
-        metric === 'eps'
-          ? fundQ.data.estimates.map((e) => ({ year: e.year, metric: e.eps }))
-          : [],
-      ttmMetric: metric === 'eps' ? fundQ.data.snapshot.ttmEps : null,
-    });
-  }, [fundQ.data, metric, windowYears]);
-
-  const chartSeries = useMemo(() => {
-    if (!fundQ.data || !valuation) return [];
-    const lastYear = valuation.series[valuation.series.length - 1]?.year ?? 0;
-    const extra = fundQ.data.forecastSeries.filter(
-      (p) => p.estimated && p.year > lastYear,
-    );
-    return [...valuation.series, ...extra];
-  }, [fundQ.data, valuation]);
 
   const fyRows = useMemo(() => {
     if (!fundQ.data) return [];
@@ -122,19 +109,6 @@ export function FundamentalsPanel({ ticker }: { ticker: string }) {
     if (minYear == null) return [];
     return fundQ.data.incomeTrend.filter((row) => row.year >= minYear);
   }, [fundQ.data, windowYears]);
-
-  useEffect(() => {
-    if (!hostRef.current || !chartSeries.length || (tab !== 'summary' && tab !== 'forecasting')) {
-      return;
-    }
-    destroyRef.current?.();
-    const mounted = mountValuationChart(hostRef.current, chartSeries);
-    destroyRef.current = mounted.destroy;
-    return () => {
-      destroyRef.current?.();
-      destroyRef.current = null;
-    };
-  }, [chartSeries, tab]);
 
   const snap = fundQ.data?.snapshot;
   const profile = fundQ.data?.profile;
@@ -229,24 +203,6 @@ export function FundamentalsPanel({ ticker }: { ticker: string }) {
           ) : null}
 
           <div className="fund-layout">
-            <div className="fund-chart-stage">
-              <div className="fund-chart-host" ref={hostRef} />
-              <ul className="fund-legend" aria-label="Chart legend">
-                <li>
-                  <span className="fund-swatch fund-swatch--power" /> EPS
-                </li>
-                <li>
-                  <span className="fund-swatch fund-swatch--price" /> Price
-                </li>
-                <li>
-                  <span className="fund-swatch fund-swatch--fair" /> Fair value
-                </li>
-                <li>
-                  <span className="fund-swatch fund-swatch--normal" /> Normal P/E
-                </li>
-              </ul>
-            </div>
-
             {tab === 'summary' && snap ? (
               <aside className="fund-sidebar">
                 <Metric
