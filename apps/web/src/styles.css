@@ -451,8 +451,16 @@ a {
   cursor: pointer;
 }
 
+.signal-card {
+  --card-muted: #b8bdc8;
+}
+
+.signal-card .muted {
+  color: var(--card-muted);
+}
+
 .signal-card.compact {
-  padding: 8px 10px;
+  padding: 10px 12px;
   margin-bottom: 8px;
 }
 
@@ -471,16 +479,20 @@ a {
   flex: 1;
 }
 
+.signal-card-title strong {
+  font-size: 1.125rem;
+}
+
 .signal-card-title .ellipsis {
   flex: 1;
   min-width: 0;
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
 }
 
 .signal-card-title .badge {
   flex-shrink: 0;
-  font-size: 0.65rem;
-  padding: 1px 5px;
+  font-size: 0.75rem;
+  padding: 2px 6px;
 }
 
 .signal-card-date {
@@ -494,8 +506,9 @@ a {
   flex-wrap: wrap;
   align-items: center;
   column-gap: 2px;
+  row-gap: 6px;
   margin-top: 4px;
-  font-size: 0.8rem;
+  font-size: 1rem;
 }
 
 .signal-card-metrics > span {
@@ -503,12 +516,12 @@ a {
 }
 
 .signal-card-metrics .lbl {
-  color: var(--muted);
-  font-size: 0.7rem;
+  color: var(--card-muted);
+  font-size: 0.875rem;
 }
 
 .signal-card-metrics .sep {
-  color: var(--muted);
+  color: var(--card-muted);
   margin: 0 5px;
   flex-shrink: 0;
 }
@@ -518,9 +531,10 @@ a {
   flex-wrap: wrap;
   align-items: center;
   column-gap: 2px;
+  row-gap: 6px;
   margin-top: 2px;
-  font-size: 0.75rem;
-  color: var(--muted);
+  font-size: 0.9375rem;
+  color: var(--card-muted);
 }
 
 .signal-card-fundamentals > span {
@@ -528,12 +542,12 @@ a {
 }
 
 .signal-card-fundamentals .lbl {
-  color: var(--muted);
-  font-size: 0.65rem;
+  color: var(--card-muted);
+  font-size: 0.8125rem;
 }
 
 .signal-card-fundamentals .sep {
-  color: var(--muted);
+  color: var(--card-muted);
   margin: 0 5px;
   flex-shrink: 0;
 }
@@ -544,7 +558,7 @@ a {
 
 .signal-card.compact .btn-sm {
   min-height: 36px;
-  font-size: 0.85rem;
+  font-size: 1rem;
 }
 
 .card-actions {
@@ -697,12 +711,12 @@ a {
 
 .chart-pine-row .badge {
   padding: 1px 6px;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   flex-shrink: 0;
 }
 
 .chart-pine-metric {
-  font-size: 12px;
+  font-size: 0.9375rem;
   color: var(--text);
   white-space: nowrap;
   flex-shrink: 0;
@@ -991,8 +1005,8 @@ a {
 }
 
 .signal-card-badges .badge {
-  font-size: 0.65rem;
-  padding: 1px 6px;
+  font-size: 0.75rem;
+  padding: 2px 7px;
 }
 
 .badge.warn-badge {
@@ -1002,6 +1016,7 @@ a {
 
 .signal-card-foot {
   margin: 4px 0 0;
+  font-size: 0.875rem;
 }
 
 .period-row {
