@@ -457,7 +457,13 @@ export function mountSequenceChart(
       if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
         fairPts.push({ time, value: p.fairValue });
       }
-      if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue > 0) {
+      // Forward estimates stay on the fair-value stepline only — no Normal P/E.
+      if (
+        !p.estimated &&
+        p.normalValue != null &&
+        Number.isFinite(p.normalValue) &&
+        p.normalValue > 0
+      ) {
         normalPts.push({ time, value: p.normalValue });
       }
     }
