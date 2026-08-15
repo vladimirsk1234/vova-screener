@@ -21,6 +21,7 @@ import {
 import { TRACKED_SIGNAL } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import { UniverseService } from '../universe/universe.service';
+import { FundamentalsService, formatDailyChgStr } from './fundamentals.service';
 
 const TFS: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
 
@@ -43,6 +44,7 @@ export class InstrumentsService {
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     private readonly bars: BarsService,
     private readonly universe: UniverseService,
+    private readonly fundamentals: FundamentalsService,
   ) {}
 
   /**
@@ -113,7 +115,8 @@ export class InstrumentsService {
     // did on that bar, not as it reads today.
     const upTo = (other: OhlcSeries | null) =>
       !other || !asOf ? other : other.filter((bar) => bar.date <= asOf);
-    const [dailyCached, weeklyCached, monthlyCached] = await Promise.all([
+    const lastClose = bars[bars.length - 1]?.close ?? null;
+    const [dailyCached, weeklyCached, monthlyCached, chartFund] = await Promise.all([
       tf === 'Daily' ? Promise.resolve(bars) : this.bars.getCached(yahooTicker, 'Daily').then(upTo),
       tf === 'Weekly'
         ? Promise.resolve(bars)
@@ -121,7 +124,13 @@ export class InstrumentsService {
       tf === 'Monthly'
         ? Promise.resolve(bars)
         : this.bars.getCached(yahooTicker, 'Monthly').then(upTo),
+      this.fundamentals.getChartFundamentals(yahooTicker, { close: lastClose }),
     ]);
+
+    const dailyBars = dailyCached;
+    const dailyClose = dailyBars?.length ? dailyBars[dailyBars.length - 1].close : lastClose;
+    const prevDailyClose =
+      dailyBars && dailyBars.length >= 2 ? dailyBars[dailyBars.length - 2].close : null;
 
     const dwmLines = full
       ? buildDwmLines({
@@ -137,7 +146,12 @@ export class InstrumentsService {
     const watermark = full
       ? buildWatermarkParts({
           fundamentals: {
-            company_name: instrument?.companyName ?? yahooTicker,
+            company_name: instrument?.companyName ?? chartFund.company_name ?? yahooTicker,
+            pe_str: chartFund.pe_str,
+            earn_str: chartFund.earn_str,
+            mcap_str: chartFund.mcap_str,
+            daily_chg_str: formatDailyChgStr(dailyClose, prevDailyClose),
+            description: chartFund.description,
           },
           full,
           params,

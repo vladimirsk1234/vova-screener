@@ -252,6 +252,22 @@ export class FmpClient {
   }
 
   /**
+   * Per-symbol earnings reports (past + upcoming). Empty on error / missing key.
+   * https://financialmodelingprep.com/stable/earnings?symbol=AAPL
+   */
+  async earnings(symbol: string): Promise<FmpEarningsRow[]> {
+    try {
+      return asArr(await this.get('/earnings', { symbol })).map((r) => ({
+        date: str(r.date),
+        epsActual: num(r.epsActual) ?? num(r.eps),
+        epsEstimated: num(r.epsEstimated) ?? num(r.estimatedEps),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Last reported diluted EPS on or before `asOf` (annual preferred, else quarterly).
    * Used for History "profitable at entry".
    */
@@ -318,6 +334,12 @@ export class FmpClient {
     return out;
   }
 }
+
+export type FmpEarningsRow = {
+  date: string | null;
+  epsActual: number | null;
+  epsEstimated: number | null;
+};
 
 export const CUSTOM_DCF_ASSUMPTION_KEYS = [
   'revenueGrowthPct',

@@ -6,6 +6,7 @@ import {
   completeFiscalYears,
   yoyChgPct,
   type AnnualFundamentalPoint,
+  type ChartFundamentals,
   type ForwardMetricPoint,
   type ValuationMetric,
   type ValuationSeriesPoint,
@@ -23,6 +24,7 @@ import {
   sanitizeCustomDcfAssumptions,
   yahooToFmpSymbol,
   type CustomDcfPayload,
+  type FmpEarningsRow,
 } from '../market/fmp.client';
 import type { FundamentalsFilter } from '../settings/settings.module';
 import { UniverseService } from '../universe/universe.service';
@@ -166,6 +168,8 @@ export type FundamentalsPayload = {
     dcfPremiumPct: number | null;
     altmanZScore: number | null;
     piotroskiScore: number | null;
+    /** YYYY-MM-DD of the next (or still-pending) earnings report. */
+    nextEarningsDate: string | null;
   };
   valuation: ReturnType<typeof buildValuationSeries>;
   forecastSeries: ValuationSeriesPoint[];
@@ -256,12 +260,103 @@ function ttmEpsFrom(
   return null;
 }
 
+function todayIso(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function formatPeStr(pe: number | null | undefined): string {
+  if (pe == null || !Number.isFinite(pe)) return 'N/A';
+  return pe.toFixed(2);
+}
+
+function formatMcapStr(mcap: number | null | undefined): string {
+  if (mcap == null || !Number.isFinite(mcap) || mcap <= 0) return 'N/A';
+  if (mcap >= 1e12) return `${Number((mcap / 1e12).toFixed(2))}T`;
+  if (mcap >= 1e9) return `${Number((mcap / 1e9).toFixed(2))}B`;
+  return `${Number((mcap / 1e6).toFixed(2))}M`;
+}
+
+/** Daily % change for the chart watermark. Empty string when bars are missing (not N/A). */
+export function formatDailyChgStr(
+  close: number | null | undefined,
+  prev: number | null | undefined,
+): string {
+  if (close == null || prev == null || !Number.isFinite(close) || !Number.isFinite(prev) || prev === 0) {
+    return '';
+  }
+  const chg = ((close - prev) / prev) * 100;
+  if (!Number.isFinite(chg)) return '';
+  const sign = chg >= 0 ? '+' : '';
+  return `${sign}${chg.toFixed(2)}%`;
+}
+
+/** Nearest report on/after today; else the latest past date still missing an actual. */
+export function pickNextEarningsDate(
+  rows: Array<Pick<FmpEarningsRow, 'date' | 'epsActual'>>,
+  today = todayIso(),
+): string | null {
+  const future: string[] = [];
+  const pendingPast: string[] = [];
+  for (const r of rows) {
+    const d = r.date;
+    if (!d) continue;
+    if (d >= today) future.push(d);
+    else if (r.epsActual == null) pendingPast.push(d);
+  }
+  future.sort();
+  if (future[0]) return future[0];
+  pendingPast.sort();
+  return pendingPast.length ? pendingPast[pendingPast.length - 1]! : null;
+}
+
+export function formatEarnStr(dateIso: string | null | undefined, today = todayIso()): string {
+  if (!dateIso) return 'N/A';
+  const t0 = Date.parse(`${today}T00:00:00Z`);
+  const t1 = Date.parse(`${dateIso.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(t0) || !Number.isFinite(t1)) return 'N/A';
+  const days = Math.round((t1 - t0) / 86_400_000);
+  if (days <= 0) return 'Today';
+  return `${days}d`;
+}
+
+function emptyChartFundamentals(ticker: string): ChartFundamentals {
+  return {
+    company_name: ticker,
+    pe_str: 'N/A',
+    earn_str: 'N/A',
+    mcap_str: 'N/A',
+    daily_chg_str: '',
+    description: null,
+  };
+}
+
+function finiteOrNull(n: number | null | undefined): number | null {
+  return n != null && Number.isFinite(n) ? n : null;
+}
+
+/** Keep a stored report date only while it is still today or in the future. */
+function usableEarnDate(dateIso: string | null | undefined, today = todayIso()): string | null {
+  if (!dateIso) return null;
+  const d = dateIso.slice(0, 10);
+  return d >= today ? d : null;
+}
+
+type ChartFundCacheEntry = {
+  at: number;
+  company_name: string;
+  pe: number | null;
+  mcap: number | null;
+  nextEarningsDate: string | null;
+  description: string | null;
+};
+
 @Injectable()
 export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
   private readonly cache = new Map<string, CacheEntry>();
   private readonly dcfCache = new Map<string, DcfCacheEntry>();
   private readonly cardCache = new Map<string, CardCacheEntry>();
+  private readonly chartFundCache = new Map<string, ChartFundCacheEntry>();
   private readonly failedAt = new Map<string, number>();
   private readonly warmQueued = new Set<string>();
   private readonly warmQueue: string[] = [];
@@ -293,6 +388,96 @@ export class FundamentalsService {
     const payload = await this.fetchFresh(ticker, metric);
     await this.persist(ticker, payload, 'full');
     return payload;
+  }
+
+  /**
+   * Slim PE / mcap / days-to-earnings for the chart watermark.
+   * Mongo first; at most ratios-ttm + earnings when those fields are missing. Never a full pull.
+   */
+  async getChartFundamentals(
+    yahooTicker: string,
+    opts: { close?: number | null; prevDailyClose?: number | null } = {},
+  ): Promise<ChartFundamentals> {
+    const ticker = String(yahooTicker || '')
+      .trim()
+      .toUpperCase();
+    const dailyChg = formatDailyChgStr(opts.close, opts.prevDailyClose);
+    if (!ticker) return { ...emptyChartFundamentals(''), daily_chg_str: dailyChg };
+
+    try {
+      const hit = this.chartFundCache.get(ticker);
+      if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+        return {
+          company_name: hit.company_name,
+          pe_str: formatPeStr(hit.pe),
+          earn_str: formatEarnStr(hit.nextEarningsDate),
+          mcap_str: formatMcapStr(hit.mcap),
+          daily_chg_str: dailyChg,
+          description: hit.description,
+        };
+      }
+
+      const stored = await this.loadStored(ticker);
+      let pe = finiteOrNull(stored?.snapshot.peTTM);
+      const ttmEps = finiteOrNull(stored?.snapshot.ttmEps);
+      let mcap = finiteOrNull(stored?.profile.mktCap);
+      let nextEarn = usableEarnDate(stored?.snapshot.nextEarningsDate);
+      const companyName = stored?.profile.companyName || ticker;
+      const description = stored?.profile.description ?? null;
+
+      if (pe == null && opts.close != null && ttmEps != null && ttmEps !== 0) {
+        const implied = opts.close / ttmEps;
+        if (Number.isFinite(implied)) pe = implied;
+      }
+
+      const needPe = pe == null;
+      const needEarn = nextEarn == null;
+      if ((needPe || needEarn) && this.fmp.configured()) {
+        const fmpSymbol = yahooToFmpSymbol(ticker);
+        const [ratiosTtm, keyTtm, rows] = await Promise.all([
+          needPe ? this.fmp.ratiosTtm(fmpSymbol) : Promise.resolve(null),
+          needPe ? this.fmp.keyMetricsTtm(fmpSymbol) : Promise.resolve(null),
+          needEarn ? this.fmp.earnings(fmpSymbol) : Promise.resolve([] as FmpEarningsRow[]),
+        ]);
+        if (needPe) {
+          pe =
+            fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
+            fmpNum(ratiosTtm?.peRatioTTM) ??
+            fmpNum(keyTtm?.peRatioTTM);
+          if (pe == null && opts.close != null) {
+            const eps = ttmEpsFrom(keyTtm, ratiosTtm, opts.close, pe);
+            if (eps != null && eps !== 0) {
+              const implied = opts.close / eps;
+              if (Number.isFinite(implied)) pe = implied;
+            }
+          }
+        }
+        if (needEarn) nextEarn = pickNextEarningsDate(rows);
+      }
+
+      this.chartFundCache.set(ticker, {
+        at: Date.now(),
+        company_name: companyName,
+        pe,
+        mcap,
+        nextEarningsDate: nextEarn,
+        description,
+      });
+
+      return {
+        company_name: companyName,
+        pe_str: formatPeStr(pe),
+        earn_str: formatEarnStr(nextEarn),
+        mcap_str: formatMcapStr(mcap),
+        daily_chg_str: dailyChg,
+        description,
+      };
+    } catch (err) {
+      this.log.warn(
+        `chart fundamentals ${ticker}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { ...emptyChartFundamentals(ticker), daily_chg_str: dailyChg };
+    }
   }
 
   /**
@@ -594,6 +779,7 @@ export class FundamentalsService {
         fwdPe,
         dcfPremiumPct,
         estAnnualRorPct,
+        nextEarningsDate: stored.snapshot.nextEarningsDate ?? null,
       },
       valuation,
       forecastSeries: this.extendForecast(
@@ -813,6 +999,7 @@ export class FundamentalsService {
       evRows,
       tickerBarsRes,
       spyBarsRes,
+      earningsRows,
     ] = await Promise.all([
       this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
       this.fmp.incomeAnnual(fmpSymbol).catch(() => []),
@@ -841,6 +1028,7 @@ export class FundamentalsService {
         fromCache: false,
         fetchedAt: null,
       })),
+      this.fmp.earnings(fmpSymbol),
     ]);
 
     if (!profile.companyName && !income.length) {
@@ -1114,6 +1302,7 @@ export class FundamentalsService {
         dcfPremiumPct,
         altmanZScore: scores.altmanZScore,
         piotroskiScore: scores.piotroskiScore,
+        nextEarningsDate: pickNextEarningsDate(earningsRows),
       },
       valuation,
       forecastSeries,
