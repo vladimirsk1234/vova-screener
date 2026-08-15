@@ -8,23 +8,27 @@ import {
   type Interest,
   type ResultRow,
   type Timeframe,
+  type ValuationSeriesPoint,
 } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
-import { FundamentalsMetricsPanel } from '../components/FundamentalsMetricsPanel';
+import { FundamentalsPanel } from '../components/FundamentalsPanel';
 import { mountSequenceChart, type ChartTrade } from '../components/mountSequenceChart';
 import { barsLabel, signedMoney } from '../lib/format';
 import {
   DEFAULT_CHART_SETTINGS,
   mergeChartSettings,
   numericChartParams,
+  stripTaOverlays,
 } from '../lib/chartSettings';
 import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
 import { lastResultsPath } from '../lib/tabMemory';
+import { useFundamentalsValuation } from '../lib/useFundamentalsValuation';
 
 type ChartNavState = { row?: ResultRow };
 type ChartView = 'ta' | 'fundamentals';
 const EMPTY_DRAWINGS: ChartDrawing[] = [];
+const EMPTY_VALUATION: ValuationSeriesPoint[] = [];
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -125,6 +129,7 @@ export function ChartPage() {
   const asOf = snapshot ? (trade.data?.exitDate ?? null) : null;
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
   const visibleTf: Timeframe = view === 'fundamentals' ? 'Weekly' : tf;
+  const fund = useFundamentalsValuation(ticker, view === 'fundamentals');
   const chartReady = Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data);
   const chart = useQuery({
     queryKey: ['chart', ticker, visibleTf, numeric, maxRiskUsd, asOf],
@@ -179,8 +184,13 @@ export function ChartPage() {
     [tradeId, trade.data],
   );
 
-  // Daily drawings do not map onto a Weekly series; keep the stored state, just do not apply it.
-  const visibleDrawings = view === 'fundamentals' && tf !== 'Weekly' ? EMPTY_DRAWINGS : drawings;
+  const visibleDrawings = view === 'fundamentals' ? EMPTY_DRAWINGS : drawings;
+  const visibleTrade = view === 'fundamentals' ? null : chartTrade;
+  const visibleSettings = useMemo(
+    () => (view === 'fundamentals' ? stripTaOverlays(settings) : settings),
+    [view, settings],
+  );
+  const valuationSeries = view === 'fundamentals' ? fund.chartSeries : EMPTY_VALUATION;
 
   useEffect(() => {
     if (!containerRef.current || !chart.data) return;
@@ -188,9 +198,10 @@ export function ChartPage() {
     const mounted = mountSequenceChart(
       containerRef.current,
       chart.data,
-      settings,
+      visibleSettings,
       visibleDrawings,
-      chartTrade,
+      visibleTrade,
+      valuationSeries,
     );
     destroyRef.current = mounted.destroy;
 
@@ -225,7 +236,7 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [chart.data, settings, visibleDrawings, chartTrade]);
+  }, [chart.data, visibleSettings, visibleDrawings, visibleTrade, valuationSeries]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -415,7 +426,17 @@ export function ChartPage() {
             {crosshair}
           </p>
         ) : null}
-        {settings.show_watermark && wm?.lines?.length ? (
+        {view === 'fundamentals' ? (
+          <ul className="chart-fund-legend" aria-label="Chart legend">
+            <li>
+              <span className="fund-swatch fund-swatch--fair" /> Fair value
+            </li>
+            <li>
+              <span className="fund-swatch fund-swatch--normal" /> Normal P/E
+            </li>
+          </ul>
+        ) : null}
+        {view === 'ta' && settings.show_watermark && wm?.lines?.length ? (
           <div
             className="chart-watermark"
             style={{ color: settings.wm_text_color, fontSize: settings.wm_font_size }}
@@ -467,7 +488,15 @@ export function ChartPage() {
 
       {view === 'fundamentals' ? (
         <div className="chart-fund-metrics">
-          <FundamentalsMetricsPanel ticker={ticker} />
+          <FundamentalsPanel
+            ticker={ticker}
+            metric={fund.metric}
+            setMetric={fund.setMetric}
+            windowYears={fund.windowYears}
+            setWindowYears={fund.setWindowYears}
+            fundQ={fund.fundQ}
+            valuation={fund.valuation}
+          />
         </div>
       ) : null}
     </div>
