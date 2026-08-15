@@ -131,9 +131,10 @@ export function ChartPage() {
   const visibleTf: Timeframe = view === 'fundamentals' ? 'Weekly' : tf;
   const fund = useFundamentalsValuation(ticker, view === 'fundamentals');
   const chartReady = Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data);
+  const fullSeries = view === 'fundamentals';
   const chart = useQuery({
-    queryKey: ['chart', ticker, visibleTf, numeric, maxRiskUsd, asOf],
-    queryFn: () => api.chart(ticker, visibleTf, numeric, maxRiskUsd, asOf),
+    queryKey: ['chart', ticker, visibleTf, numeric, maxRiskUsd, asOf, fullSeries],
+    queryFn: () => api.chart(ticker, visibleTf, numeric, maxRiskUsd, asOf, fullSeries),
     enabled: chartReady,
   });
 
@@ -202,6 +203,7 @@ export function ChartPage() {
       visibleDrawings,
       visibleTrade,
       valuationSeries,
+      view === 'fundamentals' ? 'fundamentals' : 'ta',
     );
     destroyRef.current = mounted.destroy;
 
@@ -236,7 +238,7 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [chart.data, visibleSettings, visibleDrawings, visibleTrade, valuationSeries]);
+  }, [chart.data, visibleSettings, visibleDrawings, visibleTrade, valuationSeries, view]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -427,14 +429,36 @@ export function ChartPage() {
           </p>
         ) : null}
         {view === 'fundamentals' ? (
-          <ul className="chart-fund-legend" aria-label="Chart legend">
-            <li>
-              <span className="fund-swatch fund-swatch--fair" /> Fair value
-            </li>
-            <li>
-              <span className="fund-swatch fund-swatch--normal" /> Normal P/E
-            </li>
-          </ul>
+          <div className="chart-fund-hud">
+            <ul className="chart-fund-legend" aria-label="Chart legend">
+              <li>
+                <span className="fund-swatch fund-swatch--fair" /> Fair value
+              </li>
+              <li>
+                <span className="fund-swatch fund-swatch--normal" /> Normal P/E
+              </li>
+            </ul>
+            {fund.dividend ? (
+              <p
+                className={`chart-fund-div${
+                  fund.dividend.trend === 'growing'
+                    ? ' up-text'
+                    : fund.dividend.trend === 'falling'
+                      ? ' down-text'
+                      : ''
+                }`}
+              >
+                Div
+                {fund.dividend.yieldPct != null ? ` ${fund.dividend.yieldPct.toFixed(1)}%` : ''}
+                {fund.dividend.dps != null ? ` · $${fund.dividend.dps.toFixed(2)}` : ''}
+                {fund.dividend.trend === 'growing'
+                  ? ' · growing'
+                  : fund.dividend.trend === 'falling'
+                    ? ' · falling'
+                    : ''}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {view === 'ta' && settings.show_watermark && wm?.lines?.length ? (
           <div

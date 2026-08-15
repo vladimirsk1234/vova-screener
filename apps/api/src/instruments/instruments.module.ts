@@ -43,6 +43,7 @@ class InstrumentsController {
     @Query('multiplier') multiplier?: string,
     @Query('bbLength') bbLength?: string,
     @Query('bbMult') bbMult?: string,
+    @Query('fullSeries') fullSeries?: string,
   ) {
     const chartParams: Partial<IndicatorParams> = {};
     const num = (raw: string | undefined) => {
@@ -69,6 +70,7 @@ class InstrumentsController {
       noRrReq: noRrReq ? noRrReq === 'true' : undefined,
       asOf: /^\d{4}-\d{2}-\d{2}$/.test(asOf ?? '') ? asOf : undefined,
       chartParams,
+      fullSeries: fullSeries === '1' || fullSeries === 'true',
     });
   }
 

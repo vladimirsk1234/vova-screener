@@ -48,6 +48,13 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
     await expect(page.getByText('Fair value', { exact: true })).toBeVisible();
     await expect(page.getByText('Normal P/E').first()).toBeVisible();
+    await expect(page.locator('.chart-watermark')).toHaveCount(0);
+    await expect(page.getByText('ATR:')).toHaveCount(0);
+    await expect(page.getByText('D: Seq')).toHaveCount(0);
+    const stage = page.locator('.chart-stage');
+    await expect(stage).toBeVisible();
+    const box = await stage.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThan(280);
 
     await page.getByRole('tab', { name: 'TA', exact: true }).click();
     await expect(page).toHaveURL(/\/chart\/AAPL$/);
