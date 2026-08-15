@@ -25,7 +25,7 @@ const RESULTS_PATH_RE = new RegExp(
 const MANUAL_PATH_RE = /^\/results\/manual(\/rejected\/[^/]+)?$/;
 const HISTORY_PATH_RE = /^\/history$/;
 const CHART_PATH_RE = /^\/chart\/[^/]+$/;
-const FUNDAMENTALS_PATH_RE = /^\/fundamentals\/[^/]+$/;
+const LEGACY_FUNDAMENTALS_PATH_RE = /^\/fundamentals\/([^/]+)$/;
 
 function isHistoryTf(value: string): value is HistoryTf {
   return (HISTORY_TFS as readonly string[]).includes(value);
@@ -81,14 +81,34 @@ function isValidResultsPath(path: string): boolean {
   return RESULTS_PATH_RE.test(path);
 }
 
-function isValidAppPath(path: string): boolean {
+function isCanonicalAppPath(path: string): boolean {
   return (
     isValidResultsPath(path) ||
     MANUAL_PATH_RE.test(path) ||
     HISTORY_PATH_RE.test(path) ||
-    CHART_PATH_RE.test(path) ||
-    FUNDAMENTALS_PATH_RE.test(path)
+    CHART_PATH_RE.test(path)
   );
+}
+
+function withSearchPrefix(search: string): string {
+  if (!search) return '';
+  return search.startsWith('?') ? search : `?${search}`;
+}
+
+/** Rewrite legacy `/fundamentals/:ticker` to the unified chart window. */
+function normalizeAppLocation(
+  pathname: string,
+  search = '',
+): { path: string; search: string } | null {
+  const legacy = pathname.match(LEGACY_FUNDAMENTALS_PATH_RE);
+  if (legacy) {
+    const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+    params.set('view', 'fundamentals');
+    const q = params.toString();
+    return { path: `/chart/${legacy[1]}`, search: q ? `?${q}` : '' };
+  }
+  if (!isCanonicalAppPath(pathname)) return null;
+  return { path: pathname, search: withSearchPrefix(search) };
 }
 
 /** Remember a concrete Results route so Status / Timeframe survive leaving the tab. */
@@ -108,15 +128,17 @@ export function lastResultsPath(): string {
 
 /** Remember any primary app route so / restores where the user left off across sessions. */
 export function rememberAppPath(pathname: string, search = ''): void {
-  if (!isValidAppPath(pathname)) return;
-  writeStorage(localStorage, APP_KEY, `${pathname}${search}`);
+  const normalized = normalizeAppLocation(pathname, search);
+  if (!normalized) return;
+  writeStorage(localStorage, APP_KEY, `${normalized.path}${normalized.search}`);
 }
 
 export function lastAppPath(): string {
   const saved = migrateFromSession(APP_KEY);
   if (saved) {
-    const { path } = splitPathSearch(saved);
-    if (isValidAppPath(path)) return saved;
+    const { path, search } = splitPathSearch(saved);
+    const normalized = normalizeAppLocation(path, search);
+    if (normalized) return `${normalized.path}${normalized.search}`;
   }
   // Fall back to last Results path (may itself migrate from sessionStorage).
   return lastResultsPath();
