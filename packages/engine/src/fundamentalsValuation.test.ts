@@ -16,6 +16,7 @@ import {
   sliceToWindow,
   trailingMetricCagr,
   ttmFromQuarterly,
+  valuationChartLogicalRange,
   valuationChartRange,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
@@ -717,5 +718,28 @@ describe('valuationChartRange', () => {
     assert.equal(firstNonForecastDate(series), '2020-12-31');
     assert.equal(firstForecastDate(series), '2026-10-15');
     assert.equal(lastSeriesDate(series), '2028-12-31');
+  });
+
+  it('maps 8Y onto bar indices near 2017–2018, not 2021, and never goes negative', () => {
+    const weekMs = 7 * 86_400_000;
+    const start = Date.parse('2015-01-02T00:00:00Z');
+    const end = Date.parse('2028-12-29T00:00:00Z');
+    const timesMs: number[] = [];
+    for (let t = start; t <= end; t += weekMs) timesMs.push(t);
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 8,
+      firstHistoricalDate: firstFy8,
+      firstForecastDate: lastForecast,
+    });
+    const logical = valuationChartLogicalRange(timesMs, range);
+    assert.ok(logical.fromIdx >= 0);
+    assert.ok(logical.toIdx >= logical.fromIdx);
+    const fromIso = new Date(timesMs[logical.fromIdx]!).toISOString().slice(0, 10);
+    const toIso = new Date(timesMs[logical.toIdx]!).toISOString().slice(0, 10);
+    assert.ok(fromIso <= '2018-01-07', `fromIdx date ${fromIso} should be ~2017–2018`);
+    assert.ok(fromIso < '2021-01-01', `fromIdx date ${fromIso} must not be 2021`);
+    assert.ok(toIso < '2028-01-01', `toIdx date ${toIso} must not be the 2028 tail`);
   });
 });
