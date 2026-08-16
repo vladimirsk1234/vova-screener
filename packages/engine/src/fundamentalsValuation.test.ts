@@ -4,11 +4,15 @@ import {
   appendForwardFairValue,
   buildValuationSeries,
   cagrPct,
+  closeOnOrBefore,
   fairValueFromEstimate,
   fairValueRatioFromGrowth,
+  forwardEstimatesForMetric,
+  isoDayDiff,
   seriesForFairValueChart,
   sliceToWindow,
   trailingMetricCagr,
+  ttmFromQuarterly,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
 
@@ -330,13 +334,105 @@ describe('valuation windows', () => {
     const chart = seriesForFairValueChart(series, summary, '2026-08-16');
     const withFwd = appendForwardFairValue(
       chart,
-      [{ year: 2026, date: '2026-02-01', eps: 6 }],
+      [
+        { year: 2026, date: '2026-02-01', eps: 6 },
+        { year: 2027, date: '2027-02-01', eps: 7 },
+      ],
       summary.fairValueRatio,
     );
     const fwd = withFwd.filter((p) => p.forecast);
     assert.equal(fwd.length, 1);
-    assert.ok(fwd[0]!.date > '2026-08-16');
-    assert.equal(fwd[0]!.year, 2026);
+    assert.equal(fwd[0]!.year, 2027);
+    assert.equal(fwd[0]!.date, '2027-06-30');
+  });
+
+  it('sums the last four completed quarters for TTM', () => {
+    const got = ttmFromQuarterly(
+      [
+        { date: '2025-08-28', eps: 2.1 },
+        { date: '2025-11-27', eps: 1.8 },
+        { date: '2026-02-26', eps: 1.5 },
+        { date: '2026-05-28', eps: 1.9 },
+        { date: '2026-08-28', eps: 9.0 },
+      ],
+      '2026-08-16',
+    );
+    assert.equal(got.ttm, 2.1 + 1.8 + 1.5 + 1.9);
+    assert.equal(got.asOf, '2026-05-28');
+  });
+
+  it('does not form TTM across a missing-quarter gap', () => {
+    const got = ttmFromQuarterly(
+      [
+        { date: '2024-05-28', eps: 1 },
+        { date: '2025-08-28', eps: 2 },
+        { date: '2025-11-27', eps: 3 },
+        { date: '2026-05-28', eps: 4 },
+      ],
+      '2026-08-16',
+    );
+    assert.equal(got.ttm, null);
+    assert.equal(got.asOf, null);
+  });
+
+  it('picks the fiscal year-end close, not December', () => {
+    const bars = [
+      { date: '2025-08-28', close: 120 },
+      { date: '2025-08-29', close: 121 },
+      { date: '2025-12-31', close: 200 },
+    ];
+    assert.equal(closeOnOrBefore(bars, '2025-08-28'), 120);
+    assert.equal(closeOnOrBefore(bars, '2025-08-30'), 121);
+  });
+
+  it('does not plant a current-FY estimate 12 days after the TTM point', () => {
+    const muHist: AnnualFundamentalPoint[] = [
+      { ...fy(2024, 1.3, 90), date: '2024-08-29' },
+      { ...fy(2025, 8.29, 140), date: '2025-08-28' },
+    ];
+    const { series, summary } = buildValuationSeries(muHist, 'eps', {
+      currentPrice: 971,
+      windowYears: 5,
+      ttmMetric: 1.48,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-08-16');
+    const withFwd = appendForwardFairValue(
+      chart,
+      [
+        { year: 2026, date: '2026-08-28', eps: 72.21 },
+        { year: 2027, date: '2027-08-28', eps: 155.15 },
+        { year: 2028, date: '2028-08-28', eps: 167.25 },
+      ],
+      summary.fairValueRatio,
+      3,
+      summary.normalMultiple,
+    );
+    const ttm = withFwd.find((p) => p.estimated && !p.forecast);
+    assert.ok(ttm);
+    assert.equal(ttm.date, '2026-08-16');
+    const forecast = withFwd.filter((p) => p.forecast);
+    assert.deepEqual(
+      forecast.map((p) => p.year),
+      [2027, 2028],
+    );
+    assert.equal(forecast[0]?.date, '2027-08-28');
+    assert.ok(
+      forecast.every((p) => isoDayDiff(ttm.date, p.date) > 90),
+      'no forecast vertex within 90 days of the TTM today-point',
+    );
+    const spikeFv = 72.21 * (summary.fairValueRatio as number);
+    assert.ok(!forecast.some((p) => p.fairValue === spikeFv));
+  });
+
+  it('does not attach EPS estimates to non-EPS metrics', () => {
+    const estimates = [
+      { year: 2026, date: '2026-12-31', eps: 72 },
+      { year: 2027, date: '2027-12-31', eps: 80 },
+    ];
+    assert.equal(forwardEstimatesForMetric('eps', estimates).length, 2);
+    assert.deepEqual(forwardEstimatesForMetric('fcf', estimates), []);
+    assert.deepEqual(forwardEstimatesForMetric('revenue', estimates), []);
+    assert.deepEqual(forwardEstimatesForMetric('ownerEarnings', estimates), []);
   });
 
   it('computes table fair value as EPS × ratio', () => {

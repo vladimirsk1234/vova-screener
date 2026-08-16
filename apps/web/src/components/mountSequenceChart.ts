@@ -425,11 +425,11 @@ export function mountSequenceChart(
     handleScale: true,
   });
 
-  const { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts, dividendPts } =
+  const { fairPts, forecastPts, normalPts, normalForecastPts, dividendPts } =
     valuationLinePoints(valuationSeries);
   const dcfPts = seriesToFairPoints(dcfForecastSeries);
   if (mode === 'fundamentals') {
-    addFairValueFill(chart, [...fairPts, ...forecastOnly]);
+    addFairValueFill(chart, fairPts);
   }
 
   const candle = chart.addSeries(CandlestickSeries, {
