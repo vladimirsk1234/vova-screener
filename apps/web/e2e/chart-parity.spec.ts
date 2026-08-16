@@ -66,8 +66,14 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
-    await expect(page.getByText('Fair value', { exact: true })).toBeVisible();
-    await expect(page.getByText('Normal P/E').first()).toBeVisible();
+    const legend = page.locator('.chart-fund-hud');
+    await expect(legend.getByText('Fair value', { exact: true })).toBeVisible();
+    await expect(legend.getByText('Normal P/E').first()).toBeVisible();
+    await expect(page.locator('.chart-stage .chart-fund-hud')).toHaveCount(0);
+    const legendBox = await legend.boundingBox();
+    const toggleBox = await page.locator('.chart-view-toggle').boundingBox();
+    expect(legendBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThan(box?.y ?? 0);
+    expect(legendBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(toggleBox?.y ?? 0);
     await expect(page.locator('.chart-watermark')).toHaveCount(0);
     await expect(page.getByText('ATR:')).toHaveCount(0);
     await expect(page.getByText('D: Seq')).toHaveCount(0);

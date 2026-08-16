@@ -611,53 +611,6 @@ export function ChartPage() {
             {crosshair}
           </p>
         ) : null}
-        {view === 'fundamentals' ? (
-          <div className="chart-fund-hud">
-            <ul className="chart-fund-legend" aria-label="Chart legend">
-              <li>
-                <span className="fund-swatch fund-swatch--fair" /> Fair value
-              </li>
-              {fund.chartSeries.some((p) => p.forecast) ? (
-                <li>
-                  <span className="fund-swatch fund-swatch--fair-fwd" /> Fair value (3y)
-                </li>
-              ) : null}
-              <li>
-                <span className="fund-swatch fund-swatch--normal" /> Normal P/E
-              </li>
-              {fund.chartSeries.some((p) => p.forecast && p.normalValue != null) ? (
-                <li>
-                  <span className="fund-swatch fund-swatch--normal-fwd" /> Normal P/E (3y)
-                </li>
-              ) : null}
-              {fundTab === 'dcf' && dcfChartSeries.length ? (
-                <li>
-                  <span className="fund-swatch fund-swatch--dcf-fwd" /> DCF FV
-                </li>
-              ) : null}
-            </ul>
-            {fund.dividend ? (
-              <p
-                className={`chart-fund-div${
-                  fund.dividend.trend === 'growing'
-                    ? ' up-text'
-                    : fund.dividend.trend === 'falling'
-                      ? ' down-text'
-                      : ''
-                }`}
-              >
-                Div
-                {fund.dividend.yieldPct != null ? ` ${fund.dividend.yieldPct.toFixed(1)}%` : ''}
-                {fund.dividend.dps != null ? ` · $${fund.dividend.dps.toFixed(2)}` : ''}
-                {fund.dividend.trend === 'growing'
-                  ? ' · growing'
-                  : fund.dividend.trend === 'falling'
-                    ? ' · falling'
-                    : ''}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
         {view === 'ta' && settings.show_watermark && wm?.lines?.length ? (
           <div
             className="chart-watermark"
@@ -686,6 +639,57 @@ export function ChartPage() {
         onSave={() => savePreset.mutate()}
         onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
       />
+
+      {view === 'fundamentals' ? (
+        <div className="chart-fund-hud">
+          <ul className="chart-fund-legend" aria-label="Chart legend">
+            <li>
+              <span className="fund-swatch fund-swatch--fair" /> Fair value
+            </li>
+            {fund.chartSeries.some((p) => p.forecast) ? (
+              <li>
+                <span className="fund-swatch fund-swatch--fair-fwd" /> Fair value (3y)
+              </li>
+            ) : null}
+            <li>
+              <span className="fund-swatch fund-swatch--normal" /> Normal P/E
+            </li>
+            {fund.chartSeries.some((p) => p.forecast && p.normalValue != null) ? (
+              <li>
+                <span className="fund-swatch fund-swatch--normal-fwd" /> Normal P/E (3y)
+              </li>
+            ) : null}
+            {fundTab === 'dcf' && dcfChartSeries.length ? (
+              <li>
+                <span className="fund-swatch fund-swatch--dcf-fwd" /> DCF FV
+              </li>
+            ) : null}
+          </ul>
+          {fund.dividend ? (
+            <p
+              className={`chart-fund-div${
+                fund.dividend.trend === 'growing'
+                  ? ' up-text'
+                  : fund.dividend.trend === 'falling'
+                    ? ' down-text'
+                    : ''
+              }`}
+            >
+              {[
+                fund.dividend.yieldPct != null ? `${fund.dividend.yieldPct.toFixed(1)}%` : null,
+                fund.dividend.dps != null ? `$${fund.dividend.dps.toFixed(2)}` : null,
+                fund.dividend.trend === 'growing'
+                  ? 'growing'
+                  : fund.dividend.trend === 'falling'
+                    ? 'falling'
+                    : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="chart-view-toggle" role="tablist" aria-label="Chart view">
         <button
