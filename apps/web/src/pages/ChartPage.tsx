@@ -344,17 +344,6 @@ export function ChartPage() {
         setCrosshair('');
         return;
       }
-      if (view === 'fundamentals') {
-        setCrosshair(
-          formatFundamentalsCrosshair(
-            param.time,
-            param.seriesData,
-            valuationSeries,
-            mounted.valuation,
-          ),
-        );
-        return;
-      }
       const candle = [...(param.seriesData?.values() ?? [])][0] as
         | { open?: number; high?: number; low?: number; close?: number; value?: number }
         | undefined;
