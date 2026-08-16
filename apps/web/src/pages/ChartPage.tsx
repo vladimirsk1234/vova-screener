@@ -34,6 +34,34 @@ function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function moneyOrDash(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return money(n);
+}
+
+function growthPct(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
+}
+
+/** FMP mixes decimals (0.18) and whole percents (18). */
+function asPctPoints(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  return Math.abs(n) <= 1.5 ? n * 100 : n;
+}
+
+function valuationBadge(premiumPct: number | null | undefined): { text: string; className: string } | null {
+  if (premiumPct == null || !Number.isFinite(premiumPct)) return null;
+  const abs = Math.abs(premiumPct).toFixed(0);
+  if (premiumPct < 0) {
+    return { text: `${abs}% undervalued`, className: premiumPct < -10 ? 'up-text' : '' };
+  }
+  if (premiumPct > 0) {
+    return { text: `${abs}% overvalued`, className: premiumPct > 10 ? 'down-text' : '' };
+  }
+  return { text: 'fair', className: '' };
+}
+
 export function ChartPage() {
   const { ticker = '' } = useParams();
   const navigate = useNavigate();
@@ -276,6 +304,9 @@ export function ChartPage() {
   const showMetrics = Boolean(pine || row);
   const canMark = Boolean(row?.id);
   const marking = markInterest.isPending;
+  const fundSummary = fund.valuation?.summary;
+  const fundBadge = valuationBadge(fundSummary?.premiumPct);
+  const fundDebtPct = asPctPoints(fund.fundQ.data?.snapshot.ltDebtToCapitalTTM ?? null);
 
   const titleSymbol = chart.data?.symbol ?? ticker;
   const titleName = chart.data?.companyName;
@@ -366,6 +397,23 @@ export function ChartPage() {
           >
             {snapshot ? 'Snapshot' : 'Live'}
           </button>
+        </div>
+      ) : null}
+
+      {view === 'fundamentals' ? (
+        <div className="chart-pine-row" data-testid="fund-metrics-row">
+          {fundBadge ? (
+            <span className={`chart-pine-metric ${fundBadge.className}`}>{fundBadge.text}</span>
+          ) : null}
+          <span className="chart-pine-metric">
+            <span>FV</span> {moneyOrDash(fundSummary?.fairValue)}
+          </span>
+          <span className="chart-pine-metric">
+            <span>Growth</span> {growthPct(fundSummary?.growthRatePct)}
+          </span>
+          <span className="chart-pine-metric">
+            <span>LT D/C</span> {fundDebtPct == null ? '—' : `${fundDebtPct.toFixed(0)}%`}
+          </span>
         </div>
       ) : null}
 

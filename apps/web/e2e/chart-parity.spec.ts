@@ -56,6 +56,13 @@ test.describe('chart parity UI', () => {
     await expect(stage).toBeVisible();
     const box = await stage.boundingBox();
     expect(periodBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(box?.y ?? 0);
+    const fundRow = page.getByTestId('fund-metrics-row');
+    await expect(fundRow).toBeVisible();
+    await expect(fundRow.getByText('FV', { exact: true })).toBeVisible();
+    await expect(fundRow.getByText('Growth', { exact: true })).toBeVisible();
+    await expect(fundRow.getByText('LT D/C', { exact: true })).toBeVisible();
+    const fundRowBox = await fundRow.boundingBox();
+    expect(fundRowBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(box?.y ?? 0);
     await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();

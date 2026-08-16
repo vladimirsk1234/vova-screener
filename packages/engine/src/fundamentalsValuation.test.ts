@@ -2,7 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildValuationSeries,
+  cagrPct,
   fairValueRatioFromGrowth,
+  seriesForFairValueChart,
   sliceToWindow,
   trailingMetricCagr,
   type AnnualFundamentalPoint,
@@ -95,5 +97,74 @@ describe('valuation windows', () => {
     assert.ok(summary.growthRatePct != null);
     assert.ok(summary.fairValue != null);
     assert.ok(summary.premiumPct != null);
+  });
+
+  it('uses trailing window CAGR even when analyst estimates are present', () => {
+    const hist = mixedGrowthHistory();
+    const trailing = trailingMetricCagr(sliceToWindow(hist, 5), 'eps', 5);
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      forward: [
+        { year: 2026, metric: 20 },
+        { year: 2027, metric: 30 },
+      ],
+    });
+    assert.equal(summary.growthSource, 'trailing');
+    assert.ok(trailing != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - trailing) < 1e-9);
+  });
+
+  it('anchors fair value on TTM, not the first forward estimate', () => {
+    const { summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+      forward: [{ year: 2026, metric: 20 }],
+    });
+    assert.equal(summary.fairValueAnchor, 8);
+    assert.ok(summary.fairValueRatio != null);
+    assert.ok(summary.fairValue != null);
+    assert.ok(Math.abs(summary.fairValue - 8 * summary.fairValueRatio) < 1e-9);
+  });
+
+  it('produces a different 5Y fair value than 10Y on mixed growth', () => {
+    const hist = mixedGrowthHistory();
+    const five = buildValuationSeries(hist, 'eps', { currentPrice: 110, windowYears: 5 });
+    const ten = buildValuationSeries(hist, 'eps', { currentPrice: 110, windowYears: 10 });
+    assert.ok(five.summary.fairValue != null && ten.summary.fairValue != null);
+    assert.ok(
+      five.summary.fairValue !== ten.summary.fairValue,
+      `5Y=${five.summary.fairValue} 10Y=${ten.summary.fairValue}`,
+    );
+    assert.ok(five.summary.growthRatePct != null && ten.summary.growthRatePct != null);
+    assert.ok(five.summary.growthRatePct > ten.summary.growthRatePct);
+  });
+
+  it('pins the last chart point to the headline fair value', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-06-15');
+    const last = chart[chart.length - 1];
+    assert.ok(last);
+    assert.equal(last.fairValue, summary.fairValue);
+    assert.equal(last.date, '2026-06-15');
+    assert.equal(last.estimated, true);
+  });
+
+  it('does not add a chart point when last FY already equals headline', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+    });
+    const expected = cagrPct(1.25, 7.6, 5);
+    assert.ok(expected != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - expected) < 1e-9);
+    const chart = seriesForFairValueChart(series, summary, '2026-06-15');
+    assert.equal(chart.length, series.length);
+    assert.equal(chart[chart.length - 1]?.fairValue, summary.fairValue);
   });
 });

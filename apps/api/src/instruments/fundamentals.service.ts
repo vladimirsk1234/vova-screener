@@ -1421,8 +1421,7 @@ export class FundamentalsService {
       peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
 
     const fvRatio = valuation.summary.fairValueRatio;
-    // Fair value already sits on the first estimate, so the future price has to read the far end of
-    // the forecast — otherwise the two numbers are the same.
+    // Today's FV is TTM / last FY × the trailing-window ratio. Future price uses the far estimate.
     const horizonEps = [...estimateParsed]
       .filter((e) => e.eps != null && Number.isFinite(e.eps) && e.eps > 0)
       .pop()?.eps ?? null;

@@ -146,25 +146,19 @@ export function FundamentalsPanel({
         </p>
       ) : null}
 
-      {tab === 'summary' || tab === 'forecasting' ? (
+      {tab === 'forecasting' ? (
         <>
           <section className="fund-hero">
             <div className="fund-hero-main">
-              <p className="fund-kicker">
-                {tab === 'forecasting' ? 'Forecast' : 'Valuation'}
-              </p>
+              <p className="fund-kicker">Forecast</p>
               <h2 className="fund-headline">
-                {tab === 'forecasting' ? money(snap?.futurePrice) : money(summary?.fairValue)}
-                <span className="fund-headline-unit">
-                  {tab === 'forecasting' ? ' future price' : ' fair value'}
-                </span>
+                {money(snap?.futurePrice)}
+                <span className="fund-headline-unit"> future price</span>
               </h2>
               <p className="fund-sub">
                 Price {money(summary?.currentPrice)} ·{' '}
                 <span className={premiumClass}>{pct(summary?.premiumPct)} vs fair</span>
-                {tab === 'forecasting' && snap?.estAnnualRorPct != null ? (
-                  <> · Est. ROR {pct(snap.estAnnualRorPct)}</>
-                ) : null}
+                {snap?.estAnnualRorPct != null ? <> · Est. ROR {pct(snap.estAnnualRorPct)}</> : null}
                 {formatScaleCaption(fundQ.data?.scale ?? null) ? (
                   <> · {formatScaleCaption(fundQ.data?.scale ?? null)}</>
                 ) : null}
@@ -188,18 +182,20 @@ export function FundamentalsPanel({
               </div>
             </dl>
           </section>
+        </>
+      ) : null}
 
-          {tab === 'summary' ? (
-            <Chips
-              value={metric}
-              options={METRICS.map((m) => m.id)}
-              format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
-              onChange={setMetric}
-            />
-          ) : null}
+      {tab === 'summary' ? (
+        <>
+          <Chips
+            value={metric}
+            options={METRICS.map((m) => m.id)}
+            format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
+            onChange={setMetric}
+          />
 
-          <div className="fund-layout">
-            {tab === 'summary' && snap ? (
+          {snap ? (
+            <div className="fund-layout">
               <aside className="fund-sidebar">
                 <Metric
                   label={growthRateLabel(summary?.growthSource, windowYears)}
@@ -231,21 +227,23 @@ export function FundamentalsPanel({
                   value={formatScaleCaption(fundQ.data?.scale ?? null) ?? (profile?.currency ?? '—')}
                 />
               </aside>
-            ) : null}
-
-            {tab === 'forecasting' && snap ? (
-              <aside className="fund-sidebar">
-                <Metric label="Est. Annual ROR" value={pct(snap.estAnnualRorPct)} />
-                <Metric label="Fair Value $" value={money(summary?.fairValue)} />
-                <Metric label="Future price" value={money(snap.futurePrice)} />
-                <Metric label="Fwd EPS" value={money(snap.fwdEps)} />
-                <Metric label="Fwd P/E" value={ratio(snap.fwdPe)} />
-                <Metric label="Blended P/E" value={ratio(snap.blendedPe)} />
-                <Metric label="Div Yld" value={pct(asPctPoints(snap.dividendYieldTTM))} />
-              </aside>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </>
+      ) : null}
+
+      {tab === 'forecasting' && snap ? (
+        <div className="fund-layout">
+          <aside className="fund-sidebar">
+            <Metric label="Est. Annual ROR" value={pct(snap.estAnnualRorPct)} />
+            <Metric label="Fair Value $" value={money(summary?.fairValue)} />
+            <Metric label="Future price" value={money(snap.futurePrice)} />
+            <Metric label="Fwd EPS" value={money(snap.fwdEps)} />
+            <Metric label="Fwd P/E" value={ratio(snap.fwdPe)} />
+            <Metric label="Blended P/E" value={ratio(snap.blendedPe)} />
+            <Metric label="Div Yld" value={pct(asPctPoints(snap.dividendYieldTTM))} />
+          </aside>
+        </div>
       ) : null}
 
       {tab === 'summary' && fyRows.length ? (
