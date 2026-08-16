@@ -20,6 +20,11 @@ import {
   type ValuationWindowYears,
 } from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
+import {
+  PRICE_SCALE_MARGINS_CHART,
+  applyPriceFloorToAutoscaleInfo,
+  clampVisiblePriceRange,
+} from '../lib/priceScaleFloor';
 
 type LinePoint = { time: Time; value: number; color?: string; year?: number };
 
@@ -213,6 +218,10 @@ function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
   return pts;
 }
 
+function priceFloorAutoscaleProvider<T>(original: () => T): T {
+  return applyPriceFloorToAutoscaleInfo(original() as never) as T;
+}
+
 /** Green fill under fair value — added before candles so price stays on top. */
 function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
   if (!fairPts.length) return;
@@ -225,6 +234,7 @@ function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
     priceLineVisible: false,
     lastValueVisible: false,
     crosshairMarkerVisible: false,
+    autoscaleInfoProvider: priceFloorAutoscaleProvider,
   });
   fill.setData(fairPts);
 }
@@ -257,6 +267,7 @@ function addDashedLine(
     priceLineVisible: false,
     lastValueVisible: !opts.markYears,
     crosshairMarkerVisible: true,
+    autoscaleInfoProvider: priceFloorAutoscaleProvider,
   });
   lines.push(line);
   line.setData(pts);
@@ -296,6 +307,7 @@ function addValuationLines(
       crosshairMarkerVisible: true,
       pointMarkersVisible: true,
       pointMarkersRadius: 5,
+      autoscaleInfoProvider: priceFloorAutoscaleProvider,
     });
     lines.push(fair);
     fair.setData(fairPts);
@@ -316,6 +328,7 @@ function addValuationLines(
       crosshairMarkerVisible: true,
       pointMarkersVisible: true,
       pointMarkersRadius: 5,
+      autoscaleInfoProvider: priceFloorAutoscaleProvider,
     });
     lines.push(normal);
     normal.setData(normalPts);
@@ -334,6 +347,7 @@ function addValuationLines(
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
+      autoscaleInfoProvider: priceFloorAutoscaleProvider,
     });
     lines.push(dividend);
     dividend.setData(dividendPts);
@@ -433,6 +447,40 @@ function bindValuationVisibleRange(
   };
 }
 
+function bindPriceScaleFloor(
+  container: HTMLElement,
+  chart: IChartApi,
+): { restoreAutoScale: () => void; detach: () => void } {
+  const ps = chart.priceScale('right');
+  const clamp = () => {
+    if (ps.options().autoScale) return;
+    const range = ps.getVisibleRange();
+    const next = clampVisiblePriceRange(range);
+    if (!next || !range) return;
+    if (next.from !== range.from || next.to !== range.to) {
+      ps.setVisibleRange(next);
+    }
+  };
+  const onInteract = () => {
+    requestAnimationFrame(clamp);
+  };
+  container.addEventListener('wheel', onInteract, { passive: true });
+  window.addEventListener('mouseup', onInteract);
+  window.addEventListener('touchend', onInteract);
+  chart.timeScale().subscribeVisibleLogicalRangeChange(clamp);
+  return {
+    restoreAutoScale: () => {
+      ps.setAutoScale(true);
+    },
+    detach: () => {
+      container.removeEventListener('wheel', onInteract);
+      window.removeEventListener('mouseup', onInteract);
+      window.removeEventListener('touchend', onInteract);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(clamp);
+    },
+  };
+}
+
 export function mountSequenceChart(
   container: HTMLElement,
   payload: ChartPayload,
@@ -455,7 +503,10 @@ export function mountSequenceChart(
       vertLines: { color: settings.grid_color },
       horzLines: { color: settings.grid_color },
     },
-    rightPriceScale: { borderColor: settings.grid_color },
+    rightPriceScale: {
+      borderColor: settings.grid_color,
+      ...(mode === 'fundamentals' ? { scaleMargins: { ...PRICE_SCALE_MARGINS_CHART } } : {}),
+    },
     timeScale: {
       borderColor: settings.grid_color,
       rightOffset: 8,
@@ -480,6 +531,7 @@ export function mountSequenceChart(
     borderDownColor: settings.candle_border || settings.candle_down,
     wickUpColor: settings.candle_wick || settings.candle_up,
     wickDownColor: settings.candle_wick || settings.candle_down,
+    ...(mode === 'fundamentals' ? { autoscaleInfoProvider: priceFloorAutoscaleProvider } : {}),
   });
 
   const candleData: Array<
@@ -524,12 +576,18 @@ export function mountSequenceChart(
           barStepMs(payload.bars) * 2,
         )
       : null;
+    const floorZoom = bindPriceScaleFloor(container, chart);
     if (!zoom) chart.timeScale().fitContent();
     return {
       chart,
       valuation,
-      fitContent: () => (zoom ? zoom.apply() : chart.timeScale().fitContent()),
+      fitContent: () => {
+        floorZoom.restoreAutoScale();
+        if (zoom) zoom.apply();
+        else chart.timeScale().fitContent();
+      },
       destroy: () => {
+        floorZoom.detach();
         zoom?.detach();
         chart.remove();
       },
