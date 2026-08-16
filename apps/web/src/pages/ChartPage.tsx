@@ -135,6 +135,8 @@ function formatFundamentalsCrosshair(
     nearest?.normalValue ??
     null;
   if (npe != null) parts.push(`NPE ${npe.toFixed(2)}`);
+  const div = lineValue(seriesData, valuationRefs.dividend);
+  if (div != null) parts.push(`DIV ${div.toFixed(2)}`);
   return parts.join('  ');
 }
 
@@ -657,6 +659,13 @@ export function ChartPage() {
             {fund.chartSeries.some((p) => p.forecast && p.normalValue != null) ? (
               <li>
                 <span className="fund-swatch fund-swatch--normal-fwd" /> Normal P/E (3y)
+              </li>
+            ) : null}
+            {fund.chartSeries.some(
+              (p) => !p.forecast && !p.estimated && p.dividend != null && p.dividend > 0,
+            ) ? (
+              <li>
+                <span className="fund-swatch fund-swatch--div" /> Dividends
               </li>
             ) : null}
             {fundTab === 'dcf' && dcfChartSeries.length ? (

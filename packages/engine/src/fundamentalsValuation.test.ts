@@ -228,6 +228,25 @@ describe('valuation windows', () => {
     assert.equal(ttm.forecast, undefined);
   });
 
+  it('copies annual dividend onto the valuation series', () => {
+    const base = mixedGrowthHistory();
+    const hist = base.map((p, i) => ({
+      ...p,
+      dividend: i === base.length - 1 ? 1.1 : 0.55,
+    }));
+    const { series, summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+    });
+    const withDiv = series.filter((p) => p.dividend != null && p.dividend > 0);
+    assert.ok(withDiv.length >= 2);
+    assert.equal(series[series.length - 1]?.dividend, 1.1);
+    const chart = seriesForFairValueChart(series, summary, '2026-06-15');
+    const today = chart[chart.length - 1];
+    assert.equal(today?.estimated, true);
+    assert.equal(today?.dividend ?? null, null);
+  });
+
   it('sets Normal P/E forecast as EPS × window median multiple', () => {
     const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
       currentPrice: 110,
