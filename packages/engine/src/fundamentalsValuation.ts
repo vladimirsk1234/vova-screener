@@ -420,14 +420,17 @@ export function buildValuationSeries(
 
 /**
  * Chart series whose last fair-value point equals `summary.fairValue`.
- * Historical years stay `metric × ratio`. A today-point is always added so the
- * solid FV line reaches the current date (flat when TTM equals last FY).
+ * Historical years stay `metric × ratio`. When `pinToday` is true (Sales /
+ * Owner Earnings), a today-point is added so the solid line reaches today.
+ * EPS / FCF pass `pinToday: false` and then `appendNextQuarterEstimate`.
  */
 export function seriesForFairValueChart(
   series: ValuationSeriesPoint[],
   summary: ValuationSummary,
   asOfIso = new Date().toISOString().slice(0, 10),
+  options?: { pinToday?: boolean },
 ): ValuationSeriesPoint[] {
+  if (options?.pinToday === false) return series;
   if (summary.fairValue == null || !finite(summary.fairValue) || summary.fairValue <= 0) {
     return series;
   }
@@ -491,6 +494,96 @@ export function nextIsoDate(iso: string): string {
   const ms = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
   if (!Number.isFinite(ms)) return iso.slice(0, 10);
   return new Date(ms + 86_400_000).toISOString().slice(0, 10);
+}
+
+/** ~one fiscal quarter after `lastSolidIso` when FMP has no next-earnings date. */
+const QUARTER_FALLBACK_DAYS = 91;
+
+export function nextQuarterIso(
+  lastSolidIso: string,
+  nextEarningsDate?: string | null,
+): string {
+  const last = Date.parse(`${lastSolidIso.slice(0, 10)}T00:00:00Z`);
+  const earnIso = nextEarningsDate?.slice(0, 10) ?? '';
+  const fromEarnings = /^\d{4}-\d{2}-\d{2}$/.test(earnIso)
+    ? Date.parse(`${earnIso}T00:00:00Z`)
+    : Number.NaN;
+  if (Number.isFinite(fromEarnings) && fromEarnings > last + 7 * 86_400_000) {
+    return earnIso;
+  }
+  const d = new Date(last);
+  d.setUTCDate(d.getUTCDate() + QUARTER_FALLBACK_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * First dashed point: last actual quarter → next earnings (or +91d),
+ * interpolating toward the next annual estimate × ratio.
+ * Same estimate as the yearly tail — drawn to the next print, not today.
+ */
+export function appendNextQuarterEstimate(
+  series: ValuationSeriesPoint[],
+  nextEarningsDate: string | null | undefined,
+  estimates: ForwardEstimatePoint[],
+  fairValueRatio: number | null,
+  normalMultiple?: number | null,
+): ValuationSeriesPoint[] {
+  if (series.length === 0 || !estimates.length) return series;
+  const hasFv = finite(fairValueRatio) && fairValueRatio > 0;
+  const hasNpe = finite(normalMultiple) && normalMultiple > 0;
+  if (!hasFv && !hasNpe) return series;
+  const last = series[series.length - 1]!;
+  const lastFv = last.fairValue;
+  if (lastFv == null || !finite(lastFv) || lastFv <= 0) return series;
+  const lastHist = [...series].reverse().find((p) => !p.estimated && !p.forecast) ?? last;
+  const nextEst = [...estimates]
+    .filter((e) => Number.isFinite(e.year) && e.year > (lastHist.year ?? 0))
+    .sort((a, b) => a.year - b.year)[0];
+  if (!nextEst) return series;
+  const metric = finite(nextEst.eps) ? nextEst.eps : finite(nextEst.metric) ? nextEst.metric : null;
+  if (metric == null || metric <= 0) return series;
+  const nextQ = nextQuarterIso(last.date, nextEarningsDate);
+  const lastT = Date.parse(`${last.date.slice(0, 10)}T00:00:00Z`);
+  const nextQT = Date.parse(`${nextQ}T00:00:00Z`);
+  if (!Number.isFinite(nextQT) || nextQT <= lastT) return series;
+  const estIso = estimateIsoDate(nextEst.year, nextEst.date, lastHist.date);
+  const estT = Date.parse(`${estIso}T00:00:00Z`);
+  const t =
+    Number.isFinite(estT) && estT > lastT
+      ? Math.min(1, (nextQT - lastT) / (estT - lastT))
+      : 0.25;
+  const targetFv = hasFv ? metric * fairValueRatio : null;
+  const fv =
+    targetFv != null && finite(targetFv) && targetFv > 0
+      ? lastFv + (targetFv - lastFv) * t
+      : lastFv;
+  if (!finite(fv) || fv <= 0) return series;
+  if (Math.abs(fv - lastFv) < 0.005) return series;
+  const lastMetric = last.metric;
+  const interpMetric =
+    lastMetric != null && finite(lastMetric) ? lastMetric + (metric - lastMetric) * t : metric;
+  const lastNpe = last.normalValue;
+  const targetNpe = hasNpe ? metric * normalMultiple : null;
+  const interpNpe =
+    targetNpe != null && lastNpe != null && finite(lastNpe)
+      ? lastNpe + (targetNpe - lastNpe) * t
+      : targetNpe;
+  return [
+    ...series,
+    {
+      date: nextQ,
+      year: Number(nextQ.slice(0, 4)),
+      price: null,
+      metric: interpMetric,
+      earningsPower: hasFv ? fv : null,
+      fairValue: hasFv ? fv : null,
+      normalValue: interpNpe,
+      dividend: null,
+      pe: null,
+      estimated: true,
+      forecast: true,
+    },
+  ];
 }
 
 /** Signed calendar-day gap (UTC). */
@@ -605,7 +698,9 @@ export function appendForwardFairValue(
 
   const out = series.map((p) => ({ ...p }));
   let prevDate = out[out.length - 1]?.date.slice(0, 10) ?? '';
-  const lastSolidDate = prevDate;
+  const lastSolid =
+    [...out].reverse().find((p) => !p.forecast) ?? out[out.length - 1];
+  const lastSolidDate = lastSolid?.date.slice(0, 10) ?? prevDate;
   let added = 0;
   for (const est of candidates) {
     if (added >= horizonYears) break;
@@ -613,7 +708,9 @@ export function appendForwardFairValue(
     const positive = metric != null && metric > 0;
     const fv = positive && hasFv ? metric * fairValueRatio : null;
     const npe = positive && hasNpe ? metric * normalMultiple : null;
-    const date = ensureDateAfter(estimateIsoDate(est.year, est.date, lastHistDate), prevDate);
+    const rawDate = estimateIsoDate(est.year, est.date, lastHistDate);
+    if (prevDate && rawDate <= prevDate) continue;
+    const date = ensureDateAfter(rawDate, prevDate);
     if (lastSolidDate && isoDayDiff(lastSolidDate, date) <= NEAR_FORECAST_FY_END_DAYS) {
       continue;
     }
