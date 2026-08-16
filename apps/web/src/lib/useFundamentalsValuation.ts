@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   buildValuationSeries,
+  seriesForFairValueChart,
   type ValuationMetric,
   type ValuationWindowYears,
 } from '@vova/engine';
@@ -52,39 +53,14 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
       windowYears,
-      // FMP only estimates EPS; the other metrics stay on trailing growth.
-      forward:
-        metric === 'eps'
-          ? fundQ.data.estimates.map((e) => ({ year: e.year, metric: e.eps }))
-          : [],
       ttmMetric: metric === 'eps' ? fundQ.data.snapshot.ttmEps : null,
     });
   }, [fundQ.data, metric, windowYears]);
 
   const chartSeries = useMemo(() => {
-    if (!fundQ.data || !valuation) return [];
-    const lastYear = valuation.series[valuation.series.length - 1]?.year ?? 0;
-    const ratio = valuation.summary.fairValueRatio;
-    const extra = fundQ.data.estimates
-      .filter((e) => e.year > lastYear)
-      .map((e) => {
-        const eps = e.eps;
-        const positive = eps != null && Number.isFinite(eps) && eps > 0;
-        const fv = positive && ratio != null ? eps * ratio : null;
-        return {
-          date: e.date,
-          year: e.year,
-          price: null,
-          metric: eps,
-          earningsPower: fv,
-          fairValue: fv,
-          normalValue: null,
-          pe: null,
-          estimated: true as const,
-        };
-      });
-    return [...valuation.series, ...extra];
-  }, [fundQ.data, valuation]);
+    if (!valuation) return [];
+    return seriesForFairValueChart(valuation.series, valuation.summary);
+  }, [valuation]);
 
   const dividend = useMemo(() => dividendHud(fundQ.data), [fundQ.data]);
 
