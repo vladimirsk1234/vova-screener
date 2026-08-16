@@ -219,6 +219,17 @@ test.describe('results shell', () => {
     await expect(page).toHaveURL(/\/results\/Stocks\/Daily\/new$/);
   });
 
+  test('Back after TA / Fundamentals toggle returns to last Results page', async ({ page }) => {
+    await page.goto('/results/Stocks/Daily/new');
+    await page.goto('/chart/AAPL');
+    await page.getByRole('tab', { name: 'Fundamentals', exact: true }).click();
+    await expect(page).toHaveURL(/\/chart\/AAPL\?view=fundamentals/);
+    await page.getByRole('tab', { name: 'TA', exact: true }).click();
+    await expect(page).toHaveURL(/\/chart\/AAPL$/);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Daily\/new$/);
+  });
+
   test('Results bottom nav still returns to the last Results tabs after History', async ({
     page,
   }) => {
