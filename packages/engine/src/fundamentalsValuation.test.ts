@@ -445,6 +445,43 @@ describe('valuation windows', () => {
     );
   });
 
+  it('steps intra-year FCF fair value on each reported quarter', () => {
+    const hist: AnnualFundamentalPoint[] = [
+      { ...fy(2024, 1.3, 90), date: '2024-08-29', fcfPerShare: 1.1 },
+      { ...fy(2025, 8.29, 140), date: '2025-08-28', fcfPerShare: 2.4 },
+    ];
+    const quarters = [
+      { date: '2024-11-28', metric: 0.4 },
+      { date: '2025-02-27', metric: 0.5 },
+      { date: '2025-05-29', metric: 0.6 },
+      { date: '2025-08-28', metric: 0.9 },
+      { date: '2025-11-27', metric: 1.2 },
+      { date: '2026-02-26', metric: 2.8 },
+      { date: '2026-05-28', metric: 4.1 },
+    ];
+    const { series, summary } = buildValuationSeries(hist, 'fcf', {
+      currentPrice: 971,
+      windowYears: 5,
+      ttmMetric: ttmFromQuarterly(quarters, '2026-08-16').ttm,
+    });
+    const stepped = appendIntraYearTtmSteps(
+      series,
+      quarters,
+      summary.fairValueRatio,
+      '2026-08-16',
+    );
+    const intra = stepped.filter((p) => p.estimated && !p.forecast);
+    assert.deepEqual(
+      intra.map((p) => p.date),
+      ['2025-11-27', '2026-02-26', '2026-05-28'],
+    );
+    const fvNov = ttmFromQuarterly(quarters, '2025-11-27').ttm! * (summary.fairValueRatio as number);
+    const fvMay = ttmFromQuarterly(quarters, '2026-05-28').ttm! * (summary.fairValueRatio as number);
+    assert.ok(fvMay > fvNov);
+    assert.ok(Math.abs((intra[0]?.fairValue ?? 0) - fvNov) < 1e-9);
+    assert.ok(Math.abs((intra[2]?.fairValue ?? 0) - fvMay) < 1e-9);
+  });
+
   it('computes table fair value as EPS × ratio', () => {
     assert.equal(fairValueFromEstimate(23.83, 31.06), 23.83 * 31.06);
     assert.equal(fairValueFromEstimate(null, 15), null);

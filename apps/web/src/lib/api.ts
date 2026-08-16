@@ -296,6 +296,7 @@ export type FundamentalsPayload = {
     peTTM: number | null;
     ttmEps: number | null;
     ttmAsOf?: string | null;
+    ttmFcf?: number | null;
     pbTTM: number | null;
     psTTM: number | null;
     pegTTM: number | null;
@@ -335,7 +336,7 @@ export type FundamentalsPayload = {
     years: PerformanceYear[];
   };
   annual: import('@vova/engine').AnnualFundamentalPoint[];
-  quarters?: Array<{ date: string; eps: number | null }>;
+  quarters?: Array<{ date: string; eps: number | null; fcfPerShare?: number | null }>;
   incomeTrend: Array<{
     year: number;
     date: string;
