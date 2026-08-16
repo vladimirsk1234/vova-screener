@@ -13,7 +13,9 @@ import {
 import {
   firstForecastDate,
   firstNonForecastDate,
+  lastForecastDate,
   lastSeriesDate,
+  valuationChartLogicalRange,
   valuationChartRange,
   type ValuationWindowYears,
 } from '@vova/engine';
@@ -163,19 +165,21 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   let lastSolidNormal: LinePoint | null = null;
   for (const p of valuationSeries) {
     const time = p.date.slice(0, 10) as Time;
-    if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
+    if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue >= 0) {
       const pt = { time, value: p.fairValue, year: p.forecast ? p.year : undefined };
       if (p.forecast) {
-        forecastOnly.push(pt);
+        if (p.fairValue > 0) forecastOnly.push(pt);
       } else {
         fairPts.push(pt);
         lastSolid = pt;
       }
     }
-    if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue > 0) {
+    if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue >= 0) {
       if (p.forecast) {
-        normalForecastOnly.push({ time, value: p.normalValue, year: p.year });
-      } else if (!p.estimated) {
+        if (p.normalValue > 0) {
+          normalForecastOnly.push({ time, value: p.normalValue, year: p.year });
+        }
+      } else {
         const npt = { time, value: p.normalValue };
         normalPts.push(npt);
         lastSolidNormal = npt;
@@ -310,6 +314,8 @@ function addValuationLines(
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
+      pointMarkersVisible: true,
+      pointMarkersRadius: 5,
     });
     lines.push(normal);
     normal.setData(normalPts);
@@ -369,65 +375,62 @@ function futureWhitespace(
     .map((time) => ({ time: time as Time }));
 }
 
-function allChartTimesMs(
-  bars: ChartPayload['bars'],
-  series: ValuationSeriesPoint[],
-): number[] {
-  const times = new Set<number>();
-  for (const b of bars) times.add(parseBarTimeMs(b.date));
-  for (const w of futureWhitespace(bars, series)) {
-    times.add(parseBarTimeMs(String(w.time)));
-  }
-  return [...times].sort((a, b) => a - b);
-}
-
-function snapDown(times: number[], targetMs: number): number {
-  let snapped = times[0]!;
-  for (const t of times) {
-    if (t <= targetMs) snapped = t;
-    else break;
-  }
-  return snapped;
-}
-
-function snapUp(times: number[], targetMs: number): number {
-  for (const t of times) {
-    if (t >= targetMs) return t;
-  }
-  return times[times.length - 1]!;
-}
-
-function applyValuationVisibleRange(
-  chart: IChartApi,
+function valuationRangeInput(
   bars: ChartPayload['bars'],
   valuationSeries: ValuationSeriesPoint[],
   windowYears: ValuationWindowYears | undefined,
   extraSeries: ValuationSeriesPoint[] = [],
 ) {
-  if (!bars.length) {
-    chart.timeScale().fitContent();
-    return;
-  }
-  const combined = [...valuationSeries, ...extraSeries];
-  const range = valuationChartRange({
+  return valuationChartRange({
     firstBarDate: bars[0]!.date,
     lastBarDate: bars[bars.length - 1]!.date,
     windowYears: windowYears === undefined ? null : windowYears,
     firstHistoricalDate: firstNonForecastDate(valuationSeries),
     firstForecastDate: firstForecastDate(valuationSeries),
+    lastForecastDate: lastForecastDate(valuationSeries),
     lastExtraDate: extraSeries.length ? lastSeriesDate(extraSeries) : null,
   });
-  const times = allChartTimesMs(bars, combined);
-  if (!times.length) {
-    chart.timeScale().fitContent();
-    return;
-  }
-  const fromMs = snapDown(times, parseBarTimeMs(range.from));
-  const toMs = snapUp(times, parseBarTimeMs(range.to) + barStepMs(bars) * 2);
-  chart.timeScale().setVisibleRange({
-    from: formatBarTime(fromMs) as Time,
-    to: formatBarTime(toMs) as Time,
+}
+
+function bindValuationVisibleRange(
+  container: HTMLElement,
+  chart: IChartApi,
+  timesMs: number[],
+  range: { from: string; to: string },
+  padMs: number,
+): { apply: () => void; detach: () => void } {
+  const apply = () => {
+    if (!timesMs.length) {
+      chart.timeScale().fitContent();
+      return;
+    }
+    const { fromIdx, toIdx } = valuationChartLogicalRange(timesMs, range, padMs);
+    chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+  };
+  let lastW = 0;
+  const onResize = () => {
+    const w = container.clientWidth;
+    if (w < 8 || Math.abs(w - lastW) < 2) return;
+    lastW = w;
+    apply();
+  };
+  apply();
+  let cancelled = false;
+  const raf = requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!cancelled) onResize();
+    });
   });
+  const ro = new ResizeObserver(onResize);
+  ro.observe(container);
+  return {
+    apply,
+    detach: () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    },
+  };
 }
 
 export function mountSequenceChart(
@@ -453,7 +456,11 @@ export function mountSequenceChart(
       horzLines: { color: settings.grid_color },
     },
     rightPriceScale: { borderColor: settings.grid_color },
-    timeScale: { borderColor: settings.grid_color, rightOffset: 8 },
+    timeScale: {
+      borderColor: settings.grid_color,
+      rightOffset: 8,
+      ...(mode === 'fundamentals' ? { minBarSpacing: 0.2 } : {}),
+    },
     crosshair: { mode: 0 },
     handleScroll: true,
     handleScale: true,
@@ -485,6 +492,10 @@ export function mountSequenceChart(
     low: b.low,
     close: b.close,
   }));
+  const fundRange =
+    mode === 'fundamentals' && payload.bars.length
+      ? valuationRangeInput(payload.bars, valuationSeries, windowYears, dcfForecastSeries)
+      : null;
   if (mode === 'fundamentals') {
     candleData.push(...futureWhitespace(payload.bars, [...valuationSeries, ...dcfForecastSeries]));
   }
@@ -503,12 +514,25 @@ export function mountSequenceChart(
       dcfPts,
       dividendPts,
     );
-    applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears, dcfForecastSeries);
+    const timesMs = candleData.map((b) => parseBarTimeMs(String(b.time)));
+    const zoom = fundRange
+      ? bindValuationVisibleRange(
+          container,
+          chart,
+          timesMs,
+          fundRange,
+          barStepMs(payload.bars) * 2,
+        )
+      : null;
+    if (!zoom) chart.timeScale().fitContent();
     return {
       chart,
       valuation,
-      fitContent: () => chart.timeScale().fitContent(),
-      destroy: () => chart.remove(),
+      fitContent: () => (zoom ? zoom.apply() : chart.timeScale().fitContent()),
+      destroy: () => {
+        zoom?.detach();
+        chart.remove();
+      },
     };
   }
 

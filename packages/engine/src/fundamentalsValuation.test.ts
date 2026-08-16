@@ -12,10 +12,12 @@ import {
   seriesForFairValueChart,
   firstForecastDate,
   firstNonForecastDate,
+  lastForecastDate,
   lastSeriesDate,
   sliceToWindow,
   trailingMetricCagr,
   ttmFromQuarterly,
+  valuationChartLogicalRange,
   valuationChartRange,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
@@ -620,19 +622,19 @@ describe('valuationChartRange', () => {
   const firstFy8 = '2017-12-31';
   const lastForecast = '2028-12-31';
 
-  it('keeps the full 5Y fiscal start and does not zoom to the +3y tail', () => {
+  it('keeps the full 5Y fiscal start and includes the +3y forecast tail', () => {
     const range = valuationChartRange({
       firstBarDate: firstBar,
       lastBarDate: lastBar,
       windowYears: 5,
       firstHistoricalDate: firstFy5,
       firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
     });
     assert.ok(range.from <= firstFy5, `from=${range.from} should include ${firstFy5}`);
     assert.ok(range.from < '2023-01-01', `from=${range.from} must not start in 2023`);
     assert.ok(range.to >= lastBar, `to=${range.to} should reach last price`);
-    assert.ok(range.to < '2028-01-01', `to=${range.to} must not include the 2028 tail`);
-    assert.ok(range.to < '2029-01-01');
+    assert.equal(range.to, lastForecast);
   });
 
   it('keeps the full 8Y fiscal start', () => {
@@ -667,7 +669,7 @@ describe('valuationChartRange', () => {
       firstForecastDate: lastForecast,
     });
     assert.equal(range.from, firstBar);
-    assert.ok(range.to < '2028-01-01');
+    assert.equal(range.to, lastForecast);
   });
 
   it('keeps 5Y price history when the first FCF point is late', () => {
@@ -682,13 +684,14 @@ describe('valuationChartRange', () => {
     assert.ok(range.from < '2023-01-01');
   });
 
-  it('peeks at a near forecast point but still ignores the far tail', () => {
+  it('includes a near forecast point in to', () => {
     const range = valuationChartRange({
       firstBarDate: firstBar,
       lastBarDate: lastBar,
       windowYears: 1,
       firstHistoricalDate: '2025-12-31',
       firstForecastDate: '2026-10-15',
+      lastForecastDate: '2026-10-15',
     });
     assert.equal(range.to, '2026-10-15');
     assert.ok(range.from <= '2025-08-14');
@@ -716,6 +719,97 @@ describe('valuationChartRange', () => {
     ];
     assert.equal(firstNonForecastDate(series), '2020-12-31');
     assert.equal(firstForecastDate(series), '2026-10-15');
+    assert.equal(lastForecastDate(series), '2028-12-31');
     assert.equal(lastSeriesDate(series), '2028-12-31');
+  });
+
+  it('maps 8Y onto bar indices near 2017–2018, not 2021, and never goes negative', () => {
+    const weekMs = 7 * 86_400_000;
+    const start = Date.parse('2015-01-02T00:00:00Z');
+    const end = Date.parse('2028-12-29T00:00:00Z');
+    const timesMs: number[] = [];
+    for (let t = start; t <= end; t += weekMs) timesMs.push(t);
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 8,
+      firstHistoricalDate: firstFy8,
+      firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
+    });
+    const logical = valuationChartLogicalRange(timesMs, range);
+    assert.ok(logical.fromIdx >= 0);
+    assert.ok(logical.toIdx >= logical.fromIdx);
+    const fromIso = new Date(timesMs[logical.fromIdx]!).toISOString().slice(0, 10);
+    const toIso = new Date(timesMs[logical.toIdx]!).toISOString().slice(0, 10);
+    assert.ok(fromIso <= '2018-01-07', `fromIdx date ${fromIso} should be ~2017–2018`);
+    assert.ok(fromIso < '2021-01-01', `fromIdx date ${fromIso} must not be 2021`);
+    assert.ok(toIso >= '2028-12-29', `toIdx date ${toIso} should include the 3y forecast tail`);
+  });
+
+  it('plots 8Y fair value from the first window year even when early EPS is a loss', () => {
+    const hist = [
+      fy(2017, -0.4, 12),
+      fy(2018, -0.2, 13),
+      fy(2019, 0, 14),
+      fy(2020, -0.1, 15),
+      fy(2021, 1.8, 30),
+      fy(2022, 2.6, 45),
+      fy(2023, 3.7, 60),
+      fy(2024, 5.3, 80),
+      fy(2025, 7.6, 110),
+    ];
+    const { series, summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 110,
+      windowYears: 8,
+    });
+    assert.equal(series[0]?.year, 2017);
+    assert.equal(series[0]?.fairValue, 0);
+    assert.equal(series[0]?.normalValue, 0);
+    const firstProfit = series.find((p) => p.year === 2021);
+    assert.ok(firstProfit && firstProfit.fairValue != null && firstProfit.fairValue > 0);
+    assert.ok(summary.fairValue != null && summary.fairValue > 0);
+  });
+
+  it('steps Normal P/E on intra-year TTM quarters after the last FY', () => {
+    const hist = [fy(2024, 5.3, 80), fy(2025, 7.6, 110)];
+    const quarters = [
+      { date: '2025-03-31', eps: 1.5 },
+      { date: '2025-06-30', eps: 1.8 },
+      { date: '2025-09-30', eps: 2.0 },
+      { date: '2025-12-31', eps: 2.3 },
+      { date: '2026-03-31', eps: 2.5 },
+    ];
+    const { series, summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+    });
+    const stepped = appendIntraYearTtmSteps(
+      series,
+      quarters,
+      summary.fairValueRatio,
+      '2026-08-16',
+      summary.normalMultiple,
+    );
+    const lastQ = stepped.find((p) => p.date === '2026-03-31');
+    assert.ok(lastQ?.estimated);
+    assert.ok(!lastQ?.forecast);
+    const ttm = ttmFromQuarterly(quarters, '2026-03-31').ttm;
+    assert.ok(ttm != null && ttm > 0);
+    assert.ok(Math.abs((lastQ?.normalValue ?? 0) - ttm * summary.normalMultiple) < 1e-9);
+    const withFwd = appendForwardFairValue(
+      stepped,
+      [
+        { year: 2026, date: '2026-12-31', eps: 9 },
+        { year: 2027, date: '2027-12-31', eps: 10 },
+        { year: 2028, date: '2028-12-31', eps: 12 },
+      ],
+      summary.fairValueRatio,
+      3,
+      summary.normalMultiple,
+    );
+    const forecast = withFwd.filter((p) => p.forecast);
+    assert.equal(forecast.length, 3);
+    assert.ok(forecast.every((p) => p.normalValue != null && p.normalValue > 0));
   });
 });
