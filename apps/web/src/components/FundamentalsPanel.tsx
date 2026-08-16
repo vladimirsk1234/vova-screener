@@ -385,6 +385,7 @@ export function FundamentalsPanel({
           figures are converted to the listing currency (and per ADS when the ADR ratio is known).
           Source: Financial Modeling Prep GAAP diluted, not FAST Graphs adjusted operating EPS.
           S&amp;P credit rating is not in FMP.
+          {snap?.ttmAsOf ? ` TTM uses the last four reported quarters through ${snap.ttmAsOf}.` : ''}
           {fundQ.data?.cached ? ' · cached' : ''}
         </p>
       ) : null}

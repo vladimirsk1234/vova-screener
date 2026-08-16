@@ -4,12 +4,14 @@ import {
   FUNDAMENTALS_SCALE_VERSION,
   annualizedPriceReturnPct,
   buildValuationSeries,
+  closeOnOrBefore,
   completeFiscalYears,
   impliedPe,
   peInBand,
   scaleDcf,
   scalePerShare,
   scaleTev,
+  ttmFromQuarterly,
   yoyChgPct,
   type AnnualFundamentalPoint,
   type ChartFundamentals,
@@ -161,6 +163,8 @@ export type FundamentalsPayload = {
     peTTM: number | null;
     /** Trailing-twelve-month diluted EPS (anchor fallback when no forward estimate). */
     ttmEps: number | null;
+    /** Period-end of the last quarter included in a quarterly-built TTM. */
+    ttmAsOf?: string | null;
     pbTTM: number | null;
     psTTM: number | null;
     pegTTM: number | null;
@@ -217,6 +221,58 @@ function yearOf(date: string | null): number | null {
   if (!date || date.length < 4) return null;
   const y = Number(date.slice(0, 4));
   return Number.isFinite(y) ? y : null;
+}
+
+/** Prefer FMP `calendarYear` (fiscal label) over the calendar year of `date`. */
+function fiscalYearOf(row: Record<string, unknown> | undefined, date: string | null): number | null {
+  const cy = Number(fmpStr(row?.calendarYear));
+  if (Number.isFinite(cy) && cy >= 1900 && cy <= 2100) return cy;
+  return yearOf(date);
+}
+
+function byYearKey(rows: Record<string, unknown>[]): Map<number, Record<string, unknown>> {
+  const m = new Map<number, Record<string, unknown>>();
+  for (const r of rows) {
+    const date = fmpStr(r.date);
+    const y = fiscalYearOf(r, date);
+    if (y == null) continue;
+    const prev = m.get(y);
+    const prevDate = prev ? (fmpStr(prev.date) ?? '') : '';
+    if (!prev || (date && date > prevDate)) m.set(y, r);
+  }
+  return m;
+}
+
+function lookupByDateOrYear(
+  byDate: Map<string, Record<string, unknown>>,
+  byYear: Map<number, Record<string, unknown>>,
+  date: string,
+  year: number,
+): Record<string, unknown> {
+  return byDate.get(date) ?? byYear.get(year) ?? {};
+}
+
+function quarterlyEpsRows(
+  rows: Record<string, unknown>[],
+): Array<{ date: string; eps: number | null }> {
+  return rows
+    .map((row) => ({
+      date: (fmpStr(row.date) ?? '').slice(0, 10),
+      eps: fmpNum(row.epsdiluted) ?? fmpNum(row.epsDiluted) ?? fmpNum(row.eps),
+    }))
+    .filter((q) => q.date.length === 10);
+}
+
+function pickTtmEps(
+  quarterly: Array<{ date: string; eps: number | null }>,
+  keyTtm: Record<string, unknown> | null | undefined,
+  ratiosTtm: Record<string, unknown> | null | undefined,
+  price: number | null,
+  peTTM: number | null,
+): { ttm: number | null; asOf: string | null } {
+  const fromQ = ttmFromQuarterly(quarterly);
+  if (fromQ.ttm != null && fromQ.ttm > 0) return fromQ;
+  return { ttm: ttmEpsFrom(keyTtm, ratiosTtm, price, peTTM), asOf: fromQ.asOf };
 }
 
 function byDateKey(rows: Record<string, unknown>[]): Map<string, Record<string, unknown>> {
@@ -800,7 +856,7 @@ export class FundamentalsService {
       valuation,
       forecastSeries: this.extendForecast(
         valuation.series,
-        stored.estimates,
+        [],
         valuation.summary.fairValueRatio,
       ),
     };
@@ -934,9 +990,10 @@ export class FundamentalsService {
     yahooTicker: string,
   ): Promise<{ metrics: CardFundamentals; scale: FundamentalsScale }> {
     const fmpSymbol = yahooToFmpSymbol(yahooTicker);
-    const [profile, income, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
+    const [profile, income, incomeQuarterly, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
       this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
       this.fmp.incomeAnnual(fmpSymbol).catch(() => []),
+      this.fmp.incomeQuarterly(fmpSymbol),
       this.fmp.keyMetricsTtm(fmpSymbol),
       this.fmp.ratiosTtm(fmpSymbol),
       this.fmp.analystEstimates(fmpSymbol),
@@ -945,8 +1002,8 @@ export class FundamentalsService {
     const annual: AnnualFundamentalPoint[] = [];
     for (const inc of income) {
       const date = fmpStr(inc.date) ?? fmpStr(inc.calendarYear);
-      const y = yearOf(date) ?? Number(fmpStr(inc.calendarYear));
-      if (!date || !Number.isFinite(y)) continue;
+      const y = fiscalYearOf(inc, date);
+      if (!date || !Number.isFinite(y) || y == null) continue;
       const eps =
         fmpNum(inc.epsdiluted) ??
         fmpNum(inc.epsDiluted) ??
@@ -978,7 +1035,7 @@ export class FundamentalsService {
     const estimateParsed = estimatesRaw
       .map((row) => {
         const date = fmpStr(row.date) ?? '';
-        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+        const y = fiscalYearOf(row, date);
         return {
           year: y,
           eps:
@@ -987,14 +1044,17 @@ export class FundamentalsService {
             fmpNum(row.epsAvg),
         };
       })
-      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
+      .filter((r): r is { year: number; eps: number | null } =>
+        r.year != null && Number.isFinite(r.year) && r.year > lastHistYear,
+      )
       .sort((a, b) => a.year - b.year);
 
     const peTTMRaw =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
-    const ttmEpsRaw = ttmEpsFrom(keyTtm, ratiosTtm, price, peTTMRaw);
+    const ttmPick = pickTtmEps(quarterlyEpsRows(incomeQuarterly), keyTtm, ratiosTtm, price, peTTMRaw);
+    const ttmEpsRaw = ttmPick.ttm;
     const aligned = await this.alignToListing({
       yahooTicker,
       listingCurrency: profile.currency,
@@ -1168,6 +1228,7 @@ export class FundamentalsService {
       dcf,
       scores,
       estimatesRaw,
+      incomeQuarterly,
       dividendsRaw,
       evRows,
       tickerBarsRes,
@@ -1189,6 +1250,7 @@ export class FundamentalsService {
         workingCapital: null,
       })),
       this.fmp.analystEstimates(fmpSymbol),
+      this.fmp.incomeQuarterly(fmpSymbol),
       this.fmp.dividends(fmpSymbol),
       this.fmp.enterpriseValues(fmpSymbol),
       this.bars.getBars(yahooTicker, 'Daily', { maxAgeHours: 24 }).catch(() => ({
@@ -1215,7 +1277,7 @@ export class FundamentalsService {
 
     const ownerByYear = new Map<number, number>();
     for (const row of ownerEarn) {
-      const y = yearOf(fmpStr(row.date));
+      const y = fiscalYearOf(row, fmpStr(row.date));
       const oe = fmpNum(row.ownerEarnings);
       const shares =
         fmpNum(row.averageSharesOutstanding) ??
@@ -1233,22 +1295,22 @@ export class FundamentalsService {
       divByYear.set(y, (divByYear.get(y) ?? 0) + d);
     }
 
-    const dates = new Set<string>();
-    for (const d of incomeByDate.keys()) dates.add(d);
-    for (const d of kmByDate.keys()) dates.add(d);
-    const dateList = [...dates].sort();
+    const kmByYear = byYearKey(keyMetrics);
+    const cfByYear = byYearKey(cashFlow);
+    const ratioByYear = byYearKey(ratios);
+    const dateList = [...incomeByDate.keys()].sort();
     const tickerCloses = (tickerBarsRes.bars ?? []).map((b) => ({ date: b.date, close: b.close }));
     const spyCloses = (spyBarsRes.bars ?? []).map((b) => ({ date: b.date, close: b.close }));
     const yearEnd = yearEndMap(tickerCloses);
 
     let annual: AnnualFundamentalPoint[] = [];
     for (const date of dateList) {
-      const y = yearOf(date);
-      if (y == null) continue;
       const inc = incomeByDate.get(date) ?? {};
-      const cf = cfByDate.get(date) ?? {};
-      const km = kmByDate.get(date) ?? {};
-      const rt = ratioByDate.get(date) ?? {};
+      const y = fiscalYearOf(inc, date);
+      if (y == null) continue;
+      const cf = lookupByDateOrYear(cfByDate, cfByYear, date, y);
+      const km = lookupByDateOrYear(kmByDate, kmByYear, date, y);
+      const rt = lookupByDateOrYear(ratioByDate, ratioByYear, date, y);
 
       const eps =
         fmpNum(inc.epsdiluted) ??
@@ -1267,7 +1329,7 @@ export class FundamentalsService {
           if (fcf == null || !shares || shares <= 0) return null;
           return fcf / shares;
         })();
-      const price = yearEnd.get(y) ?? null;
+      const price = closeOnOrBefore(tickerCloses, date) ?? yearEnd.get(y) ?? null;
       const pe =
         fmpNum(rt.priceToEarningsRatio) ??
         fmpNum(km.peRatio) ??
@@ -1309,7 +1371,7 @@ export class FundamentalsService {
     const estimateParsed: EstimateRow[] = estimatesRaw
       .map((row) => {
         const date = fmpStr(row.date) ?? '';
-        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+        const y = fiscalYearOf(row, date);
         return {
           year: y,
           date: date || (Number.isFinite(y) ? `${y}-12-31` : ''),
@@ -1326,7 +1388,7 @@ export class FundamentalsService {
           estimated: true,
         };
       })
-      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
+      .filter((r): r is EstimateRow => r.year != null && Number.isFinite(r.year) && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
 
     const histEps = annual.map((a) => a.eps);
@@ -1340,7 +1402,11 @@ export class FundamentalsService {
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
-    const ttmEpsRaw = metric === 'eps' ? ttmEpsFrom(keyTtm, ratiosTtm, price, peTTMRaw) : null;
+    const ttmPick =
+      metric === 'eps'
+        ? pickTtmEps(quarterlyEpsRows(incomeQuarterly), keyTtm, ratiosTtm, price, peTTMRaw)
+        : { ttm: null, asOf: null };
+    const ttmEpsRaw = ttmPick.ttm;
     const aligned = await this.alignToListing({
       yahooTicker,
       listingCurrency: profile.currency,
@@ -1463,7 +1529,11 @@ export class FundamentalsService {
         };
       });
 
-    const forecastSeries = this.extendForecast(valuation.series, estimateParsed, fvRatio);
+    const forecastSeries = this.extendForecast(
+      valuation.series,
+      metric === 'eps' ? estimateParsed : [],
+      fvRatio,
+    );
     const performance = this.buildPerformance(annual, tickerCloses, spyCloses);
 
     return {
@@ -1489,6 +1559,7 @@ export class FundamentalsService {
       snapshot: {
         peTTM,
         ttmEps,
+        ttmAsOf: ttmPick.asOf,
         pbTTM,
         psTTM,
         pegTTM,
