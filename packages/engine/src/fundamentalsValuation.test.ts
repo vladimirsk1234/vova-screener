@@ -10,9 +10,13 @@ import {
   fairValueRatioFromGrowth,
   nextQuarterIso,
   seriesForFairValueChart,
+  firstForecastDate,
+  firstNonForecastDate,
+  lastSeriesDate,
   sliceToWindow,
   trailingMetricCagr,
   ttmFromQuarterly,
+  valuationChartRange,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
 
@@ -606,5 +610,112 @@ describe('valuation windows', () => {
     assert.equal(fairValueFromEstimate(23.83, 31.06), 23.83 * 31.06);
     assert.equal(fairValueFromEstimate(null, 15), null);
     assert.equal(fairValueFromEstimate(10, null), null);
+  });
+});
+
+describe('valuationChartRange', () => {
+  const firstBar = '2015-01-02';
+  const lastBar = '2026-08-14';
+  const firstFy5 = '2020-12-31';
+  const firstFy8 = '2017-12-31';
+  const lastForecast = '2028-12-31';
+
+  it('keeps the full 5Y fiscal start and does not zoom to the +3y tail', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 5,
+      firstHistoricalDate: firstFy5,
+      firstForecastDate: lastForecast,
+    });
+    assert.ok(range.from <= firstFy5, `from=${range.from} should include ${firstFy5}`);
+    assert.ok(range.from < '2023-01-01', `from=${range.from} must not start in 2023`);
+    assert.ok(range.to >= lastBar, `to=${range.to} should reach last price`);
+    assert.ok(range.to < '2028-01-01', `to=${range.to} must not include the 2028 tail`);
+    assert.ok(range.to < '2029-01-01');
+  });
+
+  it('keeps the full 8Y fiscal start', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 8,
+      firstHistoricalDate: firstFy8,
+      firstForecastDate: lastForecast,
+    });
+    assert.ok(range.from <= firstFy8, `from=${range.from} should include ${firstFy8}`);
+  });
+
+  it('never computes from as lastForecast minus N years', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 5,
+      firstHistoricalDate: firstFy5,
+      firstForecastDate: lastForecast,
+    });
+    assert.notEqual(range.from, '2023-12-31');
+    assert.ok(range.from < '2023-01-01');
+  });
+
+  it('uses the first bar for MAX', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: null,
+      firstHistoricalDate: '2015-12-31',
+      firstForecastDate: lastForecast,
+    });
+    assert.equal(range.from, firstBar);
+    assert.ok(range.to < '2028-01-01');
+  });
+
+  it('keeps 5Y price history when the first FCF point is late', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 5,
+      firstHistoricalDate: '2023-12-31',
+      firstForecastDate: lastForecast,
+    });
+    assert.ok(range.from <= '2021-08-14', `from=${range.from} should be lastBar − 5y`);
+    assert.ok(range.from < '2023-01-01');
+  });
+
+  it('peeks at a near forecast point but still ignores the far tail', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 1,
+      firstHistoricalDate: '2025-12-31',
+      firstForecastDate: '2026-10-15',
+    });
+    assert.equal(range.to, '2026-10-15');
+    assert.ok(range.from <= '2025-08-14');
+  });
+
+  it('includes the last DCF date in to', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 5,
+      firstHistoricalDate: firstFy5,
+      firstForecastDate: lastForecast,
+      lastExtraDate: '2029-12-31',
+    });
+    assert.equal(range.to, '2029-12-31');
+    assert.ok(range.from <= firstFy5);
+  });
+
+  it('reads first historical and forecast dates from a mixed series', () => {
+    const series = [
+      { date: '2020-12-31', forecast: false },
+      { date: '2025-12-31', forecast: false },
+      { date: '2026-10-15', forecast: true },
+      { date: '2028-12-31', forecast: true },
+    ];
+    assert.equal(firstNonForecastDate(series), '2020-12-31');
+    assert.equal(firstForecastDate(series), '2026-10-15');
+    assert.equal(lastSeriesDate(series), '2028-12-31');
   });
 });

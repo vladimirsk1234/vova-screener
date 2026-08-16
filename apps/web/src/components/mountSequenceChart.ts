@@ -10,7 +10,13 @@ import {
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
-import type { ValuationWindowYears } from '@vova/engine';
+import {
+  firstForecastDate,
+  firstNonForecastDate,
+  lastSeriesDate,
+  valuationChartRange,
+  type ValuationWindowYears,
+} from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
 
 type LinePoint = { time: Time; value: number; color?: string; year?: number };
@@ -363,6 +369,34 @@ function futureWhitespace(
     .map((time) => ({ time: time as Time }));
 }
 
+function allChartTimesMs(
+  bars: ChartPayload['bars'],
+  series: ValuationSeriesPoint[],
+): number[] {
+  const times = new Set<number>();
+  for (const b of bars) times.add(parseBarTimeMs(b.date));
+  for (const w of futureWhitespace(bars, series)) {
+    times.add(parseBarTimeMs(String(w.time)));
+  }
+  return [...times].sort((a, b) => a - b);
+}
+
+function snapDown(times: number[], targetMs: number): number {
+  let snapped = times[0]!;
+  for (const t of times) {
+    if (t <= targetMs) snapped = t;
+    else break;
+  }
+  return snapped;
+}
+
+function snapUp(times: number[], targetMs: number): number {
+  for (const t of times) {
+    if (t >= targetMs) return t;
+  }
+  return times[times.length - 1]!;
+}
+
 function applyValuationVisibleRange(
   chart: IChartApi,
   bars: ChartPayload['bars'],
@@ -374,21 +408,24 @@ function applyValuationVisibleRange(
     chart.timeScale().fitContent();
     return;
   }
-  const lastBar = bars[bars.length - 1]!;
-  const lastMs = parseBarTimeMs(lastBar.date);
-  const lastValMs = lastSeriesDateMs([...valuationSeries, ...extraSeries]);
-  const toMs = Math.max(lastMs, lastValMs ?? lastMs) + barStepMs(bars) * 2;
-  if (windowYears == null) {
-    const firstMs = parseBarTimeMs(bars[0]!.date);
-    chart.timeScale().setVisibleRange({
-      from: formatBarTime(firstMs) as Time,
-      to: formatBarTime(toMs) as Time,
-    });
+  const combined = [...valuationSeries, ...extraSeries];
+  const range = valuationChartRange({
+    firstBarDate: bars[0]!.date,
+    lastBarDate: bars[bars.length - 1]!.date,
+    windowYears: windowYears === undefined ? null : windowYears,
+    firstHistoricalDate: firstNonForecastDate(valuationSeries),
+    firstForecastDate: firstForecastDate(valuationSeries),
+    lastExtraDate: extraSeries.length ? lastSeriesDate(extraSeries) : null,
+  });
+  const times = allChartTimesMs(bars, combined);
+  if (!times.length) {
+    chart.timeScale().fitContent();
     return;
   }
-  const fromMs = lastMs - windowYears * 365.25 * DAY_MS;
+  const fromMs = snapDown(times, parseBarTimeMs(range.from));
+  const toMs = snapUp(times, parseBarTimeMs(range.to) + barStepMs(bars) * 2);
   chart.timeScale().setVisibleRange({
-    from: formatBarTime(Math.max(fromMs, parseBarTimeMs(bars[0]!.date))) as Time,
+    from: formatBarTime(fromMs) as Time,
     to: formatBarTime(toMs) as Time,
   });
 }
