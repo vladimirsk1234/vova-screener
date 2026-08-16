@@ -147,6 +147,14 @@ export class FmpClient {
     }
   }
 
+  async cashFlowQuarterly(symbol: string, limit = 40) {
+    try {
+      return asArr(await this.get('/cash-flow-statement', { symbol, period: 'quarter', limit }));
+    } catch {
+      return [];
+    }
+  }
+
   async keyMetricsAnnual(symbol: string, limit = 30) {
     try {
       return asArr(await this.get('/key-metrics', { symbol, period: 'annual', limit }));

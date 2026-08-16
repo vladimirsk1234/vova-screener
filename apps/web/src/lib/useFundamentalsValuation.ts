@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   FORWARD_FAIR_VALUE_YEARS,
   appendForwardFairValue,
+  appendIntraYearTtmSteps,
   buildValuationSeries,
   seriesForFairValueChart,
   type ValuationMetric,
@@ -55,13 +56,33 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
       windowYears,
-      ttmMetric: metric === 'eps' ? fundQ.data.snapshot.ttmEps : null,
+      ttmMetric:
+        metric === 'eps'
+          ? fundQ.data.snapshot.ttmEps
+          : metric === 'fcf'
+            ? (fundQ.data.snapshot.ttmFcf ?? null)
+            : null,
     });
   }, [fundQ.data, metric, windowYears]);
 
   const chartSeries = useMemo(() => {
     if (!valuation) return [];
-    const pinned = seriesForFairValueChart(valuation.series, valuation.summary);
+    const quarterPts =
+      metric === 'eps'
+        ? (fundQ.data?.quarters ?? []).map((q) => ({ date: q.date, eps: q.eps }))
+        : metric === 'fcf'
+          ? (fundQ.data?.quarters ?? []).map((q) => ({ date: q.date, metric: q.fcfPerShare }))
+          : [];
+    const withQuarters = quarterPts.length
+      ? appendIntraYearTtmSteps(
+          valuation.series,
+          quarterPts,
+          valuation.summary.fairValueRatio,
+          undefined,
+          valuation.summary.normalMultiple,
+        )
+      : valuation.series;
+    const pinned = seriesForFairValueChart(withQuarters, valuation.summary);
     return appendForwardFairValue(
       pinned,
       fundQ.data?.estimates ?? [],
@@ -69,7 +90,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       FORWARD_FAIR_VALUE_YEARS,
       valuation.summary.normalMultiple,
     );
-  }, [valuation, fundQ.data?.estimates]);
+  }, [valuation, fundQ.data?.estimates, fundQ.data?.quarters, metric]);
 
   const dividend = useMemo(() => dividendHud(fundQ.data), [fundQ.data]);
 
