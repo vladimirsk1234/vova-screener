@@ -381,7 +381,7 @@ export function FundamentalsPanel({
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
           Fair value = GAAP diluted EPS × 15× when 5y EPS CAGR &lt; 15%, else PEG=1 (ratio = growth %).
-          Normal P/E is the median price/EPS on the selected 5Y / 10Y / MAX window. Per-share
+          Normal P/E is the median price/EPS on the selected 1Y / 3Y / 5Y / 8Y / 10Y / MAX window. Per-share
           figures are converted to the listing currency (and per ADS when the ADR ratio is known).
           Source: Financial Modeling Prep GAAP diluted, not FAST Graphs adjusted operating EPS.
           S&amp;P credit rating is not in FMP.

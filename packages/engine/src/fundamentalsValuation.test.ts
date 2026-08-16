@@ -63,6 +63,22 @@ describe('valuation windows', () => {
     );
   });
 
+  it('keeps four fiscal years for a 3Y window', () => {
+    const sliced = sliceToWindow(mixedGrowthHistory(), 3);
+    assert.deepEqual(
+      sliced.map((p) => p.year),
+      [2022, 2023, 2024, 2025],
+    );
+  });
+
+  it('keeps nine fiscal years for an 8Y window', () => {
+    const sliced = sliceToWindow(mixedGrowthHistory(), 8);
+    assert.deepEqual(
+      sliced.map((p) => p.year),
+      [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+    );
+  });
+
   it('uses YoY as the 1Y trailing growth rate', () => {
     const sliced = sliceToWindow(mixedGrowthHistory(), 1);
     const yoy = trailingMetricCagr(sliced, 'eps', 1);

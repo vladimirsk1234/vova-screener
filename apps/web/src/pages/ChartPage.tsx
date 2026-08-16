@@ -337,11 +337,7 @@ export function ChartPage() {
       );
     };
     const onMove = (param: { time?: unknown; seriesData?: Map<unknown, unknown> }) => {
-      if (view === 'fundamentals') {
-        if (!param.time) return;
-        showFundamentalsLegend(param);
-        return;
-      }
+      if (view === 'fundamentals') return;
       if (!param.time) {
         setCrosshair('');
         return;
@@ -596,10 +592,10 @@ export function ChartPage() {
         ) : (
           <Chips
             value={fund.windowYears == null ? 'max' : String(fund.windowYears)}
-            options={['1', '5', '10', 'max']}
+            options={['1', '3', '5', '8', '10', 'max']}
             format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
             onChange={(id) =>
-              fund.setWindowYears(id === 'max' ? null : (Number(id) as 1 | 5 | 10))
+              fund.setWindowYears(id === 'max' ? null : (Number(id) as 1 | 3 | 5 | 8 | 10))
             }
           />
         )}
