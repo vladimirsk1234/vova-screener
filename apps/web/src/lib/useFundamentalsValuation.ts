@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  appendForwardFairValue,
   buildValuationSeries,
   seriesForFairValueChart,
   type ValuationMetric,
@@ -59,8 +60,13 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
 
   const chartSeries = useMemo(() => {
     if (!valuation) return [];
-    return seriesForFairValueChart(valuation.series, valuation.summary);
-  }, [valuation]);
+    const pinned = seriesForFairValueChart(valuation.series, valuation.summary);
+    return appendForwardFairValue(
+      pinned,
+      fundQ.data?.estimates ?? [],
+      valuation.summary.fairValueRatio,
+    );
+  }, [valuation, fundQ.data?.estimates]);
 
   const dividend = useMemo(() => dividendHud(fundQ.data), [fundQ.data]);
 

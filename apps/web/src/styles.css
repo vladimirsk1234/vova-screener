@@ -1290,6 +1290,34 @@ a {
   background: #42a5f5;
 }
 
+.fund-swatch--fair-fwd,
+.fund-swatch--dcf-fwd {
+  height: 3px;
+  width: 16px;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+.fund-swatch--fair-fwd {
+  background-image: repeating-linear-gradient(
+    90deg,
+    #ff9800 0,
+    #ff9800 4px,
+    transparent 4px,
+    transparent 7px
+  );
+}
+
+.fund-swatch--dcf-fwd {
+  background-image: repeating-linear-gradient(
+    90deg,
+    #ab47bc 0,
+    #ab47bc 4px,
+    transparent 4px,
+    transparent 7px
+  );
+}
+
 .fund-sidebar {
   display: flex;
   flex-direction: column;

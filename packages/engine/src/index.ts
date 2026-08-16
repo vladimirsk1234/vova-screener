@@ -19,3 +19,4 @@ export {
 } from './sequenceVova';
 export * from './fundamentalsValuation';
 export * from './fundamentalsScale';
+export * from './dcfFairValue';

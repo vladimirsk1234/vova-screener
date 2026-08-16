@@ -61,6 +61,18 @@ export type ValuationSeriesPoint = {
   normalValue: number | null;
   pe: number | null;
   estimated?: boolean;
+  /** Forward analyst year — dashed chart segment, not the TTM today-point. */
+  forecast?: boolean;
+};
+
+/** How many analyst years the Fundamentals chart projects as a dashed fair-value line. */
+export const FORWARD_FAIR_VALUE_YEARS = 3;
+
+export type ForwardEstimatePoint = {
+  year: number;
+  date?: string;
+  eps?: number | null;
+  metric?: number | null;
 };
 
 export type ValuationSummary = {
@@ -422,4 +434,72 @@ export function seriesForFairValueChart(
       estimated: true,
     },
   ];
+}
+
+export function fairValueFromEstimate(
+  eps: number | null | undefined,
+  ratio: number | null | undefined,
+): number | null {
+  if (!finite(eps) || !finite(ratio) || eps <= 0 || ratio <= 0) return null;
+  return eps * ratio;
+}
+
+function estimateIsoDate(year: number, date?: string): string {
+  if (date && /^\d{4}-\d{2}-\d{2}/.test(date)) return date.slice(0, 10);
+  return `${year}-12-31`;
+}
+
+export function nextIsoDate(iso: string): string {
+  const ms = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return iso.slice(0, 10);
+  return new Date(ms + 86_400_000).toISOString().slice(0, 10);
+}
+
+function ensureDateAfter(date: string, after: string): string {
+  if (!after || date > after) return date;
+  return nextIsoDate(after);
+}
+
+/**
+ * Append up to `horizonYears` forward fair-value points (EPS est. × ratio).
+ * Skips years already in the historical / TTM series. Dates are forced strictly
+ * after the previous point so lightweight-charts can plot them.
+ */
+export function appendForwardFairValue(
+  series: ValuationSeriesPoint[],
+  estimates: ForwardEstimatePoint[],
+  fairValueRatio: number | null,
+  horizonYears = FORWARD_FAIR_VALUE_YEARS,
+): ValuationSeriesPoint[] {
+  if (!finite(fairValueRatio) || fairValueRatio <= 0 || horizonYears <= 0) return series;
+  const lastHist = [...series].reverse().find((p) => !p.estimated && !p.forecast) ?? series[series.length - 1];
+  const lastHistYear = lastHist?.year ?? 0;
+  const fwd = [...estimates]
+    .filter((e) => Number.isFinite(e.year) && e.year > lastHistYear)
+    .sort((a, b) => a.year - b.year)
+    .slice(0, horizonYears);
+  if (!fwd.length) return series;
+
+  const out = series.map((p) => ({ ...p }));
+  let prevDate = out[out.length - 1]?.date.slice(0, 10) ?? '';
+  for (const est of fwd) {
+    const metric = finite(est.eps) ? est.eps : finite(est.metric) ? est.metric : null;
+    const positive = metric != null && metric > 0;
+    const fv = positive ? metric * fairValueRatio : null;
+    const date = ensureDateAfter(estimateIsoDate(est.year, est.date), prevDate);
+    out.push({
+      date,
+      year: est.year,
+      price: null,
+      metric,
+      earningsPower: fv,
+      fairValue: fv,
+      normalValue: null,
+      pe: null,
+      estimated: true,
+      forecast: true,
+    });
+    prevDate = date;
+  }
+  return out;
 }

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/fundamentalsScale.test.ts src/fundamentalsValuation.test.ts",
+    "test": "node --experimental-strip-types --test src/fundamentalsScale.test.ts src/fundamentalsValuation.test.ts src/dcfFairValue.test.ts",
     "parity": "tsx scripts/check_parity.ts && tsx scripts/check_weekly_hits_parity.ts && tsx scripts/check_close_ledger_parity.ts"
   },
   "devDependencies": {

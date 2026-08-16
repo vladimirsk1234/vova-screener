@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import {
+  expectedDcfFairValueByYear,
+  fairValueFromEstimate,
   formatScaleCaption,
+  nextIsoDate,
   sliceToWindow,
   type ValuationMetric,
+  type ValuationSeriesPoint,
   type ValuationSummary,
   type ValuationWindowYears,
 } from '@vova/engine';
@@ -23,8 +27,8 @@ const METRICS = [
   { id: 'ownerEarnings' as const, label: 'Owner earn.' },
 ];
 
-const TABS = ['summary', 'forecasting', 'dcf', 'performance', 'profile'] as const;
-type FundTab = (typeof TABS)[number];
+export const FUND_TABS = ['summary', 'forecasting', 'dcf', 'performance', 'profile'] as const;
+export type FundTab = (typeof FUND_TABS)[number];
 const TAB_LABEL: Record<FundTab, string> = {
   summary: 'Summary',
   forecasting: 'Forecasting',
@@ -98,6 +102,9 @@ export function FundamentalsPanel({
   windowYears,
   fundQ,
   valuation,
+  tab,
+  onTabChange,
+  onDcfChartSeries,
 }: {
   ticker: string;
   metric: ValuationMetric;
@@ -105,8 +112,10 @@ export function FundamentalsPanel({
   windowYears: ValuationWindowYears;
   fundQ: UseQueryResult<FundamentalsPayload>;
   valuation: { summary: ValuationSummary } | null;
+  tab: FundTab;
+  onTabChange: (tab: FundTab) => void;
+  onDcfChartSeries?: (series: ValuationSeriesPoint[]) => void;
 }) {
-  const [tab, setTab] = useState<FundTab>('summary');
 
   const fyRows = useMemo(() => {
     if (!fundQ.data) return [];
@@ -132,9 +141,9 @@ export function FundamentalsPanel({
     <div className="fund-panel">
       <Chips
         value={tab}
-        options={TABS}
+        options={FUND_TABS}
         format={(id) => TAB_LABEL[id]}
-        onChange={setTab}
+        onChange={onTabChange}
       />
 
       {fundQ.isLoading ? <p className="muted small">Loading FMP fundamentals…</p> : null}
@@ -285,6 +294,7 @@ export function FundamentalsPanel({
                     <th>Year</th>
                     <th>EPS est.</th>
                     <th>% Chg</th>
+                    <th>Fair Value $</th>
                     <th># Analysts</th>
                   </tr>
                 </thead>
@@ -294,6 +304,7 @@ export function FundamentalsPanel({
                       <td>{row.year}</td>
                       <td>{money(row.eps)}</td>
                       <td>{pct(row.epsChgPct)}</td>
+                      <td>{money(fairValueFromEstimate(row.eps, summary?.fairValueRatio))}</td>
                       <td>{row.analysts != null ? String(row.analysts) : '—'}</td>
                     </tr>
                   ))}
@@ -311,6 +322,7 @@ export function FundamentalsPanel({
           ticker={ticker}
           lynchFairValue={summary?.fairValue ?? null}
           price={summary?.currentPrice ?? profile?.price ?? null}
+          onDcfChartSeries={onDcfChartSeries}
         />
       ) : null}
 
@@ -479,14 +491,70 @@ function presetOverrides(
   };
 }
 
+function dcfChartSeriesFromPayload(data: CustomDcfPayload): ValuationSeriesPoint[] {
+  const yearly = expectedDcfFairValueByYear({
+    years: data.years,
+    wacc: data.wacc,
+    terminalValue: data.terminalValue,
+    netDebt: data.netDebt,
+    dilutedShares: data.dilutedShares,
+  });
+  const points: ValuationSeriesPoint[] = [];
+  const asOf = (data.asOf || new Date().toISOString()).slice(0, 10);
+  if (
+    data.equityValuePerShare != null &&
+    Number.isFinite(data.equityValuePerShare) &&
+    data.equityValuePerShare > 0
+  ) {
+    points.push({
+      date: asOf,
+      year: Number(asOf.slice(0, 4)),
+      price: data.price,
+      metric: null,
+      earningsPower: data.equityValuePerShare,
+      fairValue: data.equityValuePerShare,
+      normalValue: null,
+      pe: null,
+      forecast: true,
+    });
+  }
+  let prev = points[points.length - 1]?.date ?? '';
+  for (const row of yearly) {
+    if (
+      row.fairValuePerShare == null ||
+      !Number.isFinite(row.fairValuePerShare) ||
+      row.fairValuePerShare <= 0
+    ) {
+      continue;
+    }
+    let date = `${row.year}-12-31`;
+    if (prev && date <= prev) date = nextIsoDate(prev);
+    points.push({
+      date,
+      year: row.year,
+      price: null,
+      metric: null,
+      earningsPower: row.fairValuePerShare,
+      fairValue: row.fairValuePerShare,
+      normalValue: null,
+      pe: null,
+      forecast: true,
+    });
+    prev = date;
+  }
+  return points;
+}
+
 function DcfTab({
   ticker,
   lynchFairValue,
   price: lynchPrice,
+  onDcfChartSeries,
 }: {
   ticker: string;
   lynchFairValue: number | null;
   price: number | null;
+  onDcfChartSeries?: (series: ValuationSeriesPoint[]) => void;
 }) {
   const seeded = useRef(false);
   const [draft, setDraft] = useState<DcfDraft>(emptyDcfDraft);
@@ -545,6 +613,26 @@ function DcfTab({
   const recalculate = () => {
     setApplied(draftToAssumptions(draft));
   };
+
+  const yearlyFairValue = useMemo(
+    () =>
+      data
+        ? expectedDcfFairValueByYear({
+            years: data.years,
+            wacc: data.wacc,
+            terminalValue: data.terminalValue,
+            netDebt: data.netDebt,
+            dilutedShares: data.dilutedShares,
+          })
+        : [],
+    [data],
+  );
+
+  useEffect(() => {
+    if (!onDcfChartSeries) return;
+    onDcfChartSeries(data ? dcfChartSeriesFromPayload(data) : []);
+    return () => onDcfChartSeries([]);
+  }, [data, onDcfChartSeries]);
 
   const latestUfcf = data?.years?.length ? data.years[data.years.length - 1]?.ufcf ?? null : null;
 
@@ -661,6 +749,7 @@ function DcfTab({
                   <th>EBITDA</th>
                   <th>UFCF</th>
                   <th>PV</th>
+                  <th>FV / share</th>
                 </tr>
               </thead>
               <tbody>
@@ -671,6 +760,7 @@ function DcfTab({
                     <td>{compact(row.ebitda)}</td>
                     <td>{compact(row.ufcf)}</td>
                     <td>{compact(row.pvUfcf)}</td>
+                    <td>{money(yearlyFairValue[i]?.fairValuePerShare)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -697,8 +787,10 @@ function DcfTab({
 
       <p className="muted small fund-footnote">
         Unlevered Custom DCF from Financial Modeling Prep: projected free cash flow discounted at
-        WACC, then net debt subtracted. Not a bank/insurance model. Long-term g must stay below
-        WACC. This is not the PE15 / Lynch fair value used by the Settings filter.
+        WACC, then net debt subtracted. FV / share is the roll-forward intrinsic value at each
+        year-end (remaining UFCF + terminal, discounted to that date). Not a bank/insurance model.
+        Long-term g must stay below WACC. This is not the PE15 / Lynch fair value used by the
+        Settings filter.
         {data?.cached ? ' · cached' : ''}
       </p>
     </>

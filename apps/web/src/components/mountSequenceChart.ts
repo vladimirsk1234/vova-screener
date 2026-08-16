@@ -138,18 +138,28 @@ export type ChartMountMode = 'ta' | 'fundamentals';
 
 function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   fairPts: LinePoint[];
+  forecastPts: LinePoint[];
   normalPts: LinePoint[];
 } {
   const fairPts: LinePoint[] = [];
+  const forecastOnly: LinePoint[] = [];
   const normalPts: LinePoint[] = [];
+  let lastSolid: LinePoint | null = null;
   for (const p of valuationSeries) {
     const time = p.date.slice(0, 10) as Time;
     if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
-      fairPts.push({ time, value: p.fairValue });
+      const pt = { time, value: p.fairValue };
+      if (p.forecast) {
+        forecastOnly.push(pt);
+      } else {
+        fairPts.push(pt);
+        lastSolid = pt;
+      }
     }
     // Forward estimates stay on the fair-value line only — no Normal P/E.
     if (
       !p.estimated &&
+      !p.forecast &&
       p.normalValue != null &&
       Number.isFinite(p.normalValue) &&
       p.normalValue > 0
@@ -157,7 +167,18 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
       normalPts.push({ time, value: p.normalValue });
     }
   }
-  return { fairPts, normalPts };
+  const forecastPts =
+    lastSolid && forecastOnly.length ? [lastSolid, ...forecastOnly] : forecastOnly;
+  return { fairPts, forecastPts, normalPts };
+}
+
+function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
+  const pts: LinePoint[] = [];
+  for (const p of series) {
+    if (p.fairValue == null || !Number.isFinite(p.fairValue) || p.fairValue <= 0) continue;
+    pts.push({ time: p.date.slice(0, 10) as Time, value: p.fairValue });
+  }
+  return pts;
 }
 
 /** Green fill under fair value — added before candles so price stays on top. */
@@ -176,11 +197,33 @@ function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
   fill.setData(fairPts);
 }
 
+function addDashedLine(
+  chart: IChartApi,
+  lines: ISeriesApi<'Line'>[],
+  pts: LinePoint[],
+  color: string,
+) {
+  if (!pts.length) return;
+  const line = chart.addSeries(LineSeries, {
+    color,
+    lineWidth: 2,
+    lineStyle: 1,
+    lineType: LineType.Simple,
+    priceLineVisible: false,
+    lastValueVisible: true,
+    crosshairMarkerVisible: true,
+  });
+  lines.push(line);
+  line.setData(pts);
+}
+
 function addValuationLines(
   chart: IChartApi,
   lines: ISeriesApi<'Line'>[],
   fairPts: LinePoint[],
+  forecastPts: LinePoint[],
   normalPts: LinePoint[],
+  dcfPts: LinePoint[],
 ) {
   if (fairPts.length) {
     const fair = chart.addSeries(LineSeries, {
@@ -195,6 +238,7 @@ function addValuationLines(
     lines.push(fair);
     fair.setData(fairPts);
   }
+  addDashedLine(chart, lines, forecastPts, '#ff9800');
   if (normalPts.length) {
     const normal = chart.addSeries(LineSeries, {
       color: '#42a5f5',
@@ -208,6 +252,16 @@ function addValuationLines(
     lines.push(normal);
     normal.setData(normalPts);
   }
+  addDashedLine(chart, lines, dcfPts, '#ab47bc');
+}
+
+function lastSeriesDateMs(series: ValuationSeriesPoint[]): number | null {
+  let last: string | null = null;
+  for (const p of series) {
+    const d = p.date.slice(0, 10);
+    if (!last || d > last) last = d;
+  }
+  return last ? parseBarTimeMs(last) : null;
 }
 
 function applyValuationVisibleRange(
@@ -215,6 +269,7 @@ function applyValuationVisibleRange(
   bars: ChartPayload['bars'],
   valuationSeries: ValuationSeriesPoint[],
   windowYears: ValuationWindowYears | undefined,
+  extraSeries: ValuationSeriesPoint[] = [],
 ) {
   if (windowYears == null || !bars.length) {
     chart.timeScale().fitContent();
@@ -223,9 +278,8 @@ function applyValuationVisibleRange(
   const lastBar = bars[bars.length - 1]!;
   const lastMs = parseBarTimeMs(lastBar.date);
   const fromMs = lastMs - windowYears * 365.25 * DAY_MS;
-  const lastVal = valuationSeries[valuationSeries.length - 1];
-  const lastValMs = lastVal ? parseBarTimeMs(lastVal.date.slice(0, 10)) : lastMs;
-  const toMs = Math.max(lastMs, lastValMs) + barStepMs(bars) * 2;
+  const lastValMs = lastSeriesDateMs([...valuationSeries, ...extraSeries]);
+  const toMs = Math.max(lastMs, lastValMs ?? lastMs) + barStepMs(bars) * 2;
   chart.timeScale().setVisibleRange({
     from: formatBarTime(Math.max(fromMs, parseBarTimeMs(bars[0]!.date))) as Time,
     to: formatBarTime(toMs) as Time,
@@ -241,6 +295,7 @@ export function mountSequenceChart(
   valuationSeries: ValuationSeriesPoint[] = [],
   mode: ChartMountMode = 'ta',
   windowYears?: ValuationWindowYears,
+  dcfForecastSeries: ValuationSeriesPoint[] = [],
 ): { destroy: () => void; fitContent: () => void; chart: IChartApi } {
   const chart = createChart(container, {
     autoSize: true,
@@ -260,7 +315,8 @@ export function mountSequenceChart(
     handleScale: true,
   });
 
-  const { fairPts, normalPts } = valuationLinePoints(valuationSeries);
+  const { fairPts, forecastPts, normalPts } = valuationLinePoints(valuationSeries);
+  const dcfPts = seriesToFairPoints(dcfForecastSeries);
   if (mode === 'fundamentals') {
     addFairValueFill(chart, fairPts);
   }
@@ -287,8 +343,8 @@ export function mountSequenceChart(
   const lines: ISeriesApi<'Line'>[] = [];
 
   if (mode === 'fundamentals') {
-    addValuationLines(chart, lines, fairPts, normalPts);
-    applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears);
+    addValuationLines(chart, lines, fairPts, forecastPts, normalPts, dcfPts);
+    applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears, dcfForecastSeries);
     return {
       chart,
       fitContent: () => chart.timeScale().fitContent(),
