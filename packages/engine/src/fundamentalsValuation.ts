@@ -204,17 +204,16 @@ export function sliceToWindow(
 
 const DAY_MS = 86_400_000;
 
-/** How far past the last price bar the default zoom may peek into the dashed forecast. */
-export const VALUATION_CHART_FORECAST_PEEK_DAYS = 366;
-
 export type ValuationChartRangeInput = {
   firstBarDate: string;
   lastBarDate: string;
   windowYears: ValuationWindowYears;
   /** First non-forecast FY / TTM date — used so the fiscal window start is not clipped. */
   firstHistoricalDate?: string | null;
-  /** First dashed forecast point. Included in `to` only when within the peek window. */
+  /** First dashed forecast point. */
   firstForecastDate?: string | null;
+  /** Last dashed forecast point — included in `to` so the 3y tail stays on screen. */
+  lastForecastDate?: string | null;
   /** Last extra series date (DCF). Always included in `to` when set. */
   lastExtraDate?: string | null;
 };
@@ -247,6 +246,16 @@ export function firstForecastDate(
   return fwd[0] ?? null;
 }
 
+export function lastForecastDate(
+  series: Array<{ date: string; forecast?: boolean }>,
+): string | null {
+  const fwd = series
+    .filter((p) => p.forecast)
+    .map((p) => p.date.slice(0, 10))
+    .sort();
+  return fwd[fwd.length - 1] ?? null;
+}
+
 export function lastSeriesDate(series: Array<{ date: string }>): string | null {
   let last: string | null = null;
   for (const p of series) {
@@ -258,7 +267,7 @@ export function lastSeriesDate(series: Array<{ date: string }>): string | null {
 
 /**
  * Visible Fundamentals range: N years of history (and the first FY in the window),
- * plus a short peek at the dashed forecast — not the full +3y tail.
+ * plus the dashed 3y forecast tail.
  */
 export function valuationChartRange(input: ValuationChartRangeInput): { from: string; to: string } {
   const firstBar = input.firstBarDate.slice(0, 10);
@@ -280,13 +289,10 @@ export function valuationChartRange(input: ValuationChartRangeInput): { from: st
   }
 
   let toMs = lastBarMs;
-  const firstFc = input.firstForecastDate?.slice(0, 10);
-  if (firstFc) {
-    const fcMs = isoDateMs(firstFc);
-    if (Number.isFinite(fcMs) && fcMs > lastBarMs) {
-      const peekEnd = lastBarMs + VALUATION_CHART_FORECAST_PEEK_DAYS * DAY_MS;
-      toMs = Math.max(toMs, Math.min(fcMs, peekEnd));
-    }
+  const lastFc = (input.lastForecastDate ?? input.firstForecastDate)?.slice(0, 10);
+  if (lastFc) {
+    const fcMs = isoDateMs(lastFc);
+    if (Number.isFinite(fcMs) && fcMs > toMs) toMs = fcMs;
   }
   const extra = input.lastExtraDate?.slice(0, 10);
   if (extra) {
@@ -471,9 +477,10 @@ export function buildValuationSeries(
   const series: ValuationSeriesPoint[] = sorted.map((p) => {
     const m = pickMetric(p, metric);
     const positive = finite(m) && m > 0;
-    const earningsPower = positive ? m * earningsScale : null;
-    const fairValue = positive && fairValueRatio != null ? m * fairValueRatio : null;
-    const normalValue = positive ? m * multiple : null;
+    const earningsPower = positive ? m * earningsScale : 0;
+    const fairValue =
+      fairValueRatio != null ? (positive ? m * fairValueRatio : 0) : null;
+    const normalValue = multiple > 0 ? (positive ? m * multiple : 0) : null;
     return {
       date: p.date,
       year: p.year,
