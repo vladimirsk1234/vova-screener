@@ -13,7 +13,11 @@ import {
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
 import { FundamentalsPanel, type FundTab } from '../components/FundamentalsPanel';
-import { mountSequenceChart, type ChartTrade } from '../components/mountSequenceChart';
+import {
+  mountSequenceChart,
+  type ChartTrade,
+  type ValuationSeriesRefs,
+} from '../components/mountSequenceChart';
 import { barsLabel, signedMoney } from '../lib/format';
 import {
   DEFAULT_CHART_SETTINGS,
@@ -60,6 +64,78 @@ function valuationBadge(premiumPct: number | null | undefined): { text: string; 
     return { text: `${abs}% overvalued`, className: premiumPct > 10 ? 'down-text' : '' };
   }
   return { text: 'fair', className: '' };
+}
+
+function chartTimeToIso(time: unknown): string {
+  if (typeof time === 'string' && /^\d{4}-\d{2}-\d{2}/.test(time)) return time.slice(0, 10);
+  if (typeof time === 'number' && Number.isFinite(time)) {
+    return new Date(time * 1000).toISOString().slice(0, 10);
+  }
+  if (time && typeof time === 'object' && 'year' in time && 'month' in time && 'day' in time) {
+    const t = time as { year: number; month: number; day: number };
+    return `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+  }
+  return String(time);
+}
+
+function lineValue(
+  seriesData: Map<unknown, unknown> | undefined,
+  series: ValuationSeriesRefs[keyof ValuationSeriesRefs],
+): number | null {
+  if (!series || !seriesData) return null;
+  const raw = seriesData.get(series) as { value?: number } | undefined;
+  return raw?.value != null && Number.isFinite(raw.value) ? raw.value : null;
+}
+
+function nearestValuationPoint(
+  series: ValuationSeriesPoint[],
+  iso: string,
+): ValuationSeriesPoint | null {
+  const target = Date.parse(`${iso}T00:00:00Z`);
+  if (!Number.isFinite(target)) return series.find((p) => p.fairValue != null) ?? null;
+  let best: ValuationSeriesPoint | null = null;
+  let bestDist = Infinity;
+  for (const p of series) {
+    if (p.fairValue == null || !Number.isFinite(p.fairValue)) continue;
+    const ms = Date.parse(`${p.date.slice(0, 10)}T00:00:00Z`);
+    if (!Number.isFinite(ms)) continue;
+    const dist = Math.abs(ms - target);
+    if (dist < bestDist) {
+      best = p;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function formatFundamentalsCrosshair(
+  time: unknown,
+  seriesData: Map<unknown, unknown> | undefined,
+  valuationSeries: ValuationSeriesPoint[],
+  valuationRefs: ValuationSeriesRefs,
+): string {
+  const iso = chartTimeToIso(time);
+  const nearest = nearestValuationPoint(valuationSeries, iso);
+  const exactFv =
+    lineValue(seriesData, valuationRefs.fair) ?? lineValue(seriesData, valuationRefs.fairForecast);
+  const fv = exactFv ?? nearest?.fairValue ?? null;
+  const date = exactFv != null ? iso : (nearest?.date.slice(0, 10) ?? iso);
+  const parts = [date];
+  if (fv != null) parts.push(`FV ${fv.toFixed(2)}`);
+  for (const data of seriesData?.values() ?? []) {
+    const row = data as { open?: number; close?: number };
+    if (row?.open != null && row.close != null) {
+      parts.push(`C ${row.close.toFixed(2)}`);
+      break;
+    }
+  }
+  const npe =
+    lineValue(seriesData, valuationRefs.normal) ??
+    lineValue(seriesData, valuationRefs.normalForecast) ??
+    nearest?.normalValue ??
+    null;
+  if (npe != null) parts.push(`NPE ${npe.toFixed(2)}`);
+  return parts.join('  ');
 }
 
 export function ChartPage() {
@@ -247,6 +323,17 @@ export function ChartPage() {
     const handler = (param: { time?: unknown; seriesData?: Map<unknown, unknown> }) => {
       if (!param.time) {
         setCrosshair('');
+        return;
+      }
+      if (view === 'fundamentals') {
+        setCrosshair(
+          formatFundamentalsCrosshair(
+            param.time,
+            param.seriesData,
+            valuationSeries,
+            mounted.valuation,
+          ),
+        );
         return;
       }
       const candle = [...(param.seriesData?.values() ?? [])][0] as
@@ -498,7 +585,11 @@ export function ChartPage() {
       <div className="chart-stage">
         <div className="chart-host" ref={containerRef} />
         {crosshair ? (
-          <p className="chart-legend small" style={{ color: settings.wm_text_color }}>
+          <p
+            className="chart-legend small"
+            data-testid="chart-legend"
+            style={{ color: settings.wm_text_color }}
+          >
             {crosshair}
           </p>
         ) : null}

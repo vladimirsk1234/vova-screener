@@ -206,6 +206,14 @@ function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
   fill.setData(fairPts);
 }
 
+export type ValuationSeriesRefs = {
+  fair?: ISeriesApi<'Line'>;
+  fairForecast?: ISeriesApi<'Line'>;
+  normal?: ISeriesApi<'Line'>;
+  normalForecast?: ISeriesApi<'Line'>;
+  dcf?: ISeriesApi<'Line'>;
+};
+
 function addDashedLine(
   chart: IChartApi,
   lines: ISeriesApi<'Line'>[],
@@ -216,8 +224,8 @@ function addDashedLine(
     markYears?: boolean;
     markerPosition?: 'aboveBar' | 'belowBar';
   } = {},
-) {
-  if (!pts.length) return;
+): ISeriesApi<'Line'> | undefined {
+  if (!pts.length) return undefined;
   const line = chart.addSeries(LineSeries, {
     color,
     lineWidth: opts.width ?? 2,
@@ -229,7 +237,7 @@ function addDashedLine(
   });
   lines.push(line);
   line.setData(pts);
-  if (!opts.markYears) return;
+  if (!opts.markYears) return line;
   const position = opts.markerPosition ?? 'aboveBar';
   const markers: SeriesMarker<Time>[] = pts
     .filter((p) => p.year != null)
@@ -241,6 +249,19 @@ function addDashedLine(
       text: `${p.year}  ${p.value.toFixed(2)}`,
     }));
   if (markers.length) createSeriesMarkers(line, markers);
+  return line;
+}
+
+function addFairValueDots(line: ISeriesApi<'Line'>, fairPts: LinePoint[]) {
+  if (!fairPts.length) return;
+  const markers: SeriesMarker<Time>[] = fairPts.map((p) => ({
+    time: p.time,
+    position: 'aboveBar' as const,
+    color: '#ff9800',
+    shape: 'circle' as const,
+    size: 2,
+  }));
+  createSeriesMarkers(line, markers);
 }
 
 function addValuationLines(
@@ -251,7 +272,8 @@ function addValuationLines(
   normalPts: LinePoint[],
   normalForecastPts: LinePoint[],
   dcfPts: LinePoint[],
-) {
+): ValuationSeriesRefs {
+  const refs: ValuationSeriesRefs = {};
   if (fairPts.length) {
     const fair = chart.addSeries(LineSeries, {
       color: '#ff9800',
@@ -264,8 +286,13 @@ function addValuationLines(
     });
     lines.push(fair);
     fair.setData(fairPts);
+    addFairValueDots(fair, fairPts);
+    refs.fair = fair;
   }
-  addDashedLine(chart, lines, forecastPts, FV_FORECAST_COLOR, { width: 3, markYears: true });
+  refs.fairForecast = addDashedLine(chart, lines, forecastPts, FV_FORECAST_COLOR, {
+    width: 3,
+    markYears: true,
+  });
   if (normalPts.length) {
     const normal = chart.addSeries(LineSeries, {
       color: '#42a5f5',
@@ -278,13 +305,15 @@ function addValuationLines(
     });
     lines.push(normal);
     normal.setData(normalPts);
+    refs.normal = normal;
   }
-  addDashedLine(chart, lines, normalForecastPts, '#42a5f5', {
+  refs.normalForecast = addDashedLine(chart, lines, normalForecastPts, '#42a5f5', {
     width: 4,
     markYears: true,
     markerPosition: 'belowBar',
   });
-  addDashedLine(chart, lines, dcfPts, '#ab47bc');
+  refs.dcf = addDashedLine(chart, lines, dcfPts, '#ab47bc');
+  return refs;
 }
 
 function lastSeriesDateMs(series: ValuationSeriesPoint[]): number | null {
@@ -359,7 +388,7 @@ export function mountSequenceChart(
   mode: ChartMountMode = 'ta',
   windowYears?: ValuationWindowYears,
   dcfForecastSeries: ValuationSeriesPoint[] = [],
-): { destroy: () => void; fitContent: () => void; chart: IChartApi } {
+): { destroy: () => void; fitContent: () => void; chart: IChartApi; valuation: ValuationSeriesRefs } {
   const chart = createChart(container, {
     autoSize: true,
     layout: {
@@ -412,10 +441,19 @@ export function mountSequenceChart(
   const lines: ISeriesApi<'Line'>[] = [];
 
   if (mode === 'fundamentals') {
-    addValuationLines(chart, lines, fairPts, forecastPts, normalPts, normalForecastPts, dcfPts);
+    const valuation = addValuationLines(
+      chart,
+      lines,
+      fairPts,
+      forecastPts,
+      normalPts,
+      normalForecastPts,
+      dcfPts,
+    );
     applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears, dcfForecastSeries);
     return {
       chart,
+      valuation,
       fitContent: () => chart.timeScale().fitContent(),
       destroy: () => chart.remove(),
     };
@@ -696,6 +734,7 @@ export function mountSequenceChart(
 
   return {
     chart,
+    valuation: {},
     fitContent: () => chart.timeScale().fitContent(),
     destroy: () => chart.remove(),
   };
