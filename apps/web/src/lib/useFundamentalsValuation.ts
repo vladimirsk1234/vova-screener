@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  FORWARD_FAIR_VALUE_YEARS,
   appendForwardFairValue,
   buildValuationSeries,
   seriesForFairValueChart,
@@ -65,6 +66,8 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       pinned,
       fundQ.data?.estimates ?? [],
       valuation.summary.fairValueRatio,
+      FORWARD_FAIR_VALUE_YEARS,
+      valuation.summary.normalMultiple,
     );
   }, [valuation, fundQ.data?.estimates]);
 

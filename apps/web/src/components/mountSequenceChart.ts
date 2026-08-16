@@ -143,11 +143,14 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   forecastPts: LinePoint[];
   forecastOnly: LinePoint[];
   normalPts: LinePoint[];
+  normalForecastPts: LinePoint[];
 } {
   const fairPts: LinePoint[] = [];
   const forecastOnly: LinePoint[] = [];
   const normalPts: LinePoint[] = [];
+  const normalForecastOnly: LinePoint[] = [];
   let lastSolid: LinePoint | null = null;
+  let lastSolidNormal: LinePoint | null = null;
   for (const p of valuationSeries) {
     const time = p.date.slice(0, 10) as Time;
     if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
@@ -159,20 +162,23 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
         lastSolid = pt;
       }
     }
-    // Forward estimates stay on the fair-value line only — no Normal P/E.
-    if (
-      !p.estimated &&
-      !p.forecast &&
-      p.normalValue != null &&
-      Number.isFinite(p.normalValue) &&
-      p.normalValue > 0
-    ) {
-      normalPts.push({ time, value: p.normalValue });
+    if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue > 0) {
+      if (p.forecast) {
+        normalForecastOnly.push({ time, value: p.normalValue, year: p.year });
+      } else if (!p.estimated) {
+        const npt = { time, value: p.normalValue };
+        normalPts.push(npt);
+        lastSolidNormal = npt;
+      }
     }
   }
   const forecastPts =
     lastSolid && forecastOnly.length ? [lastSolid, ...forecastOnly] : forecastOnly;
-  return { fairPts, forecastPts, forecastOnly, normalPts };
+  const normalForecastPts =
+    lastSolidNormal && normalForecastOnly.length
+      ? [lastSolidNormal, ...normalForecastOnly]
+      : normalForecastOnly;
+  return { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts };
 }
 
 function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
@@ -205,7 +211,11 @@ function addDashedLine(
   lines: ISeriesApi<'Line'>[],
   pts: LinePoint[],
   color: string,
-  opts: { width?: 2 | 3; markYears?: boolean } = {},
+  opts: {
+    width?: 2 | 3 | 4;
+    markYears?: boolean;
+    markerPosition?: 'aboveBar' | 'belowBar';
+  } = {},
 ) {
   if (!pts.length) return;
   const line = chart.addSeries(LineSeries, {
@@ -220,11 +230,12 @@ function addDashedLine(
   lines.push(line);
   line.setData(pts);
   if (!opts.markYears) return;
+  const position = opts.markerPosition ?? 'aboveBar';
   const markers: SeriesMarker<Time>[] = pts
     .filter((p) => p.year != null)
     .map((p) => ({
       time: p.time,
-      position: 'aboveBar' as const,
+      position,
       color,
       shape: 'circle' as const,
       text: `${p.year}  ${p.value.toFixed(2)}`,
@@ -238,6 +249,7 @@ function addValuationLines(
   fairPts: LinePoint[],
   forecastPts: LinePoint[],
   normalPts: LinePoint[],
+  normalForecastPts: LinePoint[],
   dcfPts: LinePoint[],
 ) {
   if (fairPts.length) {
@@ -267,6 +279,11 @@ function addValuationLines(
     lines.push(normal);
     normal.setData(normalPts);
   }
+  addDashedLine(chart, lines, normalForecastPts, '#42a5f5', {
+    width: 4,
+    markYears: true,
+    markerPosition: 'belowBar',
+  });
   addDashedLine(chart, lines, dcfPts, '#ab47bc');
 }
 
@@ -361,7 +378,8 @@ export function mountSequenceChart(
     handleScale: true,
   });
 
-  const { fairPts, forecastPts, forecastOnly, normalPts } = valuationLinePoints(valuationSeries);
+  const { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts } =
+    valuationLinePoints(valuationSeries);
   const dcfPts = seriesToFairPoints(dcfForecastSeries);
   if (mode === 'fundamentals') {
     addFairValueFill(chart, [...fairPts, ...forecastOnly]);
@@ -394,7 +412,7 @@ export function mountSequenceChart(
   const lines: ISeriesApi<'Line'>[] = [];
 
   if (mode === 'fundamentals') {
-    addValuationLines(chart, lines, fairPts, forecastPts, normalPts, dcfPts);
+    addValuationLines(chart, lines, fairPts, forecastPts, normalPts, normalForecastPts, dcfPts);
     applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears, dcfForecastSeries);
     return {
       chart,

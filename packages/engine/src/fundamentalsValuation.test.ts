@@ -210,6 +210,33 @@ describe('valuation windows', () => {
     assert.equal(ttm.forecast, undefined);
   });
 
+  it('sets Normal P/E forecast as EPS × window median multiple', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-06-15');
+    const withFwd = appendForwardFairValue(
+      chart,
+      [
+        { year: 2026, date: '2026-12-31', eps: 9 },
+        { year: 2027, date: '2027-12-31', eps: 10 },
+        { year: 2028, date: '2028-12-31', eps: 12 },
+      ],
+      summary.fairValueRatio,
+      3,
+      summary.normalMultiple,
+    );
+    const forecast = withFwd.filter((p) => p.forecast);
+    assert.equal(forecast.length, 3);
+    assert.ok(summary.normalMultiple > 0);
+    assert.equal(forecast[0]?.normalValue, 9 * summary.normalMultiple);
+    assert.equal(forecast[1]?.normalValue, 10 * summary.normalMultiple);
+    assert.equal(forecast[2]?.normalValue, 12 * summary.normalMultiple);
+    assert.notEqual(forecast[0]?.normalValue, forecast[0]?.fairValue);
+  });
+
   it('bumps a forecast date that would land on or before the last solid point', () => {
     const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
       currentPrice: 110,

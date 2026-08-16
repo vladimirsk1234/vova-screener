@@ -1291,11 +1291,24 @@ a {
 }
 
 .fund-swatch--fair-fwd,
-.fund-swatch--dcf-fwd {
+.fund-swatch--dcf-fwd,
+.fund-swatch--normal-fwd {
   height: 3px;
   width: 16px;
   border-radius: 0;
   background-color: transparent;
+}
+
+.fund-swatch--normal-fwd {
+  height: 5px;
+  width: 20px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #42a5f5 0,
+    #42a5f5 6px,
+    transparent 6px,
+    transparent 10px
+  );
 }
 
 .fund-swatch--fair-fwd {

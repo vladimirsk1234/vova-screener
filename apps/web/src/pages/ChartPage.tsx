@@ -516,6 +516,11 @@ export function ChartPage() {
               <li>
                 <span className="fund-swatch fund-swatch--normal" /> Normal P/E
               </li>
+              {fund.chartSeries.some((p) => p.forecast && p.normalValue != null) ? (
+                <li>
+                  <span className="fund-swatch fund-swatch--normal-fwd" /> Normal P/E (3y)
+                </li>
+              ) : null}
               {fundTab === 'dcf' && dcfChartSeries.length ? (
                 <li>
                   <span className="fund-swatch fund-swatch--dcf-fwd" /> DCF FV

@@ -461,7 +461,7 @@ function ensureDateAfter(date: string, after: string): string {
 }
 
 /**
- * Append up to `horizonYears` forward fair-value points (EPS est. × ratio).
+ * Append up to `horizonYears` forward points: FV = EPS × ratio, Normal P/E = EPS × multiple.
  * Skips years already in the historical / TTM series. Dates are forced strictly
  * after the previous point so lightweight-charts can plot them.
  */
@@ -470,8 +470,11 @@ export function appendForwardFairValue(
   estimates: ForwardEstimatePoint[],
   fairValueRatio: number | null,
   horizonYears = FORWARD_FAIR_VALUE_YEARS,
+  normalMultiple?: number | null,
 ): ValuationSeriesPoint[] {
-  if (!finite(fairValueRatio) || fairValueRatio <= 0 || horizonYears <= 0) return series;
+  const hasFv = finite(fairValueRatio) && fairValueRatio > 0;
+  const hasNpe = finite(normalMultiple) && normalMultiple > 0;
+  if ((!hasFv && !hasNpe) || horizonYears <= 0) return series;
   const lastHist = [...series].reverse().find((p) => !p.estimated && !p.forecast) ?? series[series.length - 1];
   const lastHistYear = lastHist?.year ?? 0;
   const fwd = [...estimates]
@@ -485,7 +488,8 @@ export function appendForwardFairValue(
   for (const est of fwd) {
     const metric = finite(est.eps) ? est.eps : finite(est.metric) ? est.metric : null;
     const positive = metric != null && metric > 0;
-    const fv = positive ? metric * fairValueRatio : null;
+    const fv = positive && hasFv ? metric * fairValueRatio : null;
+    const npe = positive && hasNpe ? metric * normalMultiple : null;
     const date = ensureDateAfter(estimateIsoDate(est.year, est.date), prevDate);
     out.push({
       date,
@@ -494,7 +498,7 @@ export function appendForwardFairValue(
       metric,
       earningsPower: fv,
       fairValue: fv,
-      normalValue: null,
+      normalValue: npe,
       pe: null,
       estimated: true,
       forecast: true,
