@@ -13,6 +13,7 @@ import {
 import {
   firstForecastDate,
   firstNonForecastDate,
+  lastForecastDate,
   lastSeriesDate,
   valuationChartLogicalRange,
   valuationChartRange,
@@ -164,18 +165,20 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   let lastSolidNormal: LinePoint | null = null;
   for (const p of valuationSeries) {
     const time = p.date.slice(0, 10) as Time;
-    if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
+    if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue >= 0) {
       const pt = { time, value: p.fairValue, year: p.forecast ? p.year : undefined };
       if (p.forecast) {
-        forecastOnly.push(pt);
+        if (p.fairValue > 0) forecastOnly.push(pt);
       } else {
         fairPts.push(pt);
         lastSolid = pt;
       }
     }
-    if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue > 0) {
+    if (p.normalValue != null && Number.isFinite(p.normalValue) && p.normalValue >= 0) {
       if (p.forecast) {
-        normalForecastOnly.push({ time, value: p.normalValue, year: p.year });
+        if (p.normalValue > 0) {
+          normalForecastOnly.push({ time, value: p.normalValue, year: p.year });
+        }
       } else {
         const npt = { time, value: p.normalValue };
         normalPts.push(npt);
@@ -311,6 +314,8 @@ function addValuationLines(
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
+      pointMarkersVisible: true,
+      pointMarkersRadius: 5,
     });
     lines.push(normal);
     normal.setData(normalPts);
@@ -350,18 +355,14 @@ function lastSeriesDateMs(series: ValuationSeriesPoint[]): number | null {
 function futureWhitespace(
   bars: ChartPayload['bars'],
   series: ValuationSeriesPoint[],
-  denseUntilIso?: string | null,
 ): { time: Time }[] {
   if (!bars.length) return [];
   const lastMs = parseBarTimeMs(bars[bars.length - 1]!.date);
   const lastValMs = lastSeriesDateMs(series);
   if (lastValMs == null || lastValMs <= lastMs) return [];
   const step = barStepMs(bars);
-  const denseUntilMs = denseUntilIso
-    ? Math.min(parseBarTimeMs(denseUntilIso) + step * 2, lastValMs)
-    : lastValMs;
   const times = new Set<string>();
-  for (let t = lastMs + step; t <= denseUntilMs + step; t += step) {
+  for (let t = lastMs + step; t <= lastValMs + step; t += step) {
     times.add(formatBarTime(t));
   }
   for (const p of series) {
@@ -386,6 +387,7 @@ function valuationRangeInput(
     windowYears: windowYears === undefined ? null : windowYears,
     firstHistoricalDate: firstNonForecastDate(valuationSeries),
     firstForecastDate: firstForecastDate(valuationSeries),
+    lastForecastDate: lastForecastDate(valuationSeries),
     lastExtraDate: extraSeries.length ? lastSeriesDate(extraSeries) : null,
   });
 }
@@ -495,13 +497,7 @@ export function mountSequenceChart(
       ? valuationRangeInput(payload.bars, valuationSeries, windowYears, dcfForecastSeries)
       : null;
   if (mode === 'fundamentals') {
-    candleData.push(
-      ...futureWhitespace(
-        payload.bars,
-        [...valuationSeries, ...dcfForecastSeries],
-        fundRange?.to,
-      ),
-    );
+    candleData.push(...futureWhitespace(payload.bars, [...valuationSeries, ...dcfForecastSeries]));
   }
   candle.setData(candleData);
 
