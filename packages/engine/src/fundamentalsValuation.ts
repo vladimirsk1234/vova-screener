@@ -297,6 +297,39 @@ export function valuationChartRange(input: ValuationChartRangeInput): { from: st
   return { from: msToIsoDate(fromMs), to: msToIsoDate(toMs) };
 }
 
+/**
+ * Map a date range onto bar indices. `fromIdx` is never negative so the
+ * chart does not open with an empty gutter left of the first candle.
+ */
+export function valuationChartLogicalRange(
+  timesMs: number[],
+  range: { from: string; to: string },
+  padMs = 0,
+): { fromIdx: number; toIdx: number } {
+  if (!timesMs.length) return { fromIdx: 0, toIdx: 0 };
+  const fromMs = isoDateMs(range.from);
+  const toMs = isoDateMs(range.to) + Math.max(0, padMs);
+  let fromIdx = 0;
+  if (Number.isFinite(fromMs)) {
+    for (let i = 0; i < timesMs.length; i++) {
+      if (timesMs[i]! <= fromMs) fromIdx = i;
+      else break;
+    }
+  }
+  let toIdx = timesMs.length - 1;
+  if (Number.isFinite(toMs)) {
+    for (let i = 0; i < timesMs.length; i++) {
+      if (timesMs[i]! >= toMs) {
+        toIdx = i;
+        break;
+      }
+    }
+  }
+  fromIdx = Math.max(0, fromIdx);
+  toIdx = Math.max(fromIdx, toIdx);
+  return { fromIdx, toIdx };
+}
+
 export function cagrPct(first: number, last: number, years: number): number | null {
   if (!finite(first) || !finite(last) || years <= 0 || first <= 0 || last <= 0) return null;
   return (Math.pow(last / first, 1 / years) - 1) * 100;
