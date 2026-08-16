@@ -141,6 +141,7 @@ export type ChartMountMode = 'ta' | 'fundamentals';
 function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   fairPts: LinePoint[];
   forecastPts: LinePoint[];
+  forecastOnly: LinePoint[];
   normalPts: LinePoint[];
 } {
   const fairPts: LinePoint[] = [];
@@ -171,7 +172,7 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   }
   const forecastPts =
     lastSolid && forecastOnly.length ? [lastSolid, ...forecastOnly] : forecastOnly;
-  return { fairPts, forecastPts, normalPts };
+  return { fairPts, forecastPts, forecastOnly, normalPts };
 }
 
 function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
@@ -213,7 +214,7 @@ function addDashedLine(
     lineStyle: 2,
     lineType: LineType.Simple,
     priceLineVisible: false,
-    lastValueVisible: true,
+    lastValueVisible: !opts.markYears,
     crosshairMarkerVisible: true,
   });
   lines.push(line);
@@ -226,7 +227,7 @@ function addDashedLine(
       position: 'aboveBar' as const,
       color,
       shape: 'circle' as const,
-      text: String(p.year),
+      text: `${p.year}  ${p.value.toFixed(2)}`,
     }));
   if (markers.length) createSeriesMarkers(line, markers);
 }
@@ -360,10 +361,10 @@ export function mountSequenceChart(
     handleScale: true,
   });
 
-  const { fairPts, forecastPts, normalPts } = valuationLinePoints(valuationSeries);
+  const { fairPts, forecastPts, forecastOnly, normalPts } = valuationLinePoints(valuationSeries);
   const dcfPts = seriesToFairPoints(dcfForecastSeries);
   if (mode === 'fundamentals') {
-    addFairValueFill(chart, fairPts);
+    addFairValueFill(chart, [...fairPts, ...forecastOnly]);
   }
 
   const candle = chart.addSeries(CandlestickSeries, {
