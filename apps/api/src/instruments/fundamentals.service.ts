@@ -10,6 +10,7 @@ import {
   scaleDcf,
   scalePerShare,
   scaleTev,
+  ttmFromQuarterly,
   yoyChgPct,
   type AnnualFundamentalPoint,
   type ChartFundamentals,
@@ -161,6 +162,8 @@ export type FundamentalsPayload = {
     peTTM: number | null;
     /** Trailing-twelve-month diluted EPS (anchor fallback when no forward estimate). */
     ttmEps: number | null;
+    /** Period-end of the last quarter included in a quarterly-built TTM. */
+    ttmAsOf?: string | null;
     pbTTM: number | null;
     psTTM: number | null;
     pegTTM: number | null;
@@ -198,6 +201,8 @@ export type FundamentalsPayload = {
     years: PerformanceYear[];
   };
   annual: AnnualFundamentalPoint[];
+  /** Reported quarters (listing-scaled EPS). Used to step the EPS chart mid-FY. */
+  quarters?: Array<{ date: string; eps: number | null }>;
   incomeTrend: Array<{
     year: number;
     date: string;
@@ -217,6 +222,29 @@ function yearOf(date: string | null): number | null {
   if (!date || date.length < 4) return null;
   const y = Number(date.slice(0, 4));
   return Number.isFinite(y) ? y : null;
+}
+
+function quarterlyEpsRows(
+  rows: Record<string, unknown>[],
+): Array<{ date: string; eps: number | null }> {
+  return rows
+    .map((row) => ({
+      date: (fmpStr(row.date) ?? '').slice(0, 10),
+      eps: fmpNum(row.epsdiluted) ?? fmpNum(row.epsDiluted) ?? fmpNum(row.eps),
+    }))
+    .filter((q) => q.date.length === 10);
+}
+
+function pickTtmEps(
+  quarterly: Array<{ date: string; eps: number | null }>,
+  keyTtm: Record<string, unknown> | null | undefined,
+  ratiosTtm: Record<string, unknown> | null | undefined,
+  price: number | null,
+  peTTM: number | null,
+): { ttm: number | null; asOf: string | null } {
+  const fromQ = ttmFromQuarterly(quarterly);
+  if (fromQ.ttm != null && fromQ.ttm > 0) return fromQ;
+  return { ttm: ttmEpsFrom(keyTtm, ratiosTtm, price, peTTM), asOf: fromQ.asOf };
 }
 
 function byDateKey(rows: Record<string, unknown>[]): Map<string, Record<string, unknown>> {
@@ -396,7 +424,11 @@ export class FundamentalsService {
     }
 
     const stored = await this.loadStored(ticker);
-    if (stored && hasCurrentScale(stored, FUNDAMENTALS_SCALE_VERSION)) {
+    if (
+      stored &&
+      hasCurrentScale(stored, FUNDAMENTALS_SCALE_VERSION) &&
+      Array.isArray(stored.quarters)
+    ) {
       const payload = this.payloadForMetric(stored, metric);
       this.remember(ticker, payload);
       return { ...payload, cached: true };
@@ -934,9 +966,10 @@ export class FundamentalsService {
     yahooTicker: string,
   ): Promise<{ metrics: CardFundamentals; scale: FundamentalsScale }> {
     const fmpSymbol = yahooToFmpSymbol(yahooTicker);
-    const [profile, income, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
+    const [profile, income, incomeQuarterly, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
       this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
       this.fmp.incomeAnnual(fmpSymbol).catch(() => []),
+      this.fmp.incomeQuarterly(fmpSymbol),
       this.fmp.keyMetricsTtm(fmpSymbol),
       this.fmp.ratiosTtm(fmpSymbol),
       this.fmp.analystEstimates(fmpSymbol),
@@ -994,7 +1027,8 @@ export class FundamentalsService {
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
-    const ttmEpsRaw = ttmEpsFrom(keyTtm, ratiosTtm, price, peTTMRaw);
+    const ttmPick = pickTtmEps(quarterlyEpsRows(incomeQuarterly), keyTtm, ratiosTtm, price, peTTMRaw);
+    const ttmEpsRaw = ttmPick.ttm;
     const aligned = await this.alignToListing({
       yahooTicker,
       listingCurrency: profile.currency,
@@ -1168,6 +1202,7 @@ export class FundamentalsService {
       dcf,
       scores,
       estimatesRaw,
+      incomeQuarterly,
       dividendsRaw,
       evRows,
       tickerBarsRes,
@@ -1189,6 +1224,7 @@ export class FundamentalsService {
         workingCapital: null,
       })),
       this.fmp.analystEstimates(fmpSymbol),
+      this.fmp.incomeQuarterly(fmpSymbol),
       this.fmp.dividends(fmpSymbol),
       this.fmp.enterpriseValues(fmpSymbol),
       this.bars.getBars(yahooTicker, 'Daily', { maxAgeHours: 24 }).catch(() => ({
@@ -1340,7 +1376,12 @@ export class FundamentalsService {
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
       fmpNum(ratiosTtm?.peRatioTTM) ??
       fmpNum(keyTtm?.peRatioTTM);
-    const ttmEpsRaw = metric === 'eps' ? ttmEpsFrom(keyTtm, ratiosTtm, price, peTTMRaw) : null;
+    const rawQuarters = quarterlyEpsRows(incomeQuarterly);
+    const ttmPick =
+      metric === 'eps'
+        ? pickTtmEps(rawQuarters, keyTtm, ratiosTtm, price, peTTMRaw)
+        : { ttm: null, asOf: null };
+    const ttmEpsRaw = ttmPick.ttm;
     const aligned = await this.alignToListing({
       yahooTicker,
       listingCurrency: profile.currency,
@@ -1369,6 +1410,9 @@ export class FundamentalsService {
     }
     const peTTM = aligned.peTTM;
     const ttmEps = aligned.ttmEps;
+    const quarters = rawQuarters
+      .map((q) => ({ date: q.date, eps: scalePerShare(q.eps, aligned.scale) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     const valuation = buildValuationSeries(annual, metric, {
       currentPrice: price,
@@ -1489,6 +1533,7 @@ export class FundamentalsService {
       snapshot: {
         peTTM,
         ttmEps,
+        ttmAsOf: ttmPick.asOf,
         pbTTM,
         psTTM,
         pegTTM,
@@ -1520,6 +1565,7 @@ export class FundamentalsService {
       estimates: estimateParsed,
       performance,
       annual,
+      quarters,
       incomeTrend,
       asOf: new Date().toISOString(),
       cached: false,

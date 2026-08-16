@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appendForwardFairValue,
+  appendIntraYearTtmSteps,
   buildValuationSeries,
   cagrPct,
   fairValueFromEstimate,
@@ -9,6 +10,7 @@ import {
   seriesForFairValueChart,
   sliceToWindow,
   trailingMetricCagr,
+  ttmFromQuarterly,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
 
@@ -330,13 +332,117 @@ describe('valuation windows', () => {
     const chart = seriesForFairValueChart(series, summary, '2026-08-16');
     const withFwd = appendForwardFairValue(
       chart,
-      [{ year: 2026, date: '2026-02-01', eps: 6 }],
+      [
+        { year: 2026, date: '2026-02-01', eps: 6 },
+        { year: 2027, date: '2027-02-01', eps: 7 },
+      ],
       summary.fairValueRatio,
     );
     const fwd = withFwd.filter((p) => p.forecast);
     assert.equal(fwd.length, 1);
-    assert.ok(fwd[0]!.date > '2026-08-16');
-    assert.equal(fwd[0]!.year, 2026);
+    assert.equal(fwd[0]!.year, 2027);
+    assert.equal(fwd[0]!.date, '2027-06-30');
+  });
+
+  it('sums the last four completed quarters for TTM', () => {
+    const got = ttmFromQuarterly(
+      [
+        { date: '2025-08-28', eps: 2.1 },
+        { date: '2025-11-27', eps: 1.8 },
+        { date: '2026-02-26', eps: 1.5 },
+        { date: '2026-05-28', eps: 1.9 },
+        { date: '2026-08-28', eps: 9.0 },
+      ],
+      '2026-08-16',
+    );
+    assert.equal(got.ttm, 2.1 + 1.8 + 1.5 + 1.9);
+    assert.equal(got.asOf, '2026-05-28');
+  });
+
+  it('does not form TTM across a missing-quarter gap', () => {
+    const got = ttmFromQuarterly(
+      [
+        { date: '2024-05-28', eps: 1 },
+        { date: '2025-08-28', eps: 2 },
+        { date: '2025-11-27', eps: 3 },
+        { date: '2026-05-28', eps: 4 },
+      ],
+      '2026-08-16',
+    );
+    assert.equal(got.ttm, null);
+    assert.equal(got.asOf, null);
+  });
+
+  it('steps intra-year fair value on each reported quarter', () => {
+    const muHist: AnnualFundamentalPoint[] = [
+      { ...fy(2024, 1.3, 90), date: '2024-08-29' },
+      { ...fy(2025, 8.29, 140), date: '2025-08-28' },
+    ];
+    const quarters = [
+      { date: '2024-11-28', eps: 1.2 },
+      { date: '2025-02-27', eps: 1.5 },
+      { date: '2025-05-29', eps: 2.1 },
+      { date: '2025-08-28', eps: 3.49 },
+      { date: '2025-11-27', eps: 4.78 },
+      { date: '2026-02-26', eps: 12.2 },
+      { date: '2026-05-28', eps: 25.11 },
+    ];
+    const { series, summary } = buildValuationSeries(muHist, 'eps', {
+      currentPrice: 971,
+      windowYears: 5,
+      ttmMetric: ttmFromQuarterly(quarters, '2026-08-16').ttm,
+    });
+    const histFv = series.map((p) => p.fairValue);
+    const stepped = appendIntraYearTtmSteps(
+      series,
+      quarters,
+      summary.fairValueRatio,
+      '2026-08-16',
+    );
+    const intra = stepped.filter((p) => p.estimated && !p.forecast);
+    assert.deepEqual(
+      intra.map((p) => p.date),
+      ['2025-11-27', '2026-02-26', '2026-05-28'],
+    );
+    assert.ok(summary.fairValueRatio != null);
+    const fvNov = ttmFromQuarterly(quarters, '2025-11-27').ttm! * summary.fairValueRatio;
+    const fvFeb = ttmFromQuarterly(quarters, '2026-02-26').ttm! * summary.fairValueRatio;
+    const fvMay = ttmFromQuarterly(quarters, '2026-05-28').ttm! * summary.fairValueRatio;
+    assert.ok(Math.abs((intra[0]?.fairValue ?? 0) - fvNov) < 1e-9);
+    assert.ok(Math.abs((intra[1]?.fairValue ?? 0) - fvFeb) < 1e-9);
+    assert.ok(Math.abs((intra[2]?.fairValue ?? 0) - fvMay) < 1e-9);
+    assert.ok(fvMay > fvFeb && fvFeb > fvNov);
+    assert.deepEqual(
+      stepped.filter((p) => !p.estimated).map((p) => p.fairValue),
+      histFv,
+    );
+
+    const chart = seriesForFairValueChart(stepped, summary, '2026-08-16');
+    const today = chart[chart.length - 1];
+    assert.equal(today?.date, '2026-08-16');
+    assert.equal(today?.fairValue, summary.fairValue);
+    assert.ok(today?.fairValue != null && today.fairValue > fvNov);
+
+    const withFwd = appendForwardFairValue(
+      chart,
+      [
+        { year: 2026, date: '2026-08-28', eps: 72.21 },
+        { year: 2027, date: '2027-08-28', eps: 155.15 },
+        { year: 2028, date: '2028-08-28', eps: 167.25 },
+      ],
+      summary.fairValueRatio,
+    );
+    const forecast = withFwd.filter((p) => p.forecast);
+    assert.ok(!forecast.some((p) => p.year === 2026));
+    assert.deepEqual(
+      forecast.map((p) => p.year),
+      [2027, 2028],
+    );
+    assert.ok(
+      forecast[0]!.fairValue != null &&
+        forecast[1]!.fairValue != null &&
+        forecast[0]!.fairValue !== forecast[1]!.fairValue,
+    );
   });
 
   it('computes table fair value as EPS × ratio', () => {

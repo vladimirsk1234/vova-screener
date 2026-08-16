@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   FORWARD_FAIR_VALUE_YEARS,
   appendForwardFairValue,
+  appendIntraYearTtmSteps,
   buildValuationSeries,
   seriesForFairValueChart,
   type ValuationMetric,
@@ -61,7 +62,17 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
 
   const chartSeries = useMemo(() => {
     if (!valuation) return [];
-    const pinned = seriesForFairValueChart(valuation.series, valuation.summary);
+    const withQuarters =
+      metric === 'eps'
+        ? appendIntraYearTtmSteps(
+            valuation.series,
+            fundQ.data?.quarters ?? [],
+            valuation.summary.fairValueRatio,
+            undefined,
+            valuation.summary.normalMultiple,
+          )
+        : valuation.series;
+    const pinned = seriesForFairValueChart(withQuarters, valuation.summary);
     return appendForwardFairValue(
       pinned,
       fundQ.data?.estimates ?? [],
@@ -69,7 +80,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       FORWARD_FAIR_VALUE_YEARS,
       valuation.summary.normalMultiple,
     );
-  }, [valuation, fundQ.data?.estimates]);
+  }, [valuation, fundQ.data?.estimates, fundQ.data?.quarters, metric]);
 
   const dividend = useMemo(() => dividendHud(fundQ.data), [fundQ.data]);
 

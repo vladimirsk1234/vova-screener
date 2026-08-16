@@ -70,6 +70,18 @@ export type ValuationSeriesPoint = {
 /** How many analyst years the Fundamentals chart projects as a dashed fair-value line. */
 export const FORWARD_FAIR_VALUE_YEARS = 3;
 
+/**
+ * Skip a current-FY estimate when its FY-end is this close to the last solid
+ * point so the dashed tail is the next year, not a 12-day wall.
+ */
+export const NEAR_FORECAST_FY_END_DAYS = 90;
+
+export type QuarterlyMetricPoint = {
+  date: string;
+  eps?: number | null;
+  metric?: number | null;
+};
+
 export type ForwardEstimatePoint = {
   year: number;
   date?: string;
@@ -481,6 +493,88 @@ export function nextIsoDate(iso: string): string {
   return new Date(ms + 86_400_000).toISOString().slice(0, 10);
 }
 
+/** Signed calendar-day gap (UTC). */
+export function isoDayDiff(fromIso: string, toIso: string): number {
+  const a = Date.parse(`${fromIso.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${toIso.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.POSITIVE_INFINITY;
+  return (b - a) / 86_400_000;
+}
+
+function quarterValue(q: QuarterlyMetricPoint): number | null {
+  if (finite(q.eps)) return q.eps;
+  if (finite(q.metric)) return q.metric;
+  return null;
+}
+
+/**
+ * Trailing-twelve-month metric from the last four completed quarters on or
+ * before `asOfIso`. Null when fewer than four prints exist or the span is
+ * wider than ~13 months (a missing quarter).
+ */
+export function ttmFromQuarterly(
+  quarters: QuarterlyMetricPoint[],
+  asOfIso = new Date().toISOString().slice(0, 10),
+): { ttm: number | null; asOf: string | null } {
+  const completed = quarters
+    .map((q) => ({ date: q.date?.slice(0, 10) ?? '', value: quarterValue(q) }))
+    .filter((q) => q.date.length === 10 && q.date <= asOfIso && finite(q.value))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (completed.length < 4) return { ttm: null, asOf: null };
+  const last4 = completed.slice(-4);
+  if (isoDayDiff(last4[0]!.date, last4[3]!.date) > 400) return { ttm: null, asOf: null };
+  const ttm = last4.reduce((sum, q) => sum + (q.value as number), 0);
+  return { ttm, asOf: last4[3]!.date };
+}
+
+/**
+ * Solid intra-year steps after the last complete FY: each reported quarter
+ * gets FV = rolling TTM × ratio so the line moves with real prints.
+ */
+export function appendIntraYearTtmSteps(
+  series: ValuationSeriesPoint[],
+  quarters: QuarterlyMetricPoint[],
+  fairValueRatio: number | null,
+  asOfIso = new Date().toISOString().slice(0, 10),
+  normalMultiple?: number | null,
+): ValuationSeriesPoint[] {
+  const hasFv = finite(fairValueRatio) && fairValueRatio > 0;
+  const hasNpe = finite(normalMultiple) && normalMultiple > 0;
+  if ((!hasFv && !hasNpe) || !quarters.length) return series;
+  const lastHist = [...series].reverse().find((p) => !p.estimated && !p.forecast);
+  const lastHistDate = lastHist?.date.slice(0, 10) ?? '';
+  const existing = new Set(series.map((p) => p.date.slice(0, 10)));
+  const dates = [
+    ...new Set(
+      quarters
+        .map((q) => q.date.slice(0, 10))
+        .filter((d) => d.length === 10 && d <= asOfIso && (!lastHistDate || d > lastHistDate)),
+    ),
+  ].sort();
+  if (!dates.length) return series;
+
+  const extra: ValuationSeriesPoint[] = [];
+  for (const date of dates) {
+    if (existing.has(date)) continue;
+    const { ttm } = ttmFromQuarterly(quarters, date);
+    if (ttm == null || ttm <= 0) continue;
+    extra.push({
+      date,
+      year: Number(date.slice(0, 4)),
+      price: null,
+      metric: ttm,
+      earningsPower: hasFv ? ttm * fairValueRatio : null,
+      fairValue: hasFv ? ttm * fairValueRatio : null,
+      normalValue: hasNpe ? ttm * normalMultiple : null,
+      dividend: null,
+      pe: null,
+      estimated: true,
+    });
+  }
+  if (!extra.length) return series;
+  return [...series, ...extra].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function ensureDateAfter(date: string, after: string): string {
   if (!after || date > after) return date;
   return nextIsoDate(after);
@@ -504,20 +598,25 @@ export function appendForwardFairValue(
   const lastHist = [...series].reverse().find((p) => !p.estimated && !p.forecast) ?? series[series.length - 1];
   const lastHistYear = lastHist?.year ?? 0;
   const lastHistDate = lastHist?.date.slice(0, 10);
-  const fwd = [...estimates]
+  const candidates = [...estimates]
     .filter((e) => Number.isFinite(e.year) && e.year > lastHistYear)
-    .sort((a, b) => a.year - b.year)
-    .slice(0, horizonYears);
-  if (!fwd.length) return series;
+    .sort((a, b) => a.year - b.year);
+  if (!candidates.length) return series;
 
   const out = series.map((p) => ({ ...p }));
   let prevDate = out[out.length - 1]?.date.slice(0, 10) ?? '';
-  for (const est of fwd) {
+  const lastSolidDate = prevDate;
+  let added = 0;
+  for (const est of candidates) {
+    if (added >= horizonYears) break;
     const metric = finite(est.eps) ? est.eps : finite(est.metric) ? est.metric : null;
     const positive = metric != null && metric > 0;
     const fv = positive && hasFv ? metric * fairValueRatio : null;
     const npe = positive && hasNpe ? metric * normalMultiple : null;
     const date = ensureDateAfter(estimateIsoDate(est.year, est.date, lastHistDate), prevDate);
+    if (lastSolidDate && isoDayDiff(lastSolidDate, date) <= NEAR_FORECAST_FY_END_DAYS) {
+      continue;
+    }
     out.push({
       date,
       year: est.year,
@@ -532,6 +631,7 @@ export function appendForwardFairValue(
       forecast: true,
     });
     prevDate = date;
+    added += 1;
   }
   return out;
 }
