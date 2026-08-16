@@ -13,7 +13,9 @@ import {
 import type { ValuationWindowYears } from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
 
-type LinePoint = { time: Time; value: number; color?: string };
+type LinePoint = { time: Time; value: number; color?: string; year?: number };
+
+const FV_FORECAST_COLOR = '#1565c0';
 
 function toLine(
   bars: ChartPayload['bars'],
@@ -148,7 +150,7 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   for (const p of valuationSeries) {
     const time = p.date.slice(0, 10) as Time;
     if (p.fairValue != null && Number.isFinite(p.fairValue) && p.fairValue > 0) {
-      const pt = { time, value: p.fairValue };
+      const pt = { time, value: p.fairValue, year: p.forecast ? p.year : undefined };
       if (p.forecast) {
         forecastOnly.push(pt);
       } else {
@@ -186,8 +188,8 @@ function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
   if (!fairPts.length) return;
   const fill = chart.addSeries(AreaSeries, {
     lineColor: 'rgba(76, 175, 80, 0)',
-    topColor: 'rgba(76, 175, 80, 0.38)',
-    bottomColor: 'rgba(46, 125, 50, 0.06)',
+    topColor: 'rgba(76, 175, 80, 0.55)',
+    bottomColor: 'rgba(46, 125, 50, 0.20)',
     lineWidth: 1,
     lineType: LineType.Simple,
     priceLineVisible: false,
@@ -202,12 +204,13 @@ function addDashedLine(
   lines: ISeriesApi<'Line'>[],
   pts: LinePoint[],
   color: string,
+  opts: { width?: 2 | 3; markYears?: boolean } = {},
 ) {
   if (!pts.length) return;
   const line = chart.addSeries(LineSeries, {
     color,
-    lineWidth: 2,
-    lineStyle: 1,
+    lineWidth: opts.width ?? 2,
+    lineStyle: 2,
     lineType: LineType.Simple,
     priceLineVisible: false,
     lastValueVisible: true,
@@ -215,6 +218,17 @@ function addDashedLine(
   });
   lines.push(line);
   line.setData(pts);
+  if (!opts.markYears) return;
+  const markers: SeriesMarker<Time>[] = pts
+    .filter((p) => p.year != null)
+    .map((p) => ({
+      time: p.time,
+      position: 'aboveBar' as const,
+      color,
+      shape: 'circle' as const,
+      text: String(p.year),
+    }));
+  if (markers.length) createSeriesMarkers(line, markers);
 }
 
 function addValuationLines(
@@ -238,7 +252,7 @@ function addValuationLines(
     lines.push(fair);
     fair.setData(fairPts);
   }
-  addDashedLine(chart, lines, forecastPts, '#ff9800');
+  addDashedLine(chart, lines, forecastPts, FV_FORECAST_COLOR, { width: 3, markYears: true });
   if (normalPts.length) {
     const normal = chart.addSeries(LineSeries, {
       color: '#42a5f5',
@@ -264,6 +278,29 @@ function lastSeriesDateMs(series: ValuationSeriesPoint[]): number | null {
   return last ? parseBarTimeMs(last) : null;
 }
 
+function futureWhitespace(
+  bars: ChartPayload['bars'],
+  series: ValuationSeriesPoint[],
+): { time: Time }[] {
+  if (!bars.length) return [];
+  const lastMs = parseBarTimeMs(bars[bars.length - 1]!.date);
+  const lastValMs = lastSeriesDateMs(series);
+  if (lastValMs == null || lastValMs <= lastMs) return [];
+  const step = barStepMs(bars);
+  const times = new Set<string>();
+  for (let t = lastMs + step; t <= lastValMs + step; t += step) {
+    times.add(formatBarTime(t));
+  }
+  for (const p of series) {
+    const d = p.date.slice(0, 10);
+    if (parseBarTimeMs(d) > lastMs) times.add(d);
+  }
+  return [...times]
+    .filter((d) => parseBarTimeMs(d) > lastMs)
+    .sort()
+    .map((time) => ({ time: time as Time }));
+}
+
 function applyValuationVisibleRange(
   chart: IChartApi,
   bars: ChartPayload['bars'],
@@ -271,15 +308,23 @@ function applyValuationVisibleRange(
   windowYears: ValuationWindowYears | undefined,
   extraSeries: ValuationSeriesPoint[] = [],
 ) {
-  if (windowYears == null || !bars.length) {
+  if (!bars.length) {
     chart.timeScale().fitContent();
     return;
   }
   const lastBar = bars[bars.length - 1]!;
   const lastMs = parseBarTimeMs(lastBar.date);
-  const fromMs = lastMs - windowYears * 365.25 * DAY_MS;
   const lastValMs = lastSeriesDateMs([...valuationSeries, ...extraSeries]);
   const toMs = Math.max(lastMs, lastValMs ?? lastMs) + barStepMs(bars) * 2;
+  if (windowYears == null) {
+    const firstMs = parseBarTimeMs(bars[0]!.date);
+    chart.timeScale().setVisibleRange({
+      from: formatBarTime(firstMs) as Time,
+      to: formatBarTime(toMs) as Time,
+    });
+    return;
+  }
+  const fromMs = lastMs - windowYears * 365.25 * DAY_MS;
   chart.timeScale().setVisibleRange({
     from: formatBarTime(Math.max(fromMs, parseBarTimeMs(bars[0]!.date))) as Time,
     to: formatBarTime(toMs) as Time,
@@ -330,15 +375,20 @@ export function mountSequenceChart(
     wickDownColor: settings.candle_wick || settings.candle_down,
   });
 
-  candle.setData(
-    payload.bars.map((b) => ({
-      time: b.date as Time,
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
-    })),
-  );
+  const candleData: Array<
+    | { time: Time; open: number; high: number; low: number; close: number }
+    | { time: Time }
+  > = payload.bars.map((b) => ({
+    time: b.date as Time,
+    open: b.open,
+    high: b.high,
+    low: b.low,
+    close: b.close,
+  }));
+  if (mode === 'fundamentals') {
+    candleData.push(...futureWhitespace(payload.bars, [...valuationSeries, ...dcfForecastSeries]));
+  }
+  candle.setData(candleData);
 
   const lines: ISeriesApi<'Line'>[] = [];
 

@@ -197,6 +197,12 @@ describe('valuation windows', () => {
     assert.equal(forecast[0]?.fairValue, 9 * summary.fairValueRatio);
     assert.equal(forecast[1]?.fairValue, 10 * summary.fairValueRatio);
     assert.equal(forecast[2]?.fairValue, 12 * summary.fairValueRatio);
+    assert.notEqual(forecast[0]?.fairValue, forecast[1]?.fairValue);
+    assert.notEqual(forecast[1]?.fairValue, forecast[2]?.fairValue);
+    assert.ok(
+      forecast.every((p) => p.fairValue != null && p.fairValue !== summary.fairValue),
+      'each year is its own EPS × ratio, not the single 3y headline',
+    );
     const ttm = withFwd.find((p) => p.estimated && !p.forecast);
     assert.ok(ttm);
     assert.equal(ttm.date, '2026-06-15');

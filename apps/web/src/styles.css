@@ -1301,8 +1301,8 @@ a {
 .fund-swatch--fair-fwd {
   background-image: repeating-linear-gradient(
     90deg,
-    #ff9800 0,
-    #ff9800 4px,
+    #1565c0 0,
+    #1565c0 4px,
     transparent 4px,
     transparent 7px
   );
