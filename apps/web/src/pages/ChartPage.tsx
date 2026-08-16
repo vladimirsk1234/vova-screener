@@ -318,22 +318,30 @@ export function ChartPage() {
       dcfSeriesForChart,
     );
     destroyRef.current = mounted.destroy;
+    setCrosshair('');
 
     const chartApi = mounted.chart;
-    const handler = (param: { time?: unknown; seriesData?: Map<unknown, unknown> }) => {
-      if (!param.time) {
-        setCrosshair('');
+    const showFundamentalsLegend = (param: {
+      time?: unknown;
+      seriesData?: Map<unknown, unknown>;
+    }) => {
+      setCrosshair(
+        formatFundamentalsCrosshair(
+          param.time,
+          param.seriesData,
+          valuationSeries,
+          mounted.valuation,
+        ),
+      );
+    };
+    const onMove = (param: { time?: unknown; seriesData?: Map<unknown, unknown> }) => {
+      if (view === 'fundamentals') {
+        if (!param.time) return;
+        showFundamentalsLegend(param);
         return;
       }
-      if (view === 'fundamentals') {
-        setCrosshair(
-          formatFundamentalsCrosshair(
-            param.time,
-            param.seriesData,
-            valuationSeries,
-            mounted.valuation,
-          ),
-        );
+      if (!param.time) {
+        setCrosshair('');
         return;
       }
       const candle = [...(param.seriesData?.values() ?? [])][0] as
@@ -349,7 +357,16 @@ export function ChartPage() {
         setCrosshair(String(param.time));
       }
     };
-    chartApi.subscribeCrosshairMove(handler as never);
+    const onClick = (param: { time?: unknown; seriesData?: Map<unknown, unknown> }) => {
+      if (view !== 'fundamentals') return;
+      if (!param.time) {
+        setCrosshair('');
+        return;
+      }
+      showFundamentalsLegend(param);
+    };
+    chartApi.subscribeCrosshairMove(onMove as never);
+    chartApi.subscribeClick(onClick as never);
     const onDblClick = () => {
       mounted.fitContent();
     };
@@ -357,7 +374,8 @@ export function ChartPage() {
 
     return () => {
       chartApi.unsubscribeDblClick(onDblClick);
-      chartApi.unsubscribeCrosshairMove(handler as never);
+      chartApi.unsubscribeClick(onClick as never);
+      chartApi.unsubscribeCrosshairMove(onMove as never);
       destroyRef.current?.();
       destroyRef.current = null;
     };
