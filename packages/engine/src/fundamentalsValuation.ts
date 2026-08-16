@@ -202,6 +202,101 @@ export function sliceToWindow(
   return sorted.filter((p) => p.year >= minYear);
 }
 
+const DAY_MS = 86_400_000;
+
+/** How far past the last price bar the default zoom may peek into the dashed forecast. */
+export const VALUATION_CHART_FORECAST_PEEK_DAYS = 366;
+
+export type ValuationChartRangeInput = {
+  firstBarDate: string;
+  lastBarDate: string;
+  windowYears: ValuationWindowYears;
+  /** First non-forecast FY / TTM date — used so the fiscal window start is not clipped. */
+  firstHistoricalDate?: string | null;
+  /** First dashed forecast point. Included in `to` only when within the peek window. */
+  firstForecastDate?: string | null;
+  /** Last extra series date (DCF). Always included in `to` when set. */
+  lastExtraDate?: string | null;
+};
+
+function isoDateMs(iso: string): number {
+  return Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+}
+
+function msToIsoDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+export function firstNonForecastDate(
+  series: Array<{ date: string; forecast?: boolean }>,
+): string | null {
+  const hist = series
+    .filter((p) => !p.forecast)
+    .map((p) => p.date.slice(0, 10))
+    .sort();
+  return hist[0] ?? null;
+}
+
+export function firstForecastDate(
+  series: Array<{ date: string; forecast?: boolean }>,
+): string | null {
+  const fwd = series
+    .filter((p) => p.forecast)
+    .map((p) => p.date.slice(0, 10))
+    .sort();
+  return fwd[0] ?? null;
+}
+
+export function lastSeriesDate(series: Array<{ date: string }>): string | null {
+  let last: string | null = null;
+  for (const p of series) {
+    const d = p.date.slice(0, 10);
+    if (!last || d > last) last = d;
+  }
+  return last;
+}
+
+/**
+ * Visible Fundamentals range: N years of history (and the first FY in the window),
+ * plus a short peek at the dashed forecast — not the full +3y tail.
+ */
+export function valuationChartRange(input: ValuationChartRangeInput): { from: string; to: string } {
+  const firstBar = input.firstBarDate.slice(0, 10);
+  const lastBar = input.lastBarDate.slice(0, 10);
+  const firstBarMs = isoDateMs(firstBar);
+  const lastBarMs = isoDateMs(lastBar);
+  const fallback = { from: firstBar, to: lastBar };
+  if (!Number.isFinite(firstBarMs) || !Number.isFinite(lastBarMs)) return fallback;
+
+  let fromMs: number;
+  if (input.windowYears == null || input.windowYears <= 0) {
+    fromMs = firstBarMs;
+  } else {
+    const calendarFrom = lastBarMs - input.windowYears * 365.25 * DAY_MS;
+    const hist = input.firstHistoricalDate?.slice(0, 10);
+    const histMs = hist ? isoDateMs(hist) : Number.NaN;
+    fromMs = Number.isFinite(histMs) ? Math.min(calendarFrom, histMs) : calendarFrom;
+    fromMs = Math.max(fromMs, firstBarMs);
+  }
+
+  let toMs = lastBarMs;
+  const firstFc = input.firstForecastDate?.slice(0, 10);
+  if (firstFc) {
+    const fcMs = isoDateMs(firstFc);
+    if (Number.isFinite(fcMs) && fcMs > lastBarMs) {
+      const peekEnd = lastBarMs + VALUATION_CHART_FORECAST_PEEK_DAYS * DAY_MS;
+      toMs = Math.max(toMs, Math.min(fcMs, peekEnd));
+    }
+  }
+  const extra = input.lastExtraDate?.slice(0, 10);
+  if (extra) {
+    const extraMs = isoDateMs(extra);
+    if (Number.isFinite(extraMs) && extraMs > toMs) toMs = extraMs;
+  }
+
+  return { from: msToIsoDate(fromMs), to: msToIsoDate(toMs) };
+}
+
 export function cagrPct(first: number, last: number, years: number): number | null {
   if (!finite(first) || !finite(last) || years <= 0 || first <= 0 || last <= 0) return null;
   return (Math.pow(last / first, 1 / years) - 1) * 100;
