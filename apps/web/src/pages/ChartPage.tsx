@@ -436,64 +436,67 @@ export function ChartPage() {
 
   return (
     <div className={`chart-page${view === 'fundamentals' ? ' chart-page--fundamentals' : ''}`}>
-      <div className="chart-head">
-        <button
-          type="button"
-          className="chart-icon-btn ghost"
-          aria-label="Back"
-          onClick={goBack}
-        >
-          ←
-        </button>
-        <div className="chart-head-title">
-          <div className="chart-head-name ellipsis">
-            <strong>{titleSymbol}</strong>
-            {titleName ? <span className="muted small">{titleName}</span> : null}
-          </div>
-        </div>
-        {view === 'ta' ? (
-          <a
-            className="btn-sm ghost chart-head-tv"
-            href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-              chart.data?.tvSymbol ?? ticker,
-            )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
-            target="_blank"
-            rel="noreferrer"
+      <div className="chart-top-chrome">
+        <div className="chart-head">
+          <button
+            type="button"
+            className="chart-icon-btn ghost"
+            aria-label="Back"
+            onClick={goBack}
           >
-            TradingView
-          </a>
-        ) : null}
-        <button
-          type="button"
-          className="chart-icon-btn"
-          aria-label="Settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          ⚙
-        </button>
+            ←
+          </button>
+          <div className="chart-head-title">
+            <div className="chart-head-name ellipsis">
+              <strong>{titleSymbol}</strong>
+              {titleName ? <span className="muted small">{titleName}</span> : null}
+            </div>
+          </div>
+          {view === 'ta' ? (
+            <a
+              className="btn-sm ghost chart-head-tv"
+              href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+                chart.data?.tvSymbol ?? ticker,
+              )}&interval=${tf === 'Weekly' ? 'W' : tf === 'Monthly' ? 'M' : 'D'}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              TradingView
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="chart-icon-btn"
+            aria-label="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            ⚙
+          </button>
+        </div>
+
+        <div className="chart-ta-tools">
+          <button
+            type="button"
+            className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
+            disabled={!canMark || marking}
+            onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
+          >
+            {marking ? 'Saving…' : 'Interested'}
+          </button>
+          <button
+            type="button"
+            className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
+            disabled={!canMark || marking}
+            onClick={() =>
+              markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
+            }
+          >
+            Not Interested
+          </button>
+        </div>
       </div>
 
-      <div className="chart-ta-tools">
-        <button
-          type="button"
-          className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
-          disabled={!canMark || marking}
-          onClick={() => markInterest.mutate(markStatus === 'interested' ? null : 'interested')}
-        >
-          {marking ? 'Saving…' : 'Interested'}
-        </button>
-        <button
-          type="button"
-          className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
-          disabled={!canMark || marking}
-          onClick={() =>
-            markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested')
-          }
-        >
-          Not Interested
-        </button>
-      </div>
-
+      <div className="chart-page-body">
       {view === 'ta' && closedTrade ? (
         <div className="chart-trade-row">
           <span className="badge">
@@ -633,15 +636,6 @@ export function ChartPage() {
         <p className="error chart-status-line">{(markInterest.error as Error).message}</p>
       ) : null}
 
-      <ChartSettingsPanel
-        open={settingsOpen}
-        value={settings}
-        onChange={setSettings}
-        onClose={() => setSettingsOpen(false)}
-        onSave={() => savePreset.mutate()}
-        onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
-      />
-
       {view === 'fundamentals' ? (
         <div className="chart-fund-hud">
           <ul className="chart-fund-legend" aria-label="Chart legend">
@@ -736,6 +730,16 @@ export function ChartPage() {
           />
         </div>
       ) : null}
+      </div>
+
+      <ChartSettingsPanel
+        open={settingsOpen}
+        value={settings}
+        onChange={setSettings}
+        onClose={() => setSettingsOpen(false)}
+        onSave={() => savePreset.mutate()}
+        onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
+      />
     </div>
   );
 }

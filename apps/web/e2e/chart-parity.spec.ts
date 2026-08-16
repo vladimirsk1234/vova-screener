@@ -78,8 +78,22 @@ test.describe('chart parity UI', () => {
     await expect(page.getByText('ATR:')).toHaveCount(0);
     await expect(page.getByText('D: Seq')).toHaveCount(0);
     expect(box?.height ?? 0).toBeGreaterThan(280);
-    await expect(page.locator('.chart-page--fundamentals')).toHaveCSS('overflow-y', 'auto');
+    await expect(page.locator('.chart-page--fundamentals')).toHaveCSS('overflow-y', 'hidden');
+    await expect(page.locator('.chart-page--fundamentals .chart-page-body')).toHaveCSS(
+      'overflow-y',
+      'auto',
+    );
     await expect(page.locator('.chart-fund-metrics')).toHaveCSS('max-height', 'none');
+
+    const chrome = page.locator('.chart-top-chrome');
+    const chromeBefore = await chrome.boundingBox();
+    await page.locator('.chart-page--fundamentals .chart-page-body').evaluate((el) => {
+      el.scrollTop = 240;
+    });
+    const chromeAfter = await chrome.boundingBox();
+    expect(chromeAfter?.y ?? Number.POSITIVE_INFINITY).toBe(chromeBefore?.y ?? -1);
+    await expect(page.getByRole('button', { name: 'Interested', exact: true })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Not Interested' })).toBeInViewport();
 
     await page.getByRole('tab', { name: 'TA', exact: true }).click();
     await expect(page).toHaveURL(/\/chart\/AAPL$/);
