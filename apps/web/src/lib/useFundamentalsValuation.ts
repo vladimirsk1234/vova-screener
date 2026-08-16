@@ -4,7 +4,6 @@ import {
   FORWARD_FAIR_VALUE_YEARS,
   appendForwardFairValue,
   buildValuationSeries,
-  forwardEstimatesForMetric,
   seriesForFairValueChart,
   type ValuationMetric,
   type ValuationWindowYears,
@@ -65,12 +64,12 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     const pinned = seriesForFairValueChart(valuation.series, valuation.summary);
     return appendForwardFairValue(
       pinned,
-      forwardEstimatesForMetric(metric, fundQ.data?.estimates ?? []),
+      fundQ.data?.estimates ?? [],
       valuation.summary.fairValueRatio,
       FORWARD_FAIR_VALUE_YEARS,
       valuation.summary.normalMultiple,
     );
-  }, [valuation, fundQ.data?.estimates, metric]);
+  }, [valuation, fundQ.data?.estimates]);
 
   const dividend = useMemo(() => dividendHud(fundQ.data), [fundQ.data]);
 
