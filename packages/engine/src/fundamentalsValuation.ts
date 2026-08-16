@@ -59,6 +59,8 @@ export type ValuationSeriesPoint = {
   fairValue: number | null;
   /** Metric × Normal P/E (median historical price/metric). */
   normalValue: number | null;
+  /** Annual dividend per share (DPS) on the price axis, FAST Graphs–style. */
+  dividend?: number | null;
   pe: number | null;
   estimated?: boolean;
   /** Forward analyst year — dashed chart segment, not the TTM today-point. */
@@ -340,6 +342,7 @@ export function buildValuationSeries(
       earningsPower,
       fairValue,
       normalValue,
+      dividend: finite(p.dividend) ? p.dividend : null,
       pe: finite(p.pe) ? p.pe : finite(p.price) && positive ? p.price / m : null,
       estimated: false,
     };
@@ -435,6 +438,7 @@ export function seriesForFairValueChart(
     earningsPower: summary.fairValue,
     fairValue: summary.fairValue,
     normalValue: null,
+    dividend: null,
     pe: null,
     estimated: true,
   };
@@ -522,6 +526,7 @@ export function appendForwardFairValue(
       earningsPower: fv,
       fairValue: fv,
       normalValue: npe,
+      dividend: null,
       pe: null,
       estimated: true,
       forecast: true,

@@ -16,6 +16,8 @@ import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } 
 type LinePoint = { time: Time; value: number; color?: string; year?: number };
 
 const FV_FORECAST_COLOR = '#1565c0';
+const NORMAL_PE_COLOR = '#0d47a1';
+const DIVIDEND_COLOR = '#ffd54f';
 
 function toLine(
   bars: ChartPayload['bars'],
@@ -144,11 +146,13 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
   forecastOnly: LinePoint[];
   normalPts: LinePoint[];
   normalForecastPts: LinePoint[];
+  dividendPts: LinePoint[];
 } {
   const fairPts: LinePoint[] = [];
   const forecastOnly: LinePoint[] = [];
   const normalPts: LinePoint[] = [];
   const normalForecastOnly: LinePoint[] = [];
+  const dividendPts: LinePoint[] = [];
   let lastSolid: LinePoint | null = null;
   let lastSolidNormal: LinePoint | null = null;
   for (const p of valuationSeries) {
@@ -171,6 +175,15 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
         lastSolidNormal = npt;
       }
     }
+    if (
+      !p.forecast &&
+      !p.estimated &&
+      p.dividend != null &&
+      Number.isFinite(p.dividend) &&
+      p.dividend > 0
+    ) {
+      dividendPts.push({ time, value: p.dividend });
+    }
   }
   const forecastPts =
     lastSolid && forecastOnly.length ? [lastSolid, ...forecastOnly] : forecastOnly;
@@ -178,7 +191,7 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
     lastSolidNormal && normalForecastOnly.length
       ? [lastSolidNormal, ...normalForecastOnly]
       : normalForecastOnly;
-  return { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts };
+  return { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts, dividendPts };
 }
 
 function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
@@ -211,6 +224,7 @@ export type ValuationSeriesRefs = {
   fairForecast?: ISeriesApi<'Line'>;
   normal?: ISeriesApi<'Line'>;
   normalForecast?: ISeriesApi<'Line'>;
+  dividend?: ISeriesApi<'Line'>;
   dcf?: ISeriesApi<'Line'>;
 };
 
@@ -260,6 +274,7 @@ function addValuationLines(
   normalPts: LinePoint[],
   normalForecastPts: LinePoint[],
   dcfPts: LinePoint[],
+  dividendPts: LinePoint[],
 ): ValuationSeriesRefs {
   const refs: ValuationSeriesRefs = {};
   if (fairPts.length) {
@@ -284,7 +299,7 @@ function addValuationLines(
   });
   if (normalPts.length) {
     const normal = chart.addSeries(LineSeries, {
-      color: '#42a5f5',
+      color: NORMAL_PE_COLOR,
       lineWidth: 2,
       lineStyle: 0,
       lineType: LineType.Simple,
@@ -296,11 +311,25 @@ function addValuationLines(
     normal.setData(normalPts);
     refs.normal = normal;
   }
-  refs.normalForecast = addDashedLine(chart, lines, normalForecastPts, '#42a5f5', {
+  refs.normalForecast = addDashedLine(chart, lines, normalForecastPts, NORMAL_PE_COLOR, {
     width: 4,
     markYears: true,
     markerPosition: 'belowBar',
   });
+  if (dividendPts.length) {
+    const dividend = chart.addSeries(LineSeries, {
+      color: DIVIDEND_COLOR,
+      lineWidth: 2,
+      lineStyle: 0,
+      lineType: LineType.Simple,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: true,
+    });
+    lines.push(dividend);
+    dividend.setData(dividendPts);
+    refs.dividend = dividend;
+  }
   refs.dcf = addDashedLine(chart, lines, dcfPts, '#ab47bc');
   return refs;
 }
@@ -396,7 +425,7 @@ export function mountSequenceChart(
     handleScale: true,
   });
 
-  const { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts } =
+  const { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts, dividendPts } =
     valuationLinePoints(valuationSeries);
   const dcfPts = seriesToFairPoints(dcfForecastSeries);
   if (mode === 'fundamentals') {
@@ -438,6 +467,7 @@ export function mountSequenceChart(
       normalPts,
       normalForecastPts,
       dcfPts,
+      dividendPts,
     );
     applyValuationVisibleRange(chart, payload.bars, valuationSeries, windowYears, dcfForecastSeries);
     return {

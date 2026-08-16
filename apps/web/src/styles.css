@@ -1290,7 +1290,11 @@ a {
 }
 
 .fund-swatch--normal {
-  background: #42a5f5;
+  background: #0d47a1;
+}
+
+.fund-swatch--div {
+  background: #ffd54f;
 }
 
 .fund-swatch--fair-fwd,
@@ -1307,8 +1311,8 @@ a {
   width: 20px;
   background-image: repeating-linear-gradient(
     90deg,
-    #42a5f5 0,
-    #42a5f5 6px,
+    #0d47a1 0,
+    #0d47a1 6px,
     transparent 6px,
     transparent 10px
   );
