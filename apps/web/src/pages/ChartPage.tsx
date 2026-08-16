@@ -12,7 +12,7 @@ import {
 } from '../lib/api';
 import { Chips } from '../components/Chips';
 import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
-import { FundamentalsPanel } from '../components/FundamentalsPanel';
+import { FundamentalsPanel, type FundTab } from '../components/FundamentalsPanel';
 import { mountSequenceChart, type ChartTrade } from '../components/mountSequenceChart';
 import { barsLabel, signedMoney } from '../lib/format';
 import {
@@ -97,6 +97,8 @@ export function ChartPage() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [crosshair, setCrosshair] = useState<string>('');
+  const [fundTab, setFundTab] = useState<FundTab>('summary');
+  const [dcfChartSeries, setDcfChartSeries] = useState<ValuationSeriesPoint[]>([]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
@@ -158,6 +160,11 @@ export function ChartPage() {
   const numeric = useMemo(() => numericChartParams(settings), [settings]);
   const visibleTf: Timeframe = view === 'fundamentals' ? 'Weekly' : tf;
   const fund = useFundamentalsValuation(ticker, view === 'fundamentals');
+
+  useEffect(() => {
+    setFundTab('summary');
+    setDcfChartSeries([]);
+  }, [ticker]);
   const chartReady = Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data);
   const fullSeries = view === 'fundamentals';
   const chart = useQuery({
@@ -220,6 +227,8 @@ export function ChartPage() {
     [view, settings],
   );
   const valuationSeries = view === 'fundamentals' ? fund.chartSeries : EMPTY_VALUATION;
+  const dcfSeriesForChart =
+    view === 'fundamentals' && fundTab === 'dcf' ? dcfChartSeries : EMPTY_VALUATION;
 
   useEffect(() => {
     if (!containerRef.current || !chart.data) return;
@@ -233,6 +242,7 @@ export function ChartPage() {
       valuationSeries,
       view === 'fundamentals' ? 'fundamentals' : 'ta',
       view === 'fundamentals' ? fund.windowYears : undefined,
+      dcfSeriesForChart,
     );
     destroyRef.current = mounted.destroy;
 
@@ -267,7 +277,16 @@ export function ChartPage() {
       destroyRef.current?.();
       destroyRef.current = null;
     };
-  }, [chart.data, visibleSettings, visibleDrawings, visibleTrade, valuationSeries, view, fund.windowYears]);
+  }, [
+    chart.data,
+    visibleSettings,
+    visibleDrawings,
+    visibleTrade,
+    valuationSeries,
+    dcfSeriesForChart,
+    view,
+    fund.windowYears,
+  ]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -492,9 +511,19 @@ export function ChartPage() {
               <li>
                 <span className="fund-swatch fund-swatch--fair" /> Fair value
               </li>
+              {fund.chartSeries.some((p) => p.forecast) ? (
+                <li>
+                  <span className="fund-swatch fund-swatch--fair-fwd" /> Fair value (3y)
+                </li>
+              ) : null}
               <li>
                 <span className="fund-swatch fund-swatch--normal" /> Normal P/E
               </li>
+              {fundTab === 'dcf' && dcfChartSeries.length ? (
+                <li>
+                  <span className="fund-swatch fund-swatch--dcf-fwd" /> DCF FV
+                </li>
+              ) : null}
             </ul>
             {fund.dividend ? (
               <p
@@ -577,6 +606,9 @@ export function ChartPage() {
             windowYears={fund.windowYears}
             fundQ={fund.fundQ}
             valuation={fund.valuation}
+            tab={fundTab}
+            onTabChange={setFundTab}
+            onDcfChartSeries={setDcfChartSeries}
           />
         </div>
       ) : null}

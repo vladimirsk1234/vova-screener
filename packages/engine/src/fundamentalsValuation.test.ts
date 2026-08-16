@@ -1,8 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  appendForwardFairValue,
   buildValuationSeries,
   cagrPct,
+  fairValueFromEstimate,
   fairValueRatioFromGrowth,
   seriesForFairValueChart,
   sliceToWindow,
@@ -166,5 +168,63 @@ describe('valuation windows', () => {
     const chart = seriesForFairValueChart(series, summary, '2026-06-15');
     assert.equal(chart.length, series.length);
     assert.equal(chart[chart.length - 1]?.fairValue, summary.fairValue);
+  });
+
+  it('appends three forward fair-value years and leaves the TTM point solid', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-06-15');
+    const withFwd = appendForwardFairValue(
+      chart,
+      [
+        { year: 2026, date: '2026-12-31', eps: 9 },
+        { year: 2027, date: '2027-12-31', eps: 10 },
+        { year: 2028, date: '2028-12-31', eps: 12 },
+        { year: 2029, date: '2029-12-31', eps: 14 },
+      ],
+      summary.fairValueRatio,
+    );
+    const forecast = withFwd.filter((p) => p.forecast);
+    assert.equal(forecast.length, 3);
+    assert.deepEqual(
+      forecast.map((p) => p.year),
+      [2026, 2027, 2028],
+    );
+    assert.ok(summary.fairValueRatio != null);
+    assert.equal(forecast[0]?.fairValue, 9 * summary.fairValueRatio);
+    assert.equal(forecast[1]?.fairValue, 10 * summary.fairValueRatio);
+    assert.equal(forecast[2]?.fairValue, 12 * summary.fairValueRatio);
+    const ttm = withFwd.find((p) => p.estimated && !p.forecast);
+    assert.ok(ttm);
+    assert.equal(ttm.date, '2026-06-15');
+    assert.equal(ttm.fairValue, summary.fairValue);
+    assert.equal(ttm.forecast, undefined);
+  });
+
+  it('bumps a forecast date that would land on or before the last solid point', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-08-16');
+    const withFwd = appendForwardFairValue(
+      chart,
+      [{ year: 2026, date: '2026-07-31', eps: 9 }],
+      15,
+    );
+    const fwd = withFwd.filter((p) => p.forecast);
+    assert.equal(fwd.length, 1);
+    assert.ok(fwd[0]!.date > '2026-08-16');
+    assert.equal(fwd[0]!.fairValue, 9 * 15);
+  });
+
+  it('computes table fair value as EPS × ratio', () => {
+    assert.equal(fairValueFromEstimate(23.83, 31.06), 23.83 * 31.06);
+    assert.equal(fairValueFromEstimate(null, 15), null);
+    assert.equal(fairValueFromEstimate(10, null), null);
   });
 });
