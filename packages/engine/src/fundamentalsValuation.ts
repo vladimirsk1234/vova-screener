@@ -405,8 +405,8 @@ export function buildValuationSeries(
 
 /**
  * Chart series whose last fair-value point equals `summary.fairValue`.
- * Historical years stay `metric × ratio`; a today-point is added only when TTM
- * (or another anchor) differs from the last fiscal year.
+ * Historical years stay `metric × ratio`. A today-point is always added so the
+ * solid FV line reaches the current date (flat when TTM equals last FY).
  */
 export function seriesForFairValueChart(
   series: ValuationSeriesPoint[],
@@ -417,23 +417,31 @@ export function seriesForFairValueChart(
     return series;
   }
   const last = series[series.length - 1];
-  if (last?.fairValue != null && finite(last.fairValue) && Math.abs(last.fairValue - summary.fairValue) < 1e-6) {
+  const lastDate = last?.date.slice(0, 10);
+  if (
+    lastDate === asOfIso &&
+    last?.fairValue != null &&
+    finite(last.fairValue) &&
+    Math.abs(last.fairValue - summary.fairValue) < 1e-6
+  ) {
     return series;
   }
-  return [
-    ...series,
-    {
-      date: asOfIso,
-      year: Number(asOfIso.slice(0, 4)),
-      price: summary.currentPrice,
-      metric: summary.fairValueAnchor,
-      earningsPower: summary.fairValue,
-      fairValue: summary.fairValue,
-      normalValue: null,
-      pe: null,
-      estimated: true,
-    },
-  ];
+  if (lastDate && lastDate > asOfIso) return series;
+  const todayPoint: ValuationSeriesPoint = {
+    date: asOfIso,
+    year: Number(asOfIso.slice(0, 4)),
+    price: summary.currentPrice,
+    metric: summary.fairValueAnchor,
+    earningsPower: summary.fairValue,
+    fairValue: summary.fairValue,
+    normalValue: null,
+    pe: null,
+    estimated: true,
+  };
+  if (lastDate === asOfIso && last) {
+    return [...series.slice(0, -1), { ...last, ...todayPoint }];
+  }
+  return [...series, todayPoint];
 }
 
 export function fairValueFromEstimate(
@@ -444,9 +452,23 @@ export function fairValueFromEstimate(
   return eps * ratio;
 }
 
-function estimateIsoDate(year: number, date?: string): string {
-  if (date && /^\d{4}-\d{2}-\d{2}/.test(date)) return date.slice(0, 10);
-  return `${year}-12-31`;
+function fiscalYearEndMd(lastHistDate?: string): string {
+  const md = lastHistDate && /^\d{4}-(\d{2}-\d{2})/.exec(lastHistDate.slice(0, 10));
+  return md?.[1] ?? '12-31';
+}
+
+function fiscalYearEndIso(year: number, lastHistDate?: string): string {
+  return `${year}-${fiscalYearEndMd(lastHistDate)}`;
+}
+
+/** Prefer the last historical FY-end over a stale FMP publish date. */
+function estimateIsoDate(year: number, date?: string, lastHistDate?: string): string {
+  const fyEnd = fiscalYearEndIso(year, lastHistDate);
+  if (date && /^\d{4}-\d{2}-\d{2}/.test(date)) {
+    const iso = date.slice(0, 10);
+    if (iso.slice(5, 10) === fiscalYearEndMd(lastHistDate)) return iso;
+  }
+  return fyEnd;
 }
 
 export function nextIsoDate(iso: string): string {
@@ -477,6 +499,7 @@ export function appendForwardFairValue(
   if ((!hasFv && !hasNpe) || horizonYears <= 0) return series;
   const lastHist = [...series].reverse().find((p) => !p.estimated && !p.forecast) ?? series[series.length - 1];
   const lastHistYear = lastHist?.year ?? 0;
+  const lastHistDate = lastHist?.date.slice(0, 10);
   const fwd = [...estimates]
     .filter((e) => Number.isFinite(e.year) && e.year > lastHistYear)
     .sort((a, b) => a.year - b.year)
@@ -490,7 +513,7 @@ export function appendForwardFairValue(
     const positive = metric != null && metric > 0;
     const fv = positive && hasFv ? metric * fairValueRatio : null;
     const npe = positive && hasNpe ? metric * normalMultiple : null;
-    const date = ensureDateAfter(estimateIsoDate(est.year, est.date), prevDate);
+    const date = ensureDateAfter(estimateIsoDate(est.year, est.date, lastHistDate), prevDate);
     out.push({
       date,
       year: est.year,

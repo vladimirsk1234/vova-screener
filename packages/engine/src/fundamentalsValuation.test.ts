@@ -157,7 +157,7 @@ describe('valuation windows', () => {
     assert.equal(last.estimated, true);
   });
 
-  it('does not add a chart point when last FY already equals headline', () => {
+  it('always adds a today-point even when last FY equals headline', () => {
     const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
       currentPrice: 110,
       windowYears: 5,
@@ -166,8 +166,26 @@ describe('valuation windows', () => {
     assert.ok(expected != null && summary.growthRatePct != null);
     assert.ok(Math.abs(summary.growthRatePct - expected) < 1e-9);
     const chart = seriesForFairValueChart(series, summary, '2026-06-15');
-    assert.equal(chart.length, series.length);
-    assert.equal(chart[chart.length - 1]?.fairValue, summary.fairValue);
+    assert.equal(chart.length, series.length + 1);
+    const last = chart[chart.length - 1];
+    assert.equal(last?.date, '2026-06-15');
+    assert.equal(last?.fairValue, summary.fairValue);
+    assert.equal(last?.estimated, true);
+    assert.equal(chart[chart.length - 2]?.date, '2025-12-31');
+    assert.equal(chart[chart.length - 2]?.fairValue, summary.fairValue);
+  });
+
+  it('does not duplicate a today-point that already matches headline', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+    });
+    const once = seriesForFairValueChart(series, summary, '2026-06-15');
+    const twice = seriesForFairValueChart(once, summary, '2026-06-15');
+    assert.equal(twice.length, once.length);
+    assert.equal(twice[twice.length - 1]?.date, '2026-06-15');
+    assert.equal(twice[twice.length - 1]?.fairValue, summary.fairValue);
   });
 
   it('appends three forward fair-value years and leaves the TTM point solid', () => {
@@ -237,6 +255,30 @@ describe('valuation windows', () => {
     assert.notEqual(forecast[0]?.normalValue, forecast[0]?.fairValue);
   });
 
+  it('places forecast years on the last historical FY-end, not a stale FMP date', () => {
+    const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
+      currentPrice: 110,
+      windowYears: 5,
+      ttmMetric: 8,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-08-16');
+    const withFwd = appendForwardFairValue(
+      chart,
+      [
+        { year: 2026, date: '2026-02-15', eps: 9 },
+        { year: 2027, date: '2027-02-20', eps: 10 },
+      ],
+      15,
+    );
+    const fwd = withFwd.filter((p) => p.forecast);
+    assert.deepEqual(
+      fwd.map((p) => p.date),
+      ['2026-12-31', '2027-12-31'],
+    );
+    assert.equal(fwd[0]?.fairValue, 9 * 15);
+    assert.equal(fwd[1]?.fairValue, 10 * 15);
+  });
+
   it('bumps a forecast date that would land on or before the last solid point', () => {
     const { series, summary } = buildValuationSeries(mixedGrowthHistory(), 'eps', {
       currentPrice: 110,
@@ -251,8 +293,31 @@ describe('valuation windows', () => {
     );
     const fwd = withFwd.filter((p) => p.forecast);
     assert.equal(fwd.length, 1);
+    assert.equal(fwd[0]!.date, '2026-12-31');
     assert.ok(fwd[0]!.date > '2026-08-16');
     assert.equal(fwd[0]!.fairValue, 9 * 15);
+  });
+
+  it('aligns forecast FY-end to a non-December fiscal year', () => {
+    const juneHist: AnnualFundamentalPoint[] = [
+      { ...fy(2024, 4, 60), date: '2024-06-30' },
+      { ...fy(2025, 5, 70), date: '2025-06-30' },
+    ];
+    const { series, summary } = buildValuationSeries(juneHist, 'eps', {
+      currentPrice: 80,
+      windowYears: 1,
+      ttmMetric: 5.2,
+    });
+    const chart = seriesForFairValueChart(series, summary, '2026-08-16');
+    const withFwd = appendForwardFairValue(
+      chart,
+      [{ year: 2026, date: '2026-02-01', eps: 6 }],
+      summary.fairValueRatio,
+    );
+    const fwd = withFwd.filter((p) => p.forecast);
+    assert.equal(fwd.length, 1);
+    assert.ok(fwd[0]!.date > '2026-08-16');
+    assert.equal(fwd[0]!.year, 2026);
   });
 
   it('computes table fair value as EPS × ratio', () => {
