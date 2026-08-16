@@ -856,7 +856,7 @@ export class FundamentalsService {
       valuation,
       forecastSeries: this.extendForecast(
         valuation.series,
-        metric === 'eps' ? stored.estimates : [],
+        [],
         valuation.summary.fairValueRatio,
       ),
     };
@@ -1044,8 +1044,10 @@ export class FundamentalsService {
             fmpNum(row.epsAvg),
         };
       })
-      .filter((r) => Number.isFinite(r.year) && (r.year as number) > lastHistYear)
-      .sort((a, b) => (a.year as number) - (b.year as number));
+      .filter((r): r is { year: number; eps: number | null } =>
+        r.year != null && Number.isFinite(r.year) && r.year > lastHistYear,
+      )
+      .sort((a, b) => a.year - b.year);
 
     const peTTMRaw =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
