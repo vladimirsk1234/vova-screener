@@ -79,14 +79,11 @@ export function ChartPage() {
     const qs = params.toString();
     navigate(
       { pathname: location.pathname, search: qs ? `?${qs}` : '' },
-      { state: location.state },
+      { state: location.state, replace: true },
     );
   };
 
-  // 'default' is the initial history entry: the chart was opened straight from a URL, so stepping
-  // back would leave the app entirely. Fall back to Results instead.
-  const goBack = () =>
-    location.key === 'default' ? navigate(lastResultsPath(), { replace: true }) : navigate(-1);
+  const goBack = () => navigate(lastResultsPath(), { replace: true });
 
   const [tf, setTf] = useState<Timeframe>(navState.row?.tf ?? 'Daily');
   // A trade opens as a snapshot of itself: the series cut at the bar it broke on, so the structure
