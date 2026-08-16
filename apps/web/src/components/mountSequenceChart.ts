@@ -252,18 +252,6 @@ function addDashedLine(
   return line;
 }
 
-function addFairValueDots(line: ISeriesApi<'Line'>, fairPts: LinePoint[]) {
-  if (!fairPts.length) return;
-  const markers: SeriesMarker<Time>[] = fairPts.map((p) => ({
-    time: p.time,
-    position: 'aboveBar' as const,
-    color: '#ff9800',
-    shape: 'circle' as const,
-    size: 2,
-  }));
-  createSeriesMarkers(line, markers);
-}
-
 function addValuationLines(
   chart: IChartApi,
   lines: ISeriesApi<'Line'>[],
@@ -283,10 +271,11 @@ function addValuationLines(
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
+      pointMarkersVisible: true,
+      pointMarkersRadius: 5,
     });
     lines.push(fair);
     fair.setData(fairPts);
-    addFairValueDots(fair, fairPts);
     refs.fair = fair;
   }
   refs.fairForecast = addDashedLine(chart, lines, forecastPts, FV_FORECAST_COLOR, {
