@@ -236,7 +236,6 @@ function addDashedLine(
   opts: {
     width?: 2 | 3 | 4;
     markYears?: boolean;
-    markerPosition?: 'aboveBar' | 'belowBar';
   } = {},
 ): ISeriesApi<'Line'> | undefined {
   if (!pts.length) return undefined;
@@ -252,15 +251,14 @@ function addDashedLine(
   lines.push(line);
   line.setData(pts);
   if (!opts.markYears) return line;
-  const position = opts.markerPosition ?? 'aboveBar';
   const markers: SeriesMarker<Time>[] = pts
     .filter((p) => p.year != null)
     .map((p) => ({
       time: p.time,
-      position,
+      position: 'atPriceMiddle' as const,
+      price: p.value,
       color,
       shape: 'circle' as const,
-      text: `${p.year}  ${p.value.toFixed(2)}`,
     }));
   if (markers.length) createSeriesMarkers(line, markers);
   return line;
@@ -314,7 +312,6 @@ function addValuationLines(
   refs.normalForecast = addDashedLine(chart, lines, normalForecastPts, NORMAL_PE_COLOR, {
     width: 4,
     markYears: true,
-    markerPosition: 'belowBar',
   });
   if (dividendPts.length) {
     const dividend = chart.addSeries(LineSeries, {

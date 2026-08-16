@@ -1,7 +1,7 @@
 /**
  * Fast Graphs–style valuation: Normal P/E is median historical price/metric;
  * Fair Value uses PE 15 or Peter Lynch PEG=1 from trailing EPS CAGR in the
- * selected lookback window (1Y / 5Y / 10Y / MAX).
+ * selected lookback window (1Y / 3Y / 5Y / 8Y / 10Y / MAX).
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
  */
 
@@ -10,7 +10,7 @@ export type ValuationMetric = 'eps' | 'revenue' | 'fcf' | 'ownerEarnings';
 export type FairValueRule = 'pe15' | 'lynch_peg' | 'none';
 
 /** Chart / Normal P/E window. `null` = MAX (all complete years). */
-export type ValuationWindowYears = 1 | 5 | 10 | null;
+export type ValuationWindowYears = 1 | 3 | 5 | 8 | 10 | null;
 
 /** Below this 5y CAGR, fair value uses a 15× multiple instead of PEG=1. */
 export const GROWTH_PE_FLOOR = 15;
@@ -112,7 +112,7 @@ export type ValuationSummary = {
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
   years: number;
-  /** 1, 5, 10, or null for MAX. */
+  /** 1, 3, 5, 8, 10, or null for MAX. */
   windowYears: ValuationWindowYears;
 };
 
@@ -238,7 +238,7 @@ export function trailingMetricCagr(
   return cagrPct(a, b, span);
 }
 
-/** Lookback for trailing CAGR: 1 / 5 / 10, or a long span for MAX. */
+/** Lookback for trailing CAGR: 1 / 3 / 5 / 8 / 10, or a long span for MAX. */
 export function windowLookbackYears(windowYears: ValuationWindowYears): number {
   return windowYears ?? 1000;
 }

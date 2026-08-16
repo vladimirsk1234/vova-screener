@@ -49,7 +49,9 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'Monthly' })).toHaveCount(0);
     const periodChips = page.locator('.chart-period-chips');
     await expect(periodChips.getByRole('button', { name: '1Y', exact: true })).toBeVisible();
+    await expect(periodChips.getByRole('button', { name: '3Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
+    await expect(periodChips.getByRole('button', { name: '8Y', exact: true })).toBeVisible();
     await expect(page.locator('.chart-fund-metrics').getByRole('button', { name: '1Y', exact: true })).toHaveCount(0);
     const periodBox = await periodChips.boundingBox();
     const stage = page.locator('.chart-stage');

@@ -789,6 +789,12 @@ a {
   flex: 0 0 auto;
 }
 
+.chart-period-chips .chip-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  margin: 8px 0 12px;
+}
+
 .chart-view-toggle {
   display: flex;
   gap: 8px;
