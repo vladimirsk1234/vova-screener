@@ -21,6 +21,43 @@ export function pct(n: number | null | undefined): string {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
 
+/** Absolute percent trimmed for RR labels: 50, or 50.4 when it is not a whole number. */
+export function compactAbsPct(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const rounded = Math.round(Math.abs(n) * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/** Realized RR from average winner / loser percents, e.g. `50 / 15`. */
+export function realizedRrLabel(
+  winPct: number | null | undefined,
+  lossPct: number | null | undefined,
+): string {
+  if (winPct == null || lossPct == null || !Number.isFinite(winPct) || !Number.isFinite(lossPct)) {
+    return '—';
+  }
+  if (Math.abs(lossPct) === 0) return '—';
+  return `${compactAbsPct(winPct)} / ${compactAbsPct(lossPct)}`;
+}
+
+export function realizedRrRatio(
+  winPct: number | null | undefined,
+  lossPct: number | null | undefined,
+): number | null {
+  if (winPct == null || lossPct == null || !Number.isFinite(winPct) || !Number.isFinite(lossPct)) {
+    return null;
+  }
+  const lossAbs = Math.abs(lossPct);
+  if (lossAbs === 0) return null;
+  return Math.round((Math.abs(winPct) / lossAbs) * 100) / 100;
+}
+
+/** Profit / risk multiple, e.g. `+1.10×`. */
+export function signedMultiple(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}×`;
+}
+
 /** `YYYY-MM-DD` / `YYYY-Www` / `YYYY-MM` rendered for the selected granularity. */
 export function periodLabel(periodKey: string | null | undefined, tf: Timeframe | HistoryTf): string {
   if (!periodKey || periodKey === 'unknown') return periodKey || '—';

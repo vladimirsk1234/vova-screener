@@ -324,6 +324,34 @@ a {
   font-size: 0.9rem;
 }
 
+.history-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.history-stats-label {
+  margin: 0 0 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.history-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 8px;
+  font-size: 0.9rem;
+}
+
+@media (min-width: 520px) {
+  .history-stats-grid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
 .signal-card.clickable {
   cursor: pointer;
 }
@@ -351,13 +379,15 @@ a {
   border-color: var(--accent);
 }
 
-.meta-grid span {
+.meta-grid span,
+.history-stats-grid span {
   color: var(--muted);
   display: block;
   font-size: 0.75rem;
 }
 
-.meta-grid strong {
+.meta-grid strong,
+.history-stats-grid strong {
   display: block;
   font-size: 1rem;
   font-weight: 700;

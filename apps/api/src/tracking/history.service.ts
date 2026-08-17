@@ -29,12 +29,21 @@ export type HistoryPeriod = {
   periodKey: string;
   trades: number;
   wins: number;
+  losses: number;
   winRatePct: number;
   pnlUsd: number;
   invested: number;
   avgR: number | null;
   avgRrEntry: number | null;
   avgHold: number | null;
+  /** Mean of entry × shares — each trade counts once, unlike invested. */
+  avgTradeSizeUsd: number | null;
+  /** Mean pnlPct of winning trades; null when there are no winners. */
+  avgWinPct: number | null;
+  /** Mean pnlPct of losing trades (negative); null when there are no losers. */
+  avgLossPct: number | null;
+  /** Equal-weight mean pnlPct of every closed trade. */
+  avgPnlPct: number | null;
 };
 
 export type EquityPoint = { periodKey: string; equity: number };
@@ -52,9 +61,11 @@ export type HistoryTimeframe = {
   pnlUsd: number;
   /** Sum of entry × shares over closed trades in this timeframe. */
   invested: number;
-  /** Net P&L / invested × 100; null when invested is 0. */
-  returnPct: number | null;
   avgR: number | null;
+  avgTradeSizeUsd: number | null;
+  avgWinPct: number | null;
+  avgLossPct: number | null;
+  avgPnlPct: number | null;
   /** Cumulative P&L over that timeframe's own periods, oldest first. */
   equity: EquityPoint[];
 };
@@ -74,18 +85,30 @@ export type HistoryReport = {
     closed: number;
     active: number;
     wins: number;
+    losses: number;
     winRatePct: number;
     pnlUsd: number;
     invested: number;
     avgR: number | null;
     avgRrEntry: number | null;
     avgHold: number | null;
+    avgTradeSizeUsd: number | null;
+    avgWinPct: number | null;
+    avgLossPct: number | null;
+    avgPnlPct: number | null;
+    /** Current Settings Max risk — the size History resizes every closed trade to. */
+    maxRiskUsd: number;
+    /** closed × maxRiskUsd. */
+    totalRiskUsd: number;
+    /** Net P&L / total risked; null when nothing was risked. */
+    profitToRisk: number | null;
   };
 };
 
 const GROUP_ACCUMULATORS = {
   trades: { $sum: 1 },
   wins: { $sum: { $cond: [{ $gt: ['$pnlUsd', 0] }, 1, 0] } },
+  losses: { $sum: { $cond: [{ $lt: ['$pnlUsd', 0] }, 1, 0] } },
   pnlUsd: { $sum: { $ifNull: ['$pnlUsd', 0] } },
   invested: {
     $sum: { $multiply: [{ $ifNull: ['$entry', 0] }, { $ifNull: ['$shares', 0] }] },
@@ -93,6 +116,12 @@ const GROUP_ACCUMULATORS = {
   avgR: { $avg: '$pnlR' },
   avgRrEntry: { $avg: '$rrAtEntry' },
   avgHold: { $avg: '$holdPeriods' },
+  avgTradeSizeUsd: {
+    $avg: { $multiply: [{ $ifNull: ['$entry', 0] }, { $ifNull: ['$shares', 0] }] },
+  },
+  avgWinPct: { $avg: { $cond: [{ $gt: ['$pnlUsd', 0] }, '$pnlPct', null] } },
+  avgLossPct: { $avg: { $cond: [{ $lt: ['$pnlUsd', 0] }, '$pnlPct', null] } },
+  avgPnlPct: { $avg: '$pnlPct' },
 };
 
 @Injectable()
@@ -146,9 +175,8 @@ export class HistoryService {
     const equity = equityCurve(ascending);
 
     const totalsRaw = (facet?.[0]?.totals ?? [])[0];
-    const totals = totalsRaw
-      ? finalizePeriod(totalsRaw)
-      : finalizePeriod({ _id: '', trades: 0, wins: 0, pnlUsd: 0, invested: 0 });
+    const totals = totalsRaw ? finalizePeriod(totalsRaw) : emptyPeriod();
+    const risk = riskStats(totals.trades, totals.pnlUsd, maxRiskUsd);
 
     return {
       universe,
@@ -167,12 +195,18 @@ export class HistoryService {
         closed: totals.trades,
         active,
         wins: totals.wins,
+        losses: totals.losses,
         winRatePct: totals.winRatePct,
         pnlUsd: totals.pnlUsd,
         invested: totals.invested,
         avgR: totals.avgR,
         avgRrEntry: totals.avgRrEntry,
         avgHold: totals.avgHold,
+        avgTradeSizeUsd: totals.avgTradeSizeUsd,
+        avgWinPct: totals.avgWinPct,
+        avgLossPct: totals.avgLossPct,
+        avgPnlPct: totals.avgPnlPct,
+        ...risk,
       },
     };
   }
@@ -191,33 +225,39 @@ export class HistoryService {
   ): Promise<HistoryTimeframe[]> {
     return Promise.all(
       TIMEFRAMES.map(async (tf) => {
-        const rows = await this.tracked
+        const facet = await this.tracked
           .aggregate([
             { $match: withYahooTickers(closedMatch(universe, tf, minRr, range), matching) },
             ...resizeStages(maxRiskUsd),
             { $addFields: { bucket: bucketExpression(tf) } },
-            { $group: { _id: '$bucket', ...GROUP_ACCUMULATORS } },
-            { $sort: { _id: 1 } },
+            {
+              $facet: {
+                periods: [
+                  { $group: { _id: '$bucket', ...GROUP_ACCUMULATORS } },
+                  { $sort: { _id: 1 } },
+                ],
+                totals: [{ $group: { _id: null, ...GROUP_ACCUMULATORS } }],
+              },
+            },
           ])
           .exec();
 
-        const periods = (rows as any[]).map(finalizePeriod);
-        const closed = periods.reduce((sum, p) => sum + p.trades, 0);
-        const wins = periods.reduce((sum, p) => sum + p.wins, 0);
-        const pnlUsd = periods.reduce((sum, p) => sum + p.pnlUsd, 0);
-        const invested = periods.reduce((sum, p) => sum + p.invested, 0);
-        // Weighted by trade count: averaging the period averages would let a one-trade week
-        // count as much as a twenty-trade one.
-        const rWeighted = periods.reduce((sum, p) => sum + (p.avgR ?? 0) * p.trades, 0);
+        const periods = ((facet?.[0]?.periods ?? []) as any[]).map(finalizePeriod);
+        const totals = (facet?.[0]?.totals ?? [])[0]
+          ? finalizePeriod((facet[0].totals as any[])[0])
+          : emptyPeriod();
         return {
           tf,
-          closed,
-          wins,
-          winRatePct: closed ? round2((wins / closed) * 100) : 0,
-          pnlUsd: round2(pnlUsd),
-          invested: round2(invested),
-          returnPct: invested > 0 ? round2((pnlUsd / invested) * 100) : null,
-          avgR: closed ? round2(rWeighted / closed) : null,
+          closed: totals.trades,
+          wins: totals.wins,
+          winRatePct: totals.winRatePct,
+          pnlUsd: totals.pnlUsd,
+          invested: totals.invested,
+          avgR: totals.avgR,
+          avgTradeSizeUsd: totals.avgTradeSizeUsd,
+          avgWinPct: totals.avgWinPct,
+          avgLossPct: totals.avgLossPct,
+          avgPnlPct: totals.avgPnlPct,
           equity: equityCurve(periods),
         };
       }),
@@ -523,6 +563,25 @@ function periodDateRange(
   return { $gte: iso(monday), $lte: iso(monday + 6 * 86_400_000) };
 }
 
+function emptyPeriod(): HistoryPeriod {
+  return finalizePeriod({ _id: '', trades: 0, wins: 0, losses: 0, pnlUsd: 0, invested: 0 });
+}
+
+function nullableRound(n: unknown): number | null {
+  if (n == null) return null;
+  const v = Number(n);
+  return Number.isFinite(v) ? round2(v) : null;
+}
+
+function riskStats(closed: number, pnlUsd: number, maxRiskUsd: number) {
+  const totalRiskUsd = round2(closed * maxRiskUsd);
+  return {
+    maxRiskUsd: round2(maxRiskUsd),
+    totalRiskUsd,
+    profitToRisk: totalRiskUsd > 0 ? round2(pnlUsd / totalRiskUsd) : null,
+  };
+}
+
 function finalizePeriod(row: any): HistoryPeriod {
   const trades = row.trades ?? 0;
   const wins = row.wins ?? 0;
@@ -530,12 +589,17 @@ function finalizePeriod(row: any): HistoryPeriod {
     periodKey: row._id ?? 'unknown',
     trades,
     wins,
+    losses: row.losses ?? 0,
     winRatePct: trades ? round2((wins / trades) * 100) : 0,
     pnlUsd: round2(row.pnlUsd ?? 0),
     invested: round2(row.invested ?? 0),
-    avgR: row.avgR == null ? null : round2(row.avgR),
-    avgRrEntry: row.avgRrEntry == null ? null : round2(row.avgRrEntry),
-    avgHold: row.avgHold == null ? null : round2(row.avgHold),
+    avgR: nullableRound(row.avgR),
+    avgRrEntry: nullableRound(row.avgRrEntry),
+    avgHold: nullableRound(row.avgHold),
+    avgTradeSizeUsd: nullableRound(row.avgTradeSizeUsd),
+    avgWinPct: nullableRound(row.avgWinPct),
+    avgLossPct: nullableRound(row.avgLossPct),
+    avgPnlPct: nullableRound(row.avgPnlPct),
   };
 }
 

@@ -127,6 +127,9 @@ test.describe('results shell', () => {
       await expect(page.getByRole('button', { name: label, exact: true }).first()).toBeVisible();
     }
     await expect(page.getByText('Win rate')).toBeVisible();
+    await expect(page.getByText('Avg winner')).toBeVisible();
+    await expect(page.getByText('Avg loser')).toBeVisible();
+    await expect(page.getByText('Profit / risk')).toBeVisible();
   });
 
   test('Results status and timeframe survive a trip through History', async ({ page }) => {

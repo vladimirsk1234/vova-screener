@@ -170,12 +170,17 @@ export type HistoryPeriod = {
   periodKey: string;
   trades: number;
   wins: number;
+  losses: number;
   winRatePct: number;
   pnlUsd: number;
   invested: number;
   avgR: number | null;
   avgRrEntry: number | null;
   avgHold: number | null;
+  avgTradeSizeUsd: number | null;
+  avgWinPct: number | null;
+  avgLossPct: number | null;
+  avgPnlPct: number | null;
 };
 
 export type EquityPoint = { periodKey: string; equity: number };
@@ -188,8 +193,11 @@ export type HistoryTimeframe = {
   winRatePct: number;
   pnlUsd: number;
   invested: number;
-  returnPct: number | null;
   avgR: number | null;
+  avgTradeSizeUsd: number | null;
+  avgWinPct: number | null;
+  avgLossPct: number | null;
+  avgPnlPct: number | null;
   equity: EquityPoint[];
 };
 
@@ -207,12 +215,20 @@ export type HistoryReport = {
     closed: number;
     active: number;
     wins: number;
+    losses: number;
     winRatePct: number;
     pnlUsd: number;
     invested: number;
     avgR: number | null;
     avgRrEntry: number | null;
     avgHold: number | null;
+    avgTradeSizeUsd: number | null;
+    avgWinPct: number | null;
+    avgLossPct: number | null;
+    avgPnlPct: number | null;
+    maxRiskUsd: number;
+    totalRiskUsd: number;
+    profitToRisk: number | null;
   };
 };
 

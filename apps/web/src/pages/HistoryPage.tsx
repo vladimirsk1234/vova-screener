@@ -14,7 +14,17 @@ import {
   type Timeframe,
   type Universe,
 } from '../lib/api';
-import { holdLabel, money, num, pct, periodLabel, signedMoney } from '../lib/format';
+import {
+  holdLabel,
+  money,
+  num,
+  pct,
+  periodLabel,
+  realizedRrLabel,
+  realizedRrRatio,
+  signedMoney,
+  signedMultiple,
+} from '../lib/format';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { Chips, Switch } from '../components/Chips';
@@ -99,7 +109,9 @@ function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
             </div>
             <Sparkline points={r.equity} className="sparkline sparkline-sm" />
             <p className="muted small" style={{ margin: '4px 0 0' }}>
-              {r.closed} closed · {r.winRatePct}% won · R {num(r.avgR)} · ROI {pct(r.returnPct)}
+              {r.closed} closed · {r.winRatePct}% won · {money(r.avgTradeSizeUsd)} ·{' '}
+              {pct(r.avgWinPct)} / {pct(r.avgLossPct)} · RR{' '}
+              {realizedRrLabel(r.avgWinPct, r.avgLossPct)}
             </p>
           </div>
         ))}
@@ -165,6 +177,9 @@ export function HistoryPage() {
   });
   const data = report.data;
   const unit = holdLabel(tf);
+  const realizedRr = data
+    ? realizedRrRatio(data.totals.avgWinPct, data.totals.avgLossPct)
+    : null;
   const tradeTickers = useMemo(
     () => (trades.data?.rows ?? []).map((r) => r.yahooTicker),
     [trades.data?.rows],
@@ -245,36 +260,84 @@ export function HistoryPage() {
 
       {data ? (
         <section className="card">
-          <div className="meta-grid">
+          <div className="history-stats">
             <div>
-              <span>Win rate</span>
-              <strong>{data.totals.winRatePct}%</strong>
+              <p className="history-stats-label">Outcome</p>
+              <div className="history-stats-grid">
+                <div>
+                  <span>Win rate</span>
+                  <strong>{data.totals.winRatePct}%</strong>
+                </div>
+                <div>
+                  <span>Avg hold ({unit})</span>
+                  <strong>{num(data.totals.avgHold)}</strong>
+                </div>
+                <div>
+                  <span>Avg trade size</span>
+                  <strong>{money(data.totals.avgTradeSizeUsd)}</strong>
+                </div>
+                <div>
+                  <span>Avg winner</span>
+                  <strong className="up-text">{pct(data.totals.avgWinPct)}</strong>
+                </div>
+                <div>
+                  <span>Avg loser</span>
+                  <strong className="down-text">{pct(data.totals.avgLossPct)}</strong>
+                </div>
+                <div>
+                  <span>Realized RR</span>
+                  <strong>
+                    {realizedRrLabel(data.totals.avgWinPct, data.totals.avgLossPct)}
+                    {realizedRr != null ? (
+                      <span className="muted small"> · {num(realizedRr)}</span>
+                    ) : null}
+                  </strong>
+                </div>
+              </div>
             </div>
             <div>
-              <span>Net P&amp;L</span>
-              <strong className={data.totals.pnlUsd >= 0 ? 'up-text' : 'down-text'}>
-                {signedMoney(data.totals.pnlUsd)}
-              </strong>
-            </div>
-            <div>
-              <span>Closed / active</span>
-              <strong>
-                {data.totals.closed} / {data.totals.active}
-              </strong>
-            </div>
-            <div>
-              <span>Avg R</span>
-              <strong>{num(data.totals.avgR)}</strong>
-            </div>
-            <div>
-              <span>Avg RR at entry</span>
-              <strong>{num(data.totals.avgRrEntry)}</strong>
-            </div>
-            <div>
-              <span>Avg hold ({unit})</span>
-              <strong>{num(data.totals.avgHold)}</strong>
+              <p className="history-stats-label">Vs Max risk</p>
+              <div className="history-stats-grid">
+                <div>
+                  <span>Net P&amp;L</span>
+                  <strong className={data.totals.pnlUsd >= 0 ? 'up-text' : 'down-text'}>
+                    {signedMoney(data.totals.pnlUsd)}
+                  </strong>
+                </div>
+                <div>
+                  <span>Risk / trade</span>
+                  <strong>{money(data.totals.maxRiskUsd)}</strong>
+                </div>
+                <div>
+                  <span>Closed / active</span>
+                  <strong>
+                    {data.totals.closed} / {data.totals.active}
+                  </strong>
+                </div>
+                <div>
+                  <span>Total risked</span>
+                  <strong>{money(data.totals.totalRiskUsd)}</strong>
+                </div>
+                <div>
+                  <span>Profit / risk</span>
+                  <strong
+                    className={
+                      data.totals.profitToRisk == null
+                        ? undefined
+                        : data.totals.profitToRisk >= 0
+                          ? 'up-text'
+                          : 'down-text'
+                    }
+                  >
+                    {signedMultiple(data.totals.profitToRisk)}
+                  </strong>
+                </div>
+              </div>
             </div>
           </div>
+          <p className="muted small" style={{ margin: '10px 0 0' }}>
+            Avg R {num(data.totals.avgR)} · RR at entry {num(data.totals.avgRrEntry)}
+          </p>
           <Sparkline points={data.equity} />
           {data.exitReasons.length ? (
             <p className="muted small" style={{ marginBottom: 0 }}>
@@ -353,9 +416,6 @@ export function HistoryPage() {
         {trades.data && trades.data.rows.length === 0 ? (
           <p className="muted">Nothing closed here yet.</p>
         ) : null}
-        <p className="muted small" style={{ marginBottom: 0 }}>
-          Invested {money(data?.totals.invested)}
-        </p>
       </section>
 
       {trades.data?.rows.map((row) => (

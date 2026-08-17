@@ -756,6 +756,17 @@ async function main() {
   // Only the break reaches History: the stop C took out and the target B reached are not exits.
   check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [1, 0, -72]);
   check('history avg RR at entry', day?.avgRrEntry, 1.5);
+  // G: entry 180, 6 shares under $100 risk → size 1080; −72 / 1080 = −6.67% on that one trade.
+  check('history avg loss is per-trade pct', [day?.avgWinPct, day?.avgLossPct, day?.avgTradeSizeUsd], [
+    null,
+    -6.67,
+    1080,
+  ]);
+  check(
+    'history profit to risk uses max risk',
+    [stats.totals.maxRiskUsd, stats.totals.totalRiskUsd, stats.totals.profitToRisk],
+    [100, 200, -0.66],
+  );
   check('every closed trade sold to close', stats.exitReasons, [{ reason: 'sell_to_close', count: 2 }]);
   // A, B, C, F, K, N and M: E, H, I and L's restart are active but still provisional, so none of
   // them is an open position yet. M's break is on the bar in progress, which can still take it
