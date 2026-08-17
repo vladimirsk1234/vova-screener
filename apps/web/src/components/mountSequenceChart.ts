@@ -21,9 +21,11 @@ import {
 } from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
 import {
+  DEFAULT_STRETCH,
+  PRICE_FLOOR,
   PRICE_SCALE_MARGINS_CHART,
   applyPriceFloorToAutoscaleInfo,
-  clampVisiblePriceRange,
+  clampStretchFactor,
 } from '../lib/priceScaleFloor';
 
 type LinePoint = { time: Time; value: number; color?: string; year?: number };
@@ -218,12 +220,22 @@ function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
   return pts;
 }
 
-function priceFloorAutoscaleProvider<T>(original: () => T): T {
-  return applyPriceFloorToAutoscaleInfo(original() as never) as T;
+/** Vertical stretch shared by every fundamentals series on one chart. */
+type StretchRef = { value: number };
+
+type FloorProvider = <T>(original: () => T) => T;
+
+/**
+ * Reads the stretch on every autoscale pass, so a drag only has to update the ref
+ * and ask the scale to recalculate.
+ */
+function makePriceFloorProvider(stretch: StretchRef): FloorProvider {
+  return <T,>(original: () => T): T =>
+    applyPriceFloorToAutoscaleInfo(original() as never, PRICE_FLOOR, stretch.value) as T;
 }
 
 /** Green fill under fair value — added before candles so price stays on top. */
-function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
+function addFairValueFill(chart: IChartApi, fairPts: LinePoint[], floorProvider: FloorProvider) {
   if (!fairPts.length) return;
   const fill = chart.addSeries(AreaSeries, {
     lineColor: 'rgba(76, 175, 80, 0)',
@@ -234,7 +246,7 @@ function addFairValueFill(chart: IChartApi, fairPts: LinePoint[]) {
     priceLineVisible: false,
     lastValueVisible: false,
     crosshairMarkerVisible: false,
-    autoscaleInfoProvider: priceFloorAutoscaleProvider,
+    autoscaleInfoProvider: floorProvider,
   });
   fill.setData(fairPts);
 }
@@ -253,6 +265,7 @@ function addDashedLine(
   lines: ISeriesApi<'Line'>[],
   pts: LinePoint[],
   color: string,
+  floorProvider: FloorProvider,
   opts: {
     width?: 2 | 3 | 4;
     markYears?: boolean;
@@ -267,7 +280,7 @@ function addDashedLine(
     priceLineVisible: false,
     lastValueVisible: !opts.markYears,
     crosshairMarkerVisible: true,
-    autoscaleInfoProvider: priceFloorAutoscaleProvider,
+    autoscaleInfoProvider: floorProvider,
   });
   lines.push(line);
   line.setData(pts);
@@ -294,6 +307,7 @@ function addValuationLines(
   normalForecastPts: LinePoint[],
   dcfPts: LinePoint[],
   dividendPts: LinePoint[],
+  floorProvider: FloorProvider,
 ): ValuationSeriesRefs {
   const refs: ValuationSeriesRefs = {};
   if (fairPts.length) {
@@ -307,13 +321,13 @@ function addValuationLines(
       crosshairMarkerVisible: true,
       pointMarkersVisible: true,
       pointMarkersRadius: 5,
-      autoscaleInfoProvider: priceFloorAutoscaleProvider,
+      autoscaleInfoProvider: floorProvider,
     });
     lines.push(fair);
     fair.setData(fairPts);
     refs.fair = fair;
   }
-  refs.fairForecast = addDashedLine(chart, lines, forecastPts, FV_FORECAST_COLOR, {
+  refs.fairForecast = addDashedLine(chart, lines, forecastPts, FV_FORECAST_COLOR, floorProvider, {
     width: 3,
     markYears: true,
   });
@@ -328,16 +342,20 @@ function addValuationLines(
       crosshairMarkerVisible: true,
       pointMarkersVisible: true,
       pointMarkersRadius: 5,
-      autoscaleInfoProvider: priceFloorAutoscaleProvider,
+      autoscaleInfoProvider: floorProvider,
     });
     lines.push(normal);
     normal.setData(normalPts);
     refs.normal = normal;
   }
-  refs.normalForecast = addDashedLine(chart, lines, normalForecastPts, NORMAL_PE_COLOR, {
-    width: 4,
-    markYears: true,
-  });
+  refs.normalForecast = addDashedLine(
+    chart,
+    lines,
+    normalForecastPts,
+    NORMAL_PE_COLOR,
+    floorProvider,
+    { width: 4, markYears: true },
+  );
   if (dividendPts.length) {
     const dividend = chart.addSeries(LineSeries, {
       color: DIVIDEND_COLOR,
@@ -347,13 +365,13 @@ function addValuationLines(
       priceLineVisible: false,
       lastValueVisible: true,
       crosshairMarkerVisible: true,
-      autoscaleInfoProvider: priceFloorAutoscaleProvider,
+      autoscaleInfoProvider: floorProvider,
     });
     lines.push(dividend);
     dividend.setData(dividendPts);
     refs.dividend = dividend;
   }
-  refs.dcf = addDashedLine(chart, lines, dcfPts, '#ab47bc');
+  refs.dcf = addDashedLine(chart, lines, dcfPts, '#ab47bc', floorProvider);
   return refs;
 }
 
@@ -447,50 +465,28 @@ function bindValuationVisibleRange(
   };
 }
 
-function bindPriceScaleFloor(
+/** Smoothing term from Lightweight Charts' own axis-drag formula. */
+const STRETCH_DRAG_DAMPING = 0.2;
+
+/**
+ * Vertical stretch for the Fundamentals scale. The native axis drag is disabled because it
+ * scales around the range centre and would push the 0 floor negative, so the drag only
+ * rescales the top here and the scale stays on auto — which also blocks the library's
+ * vertical price scroll, since that bails out while auto-scaling is on.
+ */
+function bindPriceScaleStretch(
   container: HTMLElement,
   chart: IChartApi,
-): { restoreAutoScale: () => void; detach: () => void } {
+  stretch: StretchRef,
+): { reset: () => void; detach: () => void } {
   const ps = chart.priceScale('right');
-  let dragRaf = 0;
-  let draggingPriceScale = false;
+  let startY: number | null = null;
+  let startStretch = DEFAULT_STRETCH;
+  let pointerId: number | null = null;
 
-  const clamp = () => {
-    if (ps.options().autoScale) return;
-    const range = ps.getVisibleRange();
-    const next = clampVisiblePriceRange(range);
-    if (!next || !range) return;
-    if (next.from !== range.from || next.to !== range.to) {
-      ps.setVisibleRange(next);
-    }
-  };
-
-  const scheduleClamp = () => {
-    requestAnimationFrame(clamp);
-  };
-
-  /** Double-rAF so we win the race against Lightweight Charts' own mouseup handler. */
-  const scheduleClampAfterLibrary = () => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(clamp);
-    });
-  };
-
-  const stopDragLoop = () => {
-    draggingPriceScale = false;
-    if (dragRaf) {
-      cancelAnimationFrame(dragRaf);
-      dragRaf = 0;
-    }
-  };
-
-  const dragLoop = () => {
-    clamp();
-    if (draggingPriceScale) {
-      dragRaf = requestAnimationFrame(dragLoop);
-    } else {
-      dragRaf = 0;
-    }
+  /** Auto-scale is already on; this only asks the scale to run the provider again. */
+  const recalculate = () => {
+    ps.setAutoScale(true);
   };
 
   const isOnRightPriceScale = (clientX: number) => {
@@ -500,37 +496,68 @@ function bindPriceScaleFloor(
   };
 
   const onPointerDown = (e: PointerEvent) => {
-    if (!isOnRightPriceScale(e.clientX)) return;
-    draggingPriceScale = true;
-    if (!dragRaf) dragRaf = requestAnimationFrame(dragLoop);
+    if (e.button !== 0 || !isOnRightPriceScale(e.clientX)) return;
+    startY = e.clientY;
+    startStretch = stretch.value;
+    pointerId = e.pointerId;
+    container.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e: PointerEvent) => {
+    if (startY === null) return;
+    const rect = container.getBoundingClientRect();
+    const height = rect.height;
+    if (height < 8) return;
+    // Invert Y so dragging down zooms out, matching the library's gesture.
+    const damping = (height - 1) * STRETCH_DRAG_DAMPING;
+    const from = height - (startY - rect.top);
+    const to = Math.max(height - (e.clientY - rect.top), 0);
+    const coeff = (from + damping) / (to + damping);
+    stretch.value = clampStretchFactor(startStretch * coeff);
+    recalculate();
   };
 
   const onPointerEnd = () => {
-    if (!draggingPriceScale) return;
-    stopDragLoop();
-    scheduleClampAfterLibrary();
+    if (startY === null) return;
+    startY = null;
+    if (pointerId !== null && container.hasPointerCapture(pointerId)) {
+      container.releasePointerCapture(pointerId);
+    }
+    pointerId = null;
   };
 
-  const onWheel = () => {
-    scheduleClamp();
+  const onDoubleClick = (e: MouseEvent) => {
+    if (!isOnRightPriceScale(e.clientX)) return;
+    stretch.value = DEFAULT_STRETCH;
+    recalculate();
+  };
+
+  /** Nothing should be able to leave the scale off auto — that is what allows negatives. */
+  const guardAutoScale = () => {
+    if (!ps.options().autoScale) recalculate();
   };
 
   container.addEventListener('pointerdown', onPointerDown);
-  window.addEventListener('pointerup', onPointerEnd);
-  window.addEventListener('pointercancel', onPointerEnd);
-  container.addEventListener('wheel', onWheel, { passive: true });
-  chart.timeScale().subscribeVisibleLogicalRangeChange(clamp);
+  container.addEventListener('pointermove', onPointerMove);
+  container.addEventListener('pointerup', onPointerEnd);
+  container.addEventListener('pointercancel', onPointerEnd);
+  container.addEventListener('dblclick', onDoubleClick);
+  container.addEventListener('wheel', guardAutoScale, { passive: true });
+  window.addEventListener('pointerup', guardAutoScale);
   return {
-    restoreAutoScale: () => {
-      ps.setAutoScale(true);
+    reset: () => {
+      stretch.value = DEFAULT_STRETCH;
+      recalculate();
     },
     detach: () => {
-      stopDragLoop();
       container.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointerup', onPointerEnd);
-      window.removeEventListener('pointercancel', onPointerEnd);
-      container.removeEventListener('wheel', onWheel);
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(clamp);
+      container.removeEventListener('pointermove', onPointerMove);
+      container.removeEventListener('pointerup', onPointerEnd);
+      container.removeEventListener('pointercancel', onPointerEnd);
+      container.removeEventListener('dblclick', onDoubleClick);
+      container.removeEventListener('wheel', guardAutoScale);
+      window.removeEventListener('pointerup', guardAutoScale);
     },
   };
 }
@@ -568,14 +595,26 @@ export function mountSequenceChart(
     },
     crosshair: { mode: 0 },
     handleScroll: true,
-    handleScale: true,
+    handleScale:
+      mode === 'fundamentals'
+        ? {
+            mouseWheel: true,
+            pinch: true,
+            // Native price-axis drag scales around the range centre, which drags 0 negative.
+            axisPressedMouseMove: { price: false, time: true },
+            axisDoubleClickReset: { price: false, time: true },
+          }
+        : true,
   });
+
+  const stretch: StretchRef = { value: DEFAULT_STRETCH };
+  const floorProvider = makePriceFloorProvider(stretch);
 
   const { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts, dividendPts } =
     valuationLinePoints(valuationSeries);
   const dcfPts = seriesToFairPoints(dcfForecastSeries);
   if (mode === 'fundamentals') {
-    addFairValueFill(chart, [...fairPts, ...forecastOnly]);
+    addFairValueFill(chart, [...fairPts, ...forecastOnly], floorProvider);
   }
 
   const candle = chart.addSeries(CandlestickSeries, {
@@ -585,7 +624,7 @@ export function mountSequenceChart(
     borderDownColor: settings.candle_border || settings.candle_down,
     wickUpColor: settings.candle_wick || settings.candle_up,
     wickDownColor: settings.candle_wick || settings.candle_down,
-    ...(mode === 'fundamentals' ? { autoscaleInfoProvider: priceFloorAutoscaleProvider } : {}),
+    ...(mode === 'fundamentals' ? { autoscaleInfoProvider: floorProvider } : {}),
   });
 
   const candleData: Array<
@@ -619,6 +658,7 @@ export function mountSequenceChart(
       normalForecastPts,
       dcfPts,
       dividendPts,
+      floorProvider,
     );
     const timesMs = candleData.map((b) => parseBarTimeMs(String(b.time)));
     const zoom = fundRange
@@ -630,18 +670,18 @@ export function mountSequenceChart(
           barStepMs(payload.bars) * 2,
         )
       : null;
-    const floorZoom = bindPriceScaleFloor(container, chart);
+    const priceStretch = bindPriceScaleStretch(container, chart, stretch);
     if (!zoom) chart.timeScale().fitContent();
     return {
       chart,
       valuation,
       fitContent: () => {
-        floorZoom.restoreAutoScale();
+        priceStretch.reset();
         if (zoom) zoom.apply();
         else chart.timeScale().fitContent();
       },
       destroy: () => {
-        floorZoom.detach();
+        priceStretch.detach();
         zoom?.detach();
         chart.remove();
       },
