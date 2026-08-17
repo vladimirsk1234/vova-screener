@@ -452,6 +452,9 @@ function bindPriceScaleFloor(
   chart: IChartApi,
 ): { restoreAutoScale: () => void; detach: () => void } {
   const ps = chart.priceScale('right');
+  let dragRaf = 0;
+  let draggingPriceScale = false;
+
   const clamp = () => {
     if (ps.options().autoScale) return;
     const range = ps.getVisibleRange();
@@ -461,21 +464,72 @@ function bindPriceScaleFloor(
       ps.setVisibleRange(next);
     }
   };
-  const onInteract = () => {
+
+  const scheduleClamp = () => {
     requestAnimationFrame(clamp);
   };
-  container.addEventListener('wheel', onInteract, { passive: true });
-  window.addEventListener('mouseup', onInteract);
-  window.addEventListener('touchend', onInteract);
+
+  /** Double-rAF so we win the race against Lightweight Charts' own mouseup handler. */
+  const scheduleClampAfterLibrary = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(clamp);
+    });
+  };
+
+  const stopDragLoop = () => {
+    draggingPriceScale = false;
+    if (dragRaf) {
+      cancelAnimationFrame(dragRaf);
+      dragRaf = 0;
+    }
+  };
+
+  const dragLoop = () => {
+    clamp();
+    if (draggingPriceScale) {
+      dragRaf = requestAnimationFrame(dragLoop);
+    } else {
+      dragRaf = 0;
+    }
+  };
+
+  const isOnRightPriceScale = (clientX: number) => {
+    const rect = container.getBoundingClientRect();
+    const scaleW = Math.max(ps.width(), 24);
+    return clientX >= rect.right - scaleW;
+  };
+
+  const onPointerDown = (e: PointerEvent) => {
+    if (!isOnRightPriceScale(e.clientX)) return;
+    draggingPriceScale = true;
+    if (!dragRaf) dragRaf = requestAnimationFrame(dragLoop);
+  };
+
+  const onPointerEnd = () => {
+    if (!draggingPriceScale) return;
+    stopDragLoop();
+    scheduleClampAfterLibrary();
+  };
+
+  const onWheel = () => {
+    scheduleClamp();
+  };
+
+  container.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointerup', onPointerEnd);
+  window.addEventListener('pointercancel', onPointerEnd);
+  container.addEventListener('wheel', onWheel, { passive: true });
   chart.timeScale().subscribeVisibleLogicalRangeChange(clamp);
   return {
     restoreAutoScale: () => {
       ps.setAutoScale(true);
     },
     detach: () => {
-      container.removeEventListener('wheel', onInteract);
-      window.removeEventListener('mouseup', onInteract);
-      window.removeEventListener('touchend', onInteract);
+      stopDragLoop();
+      container.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerup', onPointerEnd);
+      window.removeEventListener('pointercancel', onPointerEnd);
+      container.removeEventListener('wheel', onWheel);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(clamp);
     },
   };

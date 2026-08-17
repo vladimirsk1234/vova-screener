@@ -12,40 +12,29 @@ import {
 } from './priceScaleFloor.ts';
 
 describe('projectedVisibleMin', () => {
-  it('subtracts bottom margin as a fraction of the data span', () => {
-    const min = projectedVisibleMin({ minValue: 50, maxValue: 100 }, PRICE_SCALE_MARGINS_NORMAL);
-    assert.ok(min < 50);
-    assert.ok(min > 0);
+  it('leaves min unchanged when bottom margin is 0', () => {
+    const min = projectedVisibleMin({ minValue: 0, maxValue: 100 }, PRICE_SCALE_MARGINS_NORMAL);
+    assert.equal(min, 0);
   });
 });
 
 describe('autoscaleWithPriceFloor', () => {
-  it('keeps normal margins when padding would stay above 0', () => {
+  it('pins minValue to 0 even when data is far above the floor', () => {
     const result = autoscaleWithPriceFloor({ minValue: 50, maxValue: 100 });
     assert.ok(result);
-    assert.equal(result.scaleMargins.top, PRICE_SCALE_MARGINS_NORMAL.top);
-    assert.equal(result.scaleMargins.bottom, PRICE_SCALE_MARGINS_NORMAL.bottom);
-    assert.equal(result.priceRange.minValue, 50);
-    assert.equal(result.priceRange.maxValue, 100);
-    assert.ok(projectedVisibleMin(result.priceRange, result.scaleMargins) >= PRICE_FLOOR);
-  });
-
-  it('sits on 0 and drops bottom margin when padding would cross 0', () => {
-    const data = { minValue: 10, maxValue: 200 };
-    assert.ok(projectedVisibleMin(data, PRICE_SCALE_MARGINS_NORMAL) < PRICE_FLOOR);
-    const result = autoscaleWithPriceFloor(data);
-    assert.ok(result);
     assert.equal(result.priceRange.minValue, PRICE_FLOOR);
-    assert.equal(result.priceRange.maxValue, 200);
+    assert.equal(result.priceRange.maxValue, 100);
     assert.equal(result.scaleMargins.top, PRICE_SCALE_MARGIN_TOP);
     assert.equal(result.scaleMargins.bottom, 0);
     assert.equal(projectedVisibleMin(result.priceRange, result.scaleMargins), PRICE_FLOOR);
   });
 
-  it('does not raise minValue above the data minimum', () => {
+  it('pins minValue to 0 when padding would have crossed 0 under the old policy', () => {
     const result = autoscaleWithPriceFloor({ minValue: 10, maxValue: 200 });
     assert.ok(result);
-    assert.ok(result.priceRange.minValue <= 10);
+    assert.equal(result.priceRange.minValue, PRICE_FLOOR);
+    assert.equal(result.priceRange.maxValue, 200);
+    assert.equal(result.scaleMargins.bottom, 0);
   });
 
   it('floors when data min is already 0', () => {
@@ -72,17 +61,13 @@ describe('autoscaleWithPriceFloor', () => {
 });
 
 describe('bakeBottomPadding', () => {
-  it('encodes far-from-zero bottom padding into minValue for bottom:0 charts', () => {
+  it('leaves a floored range at 0 when bottom margin is 0', () => {
     const result = autoscaleWithPriceFloor({ minValue: 50, maxValue: 100 });
     assert.ok(result);
-    const baked = bakeBottomPadding(result);
-    assert.equal(baked.maxValue, 100);
-    assert.equal(baked.minValue, projectedVisibleMin(result.priceRange, result.scaleMargins));
-    assert.ok(baked.minValue < 50);
-    assert.ok(baked.minValue >= PRICE_FLOOR);
+    assert.deepEqual(bakeBottomPadding(result), { minValue: 0, maxValue: 100 });
   });
 
-  it('leaves a floored range at 0', () => {
+  it('leaves a floored range at 0 for near-zero data', () => {
     const result = autoscaleWithPriceFloor({ minValue: 10, maxValue: 200 });
     assert.ok(result);
     assert.deepEqual(bakeBottomPadding(result), { minValue: 0, maxValue: 200 });
@@ -96,7 +81,7 @@ describe('applyPriceFloorToAutoscaleInfo', () => {
     assert.equal(applyPriceFloorToAutoscaleInfo(empty), empty);
   });
 
-  it('returns a baked range that never projects below 0 with chart margins', () => {
+  it('returns a baked range pinned to 0 with chart margins', () => {
     const info = applyPriceFloorToAutoscaleInfo({
       priceRange: { minValue: 10, maxValue: 200 },
     });
@@ -114,9 +99,8 @@ describe('clampVisiblePriceRange', () => {
     assert.deepEqual(clampVisiblePriceRange({ from: -12, to: 80 }), { from: 0, to: 80 });
   });
 
-  it('leaves a range already above the floor', () => {
-    const range = { from: 40, to: 90 };
-    assert.equal(clampVisiblePriceRange(range), range);
+  it('pins from to 0 even when the range is already above the floor', () => {
+    assert.deepEqual(clampVisiblePriceRange({ from: 40, to: 90 }), { from: 0, to: 90 });
   });
 
   it('returns null for a missing range', () => {
