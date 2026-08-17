@@ -474,6 +474,7 @@ export type RejectDetail = {
 export type Rejection = {
   _id: string;
   symbol: string;
+  yahooTicker?: string;
   reason: string;
   detail?: RejectDetail | null;
 };

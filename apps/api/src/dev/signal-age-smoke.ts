@@ -153,19 +153,32 @@ async function main() {
     await saveBars(barSeries, freshTicker, tf, fresh);
     await saveBars(barSeries, oldTicker, tf, old);
 
-    // Scan for real, then relabel the run as a universe scan so the tracker accepts it: every
-    // number from here on was computed by the engine rather than written by this script.
-    const { runId } = await scans.start(
-      {
-        source: 'MANUAL SCAN',
-        manualTickers: tickers.join(', '),
-        tf,
-        direction: 'buy',
-        minRr: 0,
-        noRrReq: true,
-        newOnly: false,
-      },
-      { wait: true },
+    // Manual scan accepts one ticker. Two sequential starts reuse the same run doc, so keep
+    // each pass's signals in memory and write them back before the tracker sees the run.
+    const savedSignals: any[] = [];
+    let runId = '';
+    for (const ticker of tickers) {
+      const res = await scans.start(
+        {
+          source: 'MANUAL SCAN',
+          manualTickers: ticker,
+          tf,
+          direction: 'buy',
+          minRr: 0,
+          noRrReq: true,
+          newOnly: false,
+        },
+        { wait: true },
+      );
+      runId = res.runId;
+      savedSignals.push(...(await signals.find({ runId }).lean<any[]>()));
+    }
+    await signals.deleteMany({ runId });
+    await signals.insertMany(
+      savedSignals.map(({ _id, ...rest }) => ({
+        ...rest,
+        runId: new mongoose.Types.ObjectId(runId),
+      })),
     );
     await runs.updateOne({ _id: runId }, { $set: { 'params.source': 'Stocks', periodTf: tf } });
 

@@ -17,6 +17,7 @@ import {
   type Timeframe,
 } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL } from '../db/schemas';
+import { FundamentalsService } from '../instruments/fundamentals.service';
 import { BarsService } from '../market/bars.service';
 import { UniverseService, type SourceLabelApi } from '../universe/universe.service';
 import { barPeriodKey } from './period';
@@ -52,6 +53,7 @@ export class ScanRunnerService {
     @InjectModel(REJECTION) private readonly rejections: Model<any>,
     private readonly bars: BarsService,
     private readonly universe: UniverseService,
+    private readonly fundamentals: FundamentalsService,
     private readonly bus: ProgressBus,
   ) {}
 
@@ -76,6 +78,17 @@ export class ScanRunnerService {
       this.publish(runId, 'resolving', 0, 'Resolving universe...');
       let entries = await this.universe.resolveEntries(params.source, params.manualTickers ?? '');
       if (params.maxSymbols && params.maxSymbols > 0) entries = entries.slice(0, params.maxSymbols);
+
+      let fundWarm: Promise<unknown> | null = null;
+      if (params.source === 'MANUAL SCAN' && entries[0]) {
+        const known = await this.universe.isInTrackedUniverse(entries[0].yahoo);
+        if (!known) {
+          this.publish(runId, 'resolving', 0, `Downloading ${entries[0].yahoo} from Yahoo + FMP…`);
+          fundWarm = this.fundamentals.get(entries[0].yahoo).catch((err) => {
+            this.log.warn(`FMP prefetch ${entries[0].yahoo} failed: ${(err as Error).message}`);
+          });
+        }
+      }
 
       const total = entries.length;
       run.status = 'running';
@@ -274,6 +287,7 @@ export class ScanRunnerService {
 
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
       await flush(true);
+      if (fundWarm) await fundWarm;
 
       const cancelled = controller.signal.aborted;
       this.publish(runId, cancelled ? 'cancelled' : 'saving', 99, 'Finalising...', {

@@ -10,7 +10,7 @@ import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
 const DEFAULTS: ScanParamsApi = {
   source: 'MANUAL SCAN',
-  manualTickers: 'AAPL, TSLA, NVDA',
+  manualTickers: '',
   tf: 'Daily',
   direction: 'buy',
   minRr: 1.5,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { InstrumentsModule } from '../instruments/instruments.module';
 import { MarketModule } from '../market/market.module';
 import { SettingsModule } from '../settings/settings.module';
 import { TrackingModule } from '../tracking/tracking.module';
@@ -14,6 +15,7 @@ import { ScansService } from './scans.service';
   imports: [
     MarketModule,
     UniverseModule,
+    InstrumentsModule,
     TrackingModule,
     SettingsModule,
     ScheduleModule.forRoot(),

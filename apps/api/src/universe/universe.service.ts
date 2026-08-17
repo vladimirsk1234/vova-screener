@@ -103,7 +103,7 @@ export class UniverseService implements OnModuleInit {
   }
 
   async resolveEntries(source: SourceLabelApi, manualTickers = ''): Promise<ParsedEntry[]> {
-    if (source === 'MANUAL SCAN') return parseManualTickers(manualTickers).entries;
+    if (source === 'MANUAL SCAN') return parseManualTickers(manualTickers).entries.slice(0, 1);
     const universe = source === 'ETF' ? 'etf' : 'stocks';
     let docs = await this.instruments.find({ universes: universe, active: true }).lean().exec();
     if (!docs.length) {
@@ -128,6 +128,20 @@ export class UniverseService implements OnModuleInit {
 
   async findOne(yahooTicker: string) {
     return this.instruments.findOne({ yahooTicker }).lean<any>().exec();
+  }
+
+  /** True when the symbol is in the Stocks or ETF list (STOCK-TICKERS / TV-LIST-ETF). */
+  async isInTrackedUniverse(yahooTicker: string): Promise<boolean> {
+    const doc = await this.instruments
+      .findOne({
+        yahooTicker,
+        active: true,
+        universes: { $in: ['stocks', 'etf'] },
+      })
+      .select('_id')
+      .lean()
+      .exec();
+    return Boolean(doc);
   }
 
   /** Active Stocks + ETF yahoo tickers — the daily/weekly fundamentals refresh set. */

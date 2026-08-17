@@ -1,25 +1,43 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Timeframe } from '../lib/api';
+import { parseListEntry } from '@vova/engine';
+import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Rejection, type Timeframe } from '../lib/api';
 import { barsLabel, money, num } from '../lib/format';
+import { readManualSearchHistory, rememberManualSearch } from '../lib/manualSearchHistory';
 import { resultsPathForUniverse } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
 import { SegmentedTabs } from '../components/SegmentedTabs';
-import { SortChips, type SortDir, type SortOption } from '../components/SortChips';
 import { useScanProgress } from '../lib/useScanProgress';
 
 const ACTIVE_RUN_KEY = 'vova.manualRunId';
-const TICKERS_KEY = 'vova.manualTickers';
+const TICKER_KEY = 'vova.manualTickers';
 const TERMINAL = ['completed', 'cancelled', 'failed'];
 
-type ManualSort = 'rr' | 'entry' | 'symbol';
+function parseOneManualTicker(
+  text: string,
+): { ok: true; ticker: string } | { ok: false; error: string } {
+  const parts = text
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return { ok: false, error: 'Enter one ticker.' };
+  if (parts.length > 1) return { ok: false, error: 'One ticker at a time.' };
+  if (parts[0].split(/\s+/).filter(Boolean).length > 1) {
+    return { ok: false, error: 'One ticker at a time.' };
+  }
+  const parsed = parseListEntry(parts[0]);
+  if (!parsed) return { ok: false, error: 'Enter one ticker.' };
+  return { ok: true, ticker: parsed.yahoo };
+}
 
-const SORTS: SortOption<ManualSort>[] = [
-  { value: 'rr', label: 'RR' },
-  { value: 'entry', label: 'Entry' },
-  { value: 'symbol', label: 'A-Z', from: 'asc' },
-];
+function initialTicker(): string {
+  const history = readManualSearchHistory();
+  if (history[0]) return history[0];
+  const saved = localStorage.getItem(TICKER_KEY) ?? '';
+  const parsed = parseOneManualTicker(saved);
+  return parsed.ok ? parsed.ticker : '';
+}
 
 /**
  * The only screen that starts a scan. Manual runs are ad-hoc checks against a live chart, so
@@ -28,15 +46,13 @@ const SORTS: SortOption<ManualSort>[] = [
 export function ManualPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [tickers, setTickers] = useState(
-    () => localStorage.getItem(TICKERS_KEY) ?? 'AAPL, TSLA, NVDA, MSFT, AMD',
-  );
+  const [ticker, setTicker] = useState(initialTicker);
+  const [history, setHistory] = useState(readManualSearchHistory);
+  const [lastScanned, setLastScanned] = useState(() => readManualSearchHistory()[0] ?? '');
   const [tf, setTf] = useState<Timeframe>('Daily');
   const [runId, setRunId] = useState<string | null>(() => localStorage.getItem(ACTIVE_RUN_KEY));
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sort, setSort] = useState<ManualSort>('rr');
-  const [dir, setDir] = useState<SortDir>('desc');
   const progress = useScanProgress(runId);
 
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
@@ -61,6 +77,12 @@ export function ManualPage() {
     enabled: Boolean(runId) && done,
   });
 
+  const rejections = useQuery({
+    queryKey: ['manual-rejections', runId],
+    queryFn: () => api.rejections(runId as string, 20),
+    enabled: Boolean(runId) && done,
+  });
+
   useEffect(() => {
     if (!runId || !run.isError) return;
     localStorage.removeItem(ACTIVE_RUN_KEY);
@@ -73,13 +95,17 @@ export function ManualPage() {
   }, [progress?.phase, runId, queryClient]);
 
   const onStart = async () => {
+    const parsed = parseOneManualTicker(ticker);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
     setStarting(true);
     setError(null);
     try {
-      localStorage.setItem(TICKERS_KEY, tickers);
       const res = await api.startScan({
         source: 'MANUAL SCAN',
-        manualTickers: tickers,
+        manualTickers: parsed.ticker,
         tf,
         direction: 'buy',
         minRr: 0,
@@ -89,6 +115,9 @@ export function ManualPage() {
         riskPerTrade: settings.data?.maxRiskUsd ?? 100,
         forceRefresh: true,
       });
+      localStorage.setItem(TICKER_KEY, parsed.ticker);
+      setHistory(rememberManualSearch(parsed.ticker));
+      setLastScanned(parsed.ticker);
       localStorage.setItem(ACTIVE_RUN_KEY, res.runId);
       setRunId(res.runId);
     } catch (e) {
@@ -98,18 +127,14 @@ export function ManualPage() {
     }
   };
 
-  const rows = useMemo(() => {
-    const order = dir === 'asc' ? 1 : -1;
-    // MIN RR is "any", so a signal can have no computable RR. Ranking those lowest keeps them at
-    // one end of the list instead of scattered through it, matching how Results sorts them.
-    const rank = (s: BuySignal) => (sort === 'rr' ? (s.rr ?? -Infinity) : s.entry);
-    return [...(signals.data?.rows ?? [])].sort((a, b) => {
-      if (sort === 'symbol') return a.symbol.localeCompare(b.symbol) * order;
-      const x = rank(a);
-      const y = rank(b);
-      return (x === y ? 0 : x < y ? -1 : 1) * order || a.symbol.localeCompare(b.symbol);
-    });
-  }, [signals.data, sort, dir]);
+  const signal = signals.data?.rows[0] ?? null;
+  const rejection = rejections.data?.rows[0] ?? null;
+  const fromRun = parseOneManualTicker(run.data?.params.manualTickers ?? '');
+  const chartTicker =
+    signal?.yahooTicker ||
+    rejection?.yahooTicker ||
+    lastScanned ||
+    (fromRun.ok ? fromRun.ticker : '');
 
   return (
     <div>
@@ -130,20 +155,42 @@ export function ManualPage() {
       <section className="card">
         <h2>Manual scan</h2>
         <p className="muted small">
-          Stocks and ETF are scanned in the background — this is for checking a handful of
-          symbols right now.
+          Stocks and ETF are scanned in the background — this is for checking one symbol right
+          now.
         </p>
 
         <div className="field">
-          <label htmlFor="manual-tickers">Tickers</label>
-          <textarea
+          <label htmlFor="manual-tickers">Ticker</label>
+          <input
             id="manual-tickers"
-            rows={3}
-            value={tickers}
+            type="text"
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            value={ticker}
             disabled={running}
-            onChange={(e) => setTickers(e.target.value)}
+            onChange={(e) => setTicker(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !running && !starting) void onStart();
+            }}
           />
         </div>
+
+        {history.length ? (
+          <div className="manual-history" role="group" aria-label="Recent tickers">
+            {history.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={`sort-chip${item === ticker.trim().toUpperCase() ? ' active' : ''}`}
+                disabled={running}
+                onClick={() => setTicker(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <Chips label="Timeframe" value={tf} options={TIMEFRAMES} onChange={setTf} disabled={running} />
 
@@ -156,7 +203,7 @@ export function ManualPage() {
             STOP
           </button>
         ) : (
-          <button type="button" className="btn btn-primary" disabled={starting} onClick={onStart}>
+          <button type="button" className="btn btn-primary" disabled={starting} onClick={() => void onStart()}>
             {starting ? 'STARTING…' : 'START SCAN'}
           </button>
         )}
@@ -184,69 +231,89 @@ export function ManualPage() {
         </section>
       ) : null}
 
-      {done && rows.length === 0 ? (
-        <p className="empty">No valid signals. Check the rejected reasons for why.</p>
+      {done && chartTicker ? (
+        <ManualResultCard
+          ticker={chartTicker}
+          signal={signal}
+          rejection={rejection}
+          onOpen={(path) => navigate(path)}
+        />
       ) : null}
-
-      {rows.length > 1 ? (
-        <div className="results-meta manual-sort">
-          <span className="muted small">{rows.length} signals</span>
-          <SortChips
-            options={SORTS}
-            value={sort}
-            dir={dir}
-            onChange={(next, nextDir) => {
-              setSort(next);
-              setDir(nextDir);
-            }}
-          />
-        </div>
-      ) : null}
-
-      {rows.map((signal: BuySignal) => (
-        <article
-          key={signal.yahooTicker}
-          className="card signal-card compact clickable"
-          role="button"
-          tabIndex={0}
-          onClick={() => navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') navigate(`/chart/${encodeURIComponent(signal.yahooTicker)}`);
-          }}
-        >
-          <div className="signal-card-line1">
-            <div className="signal-card-title">
-              <strong>{signal.symbol}</strong>
-              <span className="muted ellipsis">{signal.companyName}</span>
-            </div>
-            {/* Same rule as the Results tabs: bar zero of the valid run is NEW. */}
-            {signal.barsSinceValid === 0 ? (
-              <span className="badge up">NEW</span>
-            ) : (
-              <span className="badge" title={`Valid since ${signal.validSinceAsOf ?? '—'}`}>
-                {barsLabel(signal.barsSinceValid)}
-              </span>
-            )}
-          </div>
-          <div className="signal-card-metrics">
-            <span>
-              <span className="lbl">E</span> {money(signal.entry)}
-            </span>
-            <span className="sep">·</span>
-            <span>
-              <span className="lbl">TP</span> {money(signal.tp)}
-            </span>
-            <span className="sep">·</span>
-            <span>
-              <span className="lbl">SL</span> {money(signal.sl)}
-            </span>
-            <span className="sep">·</span>
-            <span>
-              <span className="lbl">RR</span> {num(signal.rr)}
-            </span>
-          </div>
-        </article>
-      ))}
     </div>
+  );
+}
+
+function ManualResultCard({
+  ticker,
+  signal,
+  rejection,
+  onOpen,
+}: {
+  ticker: string;
+  signal: BuySignal | null;
+  rejection: Rejection | null;
+  onOpen: (path: string) => void;
+}) {
+  const yahoo = signal?.yahooTicker ?? rejection?.yahooTicker ?? ticker;
+  const symbol = signal?.symbol ?? rejection?.symbol ?? ticker;
+  const name = signal?.companyName ?? '';
+  const taPath = `/chart/${encodeURIComponent(yahoo)}`;
+  const fundPath = `${taPath}?view=fundamentals`;
+
+  return (
+    <article className="card signal-card compact">
+      <div className="signal-card-line1">
+        <div className="signal-card-title">
+          <strong>{symbol}</strong>
+          {name ? <span className="muted ellipsis">{name}</span> : null}
+        </div>
+        {signal ? (
+          signal.barsSinceValid === 0 ? (
+            <span className="badge up">NEW</span>
+          ) : (
+            <span className="badge" title={`Valid since ${signal.validSinceAsOf ?? '—'}`}>
+              {barsLabel(signal.barsSinceValid)}
+            </span>
+          )
+        ) : rejection ? (
+          <span className="badge warn-badge">{rejection.reason}</span>
+        ) : (
+          <span className="badge">No signal</span>
+        )}
+      </div>
+      {signal ? (
+        <div className="signal-card-metrics">
+          <span>
+            <span className="lbl">E</span> {money(signal.entry)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">TP</span> {money(signal.tp)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">SL</span> {money(signal.sl)}
+          </span>
+          <span className="sep">·</span>
+          <span>
+            <span className="lbl">RR</span> {num(signal.rr)}
+          </span>
+        </div>
+      ) : (
+        <p className="muted small" style={{ margin: '6px 0 0' }}>
+          {rejection
+            ? 'No valid signal — TA and Fundamentals are still available.'
+            : 'Scan finished without a signal. TA and Fundamentals are still available.'}
+        </p>
+      )}
+      <div className="card-actions">
+        <button type="button" className="btn-sm ghost" onClick={() => onOpen(taPath)}>
+          TA
+        </button>
+        <button type="button" className="btn-sm ghost" onClick={() => onOpen(fundPath)}>
+          Fundamentals
+        </button>
+      </div>
+    </article>
   );
 }

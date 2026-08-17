@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, type RejectDetail } from '../lib/api';
 
@@ -20,6 +20,7 @@ function detailLine(detail: RejectDetail): string {
 }
 
 export function RejectedPage() {
+  const navigate = useNavigate();
   const { runId = '' } = useParams();
   const { data, isLoading } = useQuery({
     queryKey: ['rejections', runId],
@@ -68,8 +69,21 @@ export function RejectedPage() {
         </p>
         {data.rows.map((row) => {
           const detail = row.detail ? detailLine(row.detail) : '';
+          const chartTicker = row.yahooTicker || row.symbol;
           return (
-            <div className="list-row" key={row._id}>
+            <div
+              className="list-row clickable"
+              key={row._id}
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/chart/${encodeURIComponent(chartTicker)}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate(`/chart/${encodeURIComponent(chartTicker)}`);
+                }
+              }}
+            >
               <div className="stack-row">
                 <span>{row.symbol}</span>
                 <span className="muted small">{row.reason}</span>

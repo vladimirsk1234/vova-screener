@@ -72,6 +72,8 @@ test.describe('results shell', () => {
     await page.getByRole('tab', { name: 'Manual' }).click();
     await expect(page).toHaveURL(/\/results\/manual$/);
     await expect(page.getByRole('button', { name: 'START SCAN' })).toBeVisible();
+    await expect(page.locator('#manual-tickers')).toBeVisible();
+    await expect(page.getByText(/one symbol right now/i)).toBeVisible();
   });
 
   test('settings sheet holds max risk, min RR, fundamentals, rescan and reset', async ({ page }) => {
