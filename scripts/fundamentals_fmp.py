@@ -15,6 +15,8 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +28,12 @@ BASE = "https://financialmodelingprep.com/stable"
 CACHE_PATH = ROOT / ".cache" / "fmp_eps.json"
 VALUATION_CACHE_PATH = ROOT / ".cache" / "fmp_valuation.json"
 RETRY_REASONS = frozenset({"FMP_HTTP", "FMP_RATE_LIMIT", "FMP_ERROR"})
+# Bump when liquidity/ATR gates change so old EPS-only PASS rows are rechecked.
+QUALITY_GATE = "liq-atr-v1"
+MIN_DAILY_ATR_PCT = 1.0
+ATR_LEN = 14
+MIN_ATR_BARS = 15
+US_TV_EXCHANGES = frozenset({"NASDAQ", "NYSE", "AMEX"})
 GROWTH_PE_FLOOR = 15.0
 GROWTH_LOOKBACK_YEARS = 5
 KNOWN_ADR_RATIO = {"XYF": 6, "TSM": 5, "BABA": 8, "BIDU": 8, "JD": 2, "HDB": 3, "PDD": 4, "NTES": 5}
@@ -51,6 +59,29 @@ FMP_HTTP_RATE_PER_SEC = 12.0
 FMP_SCAN_WORKERS = 8
 _last_http_at = 0.0
 _http_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class LiquidityGates:
+    min_price: float
+    min_vol_avg: float
+    min_dollar_adv: float
+    min_mkt_cap: float
+
+
+# Recommended quality floors (listing currency for price/ADV; FMP mktCap is USD).
+US_LIQUIDITY = LiquidityGates(
+    min_price=5.0,
+    min_vol_avg=200_000.0,
+    min_dollar_adv=1_000_000.0,
+    min_mkt_cap=300_000_000.0,
+)
+CA_LIQUIDITY = LiquidityGates(
+    min_price=2.0,
+    min_vol_avg=50_000.0,
+    min_dollar_adv=300_000.0,
+    min_mkt_cap=100_000_000.0,
+)
 
 
 def _load_json(path: Path) -> dict:
@@ -418,6 +449,169 @@ def fetch_eps_pe_growth(
         return False, "FMP_ERROR", None, None, None
 
 
+def tv_exchange(tv: str) -> str:
+    return (tv.split(":", 1)[0] if ":" in tv else tv).upper()
+
+
+def gates_for_tv(
+    tv: str,
+    *,
+    us: LiquidityGates = US_LIQUIDITY,
+    ca: LiquidityGates = CA_LIQUIDITY,
+) -> LiquidityGates:
+    return us if tv_exchange(tv) in US_TV_EXCHANGES else ca
+
+
+def fetch_profile(symbol: str, api_key: str) -> dict:
+    raw = _fmp_get("/profile", api_key, {"symbol": symbol})
+    rows = raw if isinstance(raw, list) else []
+    row = rows[0] if rows and isinstance(rows[0], dict) else {}
+    return row if isinstance(row, dict) else {}
+
+
+def profile_liquidity_reason(profile: dict, gates: LiquidityGates) -> str | None:
+    if profile.get("isEtf") or profile.get("isFund"):
+        return "NOT_EQUITY"
+    if profile.get("isActivelyTrading") is False:
+        return "NOT_TRADING"
+    price = _num(profile.get("price"))
+    vol = (
+        _num(profile.get("volAvg"))
+        or _num(profile.get("averageVolume"))
+        or _num(profile.get("avgVolume"))
+    )
+    mcap = _num(profile.get("mktCap")) or _num(profile.get("marketCap"))
+    if price is None or price < gates.min_price:
+        return "LOW_PRICE"
+    if vol is None or vol < gates.min_vol_avg:
+        return "LOW_VOL"
+    if (vol * price) < gates.min_dollar_adv:
+        return "LOW_DOLLAR_VOL"
+    if mcap is None or mcap < gates.min_mkt_cap:
+        return "LOW_MCAP"
+    return None
+
+
+def _as_dict_rows(raw: object) -> list[dict]:
+    if isinstance(raw, list):
+        return [r for r in raw if isinstance(r, dict)]
+    if isinstance(raw, dict):
+        for key in ("historical", "data", "technicalIndicators"):
+            val = raw.get(key)
+            if isinstance(val, list):
+                return [r for r in val if isinstance(r, dict)]
+    return []
+
+
+def _last_atr_value(rows: list[dict]) -> float | None:
+    if not rows:
+        return None
+    for row in (*rows[:8], *reversed(rows[-8:])):
+        v = _num(row.get("atr")) or _num(row.get("ATR"))
+        if v is not None:
+            return v
+    return None
+
+
+def _ohlc_chronological(rows: list[dict]) -> tuple[list[float], list[float], list[float]]:
+    dated: list[tuple[str, float, float, float]] = []
+    for row in rows:
+        high = _num(row.get("high"))
+        low = _num(row.get("low"))
+        close = _num(row.get("close")) or _num(row.get("price"))
+        if high is None or low is None or close is None:
+            continue
+        dated.append((_str(row.get("date")) or "", high, low, close))
+    dated.sort(key=lambda r: r[0])
+    return (
+        [r[1] for r in dated],
+        [r[2] for r in dated],
+        [r[3] for r in dated],
+    )
+
+
+def wilder_atr_last(highs: list[float], lows: list[float], closes: list[float], length: int = ATR_LEN) -> float | None:
+    n = len(closes)
+    if n < MIN_ATR_BARS or n != len(highs) or n != len(lows):
+        return None
+    atr = highs[0] - lows[0]
+    alpha = 1.0 / length
+    for i in range(1, n):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        atr = alpha * tr + (1.0 - alpha) * atr
+    if not math.isfinite(atr) or atr <= 0:
+        return None
+    return atr
+
+
+def fetch_daily_atr(symbol: str, api_key: str) -> tuple[float | None, float | None]:
+    """Return (atr, last_close) from FMP. ATR endpoint first, EOD OHLC fallback."""
+    try:
+        raw = _fmp_get(
+            "/technical-indicators/atr",
+            api_key,
+            {"symbol": symbol, "periodLength": str(ATR_LEN), "timeframe": "1day"},
+        )
+        rows = _as_dict_rows(raw)
+        atr = _last_atr_value(rows)
+        close = None
+        if rows:
+            close = _num(rows[0].get("close")) or _num(rows[-1].get("close"))
+        if atr is not None and atr > 0:
+            return atr, close
+    except Exception:
+        pass
+    start = (date.today() - timedelta(days=180)).isoformat()
+    raw = _fmp_get("/historical-price-eod/full", api_key, {"symbol": symbol, "from": start})
+    highs, lows, closes = _ohlc_chronological(_as_dict_rows(raw))
+    atr = wilder_atr_last(highs, lows, closes)
+    last_close = closes[-1] if closes else None
+    return atr, last_close
+
+
+def daily_atr_pct_reason(
+    atr: float | None,
+    price: float | None,
+    *,
+    min_atr_pct: float = MIN_DAILY_ATR_PCT,
+) -> tuple[str | None, float | None]:
+    if atr is None or atr <= 0 or price is None or price <= 0:
+        return "NO_ATR", None
+    atr_pct = (atr / price) * 100.0
+    if not math.isfinite(atr_pct):
+        return "NO_ATR", None
+    if atr_pct <= min_atr_pct:
+        return "LOW_ATR", atr_pct
+    return None, atr_pct
+
+
+def fetch_profile_and_liquidity(
+    symbol: str,
+    api_key: str,
+    gates: LiquidityGates,
+) -> tuple[str | None, dict]:
+    profile = fetch_profile(symbol, api_key)
+    if not profile:
+        return "FMP_ERROR", {}
+    return profile_liquidity_reason(profile, gates), profile
+
+
+def check_daily_atr_pct(
+    symbol: str,
+    api_key: str,
+    profile: dict,
+    *,
+    min_atr_pct: float = MIN_DAILY_ATR_PCT,
+) -> tuple[str | None, float | None]:
+    atr, last_close = fetch_daily_atr(symbol, api_key)
+    price = _num(profile.get("price")) or last_close
+    return daily_atr_pct_reason(atr, price, min_atr_pct=min_atr_pct)
+
+
 def check_positive_eps_fmp(yahoo: str, api_key: str) -> tuple[bool, str, float | None]:
     symbol = yahoo_to_fmp(yahoo)
     try:
@@ -538,6 +732,10 @@ def _valuation_row(
     }
 
 
+def _cached_quality_ok(prev: dict | None) -> bool:
+    return bool(prev) and prev.get("qualityGate") == QUALITY_GATE
+
+
 def scan_eps_and_valuation(
     entries: list[tuple[str, str, str]],
     *,
@@ -548,6 +746,9 @@ def scan_eps_and_valuation(
     retry_errors: bool = False,
     rate_per_sec: float = 4.0,
     workers: int = FMP_SCAN_WORKERS,
+    us_gates: LiquidityGates = US_LIQUIDITY,
+    ca_gates: LiquidityGates = CA_LIQUIDITY,
+    min_atr_pct: float = MIN_DAILY_ATR_PCT,
 ) -> tuple[list[tuple[str, str, str]], Counter, list[dict]]:
     eps_cache = _load_json(eps_cache_path) if resume else {}
     val_cache = _load_json(val_cache_path) if resume else {}
@@ -565,11 +766,13 @@ def scan_eps_and_valuation(
     rejects: Counter = Counter()
     rows: list[dict] = []
     pending: list[tuple[str, str, str]] = []
+    reuse_eps: dict[str, tuple[float | None, float | None, float | None]] = {}
     for tv, yahoo, name in entries:
         prev_eps = eps_checked.get(yahoo)
         prev_val = val_checked.get(yahoo)
         have_val = bool(prev_val) and prev_val.get("reason") not in RETRY_REASONS
-        if prev_eps and have_val:
+        gated = _cached_quality_ok(prev_eps)
+        if prev_eps and have_val and gated:
             reason = prev_eps.get("reason", "FMP_ERROR")
             eps = _num(prev_eps.get("trailingEps"))
             pe = _num(prev_val.get("peTtm"))
@@ -579,11 +782,25 @@ def scan_eps_and_valuation(
                 rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason))
             else:
                 rejects[reason] += 1
+        elif (
+            prev_eps
+            and have_val
+            and not gated
+            and prev_eps.get("reason") not in ("PASS", *RETRY_REASONS)
+        ):
+            # Old EPS rejects still stand; no need to re-hit FMP for liquidity.
+            rejects[prev_eps.get("reason", "FMP_ERROR")] += 1
         else:
             pending.append((tv, yahoo, name))
+            if prev_eps and prev_val and prev_eps.get("reason") == "PASS":
+                reuse_eps[yahoo] = (
+                    _num(prev_eps.get("trailingEps")),
+                    _num(prev_val.get("peTtm")),
+                    _num(prev_val.get("growth5y")),
+                )
     workers = max(1, int(workers))
     print(
-        f"FMP EPS+valuation pending: {len(pending)} "
+        f"FMP EPS+liquidity+ATR pending: {len(pending)} "
         f"(cached: {len(entries) - len(pending)}, workers={workers})"
     )
     _ = rate_per_sec
@@ -595,70 +812,115 @@ def scan_eps_and_valuation(
         except OSError as exc:
             print(f"  cache save failed ({exc}); continuing in memory", file=sys.stderr)
 
-    def _scan_one(item: tuple[str, str, str]) -> tuple[tuple[str, str, str], str, str, float | None, float | None, float | None]:
+    def _scan_one(
+        item: tuple[str, str, str],
+    ) -> tuple[tuple[str, str, str], str, str, float | None, float | None, float | None, float | None]:
         tv, yahoo, name = item
+        gates = gates_for_tv(tv, us=us_gates, ca=ca_gates)
         symbol = yahoo_to_fmp(yahoo)
         reason = "FMP_ERROR"
-        eps = pe = growth = None
+        eps = pe = growth = atr_pct = None
         for candidate in fmp_symbol_candidates(yahoo):
             symbol = candidate
-            _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
-            if reason == "FMP_RATE_LIMIT":
-                time.sleep(4.0)
-                _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
-            if reason not in ("FMP_HTTP", "FMP_ERROR"):
+            try:
+                liq_reason, profile = fetch_profile_and_liquidity(symbol, api_key, gates)
+            except urllib.error.HTTPError as exc:
+                reason = "FMP_RATE_LIMIT" if exc.code == 429 else "FMP_HTTP"
+                if reason == "FMP_RATE_LIMIT":
+                    time.sleep(4.0)
+                    continue
+                continue
+            except Exception:
+                reason = "FMP_ERROR"
+                continue
+            if liq_reason:
+                reason = liq_reason
+                if liq_reason in ("FMP_ERROR", "FMP_HTTP", "FMP_RATE_LIMIT"):
+                    continue
                 break
-        return item, symbol, reason, eps, pe, growth
+            cached = reuse_eps.get(yahoo)
+            if cached is not None:
+                eps, pe, growth = cached
+                reason = "PASS"
+            else:
+                _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+                if reason == "FMP_RATE_LIMIT":
+                    time.sleep(4.0)
+                    _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+                if reason in ("FMP_HTTP", "FMP_ERROR"):
+                    continue
+                if reason != "PASS":
+                    break
+            try:
+                atr_reason, atr_pct = check_daily_atr_pct(
+                    symbol, api_key, profile, min_atr_pct=min_atr_pct
+                )
+            except urllib.error.HTTPError as exc:
+                reason = "FMP_RATE_LIMIT" if exc.code == 429 else "FMP_HTTP"
+                if reason == "FMP_RATE_LIMIT":
+                    time.sleep(4.0)
+                    continue
+                continue
+            except Exception:
+                reason = "NO_ATR"
+                atr_pct = None
+                break
+            if atr_reason:
+                reason = atr_reason
+            break
+        return item, symbol, reason, eps, pe, growth, atr_pct
 
-    # Concurrent fetch: the global _throttle_fmp_http lock still caps total
-    # request rate, but overlapping network latency instead of paying it per
-    # ticker cuts a full uncached pass from hours to ~20 min.
-    results: dict[str, tuple[str, str, float | None, float | None, float | None]] = {}
+    results: dict[str, tuple[str, str, float | None, float | None, float | None, float | None]] = {}
     pending_by_yahoo = {yahoo: (tv, yahoo, name) for tv, yahoo, name in pending}
     done = 0
 
-    def _write_cache(item: tuple[str, str, str], res: tuple[str, str, float | None, float | None, float | None]) -> None:
+    def _write_cache(
+        item: tuple[str, str, str],
+        res: tuple[str, str, float | None, float | None, float | None, float | None],
+    ) -> None:
         tv_i, yahoo_i, name_i = item
-        symbol_i, reason_i, eps_i, pe_i, growth_i = res
-        eps_checked[yahoo_i] = {"reason": reason_i, "tv_part": tv_i, "name": name_i, "trailingEps": eps_i, "fmp": symbol_i}
-        val_checked[yahoo_i] = {"reason": reason_i, "tv_part": tv_i, "name": name_i, "epsTtm": eps_i, "peTtm": pe_i, "growth5y": growth_i, "fmp": symbol_i}
+        symbol_i, reason_i, eps_i, pe_i, growth_i, atr_i = res
+        rec = {
+            "reason": reason_i,
+            "tv_part": tv_i,
+            "name": name_i,
+            "trailingEps": eps_i,
+            "fmp": symbol_i,
+            "qualityGate": QUALITY_GATE,
+            "atrPct": atr_i,
+        }
+        eps_checked[yahoo_i] = rec
+        val_checked[yahoo_i] = {
+            "reason": reason_i,
+            "tv_part": tv_i,
+            "name": name_i,
+            "epsTtm": eps_i,
+            "peTtm": pe_i,
+            "growth5y": growth_i,
+            "fmp": symbol_i,
+            "qualityGate": QUALITY_GATE,
+            "atrPct": atr_i,
+        }
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_scan_one, item): item for item in pending}
         for fut in as_completed(futures):
-            item, symbol, reason, eps, pe, growth = fut.result()
+            item, symbol, reason, eps, pe, growth, atr_pct = fut.result()
             _tv, yahoo, _name = item
-            results[yahoo] = (symbol, reason, eps, pe, growth)
+            results[yahoo] = (symbol, reason, eps, pe, growth, atr_pct)
             done += 1
             if done % 100 == 0 or done == len(pending):
-                # Persist incrementally so an interrupt keeps a warm cache.
                 for y, res in results.items():
                     _write_cache(pending_by_yahoo[y], res)
                 _persist()
                 print(f"  {done}/{len(pending)}  last={yahoo} {reason}")
 
-    # Materialize in original (sorted) pending order for deterministic output.
     for tv, yahoo, name in pending:
         res = results.get(yahoo)
         if res is None:
             continue
-        symbol, reason, eps, pe, growth = res
-        eps_checked[yahoo] = {
-            "reason": reason,
-            "tv_part": tv,
-            "name": name,
-            "trailingEps": eps,
-            "fmp": symbol,
-        }
-        val_checked[yahoo] = {
-            "reason": reason,
-            "tv_part": tv,
-            "name": name,
-            "epsTtm": eps,
-            "peTtm": pe,
-            "growth5y": growth,
-            "fmp": symbol,
-        }
+        symbol, reason, eps, pe, growth, atr_pct = res
+        _write_cache((tv, yahoo, name), res)
         if reason == "PASS":
             passed.append((tv, yahoo, name))
             rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason))

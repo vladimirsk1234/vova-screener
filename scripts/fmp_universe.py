@@ -51,16 +51,23 @@ CA_EXCHANGES: dict[str, tuple[str, str]] = {
     "CNQ": ("CSE", ".CN"),
 }
 
+# CSE / TSXV are too thin for this screener; NEO stays and uses TSX liquidity gates.
 SCREENER_EXCHANGES = (
     "NASDAQ",
     "NYSE",
     "AMEX",
     "TSX",
-    "TSXV",
-    "CNQ",
     "NEO",
-    "CSE",
 )
+DROPPED_TV_EXCHANGES = frozenset({"TSXV", "CSE"})
+# Today's volume/price — coarse prefilter only. Real gates use profile volAvg.
+SCREENER_PREFILTER: dict[str, dict[str, str]] = {
+    "NASDAQ": {"volumeMoreThan": "10000", "priceMoreThan": "1"},
+    "NYSE": {"volumeMoreThan": "10000", "priceMoreThan": "1"},
+    "AMEX": {"volumeMoreThan": "10000", "priceMoreThan": "1"},
+    "TSX": {"volumeMoreThan": "5000", "priceMoreThan": "0.5"},
+    "NEO": {"volumeMoreThan": "5000", "priceMoreThan": "0.5"},
+}
 
 _CA_SUFFIXES = (".TO", ".V", ".NE", ".CN")
 _OTC_MARKERS = ("OTC", "PINK", "GREY", "GRAY", "PNK", "OTCQX", "OTCQB", "OOTC")
@@ -125,7 +132,10 @@ def _classify_exchange(row: dict) -> tuple[str, str] | None:
     if key in US_EXCHANGES:
         return US_EXCHANGES[key], "US"
     if key in CA_EXCHANGES:
-        return CA_EXCHANGES[key][0], "CA"
+        tv_ex = CA_EXCHANGES[key][0]
+        if tv_ex in DROPPED_TV_EXCHANGES:
+            return None
+        return tv_ex, "CA"
     blob = " ".join(
         x
         for x in (
@@ -143,11 +153,11 @@ def _classify_exchange(row: dict) -> tuple[str, str] | None:
     if "NYSE" in blob:
         return "NYSE", "US"
     if "VENTURE" in blob or "TSXV" in blob:
-        return "TSXV", "CA"
+        return None
     if "NEO" in blob:
         return "NEO", "CA"
     if "CSE" in blob or "CANADIAN SECURITIES" in blob:
-        return "CSE", "CA"
+        return None
     if "TSX" in blob or "TORONTO" in blob:
         return "TSX", "CA"
     return None
@@ -192,6 +202,8 @@ def row_to_candidate(row: dict) -> Candidate | None:
     if classified is None:
         return None
     tv_ex, region = classified
+    if tv_ex in DROPPED_TV_EXCHANGES:
+        return None
     tv_sym = _tv_symbol_part(fmp_sym)
 
     if not tv_sym or _symbol_non_common(tv_sym):
@@ -224,6 +236,7 @@ def fetch_screener_rows(
                 "isEtf": "false",
                 "isActivelyTrading": "true",
                 "limit": str(limit),
+                **SCREENER_PREFILTER.get(exchange, {}),
             }
             if page > 0:
                 params["page"] = str(page)
