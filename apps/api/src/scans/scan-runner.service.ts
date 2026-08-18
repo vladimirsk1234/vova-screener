@@ -10,8 +10,11 @@ import {
   buildSellSummary,
   evaluateClose,
   evaluateSymbol,
+  inferTvSymbol,
+  canadianYahooCandidatesIfBare,
   shortSymbol,
   type EvaluateParams,
+  type ParsedEntry,
   type SellSignal,
   type Signal,
   type Timeframe,
@@ -169,18 +172,15 @@ export class ScanRunnerService {
           const entry = queue.shift();
           if (!entry) return;
 
-          const result = await this.bars.getBars(entry.yahoo, params.tf, {
-            maxAgeHours: params.barsMaxAgeHours ?? 12,
-            force: Boolean(params.forceRefresh),
-            signal: controller.signal,
-          });
+          const resolved = await this.loadEntryBars(entry, params, controller.signal);
+          const { bars: series, fromCache, fetchedAt, yahoo, tv, name } = resolved;
           counters.downloaded += 1;
-          if (result.fromCache) counters.fromCache += 1;
-          if (result.fetchedAt && (!barsOldestAt || result.fetchedAt < barsOldestAt)) {
-            barsOldestAt = result.fetchedAt;
+          if (fromCache) counters.fromCache += 1;
+          if (fetchedAt && (!barsOldestAt || fetchedAt < barsOldestAt)) {
+            barsOldestAt = fetchedAt;
           }
-          if (result.bars?.length) {
-            const barDate = result.bars[result.bars.length - 1].date;
+          if (series?.length) {
+            const barDate = series[series.length - 1].date;
             if (!evaluatedAsOf || barDate < evaluatedAsOf) evaluatedAsOf = barDate;
             const key = barPeriodKey(params.tf, barDate);
             const slot = periods.get(key);
@@ -192,10 +192,10 @@ export class ScanRunnerService {
           }
 
           const evaluation = evaluateSymbol({
-            bars: result.bars,
-            yahooTicker: entry.yahoo,
-            tvSymbol: entry.tv,
-            companyName: entry.name ?? undefined,
+            bars: series,
+            yahooTicker: yahoo,
+            tvSymbol: tv,
+            companyName: name ?? undefined,
             params: evalParams,
           });
           counters.evaluated += 1;
@@ -205,10 +205,10 @@ export class ScanRunnerService {
           // reject here and the tracker would never hear about it. Same bars, same pass.
           if (params.direction === 'buy') {
             const close = evaluateClose({
-              bars: result.bars,
-              yahooTicker: entry.yahoo,
-              tvSymbol: entry.tv,
-              companyName: entry.name ?? undefined,
+              bars: series,
+              yahooTicker: yahoo,
+              tvSymbol: tv,
+              companyName: name ?? undefined,
               params: evalParams,
             });
             if (close) {
@@ -252,8 +252,8 @@ export class ScanRunnerService {
                 runId: runObjectId,
                 // `symbol` is the display form the Rejected tab prints; `yahooTicker` is the key
                 // the tracker matches a record against.
-                symbol: shortSymbol(entry.tv || entry.yahoo),
-                yahooTicker: entry.yahoo,
+                symbol: shortSymbol(tv || yahoo),
+                yahooTicker: yahoo,
                 reason: evaluation.reason,
                 detail: evaluation.detail ?? null,
               });
@@ -334,6 +334,55 @@ export class ScanRunnerService {
     } finally {
       this.aborts.delete(runId);
     }
+  }
+
+  /**
+   * Manual scans type a short ticker. If Yahoo has no bars for the bare US symbol, try the
+   * Canadian listings — RBY is empty on YHD, RBY.TO is Rubellite on TSX.
+   */
+  private async loadEntryBars(
+    entry: ParsedEntry,
+    params: ScanParamsApi,
+    signal: AbortSignal,
+  ): Promise<{
+    bars: Awaited<ReturnType<BarsService['getBars']>>['bars'];
+    fromCache: boolean;
+    fetchedAt: Date | null;
+    yahoo: string;
+    tv: string;
+    name: string | null;
+  }> {
+    const opts = {
+      maxAgeHours: params.barsMaxAgeHours ?? 12,
+      force: Boolean(params.forceRefresh),
+      signal,
+    };
+    const result = await this.bars.getBars(entry.yahoo, params.tf, opts);
+    const passthrough = {
+      bars: result.bars,
+      fromCache: result.fromCache,
+      fetchedAt: result.fetchedAt,
+      yahoo: entry.yahoo,
+      tv: entry.tv,
+      name: entry.name,
+    };
+    if (result.bars?.length || params.source !== 'MANUAL SCAN') return passthrough;
+    const alts = canadianYahooCandidatesIfBare(entry.yahoo);
+    if (!alts) return passthrough;
+    for (const alt of alts) {
+      if (signal.aborted) break;
+      const altResult = await this.bars.getBars(alt, params.tf, opts);
+      if (!altResult.bars?.length) continue;
+      return {
+        bars: altResult.bars,
+        fromCache: altResult.fromCache,
+        fetchedAt: altResult.fetchedAt,
+        yahoo: alt,
+        tv: inferTvSymbol(alt, altResult.exchange),
+        name: entry.name ?? altResult.companyName ?? null,
+      };
+    }
+    return passthrough;
   }
 
   /** Symbols that were not present in the previous completed run of the same shape. */

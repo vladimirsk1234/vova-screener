@@ -62,6 +62,7 @@ TV_LIST_STOCK_TICKERS = "STOCK-TICKERS.txt"
 # TradingView exchange prefix -> Yahoo Finance suffix (Canadian listings)
 _TV_TO_YAHOO_SUFFIX: dict[str, str] = {
     "TSX": ".TO",
+    "TSE": ".TO",  # Google / some feeds label TSX as TSE
     "TSXV": ".V",
     "NEO": ".NE",
     "CSE": ".CN",
@@ -199,7 +200,8 @@ def _parse_list_entry(part: str) -> tuple[str, str, str | None] | None:
         ex = ex.strip().upper()
         raw_sym = raw_sym.strip()
         yahoo_sym = _tv_to_yahoo_symbol(ex, raw_sym)
-        tv_sym = f"{ex}:{raw_sym.upper()}"
+        tv_ex = "TSX" if ex == "TSE" else ex
+        tv_sym = f"{tv_ex}:{raw_sym.upper()}"
     else:
         yahoo_sym = _normalize_yahoo_ticker(tv_part)
         tv_sym = yahoo_sym

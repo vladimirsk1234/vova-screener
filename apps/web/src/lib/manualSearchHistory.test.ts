@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readManualSearchHistory, rememberManualSearch } from './manualSearchHistory.ts';
+import { readManualSearchHistory, rememberManualSearch, rememberResolvedManualSearch } from './manualSearchHistory.ts';
 
 const store = new Map<string, string>();
 
@@ -44,5 +44,13 @@ describe('rememberManualSearch', () => {
     rememberManualSearch('TSLA');
     rememberManualSearch('AAPL');
     assert.deepEqual(readManualSearchHistory(), ['AAPL', 'TSLA']);
+  });
+});
+
+describe('rememberResolvedManualSearch', () => {
+  it('replaces the bare typed ticker with the canonical Yahoo symbol', () => {
+    rememberManualSearch('RBY');
+    rememberManualSearch('NVDA');
+    assert.deepEqual(rememberResolvedManualSearch('RBY', 'RBY.TO'), ['RBY.TO', 'NVDA']);
   });
 });
