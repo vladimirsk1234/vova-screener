@@ -36,3 +36,14 @@ export function rememberManualSearch(ticker: string): string[] {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
   return history;
 }
+
+/** After a scan, keep the canonical Yahoo symbol and drop the bare typed form. */
+export function rememberResolvedManualSearch(typed: string, resolved: string): string[] {
+  const next = resolved.trim().toUpperCase();
+  const prev = typed.trim().toUpperCase();
+  if (!next) return readManualSearchHistory();
+  const history = readManualSearchHistory().filter((t) => t !== next && t !== prev);
+  const out = [next, ...history].slice(0, MAX_HISTORY);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(out));
+  return out;
+}
