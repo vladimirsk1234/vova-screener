@@ -2,11 +2,13 @@
 
 const TV_TO_YAHOO_SUFFIX: Record<string, string> = {
   TSX: '.TO',
+  TSE: '.TO', // Google / some feeds label TSX as TSE
   TSXV: '.V',
   NEO: '.NE',
   CSE: '.CN',
 };
-const YAHOO_CANADIAN_SUFFIXES = Object.values(TV_TO_YAHOO_SUFFIX);
+export const YAHOO_CANADIAN_SUFFIX_ORDER = ['.TO', '.V', '.NE', '.CN'] as const;
+const YAHOO_CANADIAN_SUFFIXES = [...YAHOO_CANADIAN_SUFFIX_ORDER];
 
 export function normalizeYahooTicker(sym: string): string {
   const s = String(sym || '')
@@ -68,6 +70,104 @@ export type ParsedEntry = {
   name: string | null;
 };
 
+export function hasCanadianYahooSuffix(yahoo: string): boolean {
+  const t = String(yahoo || '')
+    .trim()
+    .toUpperCase();
+  return YAHOO_CANADIAN_SUFFIX_ORDER.some((suffix) => t.endsWith(suffix));
+}
+
+export function stripCanadianYahooSuffix(yahoo: string): string {
+  const t = String(yahoo || '')
+    .trim()
+    .toUpperCase();
+  const suffixes = [...YAHOO_CANADIAN_SUFFIX_ORDER].sort((a, b) => b.length - a.length);
+  for (const suffix of suffixes) {
+    if (t.endsWith(suffix)) return t.slice(0, -suffix.length);
+  }
+  return t;
+}
+
+/** User named the listing (`TSX:RBY`, `TSE:RBY`, `RBY.TO`) — do not guess another market. */
+export function isExplicitManualTicker(raw: string): boolean {
+  const p = String(raw || '').trim();
+  if (!p) return false;
+  if (p.includes(':')) return true;
+  const parsed = parseListEntry(p);
+  return Boolean(parsed && hasCanadianYahooSuffix(parsed.yahoo));
+}
+
+export function canadianYahooCandidates(bareYahoo: string): string[] {
+  const short = stripCanadianYahooSuffix(bareYahoo);
+  if (!short) return [];
+  return YAHOO_CANADIAN_SUFFIX_ORDER.map((suffix) => `${short}${suffix}`);
+}
+
+/**
+ * Bare US/CA ticker with no exchange suffix. Explicit listings return null so a typed
+ * `RBY.TO` is not retried as `.V` when Yahoo has no bars.
+ */
+export function canadianYahooCandidatesIfBare(yahoo: string): string[] | null {
+  const t = String(yahoo || '')
+    .trim()
+    .toUpperCase();
+  if (!t || t.includes(':') || hasCanadianYahooSuffix(t)) return null;
+  return canadianYahooCandidates(t);
+}
+
+export function pickCanonicalListing(
+  bareYahoo: string,
+  listings: ParsedEntry[],
+): ParsedEntry | null {
+  const short = stripCanadianYahooSuffix(bareYahoo);
+  if (!short || !listings.length) return null;
+  const matching = listings.filter((row) => {
+    const yahoo = String(row.yahoo || '')
+      .trim()
+      .toUpperCase();
+    const tvShort = stripCanadianYahooSuffix(shortSymbol(row.tv || row.yahoo));
+    return yahoo === short || stripCanadianYahooSuffix(yahoo) === short || tvShort === short;
+  });
+  if (!matching.length) return null;
+  const exact = matching.find(
+    (row) =>
+      String(row.yahoo || '')
+        .trim()
+        .toUpperCase() === short,
+  );
+  if (exact) return exact;
+  for (const suffix of YAHOO_CANADIAN_SUFFIX_ORDER) {
+    const hit = matching.find(
+      (row) =>
+        String(row.yahoo || '')
+          .trim()
+          .toUpperCase() === `${short}${suffix}`,
+    );
+    if (hit) return hit;
+  }
+  return matching[0];
+}
+
+/** First Canadian Yahoo symbol that has bars. Bare tickers only; explicit `.TO` is left alone. */
+export function firstCanadianYahooWithBars(
+  yahoo: string,
+  hasBars: (ticker: string) => boolean,
+): string | null {
+  const alts = canadianYahooCandidatesIfBare(yahoo);
+  if (!alts) return null;
+  for (const alt of alts) {
+    if (hasBars(alt)) return alt;
+  }
+  return null;
+}
+
+export function resolveManualAgainstListings(raw: string, listings: ParsedEntry[]): ParsedEntry | null {
+  const parsed = parseListEntry(raw);
+  if (!parsed) return null;
+  if (isExplicitManualTicker(raw)) return parsed;
+  return pickCanonicalListing(parsed.yahoo, listings) ?? parsed;
+}
+
 export function parseListEntry(part: string): ParsedEntry | null {
   const p = part.trim();
   if (!p || p.startsWith('#')) return null;
@@ -81,9 +181,11 @@ export function parseListEntry(part: string): ParsedEntry | null {
   if (!tvPart) return null;
   if (tvPart.includes(':')) {
     const [ex, raw] = tvPart.split(':', 2);
+    const exU = ex.trim().toUpperCase();
+    const tvEx = exU === 'TSE' ? 'TSX' : exU;
     return {
-      yahoo: tvToYahooSymbol(ex, raw),
-      tv: `${ex.trim().toUpperCase()}:${raw.trim().toUpperCase()}`,
+      yahoo: tvToYahooSymbol(exU, raw),
+      tv: `${tvEx}:${raw.trim().toUpperCase()}`,
       name: companyName,
     };
   }

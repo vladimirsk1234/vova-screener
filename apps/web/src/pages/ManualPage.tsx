@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseListEntry } from '@vova/engine';
 import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Rejection, type Timeframe } from '../lib/api';
 import { barsLabel, money, num } from '../lib/format';
-import { readManualSearchHistory, rememberManualSearch } from '../lib/manualSearchHistory';
+import { readManualSearchHistory, rememberManualSearch, rememberResolvedManualSearch } from '../lib/manualSearchHistory';
 import { resultsPathForUniverse } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
 import { SegmentedTabs } from '../components/SegmentedTabs';
@@ -94,6 +94,31 @@ export function ManualPage() {
     void queryClient.invalidateQueries({ queryKey: ['run', runId] });
   }, [progress?.phase, runId, queryClient]);
 
+  const signal = signals.data?.rows[0] ?? null;
+  const rejection = rejections.data?.rows[0] ?? null;
+  const fromRun = parseOneManualTicker(run.data?.params.manualTickers ?? '');
+  const chartTicker =
+    signal?.yahooTicker ||
+    rejection?.yahooTicker ||
+    lastScanned ||
+    (fromRun.ok ? fromRun.ticker : '');
+
+  useEffect(() => {
+    if (!done) return;
+    const resolved = signal?.yahooTicker || rejection?.yahooTicker;
+    if (!resolved) return;
+    const typed = lastScanned.trim().toUpperCase();
+    if (resolved.toUpperCase() === typed) return;
+    setHistory(rememberResolvedManualSearch(typed, resolved));
+    setLastScanned(resolved);
+    localStorage.setItem(TICKER_KEY, resolved);
+    setTicker((current) => {
+      const cur = current.trim().toUpperCase();
+      if (!cur || cur === typed) return resolved;
+      return current;
+    });
+  }, [done, lastScanned, rejection?.yahooTicker, signal?.yahooTicker]);
+
   const onStart = async () => {
     const parsed = parseOneManualTicker(ticker);
     if (!parsed.ok) {
@@ -126,15 +151,6 @@ export function ManualPage() {
       setStarting(false);
     }
   };
-
-  const signal = signals.data?.rows[0] ?? null;
-  const rejection = rejections.data?.rows[0] ?? null;
-  const fromRun = parseOneManualTicker(run.data?.params.manualTickers ?? '');
-  const chartTicker =
-    signal?.yahooTicker ||
-    rejection?.yahooTicker ||
-    lastScanned ||
-    (fromRun.ok ? fromRun.ticker : '');
 
   return (
     <div>

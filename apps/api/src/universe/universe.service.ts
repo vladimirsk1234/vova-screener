@@ -4,7 +4,14 @@ import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parseListText, parseManualTickers, type ParsedEntry } from '@vova/engine';
+import {
+  canadianYahooCandidates,
+  parseListText,
+  parseManualTickers,
+  resolveManualAgainstListings,
+  stripCanadianYahooSuffix,
+  type ParsedEntry,
+} from '@vova/engine';
 import { INSTRUMENT } from '../db/schemas';
 import { REPO_ROOT } from '../db/local-mongo';
 
@@ -103,18 +110,56 @@ export class UniverseService implements OnModuleInit {
   }
 
   async resolveEntries(source: SourceLabelApi, manualTickers = ''): Promise<ParsedEntry[]> {
-    if (source === 'MANUAL SCAN') return parseManualTickers(manualTickers).entries.slice(0, 1);
+    if (source === 'MANUAL SCAN') return this.resolveManualEntries(manualTickers);
     const universe = source === 'ETF' ? 'etf' : 'stocks';
     let docs = await this.instruments.find({ universes: universe, active: true }).lean().exec();
     if (!docs.length) {
       await this.importFromFiles();
       docs = await this.instruments.find({ universes: universe, active: true }).lean().exec();
     }
-    return docs.map((d: any) => ({
-      yahoo: d.yahooTicker,
-      tv: d.tvSymbol || d.yahooTicker,
+    return docs.map((d: any) => this.toEntry(d));
+  }
+
+  /**
+   * Bare `RBY` is Rubellite on TSX (`RBY.TO`) in the list file. Manual scans used to send the
+   * typed symbol straight to Yahoo, which resolves the empty YHD mutual fund instead.
+   */
+  private async resolveManualEntries(manualTickers: string): Promise<ParsedEntry[]> {
+    const parsed = parseManualTickers(manualTickers).entries.slice(0, 1);
+    const entry = parsed[0];
+    if (!entry) return [];
+    const firstPart =
+      String(manualTickers || '')
+        .split(/[,\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean)[0] ?? '';
+    const listings = await this.findShortSymbolListings(entry.yahoo);
+    const resolved = resolveManualAgainstListings(firstPart, listings);
+    return [resolved ?? entry];
+  }
+
+  private async findShortSymbolListings(yahoo: string): Promise<ParsedEntry[]> {
+    const short = stripCanadianYahooSuffix(yahoo);
+    if (!short) return [];
+    const yahooCandidates = [short, ...canadianYahooCandidates(short)];
+    const tvRe = new RegExp(`(?:^|:)${escapeRegex(short)}$`, 'i');
+    const docs = await this.instruments
+      .find({
+        active: true,
+        $or: [{ yahooTicker: { $in: yahooCandidates } }, { tvSymbol: tvRe }],
+      })
+      .lean()
+      .exec();
+    return docs.map((d: any) => this.toEntry(d));
+  }
+
+  private toEntry(d: { yahooTicker?: string; tvSymbol?: string; companyName?: string }): ParsedEntry {
+    const yahoo = String(d.yahooTicker || '').trim();
+    return {
+      yahoo,
+      tv: d.tvSymbol || yahoo,
       name: d.companyName ?? null,
-    }));
+    };
   }
 
   async summary() {
@@ -163,4 +208,8 @@ export class UniverseService implements OnModuleInit {
     }
     return out;
   }
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
