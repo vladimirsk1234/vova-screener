@@ -4,7 +4,7 @@ import type { ScanProgressEvent } from './api';
 const TERMINAL = ['completed', 'cancelled', 'failed'];
 
 /** Subscribes to the API's SSE progress stream for one run. */
-export function useScanProgress(runId: string | null) {
+export function useScanProgress(runId: string | null, generation = 0) {
   const [event, setEvent] = useState<ScanProgressEvent | null>(null);
 
   useEffect(() => {
@@ -12,6 +12,7 @@ export function useScanProgress(runId: string | null) {
       setEvent(null);
       return;
     }
+    setEvent(null);
     const source = new EventSource(`/api/scans/${runId}/events`);
     source.onmessage = (msg) => {
       try {
@@ -24,7 +25,7 @@ export function useScanProgress(runId: string | null) {
     };
     source.onerror = () => source.close();
     return () => source.close();
-  }, [runId]);
+  }, [runId, generation]);
 
   return event;
 }

@@ -6,6 +6,7 @@ import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
 import { UniverseService } from '../universe/universe.service';
 import { isPeriodClosed, periodKey } from './period';
+import { ProgressBus } from './progress.bus';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 
 const DEFAULTS: ScanParamsApi = {
@@ -61,6 +62,7 @@ export class ScansService {
     private readonly runner: ScanRunnerService,
     private readonly tracker: SignalTrackerService,
     private readonly universe: UniverseService,
+    private readonly bus: ProgressBus,
   ) {}
 
   async start(input: Partial<ScanParamsApi>, opts: StartOpts = {}) {
@@ -115,6 +117,8 @@ export class ScansService {
     }
 
     const runId = String(run._id);
+    this.bus.reset(runId);
+    this.bus.publish({ runId, phase: 'queued', percent: 0, message: 'Queued' });
     const finish = async () => {
       await this.runner.execute(runId);
       await this.afterScanComplete(runId);

@@ -51,9 +51,10 @@ export function ManualPage() {
   const [lastScanned, setLastScanned] = useState(() => readManualSearchHistory()[0] ?? '');
   const [tf, setTf] = useState<Timeframe>('Daily');
   const [runId, setRunId] = useState<string | null>(() => localStorage.getItem(ACTIVE_RUN_KEY));
+  const [scanEpoch, setScanEpoch] = useState(0);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const progress = useScanProgress(runId);
+  const progress = useScanProgress(runId, scanEpoch);
 
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
 
@@ -143,7 +144,11 @@ export function ManualPage() {
       localStorage.setItem(TICKER_KEY, parsed.ticker);
       setHistory(rememberManualSearch(parsed.ticker));
       setLastScanned(parsed.ticker);
+      queryClient.removeQueries({ queryKey: ['run', res.runId] });
+      queryClient.removeQueries({ queryKey: ['manual-signals', res.runId] });
+      queryClient.removeQueries({ queryKey: ['manual-rejections', res.runId] });
       localStorage.setItem(ACTIVE_RUN_KEY, res.runId);
+      setScanEpoch((n) => n + 1);
       setRunId(res.runId);
     } catch (e) {
       setError((e as Error).message);
