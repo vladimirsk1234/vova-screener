@@ -631,9 +631,11 @@ function mapCustomDcf(
   });
 
   const price = pickNum(last, 'price', 'Stock Price') ?? pickNum(first, 'price', 'Stock Price');
+  // Today’s DCF lives on the first / headline row. Last-row equityValuePerShare can be
+  // the terminal-year FV and would plot a V against the local roll-forward path.
   const equityValuePerShare =
-    pickNum(last, 'equityValuePerShare', 'dcf', 'equityValuePerShareToday') ??
-    pickNum(first, 'equityValuePerShare', 'dcf');
+    pickNum(first, 'equityValuePerShareToday', 'dcf', 'equityValuePerShare') ??
+    pickNum(last, 'equityValuePerShareToday', 'dcf');
   const enterpriseValue = pickNum(last, 'enterpriseValue') ?? pickNum(first, 'enterpriseValue');
   const presentTerminalValue =
     pickNum(last, 'presentTerminalValue', 'pvTerminalValue') ??

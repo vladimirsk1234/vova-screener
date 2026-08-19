@@ -21,6 +21,11 @@ import {
 } from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
 import {
+  EMPTY_DCF_SCENARIO_SERIES,
+  flattenDcfScenarioSeries,
+  type DcfScenarioSeries,
+} from '../lib/dcfChart';
+import {
   DEFAULT_STRETCH,
   PRICE_FLOOR,
   PRICE_SCALE_MARGINS_CHART,
@@ -33,6 +38,9 @@ type LinePoint = { time: Time; value: number; color?: string; year?: number };
 const FV_FORECAST_COLOR = '#1565c0';
 const NORMAL_PE_COLOR = '#0d47a1';
 const DIVIDEND_COLOR = '#ffd54f';
+const DCF_BASE_COLOR = '#ab47bc';
+const DCF_CONSERVATIVE_COLOR = '#7e57c2';
+const DCF_OPTIMISTIC_COLOR = '#ec407a';
 
 function toLine(
   bars: ChartPayload['bars'],
@@ -215,7 +223,11 @@ function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
   const pts: LinePoint[] = [];
   for (const p of series) {
     if (p.fairValue == null || !Number.isFinite(p.fairValue) || p.fairValue <= 0) continue;
-    pts.push({ time: p.date.slice(0, 10) as Time, value: p.fairValue });
+    pts.push({
+      time: p.date.slice(0, 10) as Time,
+      value: p.fairValue,
+      year: p.estimated ? p.year : undefined,
+    });
   }
   return pts;
 }
@@ -257,7 +269,9 @@ export type ValuationSeriesRefs = {
   normal?: ISeriesApi<'Line'>;
   normalForecast?: ISeriesApi<'Line'>;
   dividend?: ISeriesApi<'Line'>;
+  dcfConservative?: ISeriesApi<'Line'>;
   dcf?: ISeriesApi<'Line'>;
+  dcfOptimistic?: ISeriesApi<'Line'>;
 };
 
 function addDashedLine(
@@ -269,6 +283,7 @@ function addDashedLine(
   opts: {
     width?: 2 | 3 | 4;
     markYears?: boolean;
+    lastValueVisible?: boolean;
   } = {},
 ): ISeriesApi<'Line'> | undefined {
   if (!pts.length) return undefined;
@@ -278,7 +293,7 @@ function addDashedLine(
     lineStyle: 2,
     lineType: LineType.Simple,
     priceLineVisible: false,
-    lastValueVisible: !opts.markYears,
+    lastValueVisible: opts.lastValueVisible ?? !opts.markYears,
     crosshairMarkerVisible: true,
     autoscaleInfoProvider: floorProvider,
   });
@@ -305,7 +320,7 @@ function addValuationLines(
   forecastPts: LinePoint[],
   normalPts: LinePoint[],
   normalForecastPts: LinePoint[],
-  dcfPts: LinePoint[],
+  dcfPts: { conservative: LinePoint[]; base: LinePoint[]; optimistic: LinePoint[] },
   dividendPts: LinePoint[],
   floorProvider: FloorProvider,
 ): ValuationSeriesRefs {
@@ -371,7 +386,27 @@ function addValuationLines(
     dividend.setData(dividendPts);
     refs.dividend = dividend;
   }
-  refs.dcf = addDashedLine(chart, lines, dcfPts, '#ab47bc', floorProvider);
+  const dcfLineOpts = { markYears: true as const, lastValueVisible: true };
+  refs.dcfConservative = addDashedLine(
+    chart,
+    lines,
+    dcfPts.conservative,
+    DCF_CONSERVATIVE_COLOR,
+    floorProvider,
+    { ...dcfLineOpts, width: 2 },
+  );
+  refs.dcf = addDashedLine(chart, lines, dcfPts.base, DCF_BASE_COLOR, floorProvider, {
+    ...dcfLineOpts,
+    width: 3,
+  });
+  refs.dcfOptimistic = addDashedLine(
+    chart,
+    lines,
+    dcfPts.optimistic,
+    DCF_OPTIMISTIC_COLOR,
+    floorProvider,
+    { ...dcfLineOpts, width: 2 },
+  );
   return refs;
 }
 
@@ -571,7 +606,7 @@ export function mountSequenceChart(
   valuationSeries: ValuationSeriesPoint[] = [],
   mode: ChartMountMode = 'ta',
   windowYears?: ValuationWindowYears,
-  dcfForecastSeries: ValuationSeriesPoint[] = [],
+  dcfForecastSeries: DcfScenarioSeries = EMPTY_DCF_SCENARIO_SERIES,
 ): { destroy: () => void; fitContent: () => void; chart: IChartApi; valuation: ValuationSeriesRefs } {
   const chart = createChart(container, {
     autoSize: true,
@@ -612,7 +647,12 @@ export function mountSequenceChart(
 
   const { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts, dividendPts } =
     valuationLinePoints(valuationSeries);
-  const dcfPts = seriesToFairPoints(dcfForecastSeries);
+  const dcfAll = flattenDcfScenarioSeries(dcfForecastSeries);
+  const dcfPts = {
+    conservative: seriesToFairPoints(dcfForecastSeries.conservative),
+    base: seriesToFairPoints(dcfForecastSeries.base),
+    optimistic: seriesToFairPoints(dcfForecastSeries.optimistic),
+  };
   if (mode === 'fundamentals') {
     addFairValueFill(chart, [...fairPts, ...forecastOnly], floorProvider);
   }
@@ -639,10 +679,10 @@ export function mountSequenceChart(
   }));
   const fundRange =
     mode === 'fundamentals' && payload.bars.length
-      ? valuationRangeInput(payload.bars, valuationSeries, windowYears, dcfForecastSeries)
+      ? valuationRangeInput(payload.bars, valuationSeries, windowYears, dcfAll)
       : null;
   if (mode === 'fundamentals') {
-    candleData.push(...futureWhitespace(payload.bars, [...valuationSeries, ...dcfForecastSeries]));
+    candleData.push(...futureWhitespace(payload.bars, [...valuationSeries, ...dcfAll]));
   }
   candle.setData(candleData);
 

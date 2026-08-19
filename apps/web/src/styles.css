@@ -1267,6 +1267,38 @@ a {
   font-size: 0.92rem;
 }
 
+.fund-dcf-today {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fund-dcf-today li {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid #21262f;
+  border-radius: 8px;
+  background: #161a22;
+}
+
+.fund-dcf-today li.is-active {
+  border-color: #ab47bc;
+}
+
+.fund-dcf-today span {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.fund-dcf-today strong {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
 .fund-hero-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1371,6 +1403,8 @@ a {
 
 .fund-swatch--fair-fwd,
 .fund-swatch--dcf-fwd,
+.fund-swatch--dcf-cons,
+.fund-swatch--dcf-opt,
 .fund-swatch--normal-fwd {
   height: 3px;
   width: 16px;
@@ -1405,6 +1439,26 @@ a {
     90deg,
     #ab47bc 0,
     #ab47bc 4px,
+    transparent 4px,
+    transparent 7px
+  );
+}
+
+.fund-swatch--dcf-cons {
+  background-image: repeating-linear-gradient(
+    90deg,
+    #7e57c2 0,
+    #7e57c2 4px,
+    transparent 4px,
+    transparent 7px
+  );
+}
+
+.fund-swatch--dcf-opt {
+  background-image: repeating-linear-gradient(
+    90deg,
+    #ec407a 0,
+    #ec407a 4px,
     transparent 4px,
     transparent 7px
   );

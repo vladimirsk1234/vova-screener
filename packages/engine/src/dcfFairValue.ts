@@ -21,6 +21,23 @@ export type DcfYearFairValue = {
   fairValuePerShare: number | null;
 };
 
+export type DcfChartSeriesInput = DcfFairValueInput & {
+  asOf: string;
+  /** FMP headline — used only when the local t=0 model cannot run. */
+  fmpEquityValuePerShare?: number | null;
+};
+
+export type DcfChartPoint = {
+  date: string;
+  /** FY-end year for chart markers; omitted on the today point. */
+  year?: number;
+  fairValue: number;
+};
+
+function fyEndIso(year: number): string {
+  return `${year}-12-31`;
+}
+
 function finite(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n);
 }
@@ -32,7 +49,8 @@ function finite(n: unknown): n is number {
  * FV_t = (EV_t − NetDebt) / DilutedShares
  *
  * The last year is undiscounted terminal value minus net debt. Today's
- * equityValuePerShare (t = 0) is not returned — callers keep the FMP headline.
+ * equity value (t = 0) is expectedDcfFairValueToday — buildDcfChartSeries
+ * uses that for the asOf point so the path stays on one model.
  */
 export function expectedDcfFairValueByYear(input: DcfFairValueInput): DcfYearFairValue[] {
   const { years, wacc, terminalValue, netDebt, dilutedShares } = input;
@@ -78,4 +96,40 @@ export function expectedDcfFairValueToday(input: DcfFairValueInput): number | nu
   }
   ev += terminalValue / Math.pow(1 + wacc, years.length);
   return (ev - netDebt) / dilutedShares;
+}
+
+/**
+ * Chart path: local FV today at asOf, then year-end roll-forward points strictly
+ * after asOf. Past FY-ends are dropped (not shifted to asOf+1) so the line cannot
+ * form a one-day V against the today point.
+ */
+export function buildDcfChartSeries(input: DcfChartSeriesInput): DcfChartPoint[] {
+  const asOf = input.asOf.slice(0, 10);
+  const localToday = expectedDcfFairValueToday(input);
+  const fmp = input.fmpEquityValuePerShare;
+  const today =
+    localToday != null && localToday > 0
+      ? localToday
+      : finite(fmp) && fmp > 0
+        ? fmp
+        : null;
+
+  const points: DcfChartPoint[] = [];
+  if (today != null) {
+    points.push({ date: asOf, fairValue: today });
+  }
+
+  for (const row of expectedDcfFairValueByYear(input)) {
+    if (
+      row.fairValuePerShare == null ||
+      !Number.isFinite(row.fairValuePerShare) ||
+      row.fairValuePerShare <= 0
+    ) {
+      continue;
+    }
+    const date = fyEndIso(row.year);
+    if (!asOf || date <= asOf) continue;
+    points.push({ date, year: row.year, fairValue: row.fairValuePerShare });
+  }
+  return points;
 }

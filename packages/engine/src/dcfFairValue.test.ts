@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { expectedDcfFairValueByYear, expectedDcfFairValueToday } from './dcfFairValue.ts';
+import {
+  buildDcfChartSeries,
+  expectedDcfFairValueByYear,
+  expectedDcfFairValueToday,
+} from './dcfFairValue.ts';
 
 describe('expected DCF fair value by year', () => {
   const years = [
@@ -61,5 +65,71 @@ describe('expected DCF fair value by year', () => {
       rows.map((r) => r.fairValuePerShare),
       [null, null, null],
     );
+  });
+});
+
+describe('buildDcfChartSeries', () => {
+  const years = [
+    { year: 2026, ufcf: 110 },
+    { year: 2027, ufcf: 121 },
+    { year: 2028, ufcf: 133.1 },
+  ];
+  const base = {
+    years,
+    wacc: 0.1,
+    terminalValue: 2000,
+    netDebt: 100,
+    dilutedShares: 10,
+  };
+
+  it('uses local today and a monotonic path after asOf, ignoring the FMP headline', () => {
+    const today = expectedDcfFairValueToday(base);
+    const pts = buildDcfChartSeries({
+      ...base,
+      asOf: '2026-08-19',
+      fmpEquityValuePerShare: 408,
+    });
+    assert.ok(today != null);
+    assert.equal(pts[0]!.date, '2026-08-19');
+    assert.equal(pts[0]!.year, undefined);
+    assert.ok(Math.abs(pts[0]!.fairValue - today) < 1e-9);
+    assert.ok(Math.abs(pts[0]!.fairValue - 408) > 1);
+    assert.deepEqual(
+      pts.slice(1).map((p) => p.date),
+      ['2026-12-31', '2027-12-31', '2028-12-31'],
+    );
+    assert.deepEqual(
+      pts.slice(1).map((p) => p.year),
+      [2026, 2027, 2028],
+    );
+    for (let i = 1; i < pts.length; i++) {
+      assert.ok(pts[i]!.fairValue > pts[i - 1]!.fairValue);
+    }
+  });
+
+  it('drops past fiscal years instead of shifting them to asOf+1', () => {
+    const pts = buildDcfChartSeries({
+      ...base,
+      years: [{ year: 2025, ufcf: 100 }, ...years],
+      asOf: '2026-08-19',
+      fmpEquityValuePerShare: 250,
+    });
+    assert.equal(pts[0]!.date, '2026-08-19');
+    assert.ok(!pts.some((p) => p.date === '2025-12-31'));
+    assert.ok(!pts.some((p) => p.date === '2026-08-20'));
+    assert.ok(pts.every((p) => p.date >= '2026-08-19'));
+  });
+
+  it('falls back to the FMP headline when the local model cannot run', () => {
+    const pts = buildDcfChartSeries({
+      ...base,
+      wacc: null,
+      asOf: '2026-08-19',
+      fmpEquityValuePerShare: 250,
+    });
+    assert.equal(pts.length, 1);
+    assert.equal(pts[0]!.date, '2026-08-19');
+    assert.equal(pts[0]!.fairValue, 250);
+    assert.equal(pts[0]!.year, undefined);
   });
 });
