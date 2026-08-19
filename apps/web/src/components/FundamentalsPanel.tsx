@@ -4,10 +4,8 @@ import {
   expectedDcfFairValueByYear,
   fairValueFromEstimate,
   formatScaleCaption,
-  nextIsoDate,
   sliceToWindow,
   type ValuationMetric,
-  type ValuationSeriesPoint,
   type ValuationSummary,
   type ValuationWindowYears,
 } from '@vova/engine';
@@ -18,6 +16,12 @@ import {
   type FundamentalsPayload,
   type HorizonReturns,
 } from '../lib/api';
+import {
+  dcfChartSeriesFromPayload,
+  dcfFairValueToday,
+  EMPTY_DCF_SCENARIO_SERIES,
+  type DcfScenarioSeries,
+} from '../lib/dcfChart';
 import { Chips } from '../components/Chips';
 
 const METRICS = [
@@ -114,7 +118,7 @@ export function FundamentalsPanel({
   valuation: { summary: ValuationSummary } | null;
   tab: FundTab;
   onTabChange: (tab: FundTab) => void;
-  onDcfChartSeries?: (series: ValuationSeriesPoint[]) => void;
+  onDcfChartSeries?: (series: DcfScenarioSeries) => void;
 }) {
 
   const fyRows = useMemo(() => {
@@ -492,60 +496,6 @@ function presetOverrides(
   };
 }
 
-function dcfChartSeriesFromPayload(data: CustomDcfPayload): ValuationSeriesPoint[] {
-  const yearly = expectedDcfFairValueByYear({
-    years: data.years,
-    wacc: data.wacc,
-    terminalValue: data.terminalValue,
-    netDebt: data.netDebt,
-    dilutedShares: data.dilutedShares,
-  });
-  const points: ValuationSeriesPoint[] = [];
-  const asOf = (data.asOf || new Date().toISOString()).slice(0, 10);
-  if (
-    data.equityValuePerShare != null &&
-    Number.isFinite(data.equityValuePerShare) &&
-    data.equityValuePerShare > 0
-  ) {
-    points.push({
-      date: asOf,
-      year: Number(asOf.slice(0, 4)),
-      price: data.price,
-      metric: null,
-      earningsPower: data.equityValuePerShare,
-      fairValue: data.equityValuePerShare,
-      normalValue: null,
-      pe: null,
-      forecast: true,
-    });
-  }
-  let prev = points[points.length - 1]?.date ?? '';
-  for (const row of yearly) {
-    if (
-      row.fairValuePerShare == null ||
-      !Number.isFinite(row.fairValuePerShare) ||
-      row.fairValuePerShare <= 0
-    ) {
-      continue;
-    }
-    let date = `${row.year}-12-31`;
-    if (prev && date <= prev) date = nextIsoDate(prev);
-    points.push({
-      date,
-      year: row.year,
-      price: null,
-      metric: null,
-      earningsPower: row.fairValuePerShare,
-      fairValue: row.fairValuePerShare,
-      normalValue: null,
-      pe: null,
-      forecast: true,
-    });
-    prev = date;
-  }
-  return points;
-}
-
 function DcfTab({
   ticker,
   lynchFairValue,
@@ -555,7 +505,7 @@ function DcfTab({
   ticker: string;
   lynchFairValue: number | null;
   price: number | null;
-  onDcfChartSeries?: (series: ValuationSeriesPoint[]) => void;
+  onDcfChartSeries?: (series: DcfScenarioSeries) => void;
 }) {
   const seeded = useRef(false);
   const [draft, setDraft] = useState<DcfDraft>(emptyDcfDraft);
@@ -578,28 +528,74 @@ function DcfTab({
     staleTime: 60_000,
   });
 
+  const baseQ = useQuery({
+    queryKey: ['custom-dcf', ticker, {}],
+    queryFn: () => api.customDcf(ticker, {}),
+    enabled: Boolean(ticker),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
-    if (!dcfQ.data || seeded.current) return;
+    if (!baseQ.data || seeded.current) return;
     seeded.current = true;
-    setBase(assumptionsFromPayload(dcfQ.data));
-    setDraft(draftFromPayload(dcfQ.data));
-  }, [dcfQ.data]);
+    setBase(assumptionsFromPayload(baseQ.data));
+    setDraft(draftFromPayload(baseQ.data));
+  }, [baseQ.data]);
+
+  const consOverrides = useMemo(
+    () => (base ? presetOverrides(base, 'conservative') : null),
+    [base],
+  );
+  const optOverrides = useMemo(() => (base ? presetOverrides(base, 'optimistic') : null), [base]);
+
+  const consQ = useQuery({
+    queryKey: ['custom-dcf', ticker, consOverrides],
+    queryFn: () => api.customDcf(ticker, consOverrides!),
+    enabled: Boolean(ticker && consOverrides),
+    staleTime: 60_000,
+  });
+  const optQ = useQuery({
+    queryKey: ['custom-dcf', ticker, optOverrides],
+    queryFn: () => api.customDcf(ticker, optOverrides!),
+    enabled: Boolean(ticker && optOverrides),
+    staleTime: 60_000,
+  });
 
   const data = dcfQ.data;
   const price = data?.price ?? lynchPrice;
-  const dcfPrice = data?.equityValuePerShare ?? null;
+
+  const payloadFor = (id: DcfPreset): CustomDcfPayload | undefined => {
+    if (preset === id && data) return data;
+    if (id === 'conservative') return consQ.data;
+    if (id === 'optimistic') return optQ.data;
+    return baseQ.data;
+  };
+  const todayOf = (id: DcfPreset) => {
+    const payload = payloadFor(id);
+    return payload ? dcfFairValueToday(payload) : null;
+  };
+  const fvToday = {
+    conservative: todayOf('conservative'),
+    base: todayOf('base'),
+    optimistic: todayOf('optimistic'),
+  };
+  const dcfPrice = fvToday[preset];
+  const premiumPct =
+    price != null && dcfPrice != null && dcfPrice > 0
+      ? ((price - dcfPrice) / dcfPrice) * 100
+      : (data?.premiumPct ?? null);
   const premiumClass =
-    data?.premiumPct == null
+    premiumPct == null
       ? ''
-      : data.premiumPct > 10
+      : premiumPct > 10
         ? 'fund-neg'
-        : data.premiumPct < -10
+        : premiumPct < -10
           ? 'fund-pos'
           : '';
 
   const applyPreset = (next: DcfPreset) => {
     setPreset(next);
-    const snapshot = base ?? (data ? assumptionsFromPayload(data) : null);
+    const snapshot = base ?? (baseQ.data ? assumptionsFromPayload(baseQ.data) : null);
     if (next === 'base') {
       if (snapshot) setDraft(draftFromAssumptions(snapshot));
       setApplied({});
@@ -629,11 +625,21 @@ function DcfTab({
     [data],
   );
 
+  const chartSeries = useMemo<DcfScenarioSeries>(() => {
+    const out: DcfScenarioSeries = {
+      conservative: consQ.data ? dcfChartSeriesFromPayload(consQ.data) : [],
+      base: baseQ.data ? dcfChartSeriesFromPayload(baseQ.data) : [],
+      optimistic: optQ.data ? dcfChartSeriesFromPayload(optQ.data) : [],
+    };
+    if (data) out[preset] = dcfChartSeriesFromPayload(data);
+    return out;
+  }, [baseQ.data, consQ.data, optQ.data, data, preset]);
+
   useEffect(() => {
     if (!onDcfChartSeries) return;
-    onDcfChartSeries(data ? dcfChartSeriesFromPayload(data) : []);
-    return () => onDcfChartSeries([]);
-  }, [data, onDcfChartSeries]);
+    onDcfChartSeries(chartSeries);
+    return () => onDcfChartSeries(EMPTY_DCF_SCENARIO_SERIES);
+  }, [chartSeries, onDcfChartSeries]);
 
   const latestUfcf = data?.years?.length ? data.years[data.years.length - 1]?.ufcf ?? null : null;
 
@@ -648,9 +654,17 @@ function DcfTab({
           </h2>
           <p className="fund-sub">
             Price {money(price)} ·{' '}
-            <span className={premiumClass}>{pct(data?.premiumPct)} vs DCF</span>
+            <span className={premiumClass}>{pct(premiumPct)} vs DCF</span>
             {lynchFairValue != null ? <> · Lynch FV {money(lynchFairValue)}</> : null}
           </p>
+          <ul className="fund-dcf-today" aria-label="DCF fair value today">
+            {DCF_PRESETS.map((id) => (
+              <li key={id} className={preset === id ? 'is-active' : undefined}>
+                <span>{DCF_PRESET_LABEL[id]}</span>
+                <strong>{money(fvToday[id])}</strong>
+              </li>
+            ))}
+          </ul>
         </div>
         <dl className="fund-hero-stats">
           <div>

@@ -28,6 +28,11 @@ import {
 import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
 import { lastResultsPath } from '../lib/tabMemory';
 import { useFundamentalsValuation } from '../lib/useFundamentalsValuation';
+import {
+  EMPTY_DCF_SCENARIO_SERIES,
+  dcfScenarioHasPoints,
+  type DcfScenarioSeries,
+} from '../lib/dcfChart';
 
 type ChartNavState = { row?: ResultRow };
 type ChartView = 'ta' | 'fundamentals';
@@ -137,6 +142,12 @@ function formatFundamentalsCrosshair(
   if (npe != null) parts.push(`NPE ${npe.toFixed(2)}`);
   const div = lineValue(seriesData, valuationRefs.dividend);
   if (div != null) parts.push(`DIV ${div.toFixed(2)}`);
+  const dcfCons = lineValue(seriesData, valuationRefs.dcfConservative);
+  const dcfBase = lineValue(seriesData, valuationRefs.dcf);
+  const dcfOpt = lineValue(seriesData, valuationRefs.dcfOptimistic);
+  if (dcfCons != null) parts.push(`DCF C ${dcfCons.toFixed(2)}`);
+  if (dcfBase != null) parts.push(`DCF ${dcfBase.toFixed(2)}`);
+  if (dcfOpt != null) parts.push(`DCF O ${dcfOpt.toFixed(2)}`);
   return parts.join('  ');
 }
 
@@ -173,7 +184,7 @@ export function ChartPage() {
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [crosshair, setCrosshair] = useState<string>('');
   const [fundTab, setFundTab] = useState<FundTab>('summary');
-  const [dcfChartSeries, setDcfChartSeries] = useState<ValuationSeriesPoint[]>([]);
+  const [dcfChartSeries, setDcfChartSeries] = useState<DcfScenarioSeries>(EMPTY_DCF_SCENARIO_SERIES);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const destroyRef = useRef<(() => void) | null>(null);
@@ -238,7 +249,7 @@ export function ChartPage() {
 
   useEffect(() => {
     setFundTab('summary');
-    setDcfChartSeries([]);
+    setDcfChartSeries(EMPTY_DCF_SCENARIO_SERIES);
   }, [ticker]);
   const chartReady = Boolean(ticker) && settingsReady && maxRiskUsd != null && !(tradeId && !trade.data);
   const fullSeries = view === 'fundamentals';
@@ -303,7 +314,7 @@ export function ChartPage() {
   );
   const valuationSeries = view === 'fundamentals' ? fund.chartSeries : EMPTY_VALUATION;
   const dcfSeriesForChart =
-    view === 'fundamentals' && fundTab === 'dcf' ? dcfChartSeries : EMPTY_VALUATION;
+    view === 'fundamentals' && fundTab === 'dcf' ? dcfChartSeries : EMPTY_DCF_SCENARIO_SERIES;
 
   useEffect(() => {
     if (!containerRef.current || !chart.data) return;
@@ -658,10 +669,18 @@ export function ChartPage() {
                 <span className="fund-swatch fund-swatch--div" /> Dividends
               </li>
             ) : null}
-            {fundTab === 'dcf' && dcfChartSeries.length ? (
-              <li>
-                <span className="fund-swatch fund-swatch--dcf-fwd" /> DCF FV
-              </li>
+            {fundTab === 'dcf' && dcfScenarioHasPoints(dcfChartSeries) ? (
+              <>
+                <li>
+                  <span className="fund-swatch fund-swatch--dcf-cons" /> DCF Conservative
+                </li>
+                <li>
+                  <span className="fund-swatch fund-swatch--dcf-fwd" /> DCF Base
+                </li>
+                <li>
+                  <span className="fund-swatch fund-swatch--dcf-opt" /> DCF Optimistic
+                </li>
+              </>
             ) : null}
           </ul>
           {fund.dividend ? (
