@@ -15,6 +15,7 @@ import {
   lastForecastDate,
   lastSeriesDate,
   sliceToWindow,
+  forwardMetricCagr,
   trailingMetricCagr,
   ttmFromQuarterly,
   valuationChartLogicalRange,
@@ -191,20 +192,58 @@ describe('valuation windows', () => {
     assert.ok(summary.premiumPct != null);
   });
 
-  it('uses trailing window CAGR even when analyst estimates are present', () => {
+  it('uses forward CAGR through the last positive estimate when analysts are present', () => {
     const hist = mixedGrowthHistory();
-    const trailing = trailingMetricCagr(sliceToWindow(hist, 5), 'eps', 5);
+    const windowed = sliceToWindow(hist, 5);
+    const forward = [
+      { year: 2026, metric: 20 },
+      { year: 2027, metric: 30 },
+    ];
+    const fwd = forwardMetricCagr(windowed, forward, 'eps');
     const { summary } = buildValuationSeries(hist, 'eps', {
       currentPrice: 110,
       windowYears: 5,
+      forward,
+    });
+    assert.equal(summary.growthSource, 'forward');
+    assert.ok(fwd != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - fwd) < 1e-9);
+  });
+
+  it('PDD-like 3Y + estimates: ratio ~23× and FV near $230, not $1600', () => {
+    const hist = [
+      fy(2022, 4.08, 40),
+      fy(2023, 6.5, 70),
+      fy(2024, 9.4, 85),
+      fy(2025, 10.07, 90),
+    ];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 90,
+      windowYears: 3,
+      ttmMetric: 10.07,
       forward: [
-        { year: 2026, metric: 20 },
-        { year: 2027, metric: 30 },
+        { year: 2026, metric: 9.98 },
+        { year: 2027, metric: 12.08 },
+        { year: 2028, metric: 13.88 },
       ],
     });
-    assert.equal(summary.growthSource, 'trailing');
-    assert.ok(trailing != null && summary.growthRatePct != null);
-    assert.ok(Math.abs(summary.growthRatePct - trailing) < 1e-9);
+    assert.equal(summary.growthSource, 'forward');
+    assert.ok(summary.growthRatePct != null);
+    assert.ok(
+      summary.growthRatePct > 20 && summary.growthRatePct < 26,
+      `g=${summary.growthRatePct}`,
+    );
+    assert.equal(summary.fairValueRule, 'pe_g');
+    assert.ok(summary.fairValueRatio != null);
+    assert.ok(
+      summary.fairValueRatio > 20 && summary.fairValueRatio < 26,
+      `ratio=${summary.fairValueRatio}`,
+    );
+    assert.ok(summary.fairValue != null);
+    assert.ok(
+      summary.fairValue > 210 && summary.fairValue < 280,
+      `fv=${summary.fairValue}`,
+    );
   });
 
   it('anchors fair value on TTM, not the first forward estimate', () => {

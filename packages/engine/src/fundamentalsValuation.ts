@@ -414,28 +414,36 @@ export function windowLookbackYears(windowYears: ValuationWindowYears): number {
  * last positive analyst estimate. A trough-year base inflates this the same way it does in FG —
  * the rate is a property of the displayed window, not of the trailing history alone.
  */
-export function forwardMetricCagr(
+export function forwardMetricCagrDetail(
   windowed: AnnualFundamentalPoint[],
   forward: ForwardMetricPoint[],
   metric: ValuationMetric,
-): number | null {
+): TrailingCagrResult {
   const base = [...windowed]
     .sort((a, b) => a.year - b.year)
     .find((p) => {
       const m = pickMetric(p, metric);
       return finite(m) && m > 0;
     });
-  if (!base) return null;
+  if (!base) return { growthPct: null, spanYears: null };
   const end = [...forward]
     .sort((a, b) => a.year - b.year)
     .filter((p) => finite(p.metric) && (p.metric as number) > 0)
     .pop();
-  if (!end) return null;
+  if (!end) return { growthPct: null, spanYears: null };
   const span = end.year - base.year;
-  if (span < 2) return null;
+  if (span < 2) return { growthPct: null, spanYears: null };
   const a = pickMetric(base, metric);
-  if (!finite(a)) return null;
-  return cagrPct(a, end.metric as number, span);
+  if (!finite(a)) return { growthPct: null, spanYears: null };
+  return { growthPct: cagrPct(a, end.metric as number, span), spanYears: span };
+}
+
+export function forwardMetricCagr(
+  windowed: AnnualFundamentalPoint[],
+  forward: ForwardMetricPoint[],
+  metric: ValuationMetric,
+): number | null {
+  return forwardMetricCagrDetail(windowed, forward, metric).growthPct;
 }
 
 export type FairValueRatioOpts = {
@@ -511,7 +519,11 @@ export function buildValuationSeries(
     currentPrice?: number | null;
     /** Visible years for the chart and Normal P/E. Default MAX (all complete years). */
     windowYears?: ValuationWindowYears;
-    /** Kept for callers; estimates no longer set growth or the fair-value anchor. */
+    /**
+     * Analyst estimates. When the last positive estimate is ≥2 years after the
+     * first profitable FY in the window, growth is that window-to-estimate CAGR
+     * (`growthSource: 'forward'`). Estimates still do not set the FV anchor.
+     */
     forward?: ForwardMetricPoint[];
     /**
      * Trailing-twelve-month metric (EPS for the EPS view). Preferred fair-value
@@ -527,12 +539,16 @@ export function buildValuationSeries(
       ? { multiple: opts.normalMultiple, source: 'median_pe' as const }
       : computeNormalMultiple(sorted, metric);
 
-  const growthSource = 'trailing' as const;
-  const { growthPct: growthRatePct, spanYears: growthSpanYears } = trailingMetricCagrDetail(
+  const trailing = trailingMetricCagrDetail(
     sorted,
     metric,
     windowLookbackYears(windowYears),
   );
+  const forward = forwardMetricCagrDetail(sorted, opts.forward ?? [], metric);
+  const useForward = forward.growthPct != null;
+  const growthSource = useForward ? ('forward' as const) : ('trailing' as const);
+  const growthRatePct = useForward ? forward.growthPct : trailing.growthPct;
+  const growthSpanYears = useForward ? forward.spanYears : trailing.spanYears;
   const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct, {
     spanYears: growthSpanYears,
     windowYears,

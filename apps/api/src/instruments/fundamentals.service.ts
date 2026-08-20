@@ -1538,9 +1538,12 @@ export class FundamentalsService {
       fmpEps: last?.eps ?? anchor?.fmpEps ?? opts.ttmEps,
       dilutedShares: last?.dilutedShares ?? anchor?.dilutedShares ?? null,
       price: opts.price,
+      peTtm: opts.peTTM,
     });
 
-    const annual = opts.annual.map((p) => scaleAnnualPoint(p, scale, fxByYear.get(p.year)));
+    const annual = opts.annual.map((p) =>
+      scaleAnnualPoint(p, scale, fxByYear.get(p.year), opts.peTTM),
+    );
     const estimateEps = opts.estimateEps.map((e) => ({
       ...e,
       eps: scalePerShare(e.eps, scale),

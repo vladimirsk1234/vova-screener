@@ -113,6 +113,7 @@ export function buildScaleForTicker(opts: {
   fmpEps: number | null;
   dilutedShares: number | null;
   price: number | null;
+  peTtm?: number | null;
 }): FundamentalsScale {
   return buildFundamentalsScale({
     ticker: opts.ticker,
@@ -123,6 +124,7 @@ export function buildScaleForTicker(opts: {
     dilutedShares: opts.dilutedShares,
     price: opts.price,
     fxToListing: opts.fxToListing,
+    peTtm: opts.peTtm,
   });
 }
 
@@ -130,6 +132,7 @@ export function scaleAnnualPoint(
   point: AnnualFundamentalPoint,
   scale: FundamentalsScale,
   yearFx?: number,
+  peTtm?: number | null,
 ): AnnualFundamentalPoint {
   const yearScale =
     yearFx != null && yearFx > 0 && yearFx !== scale.fxToListing
@@ -141,6 +144,7 @@ export function scaleAnnualPoint(
     dilutedShares: point.dilutedShares ?? null,
     scale: yearScale,
     price: point.price,
+    peTtm,
   });
   const price = point.price;
   const pe =

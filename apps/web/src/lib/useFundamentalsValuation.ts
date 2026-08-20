@@ -57,6 +57,10 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
       windowYears,
+      forward:
+        metric === 'eps'
+          ? (fundQ.data.estimates ?? []).map((e) => ({ year: e.year, metric: e.eps }))
+          : [],
       ttmMetric:
         metric === 'eps'
           ? fundQ.data.snapshot.ttmEps

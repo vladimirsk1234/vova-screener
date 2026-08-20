@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  FUNDAMENTALS_SCALE_VERSION,
   buildFundamentalsScale,
   epsFromIncome,
   formatScaleCaption,
@@ -157,6 +158,47 @@ describe('formatScaleCaption', () => {
     const cap = formatScaleCaption(scale);
     assert.ok(cap?.includes('USD'));
     assert.ok(cap?.includes('6'));
+  });
+});
+
+describe('PDD listing units vs peTTM', () => {
+  const price = 90;
+  const peTtm = 9;
+  const fmpEps = 10.07;
+  const adsShares = 1_400_000_000;
+  const netIncome = fmpEps * adsShares;
+  const dilutedShares = adsShares;
+
+  it('keeps per-ADS EPS (factor 1), not ordinary ×4, when peTTM is ~9', () => {
+    assert.equal(inferShareScale({ netIncome, fmpEps, dilutedShares, adrRatio: 4 }), 'ordinary');
+    const scale = buildFundamentalsScale({
+      ticker: 'PDD',
+      reportedCurrency: 'USD',
+      listingCurrency: 'USD',
+      netIncome,
+      fmpEps,
+      dilutedShares,
+      price,
+      fxToListing: 1,
+      peTtm,
+    });
+    assert.equal(scale.version, FUNDAMENTALS_SCALE_VERSION);
+    assert.equal(scale.version, 2);
+    assert.equal(scale.adrRatio, 4);
+    assert.equal(scale.shareScale, 'ads');
+    assert.equal(scale.perShareFactor, 1);
+    const picked = pickScaledEps({
+      fmpEps,
+      netIncome,
+      dilutedShares,
+      scale,
+      price,
+      peTtm,
+    });
+    assert.ok(picked != null);
+    assert.ok(Math.abs(picked - 10.07) < 0.2, `picked=${picked}`);
+    const pe = price / picked;
+    assert.ok(pe > 7 && pe < 12, `pe=${pe}`);
   });
 });
 

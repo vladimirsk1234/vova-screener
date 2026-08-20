@@ -6,7 +6,7 @@
  * in the exchange currency — without this layer, PE15/Lynch runs on garbage.
  */
 
-export const FUNDAMENTALS_SCALE_VERSION = 1;
+export const FUNDAMENTALS_SCALE_VERSION = 2;
 
 /** Ordinary shares represented by one ADS. 1 = not an ADR / already per listing share. */
 export const KNOWN_ADR_RATIO: Record<string, number> = {
@@ -208,6 +208,61 @@ export function peInBand(pe: number | null, lo = 0.15, hi = 200): boolean {
   return pe != null && Number.isFinite(pe) && pe >= lo && pe <= hi;
 }
 
+/** Typical profitable-listing PE; used to reject ADR ×N that implies PE ~2. */
+const PLAUSIBLE_PE_LO = 5;
+const PLAUSIBLE_PE_HI = 40;
+
+/**
+ * Lower is better. Prefer implied PE near FMP `peTTM`; if that vendor PE is in
+ * 8–25, treat a candidate PE below ~5 as a unit error (PDD ordinary×4 → 2.4).
+ * Without `peTTM`, prefer 5–40 and break ties toward ~15.
+ */
+export function listingPeScore(pe: number | null, peTtm: number | null | undefined): number {
+  if (pe == null || !peInBand(pe)) return Number.POSITIVE_INFINITY;
+  const vendor = peTtm != null && peInBand(peTtm) ? peTtm : null;
+  if (vendor != null) {
+    let score = Math.abs(Math.log(pe) - Math.log(vendor));
+    if (vendor >= 8 && vendor <= 25 && pe < PLAUSIBLE_PE_LO) score += 10;
+    return score;
+  }
+  if (pe >= PLAUSIBLE_PE_LO && pe <= PLAUSIBLE_PE_HI) return Math.abs(pe - 15) / 100;
+  if (pe < PLAUSIBLE_PE_LO) return 2 + (PLAUSIBLE_PE_LO - pe);
+  return 1 + (pe - PLAUSIBLE_PE_HI) / PLAUSIBLE_PE_HI;
+}
+
+export function pickShareScaleForListingPe(opts: {
+  price: number | null;
+  fmpEps: number | null;
+  fxToListing: number;
+  adrRatio: number;
+  peTtm?: number | null;
+  inferred: ShareScale;
+}): ShareScale {
+  const { price, fmpEps, fxToListing, adrRatio, peTtm, inferred } = opts;
+  if (!(adrRatio > 1)) return inferred;
+  const fxEps = scaleAmount(fmpEps, fxToListing);
+  if (fxEps == null || price == null || !(price > 0)) return inferred;
+
+  const candidates: ShareScale[] = ['ads', 'ordinary', 'double_adr'];
+  let best: ShareScale = inferred === 'unknown' ? 'ads' : inferred;
+  let bestScore = listingPeScore(
+    impliedPe(price, scaleAmount(fxEps, perShareFactor(best, adrRatio))),
+    peTtm ?? null,
+  );
+  for (const s of candidates) {
+    const score = listingPeScore(
+      impliedPe(price, scaleAmount(fxEps, perShareFactor(s, adrRatio))),
+      peTtm ?? null,
+    );
+    if (score < bestScore) {
+      bestScore = score;
+      best = s;
+    }
+  }
+  if (!Number.isFinite(bestScore)) return inferred;
+  return best;
+}
+
 /**
  * Prefer net-income / diluted ADS shares when FMP `epsdiluted` is on the wrong share class.
  * `dilutedShares` are treated as ordinary when `adrRatio > 1`.
@@ -254,6 +309,7 @@ export function buildFundamentalsScale(input: {
   price: number | null;
   fxToListing: number;
   knownAdr?: number;
+  peTtm?: number | null;
 }): FundamentalsScale {
   const reportedCurrency = normalizeCurrency(input.reportedCurrency);
   const listingCurrency = normalizeCurrency(input.listingCurrency);
@@ -275,14 +331,15 @@ export function buildFundamentalsScale(input: {
     adrRatio,
   });
 
-  if (shareScale === 'unknown' && adrRatio > 1) {
-    const fxEps = scaleAmount(input.fmpEps, fx);
-    const peIfAds = impliedPe(input.price, fxEps);
-    const peIfOrd = impliedPe(input.price, scaleAmount(fxEps, adrRatio));
-    const peIfDouble = impliedPe(input.price, scaleAmount(fxEps, 1 / adrRatio));
-    if (peInBand(peIfDouble) && !peInBand(peIfAds)) shareScale = 'double_adr';
-    else if (peInBand(peIfOrd) && !peInBand(peIfAds)) shareScale = 'ordinary';
-    else if (peInBand(peIfAds)) shareScale = 'ads';
+  if (adrRatio > 1) {
+    shareScale = pickShareScaleForListingPe({
+      price: input.price,
+      fmpEps: input.fmpEps,
+      fxToListing: fx,
+      adrRatio,
+      peTtm: input.peTtm,
+      inferred: shareScale,
+    });
   }
 
   const factor = perShareFactor(shareScale, adrRatio);
@@ -318,6 +375,7 @@ export function pickScaledEps(opts: {
   dilutedShares: number | null;
   scale: FundamentalsScale;
   price?: number | null;
+  peTtm?: number | null;
 }): number | null {
   const { fmpEps, netIncome, dilutedShares, scale, price } = opts;
   const scaledFmp = scaleAmount(fmpEps, scale.fxToListing * scale.perShareFactor);
@@ -337,6 +395,12 @@ export function pickScaledEps(opts: {
     !relClose(fromIncome, scaledFmp, 0.3) &&
     peInBand(peInc)
   ) {
+    if (
+      peInBand(peFmp) &&
+      listingPeScore(peFmp, opts.peTtm) <= listingPeScore(peInc, opts.peTtm)
+    ) {
+      return scaledFmp;
+    }
     return fromIncome;
   }
   return scaledFmp ?? fromIncome;
