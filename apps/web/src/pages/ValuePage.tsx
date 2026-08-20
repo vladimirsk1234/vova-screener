@@ -27,6 +27,7 @@ const SORTS: SortOption<ValueScreenerSort>[] = [
   { value: 'eps', label: 'EPS %', from: 'asc' },
   { value: 'fcf', label: 'FCF %', from: 'asc' },
   { value: 'dcf', label: 'DCF %', from: 'asc' },
+  { value: 'interest', label: 'Marked', from: 'desc' },
   { value: 'symbol', label: 'A-Z', from: 'asc' },
 ];
 

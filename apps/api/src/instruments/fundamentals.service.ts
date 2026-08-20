@@ -8,6 +8,7 @@ import {
   compareValueRows,
   completeFiscalYears,
   impliedPe,
+  interestRankOf,
   peInBand,
   rowMatchesStarsFilter,
   scaleDcf,
@@ -26,6 +27,7 @@ import {
   type Timeframe,
   type ValuationMetric,
   type ValuationSeriesPoint,
+  type ValueInterest,
   type ValueScreenerSort,
   type ValueSortDir,
   type ValueStarsFilter,
@@ -120,6 +122,12 @@ export type TaSnapshotMap = {
   monthly?: SeqStructStatus | null;
 };
 
+export type TickerInterest = {
+  yahooTicker: string;
+  interest: ValueInterest | null;
+  interestRank: number;
+};
+
 export type ValueScreenerRow = {
   yahooTicker: string;
   symbol: string;
@@ -136,6 +144,8 @@ export type ValueScreenerRow = {
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
+  interest: ValueInterest | null;
+  interestRank: number;
   ta: TaSnapshotMap;
 };
 
@@ -479,6 +489,10 @@ type ChartFundCacheEntry = {
 
 function finiteNum(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function parseInterest(value: unknown): ValueInterest | null {
+  return value === 'interested' || value === 'not_interested' ? value : null;
 }
 
 function starFieldsFromPremia(
@@ -926,7 +940,7 @@ export class FundamentalsService {
         valuationReliable: { $ne: false },
       })
       .select(
-        'yahooTicker fairValue premiumPct growthRatePct blendedPe ltDebtToCapitalTTM epsFairValue fcfFairValue dcfFairValue epsPremiumPct fcfPremiumPct dcfPremiumPct stars bestPremiumPct taSnapshot',
+        'yahooTicker fairValue premiumPct growthRatePct blendedPe ltDebtToCapitalTTM epsFairValue fcfFairValue dcfFairValue epsPremiumPct fcfPremiumPct dcfPremiumPct stars bestPremiumPct interest interestRank taSnapshot',
       )
       .lean<any[]>()
       .exec();
@@ -960,6 +974,7 @@ export class FundamentalsService {
       if (starCount === 3) counts[3] += 1;
       if (!rowMatchesStarsFilter(starCount, filter)) continue;
 
+      const interest = parseInterest(doc.interest);
       const ta = (doc.taSnapshot ?? {}) as TaSnapshotMap;
       scored.push({
         yahooTicker: listing.yahooTicker,
@@ -977,6 +992,8 @@ export class FundamentalsService {
         growthRatePct: finiteNum(doc.growthRatePct),
         blendedPe: finiteNum(doc.blendedPe),
         ltDebtToCapitalTTM: finiteNum(doc.ltDebtToCapitalTTM),
+        interest,
+        interestRank: finiteNum(doc.interestRank) ?? interestRankOf(interest),
         ta: {
           daily: ta.daily ?? null,
           weekly: ta.weekly ?? null,
@@ -989,6 +1006,44 @@ export class FundamentalsService {
     const rows = scored.slice(offset, offset + limit);
     await this.fillTaForRows(rows);
     return { rows, total: scored.length, counts };
+  }
+
+  async getTickerInterest(yahooTicker: string): Promise<TickerInterest> {
+    const t = yahooTicker.trim().toUpperCase();
+    if (!t) throw new NotFoundException('ticker required');
+    const doc = await this.store
+      .findOne({ yahooTicker: t })
+      .select('yahooTicker interest interestRank')
+      .lean<any>()
+      .exec();
+    const interest = parseInterest(doc?.interest);
+    return {
+      yahooTicker: t,
+      interest,
+      interestRank: finiteNum(doc?.interestRank) ?? interestRankOf(interest),
+    };
+  }
+
+  async setTickerInterest(yahooTicker: string, interest: ValueInterest | null): Promise<TickerInterest> {
+    const t = yahooTicker.trim().toUpperCase();
+    if (!t) throw new NotFoundException('ticker required');
+    const rank = interestRankOf(interest);
+    await this.store
+      .updateOne(
+        { yahooTicker: t },
+        {
+          $set: {
+            yahooTicker: t,
+            interest,
+            interestRank: rank,
+            interestAt: interest ? new Date() : null,
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      )
+      .exec();
+    return { yahooTicker: t, interest, interestRank: rank };
   }
 
   /** Merge one timeframe's Seq/Struct into instrumentFundamentals.taSnapshot. */

@@ -1,4 +1,4 @@
-import { Controller, Get, Module, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Module, Param, Patch, Query } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { IndicatorParams, Timeframe, ValuationMetric } from '@vova/engine';
 import { MarketModule } from '../market/market.module';
@@ -39,7 +39,7 @@ class InstrumentsController {
     @Query('offset') offset?: string,
   ) {
     const starFilters = ['undervalued', '1', '2', '3', 'all'] as const;
-    const sorts = ['stars', 'eps', 'fcf', 'dcf', 'symbol'] as const;
+    const sorts = ['stars', 'eps', 'fcf', 'dcf', 'symbol', 'interest'] as const;
     const dirs = ['asc', 'desc'] as const;
     const star = starFilters.includes(stars as (typeof starFilters)[number])
       ? (stars as (typeof starFilters)[number])
@@ -111,6 +111,22 @@ class InstrumentsController {
   @Get(':ticker/status')
   status(@Param('ticker') ticker: string) {
     return this.instruments.status(ticker);
+  }
+
+  /** Ticker-level Interested / Not Interested for the Value tab (not a tracked signal). */
+  @Get(':ticker/interest')
+  getTickerInterest(@Param('ticker') ticker: string) {
+    return this.fundamentalsSvc.getTickerInterest(ticker);
+  }
+
+  @Patch(':ticker/interest')
+  setTickerInterest(
+    @Param('ticker') ticker: string,
+    @Body() body: { interest?: 'interested' | 'not_interested' | null },
+  ) {
+    const value = body?.interest;
+    const interest = value === 'interested' || value === 'not_interested' ? value : null;
+    return this.fundamentalsSvc.setTickerInterest(ticker, interest);
   }
 
   /** Fast Graphs–style fundamental valuation. Reads Mongo; FMP only on a first miss. */

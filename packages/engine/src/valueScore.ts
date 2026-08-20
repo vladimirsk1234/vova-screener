@@ -19,8 +19,20 @@ export type ValueScore = {
 };
 
 export type ValueStarsFilter = 'undervalued' | '1' | '2' | '3' | 'all';
-export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol';
+export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
 export type ValueSortDir = 'asc' | 'desc';
+export type ValueInterest = 'interested' | 'not_interested';
+
+/** Same ranks Results uses on tracked signals: interested 2, unmarked 1, not interested 0. */
+export const VALUE_INTEREST_RANK: Record<ValueInterest | 'none', number> = {
+  interested: 2,
+  none: 1,
+  not_interested: 0,
+};
+
+export function interestRankOf(interest: ValueInterest | null | undefined): number {
+  return VALUE_INTEREST_RANK[interest ?? 'none'];
+}
 
 /** Price below fair value. Missing numbers do not count. */
 export function isUndervaluedPremium(premiumPct: number | null | undefined): boolean {
@@ -73,6 +85,7 @@ export function compareValueRows<
     fcfPremiumPct: number | null;
     dcfPremiumPct: number | null;
     bestPremiumPct: number | null;
+    interestRank?: number | null;
   },
 >(a: T, b: T, sort: ValueScreenerSort, dir: ValueSortDir): number {
   const sign = dir === 'asc' ? 1 : -1;
@@ -87,6 +100,12 @@ export function compareValueRows<
     cmp = compareNullable(finiteOrNull(a.fcfPremiumPct), finiteOrNull(b.fcfPremiumPct), sign);
   } else if (sort === 'dcf') {
     cmp = compareNullable(finiteOrNull(a.dcfPremiumPct), finiteOrNull(b.dcfPremiumPct), sign);
+  } else if (sort === 'interest') {
+    const ar = a.interestRank ?? VALUE_INTEREST_RANK.none;
+    const br = b.interestRank ?? VALUE_INTEREST_RANK.none;
+    if (ar !== br) return (ar - br) * sign;
+    if (a.stars !== b.stars) return b.stars - a.stars;
+    cmp = compareNullable(finiteOrNull(a.bestPremiumPct), finiteOrNull(b.bestPremiumPct), 1);
   } else {
     cmp = a.symbol.localeCompare(b.symbol) * sign;
   }
