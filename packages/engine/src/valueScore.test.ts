@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
   bestValuePremium,
   compareValueRows,
+  interestRankOf,
   rowMatchesStarsFilter,
   scoreValueStars,
+  VALUE_INTEREST_RANK,
 } from './valueScore.ts';
 
 describe('scoreValueStars', () => {
@@ -94,7 +96,13 @@ describe('compareValueRows', () => {
   const row = (
     symbol: string,
     stars: number,
-    premia: { eps?: number | null; fcf?: number | null; dcf?: number | null; best?: number | null },
+    premia: {
+      eps?: number | null;
+      fcf?: number | null;
+      dcf?: number | null;
+      best?: number | null;
+      rank?: number;
+    },
   ) => ({
     symbol,
     stars,
@@ -102,6 +110,7 @@ describe('compareValueRows', () => {
     fcfPremiumPct: premia.fcf ?? null,
     dcfPremiumPct: premia.dcf ?? null,
     bestPremiumPct: premia.best ?? null,
+    interestRank: premia.rank ?? VALUE_INTEREST_RANK.none,
   });
 
   it('sorts 3/3 before 1/3 when stars desc', () => {
@@ -133,5 +142,33 @@ describe('compareValueRows', () => {
     );
     assert.equal(filtered.slice(0, 2)[0].symbol, 'THREE');
     assert.equal(filtered.slice(0, 2).length, 2);
+  });
+
+  it('sorts interested above unmarked above not_interested when Marked desc', () => {
+    const rows = [
+      row('NO', 3, { rank: VALUE_INTEREST_RANK.not_interested }),
+      row('YES', 1, { rank: VALUE_INTEREST_RANK.interested }),
+      row('PLAIN', 2, { rank: VALUE_INTEREST_RANK.none }),
+    ].sort((a, b) => compareValueRows(a, b, 'interest', 'desc'));
+    assert.deepEqual(
+      rows.map((r) => r.symbol),
+      ['YES', 'PLAIN', 'NO'],
+    );
+  });
+
+  it('treats a missing interestRank as unmarked', () => {
+    const a = row('YES', 1, { rank: VALUE_INTEREST_RANK.interested });
+    const b = { ...row('PLAIN', 3, {}), interestRank: undefined };
+    const rows = [b, a].sort((x, y) => compareValueRows(x, y, 'interest', 'desc'));
+    assert.equal(rows[0].symbol, 'YES');
+    assert.equal(rows[1].symbol, 'PLAIN');
+  });
+});
+
+describe('interestRankOf', () => {
+  it('treats a cleared mark as unmarked (1)', () => {
+    assert.equal(interestRankOf(null), 1);
+    assert.equal(interestRankOf('interested'), 2);
+    assert.equal(interestRankOf('not_interested'), 0);
   });
 });

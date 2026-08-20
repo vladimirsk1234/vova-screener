@@ -220,7 +220,8 @@ export function ChartPage() {
   const appSettings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const maxRiskUsd = appSettings.data?.maxRiskUsd;
 
-  // The mark lives on the tracked signal, so a chart opened straight from a URL has to find it.
+  // A tracked signal still owns the mark when the chart is opened on a trade. Value (and any
+  // symbol with no signal on this timeframe) reads ticker-level interest instead.
   // A closed trade cannot be looked up by ticker — nothing is active — so History passes its id.
   const trade = useQuery({
     queryKey: ['tracked-signal-by-id', tradeId],
@@ -235,6 +236,12 @@ export function ChartPage() {
     initialData: navState.row?.tf === tf ? navState.row : undefined,
   });
   const row = (tradeId ? trade.data : tracked.data) ?? null;
+
+  const tickerInterest = useQuery({
+    queryKey: ['ticker-interest', ticker],
+    queryFn: () => api.getTickerInterest(ticker),
+    enabled: Boolean(ticker) && !tradeId && tracked.isFetched && !row?.id,
+  });
 
   // The trade decides the timeframe: a Weekly trade read on the Daily chart is a different chart.
   const tradeTf = trade.data?.tf;
@@ -273,21 +280,25 @@ export function ChartPage() {
 
   const markInterest = useMutation({
     mutationFn: (next: Interest | null) => {
-      const id = row?.id;
-      if (!id) throw new Error('This symbol is not a tracked signal on this timeframe');
-      return api.setInterest(id, next);
+      if (row?.id) return api.setInterest(row.id, next);
+      return api.setTickerInterest(ticker, next);
     },
     onSuccess: (saved) => {
-      queryClient.setQueryData(
-        tradeId ? ['tracked-signal-by-id', tradeId] : ['tracked-signal', ticker, tf],
-        saved,
-      );
-      void queryClient.invalidateQueries({ queryKey: ['results'] });
-      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+      if ('id' in saved) {
+        queryClient.setQueryData(
+          tradeId ? ['tracked-signal-by-id', tradeId] : ['tracked-signal', ticker, tf],
+          saved,
+        );
+        void queryClient.invalidateQueries({ queryKey: ['results'] });
+        void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+        return;
+      }
+      queryClient.setQueryData(['ticker-interest', ticker], saved);
+      void queryClient.invalidateQueries({ queryKey: ['value-screener'] });
     },
   });
 
-  const markStatus = row?.interest ?? null;
+  const markStatus = row?.id ? (row.interest ?? null) : (tickerInterest.data?.interest ?? null);
 
   // Only a chart opened on a trade draws one. The live chart keeps showing what the engine reports
   // for the latest bar, which is what every other screen is reading from.
@@ -432,7 +443,7 @@ export function ChartPage() {
   // its exit to report instead of a NEW / VALID badge about the setup running right now.
   const closedTrade = row && (row.status === 'closed' || row.provisionalClose) ? row : null;
   const showMetrics = Boolean(pine || row);
-  const canMark = Boolean(row?.id);
+  const canMark = Boolean(ticker);
   const marking = markInterest.isPending;
   const fundSummary = fund.valuation?.summary;
   const fundBadge = valuationBadge(fundSummary?.premiumPct);

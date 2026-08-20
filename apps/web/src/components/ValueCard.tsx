@@ -1,6 +1,8 @@
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { SeqStructStatus, ValueScreenerRow } from '../lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { Interest, SeqStructStatus, ValueScreenerRow } from '../lib/api';
+import { api } from '../lib/api';
 
 const STAR_TOTAL = 3;
 
@@ -36,9 +38,20 @@ function taLine(label: string, snap: SeqStructStatus | null | undefined): string
 
 export function ValueCard({ row }: { row: ValueScreenerRow }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const markStatus: Interest | null = row.interest ?? null;
   const eps = valuationLabel(row.epsPremiumPct);
   const fcf = valuationLabel(row.fcfPremiumPct);
   const dcf = valuationLabel(row.dcfPremiumPct);
+
+  const markInterest = useMutation({
+    mutationFn: (next: Interest | null) => api.setTickerInterest(row.yahooTicker, next),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(['ticker-interest', row.yahooTicker], saved);
+      void queryClient.invalidateQueries({ queryKey: ['value-screener'] });
+    },
+  });
+  const marking = markInterest.isPending;
 
   const openChart = () =>
     navigate(`/chart/${encodeURIComponent(row.yahooTicker)}?view=fundamentals`);
@@ -72,6 +85,12 @@ export function ValueCard({ row }: { row: ValueScreenerRow }) {
         </span>
       </div>
 
+      {row.interest === 'not_interested' ? (
+        <div className="signal-card-badges">
+          <span className="badge down">NO INTEREST</span>
+        </div>
+      ) : null}
+
       <div className="signal-card-fundamentals value-card-metrics">
         <span>
           <span className="lbl">EPS</span>{' '}
@@ -94,6 +113,34 @@ export function ValueCard({ row }: { row: ValueScreenerRow }) {
         <span>{taLine('W', row.ta.weekly)}</span>
         <span>{taLine('M', row.ta.monthly)}</span>
       </div>
+
+      <div className="card-actions">
+        <button
+          type="button"
+          className={`btn-sm${markStatus === 'interested' ? ' selected' : ' ghost'}`}
+          disabled={marking}
+          onClick={(e) => {
+            e.stopPropagation();
+            markInterest.mutate(markStatus === 'interested' ? null : 'interested');
+          }}
+        >
+          {marking && markInterest.variables === 'interested' ? 'Saving…' : 'Interested'}
+        </button>
+        <button
+          type="button"
+          className={`btn-sm${markStatus === 'not_interested' ? ' danger selected' : ' ghost'}`}
+          disabled={marking}
+          onClick={(e) => {
+            e.stopPropagation();
+            markInterest.mutate(markStatus === 'not_interested' ? null : 'not_interested');
+          }}
+        >
+          {marking && markInterest.variables === 'not_interested' ? 'Saving…' : 'Not Interested'}
+        </button>
+      </div>
+      {markInterest.error ? (
+        <p className="error small signal-card-foot">{(markInterest.error as Error).message}</p>
+      ) : null}
     </article>
   );
 }
