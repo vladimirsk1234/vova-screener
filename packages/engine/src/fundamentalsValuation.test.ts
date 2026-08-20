@@ -101,18 +101,82 @@ describe('valuation windows', () => {
     assert.ok(cagr5 > cagr10, 'recent 5Y should be steeper than the full decade');
   });
 
-  it('uses PE15 below 15% growth and Lynch PEG at/above 15%', () => {
-    const below = fairValueRatioFromGrowth(14.9);
-    assert.equal(below.rule, 'pe15');
-    assert.equal(below.ratio, 15);
+  it('uses GDF / GDF…P/E=G / P/E=G bands at 5% and 15%', () => {
+    const slow = fairValueRatioFromGrowth(4.9);
+    assert.equal(slow.rule, 'gdf');
+    assert.equal(slow.ratio, 15);
 
-    const atFloor = fairValueRatioFromGrowth(15);
-    assert.equal(atFloor.rule, 'lynch_peg');
-    assert.equal(atFloor.ratio, 15);
+    const atGraham = fairValueRatioFromGrowth(5);
+    assert.equal(atGraham.rule, 'gdf_pe_g');
+    assert.equal(atGraham.ratio, 15);
+
+    const mid = fairValueRatioFromGrowth(10);
+    assert.equal(mid.rule, 'gdf_pe_g');
+    assert.equal(mid.ratio, 15);
+
+    const belowLynch = fairValueRatioFromGrowth(14.9);
+    assert.equal(belowLynch.rule, 'gdf_pe_g');
+    assert.equal(belowLynch.ratio, 15);
+
+    const atLynch = fairValueRatioFromGrowth(15);
+    assert.equal(atLynch.rule, 'pe_g');
+    assert.equal(atLynch.ratio, 15);
 
     const fast = fairValueRatioFromGrowth(20);
-    assert.equal(fast.rule, 'lynch_peg');
+    assert.equal(fast.rule, 'pe_g');
     assert.equal(fast.ratio, 20);
+  });
+
+  it('blocks Lynch when CAGR span is under 2 years on a 5Y window (LYFT-style)', () => {
+    const hist = [
+      fy(2023, -0.88, 12),
+      fy(2024, 0.06, 14),
+      fy(2025, 6.81, 17),
+    ];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 17.12,
+      windowYears: 5,
+      ttmMetric: 6.88,
+    });
+    assert.equal(summary.growthSpanYears, 1);
+    assert.ok(summary.growthRatePct != null && summary.growthRatePct > 1000);
+    assert.equal(summary.fairValueRule, 'gdf_pe_g');
+    assert.equal(summary.fairValueRatio, 15);
+    assert.ok(summary.fairValue != null);
+    assert.ok(Math.abs(summary.fairValue - 6.88 * 15) < 1e-6);
+  });
+
+  it('still allows Lynch on a 1Y YoY even when span is 1 year', () => {
+    const hist = [
+      fy(2024, 2.0, 30),
+      fy(2025, 2.88, 40),
+    ];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 40,
+      windowYears: 1,
+      ttmMetric: 2.88,
+    });
+    assert.equal(summary.growthSpanYears, 1);
+    assert.ok(summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - 44) < 0.1);
+    assert.equal(summary.fairValueRule, 'pe_g');
+    assert.equal(summary.fairValueRatio, Math.round(summary.growthRatePct! * 100) / 100);
+    assert.ok(summary.fairValue != null);
+    assert.ok(Math.abs(summary.fairValue - 2.88 * (summary.fairValueRatio as number)) < 1e-6);
+  });
+
+  it('uses 15× when only one profitable FY exists in a multi-year window', () => {
+    const hist = [fy(2025, 2.5, 40)];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 40,
+      windowYears: 5,
+      ttmMetric: 2.5,
+    });
+    assert.equal(summary.growthRatePct, null);
+    assert.equal(summary.growthSpanYears, null);
+    assert.equal(summary.fairValueRule, 'gdf_pe_g');
+    assert.equal(summary.fairValueRatio, 15);
+    assert.equal(summary.fairValue, 2.5 * 15);
   });
 
   it('anchors fair value on today\'s price for the selected window', () => {

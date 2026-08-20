@@ -35,6 +35,9 @@ ATR_LEN = 14
 MIN_ATR_BARS = 15
 US_TV_EXCHANGES = frozenset({"NASDAQ", "NYSE", "AMEX"})
 GROWTH_PE_FLOOR = 15.0
+GRAHAM_GROWTH_MAX = 5.0
+LYNCH_GROWTH_MIN = 15.0
+FAIR_VALUE_PE = 15.0
 GROWTH_LOOKBACK_YEARS = 5
 KNOWN_ADR_RATIO = {"XYF": 6, "TSM": 5, "BABA": 8, "BIDU": 8, "JD": 2, "HDB": 3, "PDD": 4, "NTES": 5}
 FALLBACK_FOREIGN_PER_USD = {
@@ -216,13 +219,13 @@ def cagr_pct(first: float, last: float, years: float) -> float | None:
     return ((last / first) ** (1.0 / years) - 1.0) * 100.0
 
 
-def trailing_eps_cagr(
+def trailing_eps_cagr_detail(
     points: list[tuple[int, float]],
     lookback_years: int = GROWTH_LOOKBACK_YEARS,
-) -> float | None:
+) -> tuple[float | None, int | None]:
     with_m = sorted([(y, e) for y, e in points if e > 0], key=lambda p: p[0])
     if len(with_m) < 2:
-        return None
+        return None, None
     last_y, last_e = with_m[-1]
     target_year = last_y - lookback_years
     first_y, first_e = with_m[0]
@@ -230,17 +233,33 @@ def trailing_eps_cagr(
         if y <= target_year:
             first_y, first_e = y, e
     span = last_y - first_y
-    if span < 2:
-        return None
-    return cagr_pct(first_e, last_e, span)
+    if span < 1:
+        return None, None
+    return cagr_pct(first_e, last_e, span), span
 
 
-def fair_value_rule(growth_pct: float | None) -> str | None:
+def trailing_eps_cagr(
+    points: list[tuple[int, float]],
+    lookback_years: int = GROWTH_LOOKBACK_YEARS,
+) -> float | None:
+    growth, _span = trailing_eps_cagr_detail(points, lookback_years)
+    return growth
+
+
+def fair_value_rule(
+    growth_pct: float | None,
+    span_years: int | None = None,
+) -> str | None:
+    """FAST Graphs bands: gdf / gdf_pe_g / pe_g. Short span (<2y) never Lynch."""
+    if span_years is not None and span_years < 2:
+        return "gdf_pe_g"
     if growth_pct is None or not math.isfinite(growth_pct):
         return None
-    if growth_pct < GROWTH_PE_FLOOR:
-        return "pe15"
-    return "lynch_peg"
+    if growth_pct < GRAHAM_GROWTH_MAX:
+        return "gdf"
+    if growth_pct < LYNCH_GROWTH_MIN:
+        return "gdf_pe_g"
+    return "pe_g"
 
 
 def lynch_peg(pe: float | None, growth_pct: float | None) -> float | None:
@@ -251,15 +270,21 @@ def lynch_peg(pe: float | None, growth_pct: float | None) -> float | None:
     return pe / growth_pct
 
 
-def is_undervalued(pe: float | None, growth_pct: float | None) -> bool:
-    if pe is None or pe <= 0 or growth_pct is None or not math.isfinite(growth_pct):
+def is_undervalued(
+    pe: float | None,
+    growth_pct: float | None,
+    span_years: int | None = None,
+) -> bool:
+    if pe is None or pe <= 0:
         return False
     if pe < 0.15 or pe > 200:
         return False
-    rule = fair_value_rule(growth_pct)
-    if rule == "pe15":
-        return pe < GROWTH_PE_FLOOR
-    if rule == "lynch_peg":
+    rule = fair_value_rule(growth_pct, span_years)
+    if rule in ("gdf", "gdf_pe_g", "pe15"):
+        return pe < FAIR_VALUE_PE
+    if rule in ("pe_g", "lynch_peg"):
+        if growth_pct is None or not math.isfinite(growth_pct):
+            return False
         peg = lynch_peg(pe, growth_pct)
         return peg is not None and peg < 1.0
     return False
@@ -370,7 +395,7 @@ def _scale_eps_row(
 def fetch_eps_pe_growth(
     fmp_symbol: str,
     api_key: str,
-) -> tuple[bool, str, float | None, float | None, float | None]:
+) -> tuple[bool, str, float | None, float | None, float | None, int | None]:
     try:
         ttm_raw = _fmp_get("/key-metrics-ttm", api_key, {"symbol": fmp_symbol})
         ttm_rows = ttm_raw if isinstance(ttm_raw, list) else []
@@ -435,18 +460,18 @@ def fetch_eps_pe_growth(
             if year is None or e is None:
                 continue
             points.append((year, e))
-        growth = trailing_eps_cagr(points)
+        growth, span = trailing_eps_cagr_detail(points)
         if eps is None:
-            return False, "NO_TRAILING_EPS", None, pe, growth
+            return False, "NO_TRAILING_EPS", None, pe, growth, span
         if eps <= 0:
-            return False, "NON_POSITIVE_EPS", eps, pe, growth
-        return True, "PASS", eps, pe, growth
+            return False, "NON_POSITIVE_EPS", eps, pe, growth, span
+        return True, "PASS", eps, pe, growth, span
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
-            return False, "FMP_RATE_LIMIT", None, None, None
-        return False, "FMP_HTTP", None, None, None
+            return False, "FMP_RATE_LIMIT", None, None, None, None
+        return False, "FMP_HTTP", None, None, None, None
     except Exception:
-        return False, "FMP_ERROR", None, None, None
+        return False, "FMP_ERROR", None, None, None, None
 
 
 def tv_exchange(tv: str) -> str:
@@ -712,11 +737,12 @@ def _valuation_row(
     pe: float | None,
     growth: float | None,
     reason: str,
+    span_years: int | None = None,
 ) -> dict:
     exchange = tv.split(":", 1)[0] if ":" in tv else ""
-    rule = fair_value_rule(growth) if reason == "PASS" else None
+    rule = fair_value_rule(growth, span_years) if reason == "PASS" else None
     peg = lynch_peg(pe, growth)
-    passed = bool(reason == "PASS" and is_undervalued(pe, growth))
+    passed = bool(reason == "PASS" and is_undervalued(pe, growth, span_years))
     return {
         "yahoo": yahoo,
         "tv": tv,
@@ -725,6 +751,7 @@ def _valuation_row(
         "epsTtm": eps,
         "peTtm": pe,
         "growth5y": growth,
+        "growthSpanYears": span_years,
         "rule": rule or "",
         "pegLynch": peg,
         "pass": passed,
@@ -766,7 +793,7 @@ def scan_eps_and_valuation(
     rejects: Counter = Counter()
     rows: list[dict] = []
     pending: list[tuple[str, str, str]] = []
-    reuse_eps: dict[str, tuple[float | None, float | None, float | None]] = {}
+    reuse_eps: dict[str, tuple[float | None, float | None, float | None, int | None]] = {}
     for tv, yahoo, name in entries:
         prev_eps = eps_checked.get(yahoo)
         prev_val = val_checked.get(yahoo)
@@ -777,9 +804,11 @@ def scan_eps_and_valuation(
             eps = _num(prev_eps.get("trailingEps"))
             pe = _num(prev_val.get("peTtm"))
             growth = _num(prev_val.get("growth5y"))
+            span = prev_val.get("growthSpanYears")
+            span_i = int(span) if isinstance(span, (int, float)) and span == int(span) else None
             if reason == "PASS":
                 passed.append((tv, yahoo, name))
-                rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason))
+                rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason, span_i))
             else:
                 rejects[reason] += 1
         elif (
@@ -793,10 +822,13 @@ def scan_eps_and_valuation(
         else:
             pending.append((tv, yahoo, name))
             if prev_eps and prev_val and prev_eps.get("reason") == "PASS":
+                span = prev_val.get("growthSpanYears")
+                span_i = int(span) if isinstance(span, (int, float)) and span == int(span) else None
                 reuse_eps[yahoo] = (
                     _num(prev_eps.get("trailingEps")),
                     _num(prev_val.get("peTtm")),
                     _num(prev_val.get("growth5y")),
+                    span_i,
                 )
     workers = max(1, int(workers))
     print(
@@ -814,12 +846,22 @@ def scan_eps_and_valuation(
 
     def _scan_one(
         item: tuple[str, str, str],
-    ) -> tuple[tuple[str, str, str], str, str, float | None, float | None, float | None, float | None]:
+    ) -> tuple[
+        tuple[str, str, str],
+        str,
+        str,
+        float | None,
+        float | None,
+        float | None,
+        float | None,
+        int | None,
+    ]:
         tv, yahoo, name = item
         gates = gates_for_tv(tv, us=us_gates, ca=ca_gates)
         symbol = yahoo_to_fmp(yahoo)
         reason = "FMP_ERROR"
         eps = pe = growth = atr_pct = None
+        span: int | None = None
         for candidate in fmp_symbol_candidates(yahoo):
             symbol = candidate
             try:
@@ -840,13 +882,13 @@ def scan_eps_and_valuation(
                 break
             cached = reuse_eps.get(yahoo)
             if cached is not None:
-                eps, pe, growth = cached
+                eps, pe, growth, span = cached
                 reason = "PASS"
             else:
-                _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+                _ok, reason, eps, pe, growth, span = fetch_eps_pe_growth(symbol, api_key)
                 if reason == "FMP_RATE_LIMIT":
                     time.sleep(4.0)
-                    _ok, reason, eps, pe, growth = fetch_eps_pe_growth(symbol, api_key)
+                    _ok, reason, eps, pe, growth, span = fetch_eps_pe_growth(symbol, api_key)
                 if reason in ("FMP_HTTP", "FMP_ERROR"):
                     continue
                 if reason != "PASS":
@@ -868,18 +910,20 @@ def scan_eps_and_valuation(
             if atr_reason:
                 reason = atr_reason
             break
-        return item, symbol, reason, eps, pe, growth, atr_pct
+        return item, symbol, reason, eps, pe, growth, atr_pct, span
 
-    results: dict[str, tuple[str, str, float | None, float | None, float | None, float | None]] = {}
+    results: dict[
+        str, tuple[str, str, float | None, float | None, float | None, float | None, int | None]
+    ] = {}
     pending_by_yahoo = {yahoo: (tv, yahoo, name) for tv, yahoo, name in pending}
     done = 0
 
     def _write_cache(
         item: tuple[str, str, str],
-        res: tuple[str, str, float | None, float | None, float | None, float | None],
+        res: tuple[str, str, float | None, float | None, float | None, float | None, int | None],
     ) -> None:
         tv_i, yahoo_i, name_i = item
-        symbol_i, reason_i, eps_i, pe_i, growth_i, atr_i = res
+        symbol_i, reason_i, eps_i, pe_i, growth_i, atr_i, span_i = res
         rec = {
             "reason": reason_i,
             "tv_part": tv_i,
@@ -897,6 +941,7 @@ def scan_eps_and_valuation(
             "epsTtm": eps_i,
             "peTtm": pe_i,
             "growth5y": growth_i,
+            "growthSpanYears": span_i,
             "fmp": symbol_i,
             "qualityGate": QUALITY_GATE,
             "atrPct": atr_i,
@@ -905,9 +950,9 @@ def scan_eps_and_valuation(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_scan_one, item): item for item in pending}
         for fut in as_completed(futures):
-            item, symbol, reason, eps, pe, growth, atr_pct = fut.result()
+            item, symbol, reason, eps, pe, growth, atr_pct, span = fut.result()
             _tv, yahoo, _name = item
-            results[yahoo] = (symbol, reason, eps, pe, growth, atr_pct)
+            results[yahoo] = (symbol, reason, eps, pe, growth, atr_pct, span)
             done += 1
             if done % 100 == 0 or done == len(pending):
                 for y, res in results.items():
@@ -919,11 +964,11 @@ def scan_eps_and_valuation(
         res = results.get(yahoo)
         if res is None:
             continue
-        symbol, reason, eps, pe, growth, atr_pct = res
+        symbol, reason, eps, pe, growth, atr_pct, span = res
         _write_cache((tv, yahoo, name), res)
         if reason == "PASS":
             passed.append((tv, yahoo, name))
-            rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason))
+            rows.append(_valuation_row(tv, yahoo, name, eps, pe, growth, reason, span))
         else:
             rejects[reason] += 1
     _persist()

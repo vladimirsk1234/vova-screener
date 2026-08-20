@@ -1,19 +1,31 @@
 /**
  * Fast Graphs–style valuation: Normal P/E is median historical price/metric;
- * Fair Value uses PE 15 or Peter Lynch PEG=1 from trailing EPS CAGR in the
- * selected lookback window (1Y / 3Y / 5Y / 8Y / 10Y / MAX).
+ * Fair Value (orange line) uses three FG formulas from trailing metric CAGR in
+ * the selected lookback window (1Y / 3Y / 5Y / 8Y / 10Y / MAX):
+ *   GDF          — growth < 5%     → P/E = 15 (capped Graham; we do not use 8.5+2g)
+ *   GDF…P/E=G    — 5% ≤ growth < 15% → P/E = 15
+ *   P/E=G        — growth ≥ 15%    → P/E = growth % (Lynch PEG=1)
+ * The multiple is fixed for the whole window; each point is metric × that ratio.
+ * GAAP diluted EPS from FMP — not FAST Graphs adjusted operating EPS.
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
  */
 
 export type ValuationMetric = 'eps' | 'revenue' | 'fcf' | 'ownerEarnings';
 
-export type FairValueRule = 'pe15' | 'lynch_peg' | 'none';
+/** FAST Graphs orange-box labels: GDF / GDF…P/E=G / P/E=G. */
+export type FairValueRule = 'gdf' | 'gdf_pe_g' | 'pe_g' | 'none';
 
 /** Chart / Normal P/E window. `null` = MAX (all complete years). */
 export type ValuationWindowYears = 1 | 3 | 5 | 8 | 10 | null;
 
-/** Below this 5y CAGR, fair value uses a 15× multiple instead of PEG=1. */
-export const GROWTH_PE_FLOOR = 15;
+/** Growth below this uses GDF (still 15× under our capped-Graham rule). */
+export const GRAHAM_GROWTH_MAX = 5;
+/** Growth at/above this uses P/E = growth % (Lynch PEG=1). */
+export const LYNCH_GROWTH_MIN = 15;
+/** Fixed fair-value multiple for GDF and GDF…P/E=G bands. */
+export const FAIR_VALUE_PE = 15;
+/** @deprecated Use FAIR_VALUE_PE / LYNCH_GROWTH_MIN. Kept for callers. */
+export const GROWTH_PE_FLOOR = FAIR_VALUE_PE;
 
 export type AnnualFundamentalPoint = {
   /** Fiscal year end date YYYY-MM-DD */
@@ -105,8 +117,13 @@ export type ValuationSummary = {
   currentPe: number | null;
   /** Full-span CAGR of the selected metric. */
   metricCagrPct: number | null;
-  /** Trailing CAGR behind the PE15 / Lynch rule (positive years in the window only). */
+  /** Trailing CAGR behind the GDF / P/E=G rule (positive years in the window only). */
   growthRatePct: number | null;
+  /**
+   * Calendar years between the first and last positive points used for CAGR.
+   * May be shorter than `windowYears` (IPO / turnaround). Null when CAGR is N/A.
+   */
+  growthSpanYears: number | null;
   /** Always trailing — analyst estimates do not set the growth rate. */
   growthSource: 'trailing' | 'forward';
   fairValueRatio: number | null;
@@ -341,23 +358,30 @@ export function cagrPct(first: number, last: number, years: number): number | nu
   return (Math.pow(last / first, 1 / years) - 1) * 100;
 }
 
+export type TrailingCagrResult = {
+  growthPct: number | null;
+  /** Calendar years between the CAGR endpoints; null when growth is N/A. */
+  spanYears: number | null;
+};
+
 /**
  * Window-span CAGR using the last positive point and the positive point at or
  * before `last.year - lookbackYears`. Years with metric ≤ 0 are skipped.
- * A 1-year window is a simple YoY; longer windows need at least that span.
+ * A 1-year window is a simple YoY; if history is shorter than lookback, span
+ * is the actual years between the earliest and latest positive points.
  */
-export function trailingMetricCagr(
+export function trailingMetricCagrDetail(
   points: AnnualFundamentalPoint[],
   metric: ValuationMetric,
   lookbackYears = 5,
-): number | null {
+): TrailingCagrResult {
   const withM = [...points]
     .sort((a, b) => a.year - b.year)
     .filter((p) => {
       const m = pickMetric(p, metric);
       return finite(m) && m > 0;
     });
-  if (withM.length < 2) return null;
+  if (withM.length < 2) return { growthPct: null, spanYears: null };
   const last = withM[withM.length - 1]!;
   const targetYear = last.year - lookbackYears;
   let first = withM[0]!;
@@ -365,11 +389,19 @@ export function trailingMetricCagr(
     if (p.year <= targetYear) first = p;
   }
   const span = last.year - first.year;
-  if (span < 1) return null;
+  if (span < 1) return { growthPct: null, spanYears: null };
   const a = pickMetric(first, metric);
   const b = pickMetric(last, metric);
-  if (!finite(a) || !finite(b)) return null;
-  return cagrPct(a, b, span);
+  if (!finite(a) || !finite(b)) return { growthPct: null, spanYears: null };
+  return { growthPct: cagrPct(a, b, span), spanYears: span };
+}
+
+export function trailingMetricCagr(
+  points: AnnualFundamentalPoint[],
+  metric: ValuationMetric,
+  lookbackYears = 5,
+): number | null {
+  return trailingMetricCagrDetail(points, metric, lookbackYears).growthPct;
 }
 
 /** Lookback for trailing CAGR: 1 / 3 / 5 / 8 / 10, or a long span for MAX. */
@@ -406,16 +438,42 @@ export function forwardMetricCagr(
   return cagrPct(a, end.metric as number, span);
 }
 
+export type FairValueRatioOpts = {
+  /** Calendar years behind the CAGR. Null when growth is N/A (e.g. one profitable FY). */
+  spanYears?: number | null;
+  /** Selected chart window; `1` allows Lynch on a 1-year YoY. */
+  windowYears?: ValuationWindowYears;
+};
+
 /**
- * Fair Value Ratio: growth < 15% → 15×; growth ≥ 15% → PEG=1 (ratio = growth %).
+ * Fair Value Ratio from trailing growth (FAST Graphs orange line):
+ *   g < 5%           → 15× (GDF, capped)
+ *   5% ≤ g < 15%     → 15× (GDF…P/E=G)
+ *   g ≥ 15%          → P/E = g (P/E=G / Lynch)
+ * When `windowYears` / `spanYears` are supplied: Lynch is blocked if the window
+ * is not 1Y and the CAGR span is shorter than 2 years (IPO / GAAP turnaround
+ * like LYFT 0.06→6.81) — still draw FV at 15×.
  */
-export function fairValueRatioFromGrowth(growthPct: number | null): {
+export function fairValueRatioFromGrowth(
+  growthPct: number | null,
+  opts: FairValueRatioOpts = {},
+): {
   ratio: number | null;
   rule: FairValueRule;
 } {
+  const hasSpanGuard = opts.spanYears !== undefined || opts.windowYears !== undefined;
+  if (hasSpanGuard) {
+    const spanYears = opts.spanYears ?? null;
+    const windowYears = opts.windowYears === undefined ? null : opts.windowYears;
+    const allowLynch = windowYears === 1 || (spanYears != null && spanYears >= 2);
+    if (!allowLynch) {
+      return { ratio: FAIR_VALUE_PE, rule: 'gdf_pe_g' };
+    }
+  }
   if (growthPct == null || !finite(growthPct)) return { ratio: null, rule: 'none' };
-  if (growthPct < GROWTH_PE_FLOOR) return { ratio: GROWTH_PE_FLOOR, rule: 'pe15' };
-  return { ratio: Math.round(growthPct * 100) / 100, rule: 'lynch_peg' };
+  if (growthPct < GRAHAM_GROWTH_MAX) return { ratio: FAIR_VALUE_PE, rule: 'gdf' };
+  if (growthPct < LYNCH_GROWTH_MIN) return { ratio: FAIR_VALUE_PE, rule: 'gdf_pe_g' };
+  return { ratio: Math.round(growthPct * 100) / 100, rule: 'pe_g' };
 }
 
 export function yoyChgPct(curr: number | null | undefined, prev: number | null | undefined): number | null {
@@ -470,8 +528,15 @@ export function buildValuationSeries(
       : computeNormalMultiple(sorted, metric);
 
   const growthSource = 'trailing' as const;
-  const growthRatePct = trailingMetricCagr(sorted, metric, windowLookbackYears(windowYears));
-  const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct);
+  const { growthPct: growthRatePct, spanYears: growthSpanYears } = trailingMetricCagrDetail(
+    sorted,
+    metric,
+    windowLookbackYears(windowYears),
+  );
+  const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct, {
+    spanYears: growthSpanYears,
+    windowYears,
+  });
   const earningsScale = fairValueRatio ?? multiple;
 
   const series: ValuationSeriesPoint[] = sorted.map((p) => {
@@ -544,6 +609,7 @@ export function buildValuationSeries(
       currentPe,
       metricCagrPct,
       growthRatePct,
+      growthSpanYears,
       growthSource,
       fairValueRatio,
       fairValueRule,

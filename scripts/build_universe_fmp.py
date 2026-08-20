@@ -7,7 +7,8 @@ Layer 1: FMP company-screener (NYSE/NASDAQ/AMEX + TSX/NEO; no CSE/TSXV)
 Dual-list: drop CA when the same company lists in the US
 Layer 2: profile liquidity (price / volAvg / dollar ADV / mktCap) + TTM EPS > 0
          + daily ATR% > 1% (no upper bound)
-Valuation: 5y EPS CAGR; PE < 15 if growth < 15%, else Lynch PEG < 1
+Valuation: 5y EPS CAGR; GDF/GDF…P/E=G → PE < 15; P/E=G → Lynch PEG < 1;
+         short CAGR span (<2y) stays at PE < 15 (no Lynch)
 
 Yahoo OHLC is not used. Requires FMP_API_KEY (Premium for CA + history).
 

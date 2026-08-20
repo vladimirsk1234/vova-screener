@@ -81,22 +81,46 @@ function compact(n: number | null | undefined) {
 }
 
 function fvRuleLabel(rule: string | undefined) {
-  if (rule === 'pe15') return 'PE 15';
-  if (rule === 'lynch_peg') return 'Lynch PEG=1';
+  if (rule === 'gdf') return 'GDF';
+  if (rule === 'gdf_pe_g') return 'GDF…P/E=G';
+  if (rule === 'pe_g') return 'P/E=G';
+  // Cached Mongo / older payloads
+  if (rule === 'pe15') return 'GDF…P/E=G';
+  if (rule === 'lynch_peg') return 'P/E=G';
   return 'N/A';
 }
 
-/** Forward growth spans the window through the last estimate, so a fixed "5y" would be wrong. */
-function growthLabel(source: string | undefined, windowYears: ValuationWindowYears) {
-  if (source === 'forward') return 'Growth (fwd)';
-  if (windowYears == null) return 'Growth (max)';
-  return `Growth (${windowYears}y)`;
+/** Prefer the actual CAGR span when history is shorter than the selected window. */
+function growthSpanLabelYears(
+  windowYears: ValuationWindowYears,
+  growthSpanYears: number | null | undefined,
+): ValuationWindowYears | number | null {
+  if (growthSpanYears != null && Number.isFinite(growthSpanYears) && growthSpanYears >= 1) {
+    if (windowYears == null || growthSpanYears < windowYears) return growthSpanYears;
+  }
+  return windowYears;
 }
 
-function growthRateLabel(source: string | undefined, windowYears: ValuationWindowYears) {
+function growthLabel(
+  source: string | undefined,
+  windowYears: ValuationWindowYears,
+  growthSpanYears?: number | null,
+) {
+  if (source === 'forward') return 'Growth (fwd)';
+  const years = growthSpanLabelYears(windowYears, growthSpanYears);
+  if (years == null) return 'Growth (max)';
+  return `Growth (${years}y)`;
+}
+
+function growthRateLabel(
+  source: string | undefined,
+  windowYears: ValuationWindowYears,
+  growthSpanYears?: number | null,
+) {
   if (source === 'forward') return 'Growth Rate (fwd)';
-  if (windowYears == null) return 'Growth Rate (max)';
-  return `Growth Rate (${windowYears}y)`;
+  const years = growthSpanLabelYears(windowYears, growthSpanYears);
+  if (years == null) return 'Growth Rate (max)';
+  return `Growth Rate (${years}y)`;
 }
 
 export function FundamentalsPanel({
@@ -179,7 +203,7 @@ export function FundamentalsPanel({
             </div>
             <dl className="fund-hero-stats">
               <div>
-                <dt>{growthLabel(summary?.growthSource, windowYears)}</dt>
+                <dt>{growthLabel(summary?.growthSource, windowYears, summary?.growthSpanYears)}</dt>
                 <dd>{pct(summary?.growthRatePct)}</dd>
               </div>
               <div>
@@ -211,7 +235,7 @@ export function FundamentalsPanel({
             <div className="fund-layout">
               <aside className="fund-sidebar">
                 <Metric
-                  label={growthRateLabel(summary?.growthSource, windowYears)}
+                  label={growthRateLabel(summary?.growthSource, windowYears, summary?.growthSpanYears)}
                   value={pct(summary?.growthRatePct)}
                 />
                 <Metric
@@ -384,7 +408,8 @@ export function FundamentalsPanel({
 
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
-          Fair value = GAAP diluted EPS × 15× when 5y EPS CAGR &lt; 15%, else PEG=1 (ratio = growth %).
+          Fair value (orange): GDF / GDF…P/E=G / P/E=G — GAAP diluted EPS × 15× when growth &lt; 15%
+          (or when the CAGR span is under 2 years on a multi-year window), else P/E = growth %.
           Normal P/E is the median price/EPS on the selected 1Y / 3Y / 5Y / 8Y / 10Y / MAX window. Per-share
           figures are converted to the listing currency (and per ADS when the ADR ratio is known).
           Source: Financial Modeling Prep GAAP diluted, not FAST Graphs adjusted operating EPS.
