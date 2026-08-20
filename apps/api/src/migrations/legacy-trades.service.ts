@@ -97,19 +97,19 @@ export class LegacyTradesMigration implements OnModuleInit {
     private readonly settings: SettingsService,
   ) {}
 
-  async onModuleInit() {
-    try {
-      const report = await this.run();
-      if (report) {
-        this.log.log(
-          `imported ${report.imported} journal entries ` +
-            `(${report.superseded} already tracked, ${report.skipped} unusable)`,
-        );
-      }
-    } catch (err) {
-      // The journal is still on disk, so a failed import can be retried; it must not stop the app.
-      this.log.error(`journal import failed: ${(err as Error).message}`);
-    }
+  onModuleInit() {
+    void this.run()
+      .then((report) => {
+        if (report) {
+          this.log.log(
+            `imported ${report.imported} journal entries ` +
+              `(${report.superseded} already tracked, ${report.skipped} unusable)`,
+          );
+        }
+      })
+      .catch((err) => {
+        this.log.error(`journal import failed: ${(err as Error).message}`);
+      });
   }
 
   async run(): Promise<LegacyImportReport | null> {

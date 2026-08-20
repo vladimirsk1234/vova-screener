@@ -44,18 +44,18 @@ export class ReopenNonBreakExits implements OnModuleInit {
 
   constructor(@InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>) {}
 
-  async onModuleInit() {
-    try {
-      const report = await this.run();
+  onModuleInit() {
+    void this.run()
+      .then((report) => {
       if (report.reopened || report.superseded) {
         this.log.log(
           `non-break exits: ${report.reopened} trades re-opened, ${report.superseded} superseded`,
         );
       }
-    } catch (err) {
-      // The rows stay exactly where they were, so a failure here must not stop boot.
-      this.log.error(`re-opening non-break exits failed: ${(err as Error).message}`);
-    }
+      })
+      .catch((err) => {
+        this.log.error(`re-opening non-break exits failed: ${(err as Error).message}`);
+      });
   }
 
   async run(): Promise<ReopenReport> {

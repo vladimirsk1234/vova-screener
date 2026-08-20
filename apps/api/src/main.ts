@@ -60,6 +60,7 @@ async function bootstrap() {
       ? `UI + API listening on http://localhost:${port}/`
       : `API listening on http://localhost:${port}/api`,
   );
+  new Logger('Bootstrap').log(`Ready — GET /api/health on port ${port}`);
 }
 
 void bootstrap();

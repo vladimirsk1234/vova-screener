@@ -63,18 +63,18 @@ export class NormalizeSymbols implements OnModuleInit {
     @InjectModel(INSTRUMENT) private readonly instruments: Model<any>,
   ) {}
 
-  async onModuleInit() {
-    try {
-      const report = await this.run();
+  onModuleInit() {
+    void this.run()
+      .then((report) => {
       if (report.normalized || report.deduped) {
         this.log.log(
           `symbols: ${report.normalized} records renamed, ${report.deduped} duplicate trades dropped`,
         );
       }
-    } catch (err) {
-      // Nothing has been renamed that was not also readable before, so this must not stop boot.
-      this.log.error(`symbol normalization failed: ${(err as Error).message}`);
-    }
+      })
+      .catch((err) => {
+        this.log.error(`symbol normalization failed: ${(err as Error).message}`);
+      });
   }
 
   async run(): Promise<NormalizeSymbolsReport> {

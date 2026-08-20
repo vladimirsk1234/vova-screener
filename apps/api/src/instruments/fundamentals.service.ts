@@ -849,7 +849,11 @@ export class FundamentalsService {
             stars: 1,
             bestPremiumPct: 1,
           },
-          $set: { updatedAt: new Date() },
+          $set: {
+            updatedAt: new Date(),
+            // Stamp current scale so the next boot does not wipe the same docs again.
+            scaleVersion: FUNDAMENTALS_SCALE_VERSION,
+          },
         },
       )
       .exec();

@@ -29,14 +29,18 @@ export class UniverseService implements OnModuleInit {
 
   constructor(@InjectModel(INSTRUMENT) private readonly instruments: Model<any>) {}
 
-  async onModuleInit() {
-    // Re-import when DB is empty OR out of sync with list files (e.g. after
-    // STOCK-TICKERS.txt grows via gap-scan / deploy). Previously only empty DB
-    // triggered import, so the UI kept showing the old symbol count.
-    if (await this.needsImport()) {
-      const res = await this.importFromFiles();
-      this.log.log(`Universe imported: ${JSON.stringify(res)}`);
-    }
+  onModuleInit() {
+    // Do not await: a full STOCK-TICKERS upsert would block listen() and Railway's
+    // /api/health check (120s). Import continues in the background.
+    void this.syncFromFiles().catch((err) => {
+      this.log.error(`Universe import failed: ${(err as Error).message}`);
+    });
+  }
+
+  private async syncFromFiles() {
+    if (!(await this.needsImport())) return;
+    const res = await this.importFromFiles();
+    this.log.log(`Universe imported: ${JSON.stringify(res)}`);
   }
 
   private fileEntryCount(filename: string): number {

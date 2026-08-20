@@ -43,18 +43,18 @@ export class SignalAgeBackfill implements OnModuleInit {
     private readonly bars: BarsService,
   ) {}
 
-  async onModuleInit() {
-    try {
-      const report = await this.run();
-      if (report.filled || report.skipped) {
-        this.log.log(
-          `signal age backfill: ${report.filled} filled, ${report.skipped} left without an age`,
-        );
-      }
-    } catch (err) {
-      // A failed backfill leaves the records where they already were, so it must not stop boot.
-      this.log.error(`signal age backfill failed: ${(err as Error).message}`);
-    }
+  onModuleInit() {
+    void this.run()
+      .then((report) => {
+        if (report.filled || report.skipped) {
+          this.log.log(
+            `signal age backfill: ${report.filled} filled, ${report.skipped} left without an age`,
+          );
+        }
+      })
+      .catch((err) => {
+        this.log.error(`signal age backfill failed: ${(err as Error).message}`);
+      });
   }
 
   async run(): Promise<AgeBackfillReport> {

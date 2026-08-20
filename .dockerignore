@@ -11,10 +11,14 @@ node_modules
 docs
 cloudflared
 scripts
+reports
+.cache
 .streamlit
 .devcontainer
 .cursor
 agent-transcripts
+apps/web/test-results
+apps/web/playwright-report
 **/*.pyc
 **/__pycache__
 .venv
