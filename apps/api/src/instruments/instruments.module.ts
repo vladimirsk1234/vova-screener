@@ -27,6 +27,40 @@ class InstrumentsController {
     return this.fundamentalsSvc.getCardMetrics(list);
   }
 
+  /**
+   * Fundamental Value screener: STOCK-TICKERS ranked by how many of EPS/FCF/DCF are undervalued.
+   */
+  @Get('fundamentals-screener')
+  fundamentalsScreener(
+    @Query('stars') stars?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    const starFilters = ['undervalued', '1', '2', '3', 'all'] as const;
+    const sorts = ['stars', 'eps', 'fcf', 'dcf', 'symbol'] as const;
+    const dirs = ['asc', 'desc'] as const;
+    const star = starFilters.includes(stars as (typeof starFilters)[number])
+      ? (stars as (typeof starFilters)[number])
+      : 'undervalued';
+    const s = sorts.includes(sort as (typeof sorts)[number])
+      ? (sort as (typeof sorts)[number])
+      : 'stars';
+    const d = dirs.includes(dir as (typeof dirs)[number])
+      ? (dir as (typeof dirs)[number])
+      : 'desc';
+    const lim = Number(limit);
+    const off = Number(offset);
+    return this.fundamentalsSvc.listScreener({
+      stars: star,
+      sort: s,
+      dir: d,
+      limit: Number.isFinite(lim) ? lim : undefined,
+      offset: Number.isFinite(off) ? off : undefined,
+    });
+  }
+
   @Get(':ticker/chart')
   chart(
     @Param('ticker') ticker: string,

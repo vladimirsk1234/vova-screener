@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseListEntry } from '@vova/engine';
-import { TIMEFRAMES, UNIVERSES, api, type BuySignal, type Rejection, type Timeframe } from '../lib/api';
+import { TIMEFRAMES, api, type BuySignal, type Rejection, type Timeframe } from '../lib/api';
 import { barsLabel, money, num } from '../lib/format';
 import { readManualSearchHistory, rememberManualSearch, rememberResolvedManualSearch } from '../lib/manualSearchHistory';
-import { resultsPathForUniverse } from '../lib/tabMemory';
 import { Chips } from '../components/Chips';
-import { SegmentedTabs } from '../components/SegmentedTabs';
+import { UniverseTabs } from '../components/UniverseTabs';
 import { useScanProgress } from '../lib/useScanProgress';
 
 const ACTIVE_RUN_KEY = 'vova.manualRunId';
@@ -160,17 +159,7 @@ export function ManualPage() {
   return (
     <div>
       <section className="results-head">
-        <SegmentedTabs
-          label="Universe"
-          segments={[
-            ...UNIVERSES.map((u) => ({
-              value: u,
-              to: resultsPathForUniverse(u),
-              label: u,
-            })),
-            { value: 'manual' as const, to: '/results/manual', label: 'Manual' },
-          ]}
-        />
+        <UniverseTabs />
       </section>
 
       <section className="card">

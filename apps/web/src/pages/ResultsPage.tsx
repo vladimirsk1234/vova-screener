@@ -18,6 +18,7 @@ import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips, type SortOption } from '../components/SortChips';
+import { UniverseTabs } from '../components/UniverseTabs';
 
 const PAGE_SIZE = 100;
 
@@ -133,17 +134,7 @@ export function ResultsPage() {
   return (
     <div>
       <section className="results-head">
-        <SegmentedTabs
-          label="Universe"
-          segments={[
-            ...UNIVERSES.map((u) => ({
-              value: u,
-              to: `/results/${u}/${tf}/${bucket}`,
-              label: u,
-            })),
-            { value: 'manual' as const, to: '/results/manual', label: 'Manual' },
-          ]}
-        />
+        <UniverseTabs tf={tf} bucket={bucket} />
 
         <SegmentedTabs
           label="Timeframe"

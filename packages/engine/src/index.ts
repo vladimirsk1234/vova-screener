@@ -20,3 +20,4 @@ export {
 export * from './fundamentalsValuation';
 export * from './fundamentalsScale';
 export * from './dcfFairValue';
+export * from './valueScore';

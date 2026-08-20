@@ -3,21 +3,32 @@ import { Injectable, Logger, NotFoundException, ServiceUnavailableException } fr
 import {
   FUNDAMENTALS_SCALE_VERSION,
   annualizedPriceReturnPct,
+  bestValuePremium,
   buildValuationSeries,
+  compareValueRows,
   completeFiscalYears,
   impliedPe,
   peInBand,
+  rowMatchesStarsFilter,
   scaleDcf,
   scalePerShare,
   scaleTev,
+  scoreValueStars,
+  seqStructFromBars,
   ttmFromQuarterly,
   yoyChgPct,
   type AnnualFundamentalPoint,
   type ChartFundamentals,
   type ForwardMetricPoint,
   type FundamentalsScale,
+  type OhlcSeries,
+  type SeqStructStatus,
+  type Timeframe,
   type ValuationMetric,
   type ValuationSeriesPoint,
+  type ValueScreenerSort,
+  type ValueSortDir,
+  type ValueStarsFilter,
 } from '@vova/engine';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
@@ -101,6 +112,48 @@ export type CardFundamentals = {
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
+};
+
+export type TaSnapshotMap = {
+  daily?: SeqStructStatus | null;
+  weekly?: SeqStructStatus | null;
+  monthly?: SeqStructStatus | null;
+};
+
+export type ValueScreenerRow = {
+  yahooTicker: string;
+  symbol: string;
+  tvSymbol: string;
+  companyName: string;
+  stars: number;
+  epsPremiumPct: number | null;
+  fcfPremiumPct: number | null;
+  dcfPremiumPct: number | null;
+  epsFairValue: number | null;
+  fcfFairValue: number | null;
+  dcfFairValue: number | null;
+  bestPremiumPct: number | null;
+  growthRatePct: number | null;
+  blendedPe: number | null;
+  ltDebtToCapitalTTM: number | null;
+  ta: TaSnapshotMap;
+};
+
+export type ValueScreenerPage = {
+  rows: ValueScreenerRow[];
+  total: number;
+  counts: { all: number; undervalued: number; 1: number; 2: number; 3: number };
+};
+
+type StarFields = {
+  epsFairValue: number | null;
+  fcfFairValue: number | null;
+  dcfFairValue: number | null;
+  epsPremiumPct: number | null;
+  fcfPremiumPct: number | null;
+  dcfPremiumPct: number | null;
+  stars: number;
+  bestPremiumPct: number | null;
 };
 
 export type ValuationSets = {
@@ -424,6 +477,62 @@ type ChartFundCacheEntry = {
   description: string | null;
 };
 
+function finiteNum(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function starFieldsFromPremia(
+  premia: {
+    epsFairValue: number | null;
+    fcfFairValue: number | null;
+    dcfFairValue: number | null;
+    epsPremiumPct: number | null;
+    fcfPremiumPct: number | null;
+    dcfPremiumPct: number | null;
+  },
+): StarFields {
+  const score = scoreValueStars(premia);
+  return {
+    ...premia,
+    stars: score.stars,
+    bestPremiumPct: bestValuePremium(premia),
+  };
+}
+
+function starFieldsFromPayload(payload: FundamentalsPayload): StarFields {
+  const reliable = payload.scale?.reliable !== false;
+  const epsFairValue = reliable ? finiteNum(payload.valuation?.summary?.fairValue) : null;
+  const epsPremiumPct = reliable ? finiteNum(payload.valuation?.summary?.premiumPct) : null;
+  let fcfFairValue: number | null = null;
+  let fcfPremiumPct: number | null = null;
+  if (reliable && Array.isArray(payload.annual) && payload.annual.length) {
+    const fcfVal = buildValuationSeries(payload.annual, 'fcf', {
+      currentPrice: payload.profile?.price ?? null,
+      windowYears: 5,
+      forward: [],
+      ttmMetric: finiteNum(payload.snapshot?.ttmFcf),
+    });
+    fcfFairValue = finiteNum(fcfVal.summary.fairValue);
+    fcfPremiumPct = finiteNum(fcfVal.summary.premiumPct);
+  }
+  const dcfFairValue = reliable ? finiteNum(payload.snapshot?.dcf) : null;
+  const dcfPremiumPct = reliable ? finiteNum(payload.snapshot?.dcfPremiumPct) : null;
+  return starFieldsFromPremia({
+    epsFairValue,
+    fcfFairValue,
+    dcfFairValue,
+    epsPremiumPct,
+    fcfPremiumPct,
+    dcfPremiumPct,
+  });
+}
+
+function tfKey(tf: Timeframe): 'daily' | 'weekly' | 'monthly' {
+  if (tf === 'Weekly') return 'weekly';
+  if (tf === 'Monthly') return 'monthly';
+  return 'daily';
+}
+
 @Injectable()
 export class FundamentalsService {
   private readonly log = new Logger(FundamentalsService.name);
@@ -717,6 +826,14 @@ export class FundamentalsService {
             growthRatePct: 1,
             blendedPe: 1,
             ltDebtToCapitalTTM: 1,
+            epsFairValue: 1,
+            fcfFairValue: 1,
+            dcfFairValue: 1,
+            epsPremiumPct: 1,
+            fcfPremiumPct: 1,
+            dcfPremiumPct: 1,
+            stars: 1,
+            bestPremiumPct: 1,
           },
           $set: { updatedAt: new Date() },
         },
@@ -745,6 +862,217 @@ export class FundamentalsService {
 
   async storedCount(): Promise<number> {
     return this.store.countDocuments().exec();
+  }
+
+  /**
+   * Recompute EPS/FCF/DCF premiums and N/3 stars from stored payloads.
+   * Needed once for docs written before those fields existed.
+   */
+  async backfillStarFields(): Promise<number> {
+    const docs = await this.store
+      .find({ payload: { $exists: true, $ne: null }, stars: { $exists: false } })
+      .select('yahooTicker payload')
+      .lean<Array<{ yahooTicker: string; payload: FundamentalsPayload }>>()
+      .exec();
+    if (!docs.length) return 0;
+    const ops = [];
+    for (const doc of docs) {
+      if (!doc.payload || typeof doc.payload !== 'object') continue;
+      if (!hasCurrentScale(doc.payload, FUNDAMENTALS_SCALE_VERSION)) continue;
+      const stars = starFieldsFromPayload(doc.payload);
+      ops.push({
+        updateOne: {
+          filter: { yahooTicker: doc.yahooTicker },
+          update: { $set: { ...stars, updatedAt: new Date() } },
+        },
+      });
+    }
+    if (!ops.length) return 0;
+    const res = await this.store.bulkWrite(ops, { ordered: false });
+    this.log.log(`Backfilled Value stars on ${res.modifiedCount ?? ops.length} fundamentals docs`);
+    return res.modifiedCount ?? ops.length;
+  }
+
+  async listScreener(opts: {
+    stars?: ValueStarsFilter;
+    sort?: ValueScreenerSort;
+    dir?: ValueSortDir;
+    limit?: number;
+    offset?: number;
+  }): Promise<ValueScreenerPage> {
+    const filter: ValueStarsFilter = opts.stars ?? 'undervalued';
+    const sort: ValueScreenerSort = opts.sort ?? 'stars';
+    const dir: ValueSortDir = opts.dir ?? 'desc';
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 200);
+    const offset = Math.max(opts.offset ?? 0, 0);
+
+    await this.backfillStarFields().catch((err) => {
+      this.log.warn(
+        `Value stars backfill skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+
+    const stocks = await this.universe.listStockEntries();
+    const byYahoo = new Map(stocks.map((s) => [s.yahooTicker, s]));
+    const tickers = stocks.map((s) => s.yahooTicker);
+    if (!tickers.length) {
+      return { rows: [], total: 0, counts: { all: 0, undervalued: 0, 1: 0, 2: 0, 3: 0 } };
+    }
+
+    const docs = await this.store
+      .find({
+        yahooTicker: { $in: tickers },
+        scaleVersion: FUNDAMENTALS_SCALE_VERSION,
+        valuationReliable: { $ne: false },
+      })
+      .select(
+        'yahooTicker fairValue premiumPct growthRatePct blendedPe ltDebtToCapitalTTM epsFairValue fcfFairValue dcfFairValue epsPremiumPct fcfPremiumPct dcfPremiumPct stars bestPremiumPct taSnapshot',
+      )
+      .lean<any[]>()
+      .exec();
+
+    const scored: ValueScreenerRow[] = [];
+    const counts = { all: 0, undervalued: 0, 1: 0, 2: 0, 3: 0 };
+
+    for (const doc of docs) {
+      const listing = byYahoo.get(String(doc.yahooTicker || '').toUpperCase());
+      if (!listing) continue;
+      const epsPremiumPct = finiteNum(doc.epsPremiumPct) ?? finiteNum(doc.premiumPct);
+      const fcfPremiumPct = finiteNum(doc.fcfPremiumPct);
+      const dcfPremiumPct = finiteNum(doc.dcfPremiumPct);
+      const epsFairValue = finiteNum(doc.epsFairValue) ?? finiteNum(doc.fairValue);
+      const fcfFairValue = finiteNum(doc.fcfFairValue);
+      const dcfFairValue = finiteNum(doc.dcfFairValue);
+      const computed = starFieldsFromPremia({
+        epsFairValue,
+        fcfFairValue,
+        dcfFairValue,
+        epsPremiumPct,
+        fcfPremiumPct,
+        dcfPremiumPct,
+      });
+      const starCount = finiteNum(doc.stars) ?? computed.stars;
+      const bestPremiumPct = finiteNum(doc.bestPremiumPct) ?? computed.bestPremiumPct;
+      counts.all += 1;
+      if (starCount >= 1) counts.undervalued += 1;
+      if (starCount === 1) counts[1] += 1;
+      if (starCount === 2) counts[2] += 1;
+      if (starCount === 3) counts[3] += 1;
+      if (!rowMatchesStarsFilter(starCount, filter)) continue;
+
+      const ta = (doc.taSnapshot ?? {}) as TaSnapshotMap;
+      scored.push({
+        yahooTicker: listing.yahooTicker,
+        symbol: listing.symbol,
+        tvSymbol: listing.tvSymbol,
+        companyName: listing.companyName,
+        stars: starCount,
+        epsPremiumPct,
+        fcfPremiumPct,
+        dcfPremiumPct,
+        epsFairValue,
+        fcfFairValue,
+        dcfFairValue,
+        bestPremiumPct,
+        growthRatePct: finiteNum(doc.growthRatePct),
+        blendedPe: finiteNum(doc.blendedPe),
+        ltDebtToCapitalTTM: finiteNum(doc.ltDebtToCapitalTTM),
+        ta: {
+          daily: ta.daily ?? null,
+          weekly: ta.weekly ?? null,
+          monthly: ta.monthly ?? null,
+        },
+      });
+    }
+
+    scored.sort((a, b) => compareValueRows(a, b, sort, dir));
+    const rows = scored.slice(offset, offset + limit);
+    await this.fillTaForRows(rows);
+    return { rows, total: scored.length, counts };
+  }
+
+  /** Merge one timeframe's Seq/Struct into instrumentFundamentals.taSnapshot. */
+  async mergeTaSnapshot(
+    yahooTicker: string,
+    tf: Timeframe,
+    status: SeqStructStatus,
+  ): Promise<void> {
+    const t = yahooTicker.toUpperCase();
+    const key = tfKey(tf);
+    await this.store
+      .updateOne(
+        { yahooTicker: t },
+        {
+          $set: {
+            yahooTicker: t,
+            [`taSnapshot.${key}`]: status,
+            'taSnapshot.updatedAt': new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      )
+      .exec();
+  }
+
+  async mergeTaSnapshots(
+    items: Array<{ yahooTicker: string; tf: Timeframe; status: SeqStructStatus }>,
+  ): Promise<void> {
+    if (!items.length) return;
+    const ops = items.map((item) => ({
+      updateOne: {
+        filter: { yahooTicker: item.yahooTicker.toUpperCase() },
+        update: {
+          $set: {
+            yahooTicker: item.yahooTicker.toUpperCase(),
+            [`taSnapshot.${tfKey(item.tf)}`]: item.status,
+            'taSnapshot.updatedAt': new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        upsert: true,
+      },
+    }));
+    await this.store.bulkWrite(ops, { ordered: false });
+  }
+
+  async persistTaFromBars(yahooTicker: string, tf: Timeframe, bars: OhlcSeries | null): Promise<void> {
+    if (!bars?.length) return;
+    const status = seqStructFromBars(bars, tf);
+    if (!status) return;
+    await this.mergeTaSnapshot(yahooTicker, tf, status);
+  }
+
+  private async fillTaForRows(rows: ValueScreenerRow[]): Promise<void> {
+    const tfs: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
+    const need = rows.filter(
+      (row) => !row.ta.daily || !row.ta.weekly || !row.ta.monthly,
+    );
+    if (!need.length) return;
+    const cached = await this.bars.getCachedMany(
+      need.map((r) => r.yahooTicker),
+      tfs,
+    );
+    const writes: Array<{ yahooTicker: string; tf: Timeframe; status: SeqStructStatus }> = [];
+    for (const row of need) {
+      for (const tf of tfs) {
+        const key = tfKey(tf);
+        if (row.ta[key]) continue;
+        const bars = cached.get(`${row.yahooTicker}|${tf}`);
+        if (!bars) continue;
+        const status = seqStructFromBars(bars, tf);
+        if (!status) continue;
+        row.ta[key] = status;
+        writes.push({ yahooTicker: row.yahooTicker, tf, status });
+      }
+    }
+    if (writes.length) {
+      await this.mergeTaSnapshots(writes).catch((err) => {
+        this.log.warn(
+          `TA snapshot persist failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
   }
 
   /** Weekly / first-fill job: full 13-endpoint fetch. Keeps the old doc on failure. */
@@ -784,6 +1112,7 @@ export class FundamentalsService {
   ): Promise<void> {
     const t = ticker.toUpperCase();
     const card = this.metricsFromPayload(payload);
+    const stars = starFieldsFromPayload(payload);
     const now = new Date();
     const set: Record<string, unknown> = {
       yahooTicker: t,
@@ -793,6 +1122,7 @@ export class FundamentalsService {
       growthRatePct: card.growthRatePct,
       blendedPe: card.blendedPe,
       ltDebtToCapitalTTM: card.ltDebtToCapitalTTM,
+      ...stars,
       updatedAt: now,
     };
     if (kind === 'full') set.fetchedAt = now;
@@ -819,6 +1149,8 @@ export class FundamentalsService {
             growthRatePct: metrics.growthRatePct,
             blendedPe: metrics.blendedPe,
             ltDebtToCapitalTTM: metrics.ltDebtToCapitalTTM,
+            epsFairValue: metrics.fairValue,
+            epsPremiumPct: metrics.premiumPct,
             scaleVersion: scale?.version ?? FUNDAMENTALS_SCALE_VERSION,
             valuationReliable: scale?.reliable !== false,
             updatedAt: new Date(),
@@ -855,7 +1187,7 @@ export class FundamentalsService {
       currentPrice: stored.profile.price,
       windowYears: 5,
       forward: forwardFor(metric, stored.estimates),
-      ttmMetric: null,
+      ttmMetric: metric === 'fcf' ? stored.snapshot.ttmFcf ?? null : null,
     });
     return {
       ...stored,
