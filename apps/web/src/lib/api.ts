@@ -461,6 +461,8 @@ export type ValueScreenerRow = {
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
+  interest: Interest | null;
+  interestRank: number;
   ta: {
     daily?: SeqStructStatus | null;
     weekly?: SeqStructStatus | null;
@@ -469,7 +471,13 @@ export type ValueScreenerRow = {
 };
 
 export type ValueStarsFilter = 'undervalued' | '1' | '2' | '3' | 'all';
-export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol';
+export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
+
+export type TickerInterest = {
+  yahooTicker: string;
+  interest: Interest | null;
+  interestRank: number;
+};
 
 export type ValueScreenerPage = {
   rows: ValueScreenerRow[];
@@ -726,6 +734,13 @@ export const api = {
   signal: (id: string) => request<ResultRow>(`/results/signal/${encodeURIComponent(id)}`),
   setInterest: (id: string, interest: Interest | null) =>
     request<ResultRow>(`/results/${id}/interest`, {
+      method: 'PATCH',
+      body: JSON.stringify({ interest }),
+    }),
+  getTickerInterest: (ticker: string) =>
+    request<TickerInterest>(`/instruments/${encodeURIComponent(ticker)}/interest`),
+  setTickerInterest: (ticker: string, interest: Interest | null) =>
+    request<TickerInterest>(`/instruments/${encodeURIComponent(ticker)}/interest`, {
       method: 'PATCH',
       body: JSON.stringify({ interest }),
     }),

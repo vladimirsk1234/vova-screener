@@ -284,15 +284,22 @@ export const InstrumentFundamentalsSchema = new Schema(
     stars: Number,
     /** Most negative of the three premiums — sort tie-break. */
     bestPremiumPct: Number,
+    interest: { type: String, enum: ['interested', 'not_interested'], default: null },
+    /** Sortable form of ticker interest: interested 2, unmarked 1, not interested 0. */
+    interestRank: { type: Number, default: 1 },
+    interestAt: Date,
     taSnapshot: {
       daily: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
       weekly: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
       monthly: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
       updatedAt: Date,
     },
+    scaleVersion: Number,
+    valuationReliable: Boolean,
     fetchedAt: Date,
     updatedAt: { type: Date, default: Date.now },
   },
   { versionKey: false },
 );
 InstrumentFundamentalsSchema.index({ stars: -1, bestPremiumPct: 1 });
+InstrumentFundamentalsSchema.index({ interestRank: -1, stars: -1 });

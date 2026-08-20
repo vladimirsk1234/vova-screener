@@ -25,11 +25,11 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('tab', { name: 'Fundamentals', exact: true })).toBeVisible();
   });
 
-  /** The mark lives on the tracked signal, so it is disabled for symbols nothing is tracking. */
-  test('interest buttons are disabled for untracked symbols', async ({ page }) => {
+  /** Ticker-level mark when the chart is not opened on a tracked signal (Value tab). */
+  test('interest buttons stay enabled without a tracked signal', async ({ page }) => {
     await page.goto('/chart/ZZ-NOT-TRACKED');
-    await expect(page.getByRole('button', { name: 'Interested', exact: true })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Not Interested' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Interested', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Not Interested' })).toBeEnabled();
   });
 
   test('TA / Fundamentals toggle keeps the selected timeframe', async ({ page }) => {
