@@ -42,6 +42,27 @@ export class BarsService {
     return this.decode(doc, tf);
   }
 
+  async getCachedMany(
+    tickers: string[],
+    tfs: Timeframe[],
+  ): Promise<Map<string, OhlcSeries>> {
+    const out = new Map<string, OhlcSeries>();
+    if (!tickers.length || !tfs.length) return out;
+    const intervals = [...new Set(tfs.map((tf) => this.intervalOf(tf)))];
+    const tfByInterval = new Map(tfs.map((tf) => [this.intervalOf(tf), tf]));
+    const docs = await this.barSeries
+      .find({ yahooTicker: { $in: tickers }, interval: { $in: intervals } })
+      .lean<any[]>()
+      .exec();
+    for (const doc of docs) {
+      if (!doc?.barCount) continue;
+      const tf = tfByInterval.get(doc.interval);
+      if (!tf) continue;
+      out.set(`${doc.yahooTicker}|${tf}`, this.decode(doc, tf));
+    }
+    return out;
+  }
+
   async getBars(
     yahooTicker: string,
     tf: Timeframe,

@@ -4,6 +4,7 @@ import { HistoryPage } from './pages/HistoryPage';
 import { ManualPage } from './pages/ManualPage';
 import { RejectedPage } from './pages/RejectedPage';
 import { ResultsPage } from './pages/ResultsPage';
+import { ValuePage } from './pages/ValuePage';
 import { SettingsSheet } from './components/SettingsSheet';
 import {
   lastAppPath,
@@ -91,6 +92,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<RestoreEntry appTo={appTo} resultsTo={resultsTo} />} />
             <Route path="/results" element={<Navigate to={resultsTo} replace />} />
+            <Route path="/results/value" element={<ValuePage />} />
             <Route path="/results/manual" element={<ManualPage />} />
             <Route path="/results/manual/rejected/:runId" element={<RejectedPage />} />
             <Route path="/results/:universe" element={<ResultsPage />} />

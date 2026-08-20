@@ -12,10 +12,12 @@ import {
   evaluateSymbol,
   inferTvSymbol,
   canadianYahooCandidatesIfBare,
+  seqStructFromBars,
   shortSymbol,
   type EvaluateParams,
   type ParsedEntry,
   type SellSignal,
+  type SeqStructStatus,
   type Signal,
   type Timeframe,
 } from '@vova/engine';
@@ -130,6 +132,7 @@ export class ScanRunnerService {
       const collectedSignals: Signal[] = [];
       let signalBuffer: any[] = [];
       let rejectionBuffer: any[] = [];
+      let taBuffer: Array<{ yahooTicker: string; tf: Timeframe; status: SeqStructStatus }> = [];
       let asOf: string | null = null;
       /** Oldest bar date seen, so a run without signals still reports what it looked at. */
       let evaluatedAsOf: string | null = null;
@@ -162,6 +165,18 @@ export class ScanRunnerService {
           if (rejectionBuffer.length) {
             await this.rejections.insertMany(rejectionBuffer, { ordered: false });
             rejectionBuffer = [];
+          }
+        }
+        if (force || taBuffer.length >= FLUSH_EVERY) {
+          if (taBuffer.length) {
+            try {
+              await this.fundamentals.mergeTaSnapshots(taBuffer);
+            } catch (err) {
+              this.log.warn(
+                `TA snapshot flush failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+            taBuffer = [];
           }
         }
       };
@@ -199,6 +214,11 @@ export class ScanRunnerService {
             params: evalParams,
           });
           counters.evaluated += 1;
+
+          if (series?.length && params.source !== 'MANUAL SCAN') {
+            const status = seqStructFromBars(series, params.tf);
+            if (status) taBuffer.push({ yahooTicker: yahoo, tf: params.tf, status });
+          }
 
           // A buy pass also asks the close scan, because the two never report the same symbol:
           // the break that ends a trade puts the sequence down, so a symbol closing today is a

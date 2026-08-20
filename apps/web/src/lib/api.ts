@@ -438,6 +438,45 @@ export type CardFundamentals = {
   ltDebtToCapitalTTM: number | null;
 };
 
+export type SeqStructStatus = {
+  seq: number;
+  seqEmoji: string;
+  structEmoji: string;
+  structLabel: string;
+};
+
+export type ValueScreenerRow = {
+  yahooTicker: string;
+  symbol: string;
+  tvSymbol: string;
+  companyName: string;
+  stars: number;
+  epsPremiumPct: number | null;
+  fcfPremiumPct: number | null;
+  dcfPremiumPct: number | null;
+  epsFairValue: number | null;
+  fcfFairValue: number | null;
+  dcfFairValue: number | null;
+  bestPremiumPct: number | null;
+  growthRatePct: number | null;
+  blendedPe: number | null;
+  ltDebtToCapitalTTM: number | null;
+  ta: {
+    daily?: SeqStructStatus | null;
+    weekly?: SeqStructStatus | null;
+    monthly?: SeqStructStatus | null;
+  };
+};
+
+export type ValueStarsFilter = 'undervalued' | '1' | '2' | '3' | 'all';
+export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol';
+
+export type ValueScreenerPage = {
+  rows: ValueScreenerRow[];
+  total: number;
+  counts: { all: number; undervalued: number; 1: number; 2: number; 3: number };
+};
+
 export type HistoryEpsEnrichResult = {
   configured: boolean;
   scanned: number;
@@ -816,6 +855,13 @@ export const api = {
       `/instruments/fundamentals-cards${query({ tickers: unique.join(',') })}`,
     );
   },
+  fundamentalsScreener: (opts: {
+    stars?: ValueStarsFilter;
+    sort?: ValueScreenerSort;
+    dir?: SortDir;
+    limit?: number;
+    offset?: number;
+  }) => request<ValueScreenerPage>(`/instruments/fundamentals-screener${query(opts)}`),
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>

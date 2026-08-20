@@ -21,6 +21,7 @@ const HISTORY_RANGE_OPTIONS = HISTORY_RANGES;
 const RESULTS_PATH_RE = new RegExp(
   `^/results/(${UNIVERSES.join('|')})/(${TIMEFRAMES.join('|')})/(${BUCKETS.join('|')})$`,
 );
+const VALUE_PATH_RE = /^\/results\/value$/;
 
 const MANUAL_PATH_RE = /^\/results\/manual(\/rejected\/[^/]+)?$/;
 const HISTORY_PATH_RE = /^\/history$/;
@@ -78,7 +79,7 @@ function splitPathSearch(saved: string): { path: string; search: string } {
 }
 
 function isValidResultsPath(path: string): boolean {
-  return RESULTS_PATH_RE.test(path);
+  return RESULTS_PATH_RE.test(path) || VALUE_PATH_RE.test(path);
 }
 
 function isCanonicalAppPath(path: string): boolean {

@@ -9,6 +9,7 @@ import {
   parseListText,
   parseManualTickers,
   resolveManualAgainstListings,
+  shortSymbol,
   stripCanadianYahooSuffix,
   type ParsedEntry,
 } from '@vova/engine';
@@ -173,6 +174,39 @@ export class UniverseService implements OnModuleInit {
 
   async findOne(yahooTicker: string) {
     return this.instruments.findOne({ yahooTicker }).lean<any>().exec();
+  }
+
+  /** Active Stocks list (STOCK-TICKERS.txt) with display names for the Value tab. */
+  async listStockEntries(): Promise<
+    Array<{ yahooTicker: string; symbol: string; tvSymbol: string; companyName: string }>
+  > {
+    const docs = await this.instruments
+      .find({ universes: 'stocks', active: true })
+      .select('yahooTicker tvSymbol companyName')
+      .lean<Array<{ yahooTicker?: string; tvSymbol?: string; companyName?: string }>>()
+      .exec();
+    const out: Array<{
+      yahooTicker: string;
+      symbol: string;
+      tvSymbol: string;
+      companyName: string;
+    }> = [];
+    const seen = new Set<string>();
+    for (const d of docs) {
+      const yahoo = String(d.yahooTicker || '')
+        .trim()
+        .toUpperCase();
+      if (!yahoo || seen.has(yahoo)) continue;
+      seen.add(yahoo);
+      const tv = d.tvSymbol || yahoo;
+      out.push({
+        yahooTicker: yahoo,
+        symbol: shortSymbol(tv),
+        tvSymbol: tv,
+        companyName: d.companyName || yahoo,
+      });
+    }
+    return out;
   }
 
   /** True when the symbol is in the Stocks or ETF list (STOCK-TICKERS / TV-LIST-ETF). */

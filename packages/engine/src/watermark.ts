@@ -8,50 +8,24 @@ import {
   type StructureSnapshot,
 } from './sequenceVovaFull';
 import type { OhlcSeries, Timeframe } from './types';
+import { emojiState, seqDisplay, seqStructStatus, structDisplay, type SeqStructStatus } from './seqStruct';
 
-function emojiState(state: number): string {
-  if (state === 1) return '🟢';
-  if (state === -1) return '🔴';
-  return '🟡';
-}
+export {
+  emojiState,
+  seqDisplay,
+  seqStructStatus,
+  structDisplay,
+  type SeqStructStatus,
+} from './seqStruct';
 
-function seqDisplay(snap: StructureSnapshot, smaMajorAbove: boolean | null = null): number {
-  const crit = snap.critical_level;
-  const close = snap.close;
-  const seq = snap.seq_state;
-  if (crit != null && close != null) {
-    if (close > crit) return 1;
-    if (close < crit) return -1;
-  }
-  if (crit == null && smaMajorAbove != null) return smaMajorAbove ? 1 : -1;
-  return seq;
-}
-
-function structDisplay(
-  snap: StructureSnapshot,
-  smaAbove: boolean | null = null,
-): [string, string] {
-  const invalid = snap.struct_invalid;
-  const troughHl = snap.last_trough_was_hl;
-  const peakHh = snap.last_peak_was_hh;
-  const lastPeak = snap.last_peak;
-  const close = snap.close;
-  const seq = snap.seq_state;
-  const lastLh = snap.last_lh;
-  const seqHigh = snap.seq_high;
-
-  if (close != null && lastPeak != null) {
-    const hasHl = troughHl && !invalid;
-    const newHighAboveLh =
-      seq === 1 && lastLh != null && seqHigh != null && seqHigh > lastLh;
-    const green = hasHl && (peakHh || newHighAboveLh);
-    const yellow = hasHl && !green;
-    if (green) return ['🟢', ' (HL+HH)'];
-    if (yellow) return ['🟡', ' (HL)'];
-    return ['🔴', ''];
-  }
-  if (smaAbove) return ['🟡', ''];
-  return ['🔴', ''];
+export function seqStructFromBars(
+  bars: OhlcSeries,
+  tf: Timeframe,
+  params?: IndicatorParams,
+): SeqStructStatus | null {
+  const snap = snapshotForBars(bars, params);
+  if (!snap) return null;
+  return seqStructStatus(snap, tf === 'Daily' ? snap.sma_above ?? null : null);
 }
 
 export function snapshotForBars(

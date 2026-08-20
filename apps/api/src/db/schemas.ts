@@ -273,10 +273,26 @@ export const InstrumentFundamentalsSchema = new Schema(
     growthRatePct: Number,
     blendedPe: Number,
     ltDebtToCapitalTTM: Number,
-    scaleVersion: Number,
-    valuationReliable: Boolean,
+    /** Fair values for the Value tab (EPS / FCF / FMP DCF). */
+    epsFairValue: Number,
+    fcfFairValue: Number,
+    dcfFairValue: Number,
+    epsPremiumPct: Number,
+    fcfPremiumPct: Number,
+    dcfPremiumPct: Number,
+    /** How many of EPS/FCF/DCF are undervalued (0–3). */
+    stars: Number,
+    /** Most negative of the three premiums — sort tie-break. */
+    bestPremiumPct: Number,
+    taSnapshot: {
+      daily: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
+      weekly: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
+      monthly: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
+      updatedAt: Date,
+    },
     fetchedAt: Date,
     updatedAt: { type: Date, default: Date.now },
   },
   { versionKey: false },
 );
+InstrumentFundamentalsSchema.index({ stars: -1, bestPremiumPct: 1 });
