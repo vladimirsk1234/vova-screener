@@ -9,6 +9,7 @@ import { Chips } from '../components/Chips';
 import { SortChips, type SortOption } from '../components/SortChips';
 import { UniverseTabs } from '../components/UniverseTabs';
 import { ValueCard } from '../components/ValueCard';
+import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const PAGE_SIZE = 100;
 
@@ -69,6 +70,8 @@ export function ValuePage() {
   const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
   const first = page.data?.pages[0];
   const counts = first?.counts;
+
+  useRestoreChartScroll(!page.isLoading);
 
   const setFilter = (next: StarChip) => {
     const params: Record<string, string> = { sort, dir };

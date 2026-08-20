@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, type RejectDetail } from '../lib/api';
+import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const num = (v: number | null | undefined) => (v == null ? null : v.toFixed(2));
 
@@ -27,6 +28,7 @@ export function RejectedPage() {
     queryFn: () => api.rejections(runId),
   });
 
+  useRestoreChartScroll(!isLoading);
   if (isLoading) return <p className="empty">Loading…</p>;
   if (!data) return <p className="empty">No data</p>;
 

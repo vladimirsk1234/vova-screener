@@ -26,7 +26,7 @@ import {
   stripTaOverlays,
 } from '../lib/chartSettings';
 import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
-import { lastResultsPath } from '../lib/tabMemory';
+import { chartReturnPath, lastResultsPath } from '../lib/tabMemory';
 import { useFundamentalsValuation } from '../lib/useFundamentalsValuation';
 import {
   EMPTY_DCF_SCENARIO_SERIES,
@@ -172,7 +172,7 @@ export function ChartPage() {
     );
   };
 
-  const goBack = () => navigate(lastResultsPath(), { replace: true });
+  const goBack = () => navigate(chartReturnPath() ?? lastResultsPath(), { replace: true });
 
   const [tf, setTf] = useState<Timeframe>(navState.row?.tf ?? 'Daily');
   // A trade opens as a snapshot of itself: the series cut at the bar it broke on, so the structure

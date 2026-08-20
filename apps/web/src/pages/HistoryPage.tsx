@@ -27,6 +27,7 @@ import {
 } from '../lib/format';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { useCardFundamentals } from '../lib/useCardFundamentals';
+import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 import { Chips, Switch } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
@@ -167,6 +168,8 @@ export function HistoryPage() {
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
+
+  useRestoreChartScroll(!report.isLoading && !trades.isLoading);
 
   const enrichEps = useMutation({
     mutationFn: () => api.enrichHistoryEps(80),

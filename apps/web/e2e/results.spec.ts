@@ -235,6 +235,49 @@ test.describe('results shell', () => {
     await expect(page).toHaveURL(/\/results\/Stocks\/Daily\/new$/);
   });
 
+  test('Back from a Value card returns to Value', async ({ page }) => {
+    await page.goto('/results/value');
+    await expect(page.getByRole('tab', { name: 'Value' })).toHaveClass(/active/);
+    await expect(page.getByText('Loading…')).toHaveCount(0);
+
+    const card = page.locator('.value-card').first();
+    if ((await card.count()) === 0) test.skip(true, 'no value screener rows in this database');
+
+    await card.click();
+    await expect(page).toHaveURL(/\/chart\/.+\?view=fundamentals/);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/results\/value/);
+    await expect(page.getByRole('tab', { name: 'Value' })).toHaveClass(/active/);
+  });
+
+  test('Back from a Stocks card restores timeframe, bucket and sort', async ({ page }) => {
+    await page.goto('/results/Stocks/Weekly/new?sort=rr&dir=desc');
+    await expect(page.getByRole('tab', { name: 'Stocks' })).toHaveClass(/active/);
+    await expect(page.getByRole('tab', { name: 'W', exact: true })).toHaveClass(/active/);
+    await expect(page.getByText('Loading…')).toHaveCount(0);
+
+    const card = page.locator('.signal-card').first();
+    if ((await card.count()) === 0) test.skip(true, 'no tracked signals in this database');
+
+    await card.locator('.signal-card-title').click();
+    await expect(page).toHaveURL(/\/chart\//);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/results\/Stocks\/Weekly\/new\?sort=rr&dir=desc/);
+    await expect(page.getByRole('tab', { name: 'Stocks' })).toHaveClass(/active/);
+    await expect(page.getByRole('tab', { name: 'W', exact: true })).toHaveClass(/active/);
+    await expect(page.getByRole('tab', { name: /^New/ })).toHaveClass(/active/);
+  });
+
+  test('Back from a chart after Manual lands on Manual', async ({ page }) => {
+    await page.goto('/results/manual');
+    await expect(page.getByRole('tab', { name: 'Manual' })).toHaveClass(/active/);
+    // Full reload still restores via lastResultsPath now that Manual is remembered.
+    await page.goto('/chart/AAPL');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/results\/manual$/);
+    await expect(page.getByRole('tab', { name: 'Manual' })).toHaveClass(/active/);
+  });
+
   test('Results bottom nav still returns to the last Results tabs after History', async ({
     page,
   }) => {

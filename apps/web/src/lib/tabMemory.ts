@@ -12,6 +12,8 @@ import {
 const RESULTS_KEY = 'vova.lastResultsPath';
 const APP_KEY = 'vova.lastAppPath';
 const HISTORY_KEY = 'vova.historyFilters';
+/** Session-only: exact list URL + scroll when opening a chart card. */
+const CHART_RETURN_KEY = 'vova.chartReturn';
 
 export const DEFAULT_RESULTS_PATH = '/results/Stocks/Daily/new';
 
@@ -79,13 +81,21 @@ function splitPathSearch(saved: string): { path: string; search: string } {
 }
 
 function isValidResultsPath(path: string): boolean {
-  return RESULTS_PATH_RE.test(path) || VALUE_PATH_RE.test(path);
+  return RESULTS_PATH_RE.test(path) || VALUE_PATH_RE.test(path) || MANUAL_PATH_RE.test(path);
+}
+
+/** List screens that can open a chart and should be restored by Back. */
+export function isChartReturnSourcePath(path: string): boolean {
+  return isValidResultsPath(path) || HISTORY_PATH_RE.test(path);
+}
+
+function isChartPath(path: string): boolean {
+  return CHART_PATH_RE.test(path) || LEGACY_FUNDAMENTALS_PATH_RE.test(path);
 }
 
 function isCanonicalAppPath(path: string): boolean {
   return (
     isValidResultsPath(path) ||
-    MANUAL_PATH_RE.test(path) ||
     HISTORY_PATH_RE.test(path) ||
     CHART_PATH_RE.test(path)
   );
@@ -193,4 +203,67 @@ export function loadHistoryFilters(): HistoryFilters {
 
 export function saveHistoryFilters(filters: HistoryFilters): void {
   writeStorage(localStorage, HISTORY_KEY, JSON.stringify(filters));
+}
+
+export type ChartReturnSnapshot = {
+  /** Full path + search of the list page that opened the chart. */
+  url: string;
+  scrollY: number;
+};
+
+/**
+ * Remember where the user left when opening a chart. Session-only so TA / Fundamentals
+ * toggles keep the same return target without leaking across browser sessions.
+ */
+export function rememberChartReturn(url: string, scrollY: number): void {
+  const { path } = splitPathSearch(url);
+  if (!isChartReturnSourcePath(path)) return;
+  const snapshot: ChartReturnSnapshot = {
+    url,
+    scrollY: Number.isFinite(scrollY) && scrollY > 0 ? Math.round(scrollY) : 0,
+  };
+  writeStorage(sessionStorage, CHART_RETURN_KEY, JSON.stringify(snapshot));
+}
+
+export function chartReturnPath(): string | null {
+  const raw = readStorage(sessionStorage, CHART_RETURN_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ChartReturnSnapshot>;
+    if (typeof parsed.url !== 'string' || !parsed.url) return null;
+    const { path } = splitPathSearch(parsed.url);
+    if (!isChartReturnSourcePath(path)) return null;
+    return parsed.url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Consume scroll once when remounting the list after Back. Leaves the URL snapshot so
+ * subsequent Back presses (without leaving the list) still have a fallback if needed.
+ */
+export function takeChartReturnScroll(forUrl: string): number | null {
+  const raw = readStorage(sessionStorage, CHART_RETURN_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ChartReturnSnapshot>;
+    if (typeof parsed.url !== 'string' || parsed.url !== forUrl) return null;
+    const y =
+      typeof parsed.scrollY === 'number' && Number.isFinite(parsed.scrollY) ? parsed.scrollY : 0;
+    // Clear scroll so a later visit to the same URL (without opening a chart) does not jump.
+    writeStorage(
+      sessionStorage,
+      CHART_RETURN_KEY,
+      JSON.stringify({ url: parsed.url, scrollY: 0 } satisfies ChartReturnSnapshot),
+    );
+    return y > 0 ? y : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when pathname is a chart (or legacy fundamentals) route. */
+export function isChartLocation(pathname: string): boolean {
+  return isChartPath(pathname);
 }

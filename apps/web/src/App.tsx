@@ -7,9 +7,12 @@ import { ResultsPage } from './pages/ResultsPage';
 import { ValuePage } from './pages/ValuePage';
 import { SettingsSheet } from './components/SettingsSheet';
 import {
+  isChartLocation,
+  isChartReturnSourcePath,
   lastAppPath,
   lastResultsPath,
   rememberAppPath,
+  rememberChartReturn,
   rememberResultsPath,
 } from './lib/tabMemory';
 
@@ -48,15 +51,38 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resultsTo, setResultsTo] = useState(lastResultsPath);
   const [appTo, setAppTo] = useState(lastAppPath);
-  const isChart = pathname.startsWith('/chart/') || pathname.startsWith('/fundamentals/');
+  const isChart = isChartLocation(pathname);
+  const prevLocationRef = useRef(`${pathname}${search}`);
+  const scrollYRef = useRef(0);
+
+  // Track scroll while on a list page — after navigate to chart, window.scrollY is already 0.
+  useEffect(() => {
+    if (isChartLocation(pathname)) return;
+    const onScroll = () => {
+      scrollYRef.current = window.scrollY;
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [pathname, search]);
 
   useEffect(() => {
+    const next = `${pathname}${search}`;
+    const prev = prevLocationRef.current;
+    const q = prev.indexOf('?');
+    const prevPath = q === -1 ? prev : prev.slice(0, q);
+
+    if (isChartReturnSourcePath(prevPath) && isChartLocation(pathname)) {
+      rememberChartReturn(prev, scrollYRef.current);
+    }
+
+    prevLocationRef.current = next;
     rememberResultsPath(pathname, search);
     rememberAppPath(pathname, search);
     const nextResults = lastResultsPath();
-    setResultsTo((prev) => (prev === nextResults ? prev : nextResults));
+    setResultsTo((prevTo) => (prevTo === nextResults ? prevTo : nextResults));
     const nextApp = lastAppPath();
-    setAppTo((prev) => (prev === nextApp ? prev : nextApp));
+    setAppTo((prevTo) => (prevTo === nextApp ? prevTo : nextApp));
   }, [pathname, search]);
 
   return (

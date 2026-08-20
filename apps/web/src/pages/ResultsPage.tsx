@@ -15,6 +15,7 @@ import {
 import { formatAge, TF_SHORT } from '../lib/format';
 import { lastResultsPath } from '../lib/tabMemory';
 import { useCardFundamentals } from '../lib/useCardFundamentals';
+import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips, type SortOption } from '../components/SortChips';
@@ -100,6 +101,8 @@ export function ResultsPage() {
   const first = page.data?.pages[0];
   const counts = universe ? summary.data?.[universe]?.[tf]?.counts : undefined;
   const scan = first?.scan ?? (universe ? summary.data?.[universe]?.[tf]?.scan : undefined);
+
+  useRestoreChartScroll(Boolean(universe) && !page.isLoading);
 
   // Switching timeframe or bucket is the most common gesture here, so warm the neighbours.
   useEffect(() => {

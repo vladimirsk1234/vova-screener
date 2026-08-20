@@ -8,6 +8,7 @@ import { readManualSearchHistory, rememberManualSearch, rememberResolvedManualSe
 import { Chips } from '../components/Chips';
 import { UniverseTabs } from '../components/UniverseTabs';
 import { useScanProgress } from '../lib/useScanProgress';
+import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const ACTIVE_RUN_KEY = 'vova.manualRunId';
 const TICKER_KEY = 'vova.manualTickers';
@@ -54,6 +55,8 @@ export function ManualPage() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const progress = useScanProgress(runId, scanEpoch);
+
+  useRestoreChartScroll(true);
 
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
 
