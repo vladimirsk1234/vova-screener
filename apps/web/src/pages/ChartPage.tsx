@@ -279,21 +279,23 @@ export function ChartPage() {
   });
 
   const markInterest = useMutation({
-    mutationFn: (next: Interest | null) => {
-      if (row?.id) return api.setInterest(row.id, next);
-      return api.setTickerInterest(ticker, next);
+    mutationFn: async (next: Interest | null) => {
+      if (row?.id) {
+        return { source: 'signal' as const, row: await api.setInterest(row.id, next) };
+      }
+      return { source: 'ticker' as const, mark: await api.setTickerInterest(ticker, next) };
     },
     onSuccess: (saved) => {
-      if ('id' in saved) {
+      if (saved.source === 'signal') {
         queryClient.setQueryData(
           tradeId ? ['tracked-signal-by-id', tradeId] : ['tracked-signal', ticker, tf],
-          saved,
+          saved.row,
         );
         void queryClient.invalidateQueries({ queryKey: ['results'] });
         void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
         return;
       }
-      queryClient.setQueryData(['ticker-interest', ticker], saved);
+      queryClient.setQueryData(['ticker-interest', ticker], saved.mark);
       void queryClient.invalidateQueries({ queryKey: ['value-screener'] });
     },
   });
