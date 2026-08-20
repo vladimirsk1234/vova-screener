@@ -13,14 +13,15 @@ import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const PAGE_SIZE = 100;
 
-const STAR_FILTERS = ['undervalued', '3', '2', '1'] as const;
+const STAR_FILTERS = ['undervalued', '3', '2', '1', '0'] as const;
 type StarChip = (typeof STAR_FILTERS)[number];
 
 const STAR_LABEL: Record<StarChip, string> = {
-  undervalued: 'All',
+  undervalued: 'Undervalued',
   '3': '3/3',
   '2': '2/3',
   '1': '1/3',
+  '0': '0/3',
 };
 
 const SORTS: SortOption<ValueScreenerSort>[] = [
@@ -38,6 +39,75 @@ function isStarFilter(value: string | null): value is StarChip {
 
 function isSort(value: string | null): value is ValueScreenerSort {
   return SORTS.some((s) => s.value === value);
+}
+
+function formatEodEt(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ET`;
+}
+
+function statusLine(first: {
+  total: number;
+  counts: { undervalued: number };
+  coverage?: { universe: number; complete: number };
+  lastFullAt?: string | null;
+  lastRun?: {
+    status: string;
+    done: number;
+    total: number;
+    startedAt: string | null;
+    finishedAt: string | null;
+    ok: number;
+    fail: number;
+  } | null;
+  stars: StarChip;
+}): string {
+  const cov = first.coverage;
+  const scored = cov?.complete ?? first.counts.undervalued;
+  const universe = cov?.universe;
+  const run = first.lastRun;
+  const bits: string[] = [];
+
+  if (first.stars === 'undervalued') {
+    bits.push(`${first.total} undervalued`);
+  } else {
+    bits.push(`${first.total} at ${first.stars}/3`);
+  }
+
+  if (universe != null) {
+    bits.push(`${scored} scored`);
+    bits.push(`${universe} STOCK-TICKERS`);
+  }
+
+  if (run?.status === 'running') {
+    const started = formatEodEt(run.startedAt);
+    bits.push(
+      `Updating ${run.done}/${run.total}${started ? ` · started ${started}` : ''}`,
+    );
+  } else {
+    const eod = formatEodEt(first.lastFullAt ?? run?.finishedAt);
+    if (eod) {
+      const fail = run && run.fail > 0 ? ` · ${run.fail} fail` : '';
+      bits.push(`EOD ${eod}${fail}`);
+    }
+  }
+
+  return bits.join(' · ');
 }
 
 export function ValuePage() {
@@ -65,6 +135,8 @@ export function ValuePage() {
     },
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+    refetchInterval: (q) =>
+      q.state.data?.pages[0]?.lastRun?.status === 'running' ? 15_000 : false,
   });
 
   const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
@@ -89,7 +161,9 @@ export function ValuePage() {
           options={STAR_FILTERS}
           format={(v) => {
             const count =
-              v === 'undervalued' ? counts?.undervalued : counts?.[Number(v) as 1 | 2 | 3];
+              v === 'undervalued'
+                ? counts?.undervalued
+                : counts?.[Number(v) as 0 | 1 | 2 | 3];
             const label = STAR_LABEL[v];
             return count != null ? `${label} ${count}` : label;
           }}
@@ -98,7 +172,7 @@ export function ValuePage() {
         <div className="results-meta">
           <span className="muted small">
             {first
-              ? `${first.total} names from STOCK-TICKERS · ${stars === 'undervalued' ? '1/3 and up' : `${stars}/3`}`
+              ? statusLine({ ...first, stars })
               : 'Ranking Stocks by EPS / FCF / DCF undervaluation'}
           </span>
           <SortChips
@@ -119,8 +193,8 @@ export function ValuePage() {
 
       {!page.isLoading && rows.length === 0 ? (
         <p className="empty">
-          No names match this filter yet. Fundamentals refresh into Mongo daily; a Stocks scan fills
-          Seq/Struct on the cards.
+          No names match this filter yet. The weekday EOD job scores every STOCK-TICKERS name into
+          Mongo; open this tab again after the update finishes.
         </p>
       ) : null}
 

@@ -45,6 +45,8 @@ export type ScanParamsApi = {
   maxSymbols?: number;
   barsMaxAgeHours?: number;
   forceRefresh?: boolean;
+  /** Listed Manual: never hit Yahoo for bars. */
+  barsCacheOnly?: boolean;
 };
 
 @Injectable()
@@ -87,7 +89,15 @@ export class ScanRunnerService {
       let fundWarm: Promise<unknown> | null = null;
       if (params.source === 'MANUAL SCAN' && entries[0]) {
         const known = await this.universe.isInTrackedUniverse(entries[0].yahoo);
-        if (!known) {
+        if (known) {
+          // Listed: Mongo barSeries + instrumentFundamentals only — never force Yahoo/FMP.
+          params.forceRefresh = false;
+          params.barsCacheOnly = true;
+          params.barsMaxAgeHours = 24 * 7;
+        } else {
+          params.forceRefresh = true;
+          params.barsCacheOnly = false;
+          params.barsMaxAgeHours = 0;
           this.publish(runId, 'resolving', 0, `Downloading ${entries[0].yahoo} from Yahoo + FMP…`);
           fundWarm = this.fundamentals.get(entries[0].yahoo).catch((err) => {
             this.log.warn(`FMP prefetch ${entries[0].yahoo} failed: ${(err as Error).message}`);
@@ -375,6 +385,7 @@ export class ScanRunnerService {
     const opts = {
       maxAgeHours: params.barsMaxAgeHours ?? 12,
       force: Boolean(params.forceRefresh),
+      cacheOnly: Boolean(params.barsCacheOnly),
       signal,
     };
     const result = await this.bars.getBars(entry.yahoo, params.tf, opts);

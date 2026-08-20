@@ -83,10 +83,12 @@ describe('bestValuePremium', () => {
 });
 
 describe('rowMatchesStarsFilter', () => {
-  it('undervalued is 1/3 and up; all includes 0/3; 1/2/3 are exact', () => {
+  it('undervalued is 1/3 and up; all includes 0/3; 0/1/2/3 are exact', () => {
     assert.equal(rowMatchesStarsFilter(0, 'undervalued'), false);
     assert.equal(rowMatchesStarsFilter(1, 'undervalued'), true);
     assert.equal(rowMatchesStarsFilter(0, 'all'), true);
+    assert.equal(rowMatchesStarsFilter(0, '0'), true);
+    assert.equal(rowMatchesStarsFilter(1, '0'), false);
     assert.equal(rowMatchesStarsFilter(2, '2'), true);
     assert.equal(rowMatchesStarsFilter(3, '2'), false);
   });

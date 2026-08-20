@@ -91,8 +91,9 @@ Scan params: `source` (`Stocks`/`ETF`/`MANUAL SCAN`), `manualTickers`, `tf`, `di
 |--------|------|-------|
 | GET | `/instruments/:ticker/chart?tf=&asOf=&minRr=&useLastHlSl=&riskPerTrade=&noRrReq=&lenFast=&lenSlow=&lengthMajor=&lookback=&multiplier=&bbLength=&bbMult=` | Bars + full overlays + watermark + pine; numeric params recompute overlays live. `asOf=YYYY-MM-DD` cuts the series at that bar before the engine sees it, which is what makes the chart behind a closed trade a snapshot of the trade rather than a view of today |
 | GET | `/instruments/:ticker/status` | Multi-TF watermark from cached bars |
-| GET | `/instruments/fundamentals-cards?tickers=` | Slim valuation for Results / History cards. Reads `instrumentFundamentals` in Mongo; FMP only for names that have never been stored |
-| GET | `/instruments/:ticker/fundamentals?metric=` | Fast Graphs–style payload. Reads Mongo; FMP only on a first miss. `metric` = `eps` (default) / `revenue` / `fcf` / `ownerEarnings` (recomputed from stored `annual`) |
+| GET | `/instruments/fundamentals-cards?tickers=` | Slim valuation for Results / History cards. Reads `instrumentFundamentals` in Mongo only — never FMP on this path |
+| GET | `/instruments/fundamentals-screener?stars=&sort=&dir=&limit=&offset` | Value tab. Mongo only. `stars` = `undervalued` (default, ≥1/3) / `0` / `1` / `2` / `3` / `all`. Response includes `counts`, `coverage` (`universe` / `stored` / `reliable` / `complete`), `lastFullAt`, `lastRun` |
+| GET | `/instruments/:ticker/fundamentals?metric=` | Fast Graphs–style payload. Listed tickers: Mongo only (404 until EOD). Unknown Manual tickers: FMP on miss. `metric` = `eps` (default) / `revenue` / `fcf` / `ownerEarnings` |
 | GET | `/instruments/:ticker/dcf?revenueGrowthPct=&ebitdaPct=&capitalExpenditurePct=&longTermGrowthRate=&riskFreeRate=&marketRiskPremium=&taxRate=&costOfEquity=&costOfDebt=&operatingCashFlowPct=` | Unlevered Custom DCF from FMP (`/custom-discounted-cash-flow`). Optional rates as decimals (`0.08` = 8%; `8` is also accepted). Omit them for FMP defaults. In-memory cache 1h keyed by ticker+assumptions — not Mongo, not the scheduled refresh. Lynch fair value is unchanged |
 
 | GET | `/universe/summary` | Counts per universe |

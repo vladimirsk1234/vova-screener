@@ -38,7 +38,7 @@ class InstrumentsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const starFilters = ['undervalued', '1', '2', '3', 'all'] as const;
+    const starFilters = ['undervalued', '0', '1', '2', '3', 'all'] as const;
     const sorts = ['stars', 'eps', 'fcf', 'dcf', 'symbol', 'interest'] as const;
     const dirs = ['asc', 'desc'] as const;
     const star = starFilters.includes(stars as (typeof starFilters)[number])
@@ -129,7 +129,7 @@ class InstrumentsController {
     return this.fundamentalsSvc.setTickerInterest(ticker, interest);
   }
 
-  /** Fast Graphs–style fundamental valuation. Reads Mongo; FMP only on a first miss. */
+  /** Fast Graphs–style fundamental valuation. Reads Mongo; FMP only for unknown Manual tickers. */
   @Get(':ticker/fundamentals')
   fundamentals(@Param('ticker') ticker: string, @Query('metric') metric?: string) {
     const allowed: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];

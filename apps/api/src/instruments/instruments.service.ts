@@ -25,7 +25,7 @@ import { FundamentalsService, formatDailyChgStr } from './fundamentals.service';
 
 const TFS: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
 
-/** Same freshness the hourly scan uses, so chart and Results cannot disagree on bar age. */
+/** Same freshness the hourly scan uses for unknown Manual tickers. */
 const CHART_BARS_MAX_AGE_HOURS = 0.5;
 
 function sliceSeries<T>(arr: T[], start: number): T[] {
@@ -67,9 +67,17 @@ export class InstrumentsService {
       fullSeries?: boolean;
     } = {},
   ) {
-    const { bars: series } = await this.bars.getBars(yahooTicker, tf, {
-      maxAgeHours: CHART_BARS_MAX_AGE_HOURS,
-    });
+    const listed = await this.universe.isInTrackedUniverse(yahooTicker);
+    let series: OhlcSeries | null = null;
+    if (listed) {
+      // Listed: barSeries from Mongo only — hourly/EOD scan fills it; never Yahoo on chart open.
+      series = await this.bars.getCached(yahooTicker, tf);
+    } else {
+      const live = await this.bars.getBars(yahooTicker, tf, {
+        maxAgeHours: CHART_BARS_MAX_AGE_HOURS,
+      });
+      series = live.bars;
+    }
     if (!series?.length) throw new NotFoundException(`no bars for ${yahooTicker}`);
     const asOf = opts.asOf;
     const bars = asOf ? series.filter((bar) => bar.date <= asOf) : series;

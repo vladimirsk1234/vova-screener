@@ -11,7 +11,8 @@
     "smoke:close-live": "node -r ts-node/register -r tsconfig-paths/register src/dev/close-scan-live-smoke.ts",
     "smoke:delisted": "node -r ts-node/register -r tsconfig-paths/register src/dev/delisted-purge-smoke.ts",
     "smoke:normalize": "node -r ts-node/register -r tsconfig-paths/register src/dev/normalize-symbols-smoke.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:period": "node --experimental-strip-types --test src/scans/period.test.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

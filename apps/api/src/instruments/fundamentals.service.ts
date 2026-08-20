@@ -34,7 +34,7 @@ import {
 } from '@vova/engine';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
-import { INSTRUMENT_FUNDAMENTALS } from '../db/schemas';
+import { INSTRUMENT_FUNDAMENTALS, FUNDAMENTALS_REFRESH_RUN } from '../db/schemas';
 import { BarsService } from '../market/bars.service';
 import {
   FmpClient,
@@ -149,10 +149,33 @@ export type ValueScreenerRow = {
   ta: TaSnapshotMap;
 };
 
+export type ValueScreenerCoverage = {
+  universe: number;
+  stored: number;
+  reliable: number;
+  complete: number;
+};
+
+export type ValueScreenerLastRun = {
+  kind: string;
+  trigger: string;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  total: number;
+  done: number;
+  ok: number;
+  skip: number;
+  fail: number;
+} | null;
+
 export type ValueScreenerPage = {
   rows: ValueScreenerRow[];
   total: number;
-  counts: { all: number; undervalued: number; 1: number; 2: number; 3: number };
+  counts: { all: number; undervalued: number; 0: number; 1: number; 2: number; 3: number };
+  coverage: ValueScreenerCoverage;
+  lastFullAt: string | null;
+  lastRun: ValueScreenerLastRun;
 };
 
 type StarFields = {
@@ -561,11 +584,16 @@ export class FundamentalsService {
 
   constructor(
     @InjectModel(INSTRUMENT_FUNDAMENTALS) private readonly store: Model<any>,
+    @InjectModel(FUNDAMENTALS_REFRESH_RUN) private readonly refreshRuns: Model<any>,
     private readonly fmp: FmpClient,
     private readonly universe: UniverseService,
     private readonly bars: BarsService,
   ) {}
 
+  /**
+   * Mongo first. Listed tickers never hit FMP on miss (EOD job fills them).
+   * Unknown Manual tickers still pull live so a one-off chart works.
+   */
   async get(yahooTicker: string, metric: ValuationMetric = 'eps'): Promise<FundamentalsPayload> {
     if (!METRICS.includes(metric)) metric = 'eps';
     const ticker = yahooTicker.toUpperCase();
@@ -587,6 +615,13 @@ export class FundamentalsService {
       return { ...payload, cached: true };
     }
 
+    const listed = await this.universe.isInTrackedUniverse(ticker);
+    if (listed) {
+      throw new NotFoundException(
+        `No fundamentals in Mongo for ${ticker} yet — wait for the EOD refresh`,
+      );
+    }
+
     const payload = await this.fetchFresh(ticker, metric);
     await this.persist(ticker, payload, 'full');
     return payload;
@@ -594,7 +629,7 @@ export class FundamentalsService {
 
   /**
    * Slim PE / mcap / days-to-earnings for the chart watermark.
-   * Mongo first; at most ratios-ttm + earnings when those fields are missing. Never a full pull.
+   * Mongo / memory only — never FMP on the read path.
    */
   async getChartFundamentals(
     yahooTicker: string,
@@ -630,31 +665,6 @@ export class FundamentalsService {
       if (pe == null && opts.close != null && ttmEps != null && ttmEps !== 0) {
         const implied = opts.close / ttmEps;
         if (Number.isFinite(implied)) pe = implied;
-      }
-
-      const needPe = pe == null;
-      const needEarn = nextEarn == null;
-      if ((needPe || needEarn) && this.fmp.configured()) {
-        const fmpSymbol = yahooToFmpSymbol(ticker);
-        const [ratiosTtm, keyTtm, rows] = await Promise.all([
-          needPe ? this.fmp.ratiosTtm(fmpSymbol) : Promise.resolve(null),
-          needPe ? this.fmp.keyMetricsTtm(fmpSymbol) : Promise.resolve(null),
-          needEarn ? this.fmp.earnings(fmpSymbol) : Promise.resolve([] as FmpEarningsRow[]),
-        ]);
-        if (needPe) {
-          pe =
-            fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
-            fmpNum(ratiosTtm?.peRatioTTM) ??
-            fmpNum(keyTtm?.peRatioTTM);
-          if (pe == null && opts.close != null) {
-            const eps = ttmEpsFrom(keyTtm, ratiosTtm, opts.close, pe);
-            if (eps != null && eps !== 0) {
-              const implied = opts.close / eps;
-              if (Number.isFinite(implied)) pe = implied;
-            }
-          }
-        }
-        if (needEarn) nextEarn = pickNextEarningsDate(rows);
       }
 
       this.chartFundCache.set(ticker, {
@@ -736,7 +746,7 @@ export class FundamentalsService {
   }
 
   /**
-   * Batch card metrics. Mongo first; FMP only for names that have never been stored.
+   * Batch card metrics from Mongo / memory only. Never FMP — EOD job fills gaps.
    */
   async getCardMetrics(tickers: string[]): Promise<Record<string, CardFundamentals>> {
     const unique = uniqueTickers(tickers).slice(0, CARD_BATCH_LIMIT);
@@ -772,28 +782,6 @@ export class FundamentalsService {
         this.cardCache.set(doc.yahooTicker, { at: now, metrics });
         if (doc.payload) this.remember(doc.yahooTicker, doc.payload as FundamentalsPayload);
       }
-    }
-
-    const needFetch = unique.filter((t) => !out[t]);
-    if (!needFetch.length || !this.fmp.configured()) return out;
-
-    for (let i = 0; i < needFetch.length; i += CARD_CONCURRENCY) {
-      const chunk = needFetch.slice(i, i + CARD_CONCURRENCY);
-      await Promise.all(
-        chunk.map(async (ticker) => {
-          try {
-            const { metrics, scale } = await this.fetchCardSlim(ticker);
-            this.cardCache.set(ticker, { at: Date.now(), metrics });
-            await this.persistCard(ticker, metrics, scale);
-            out[ticker] = metrics;
-          } catch (err) {
-            this.failedAt.set(ticker, Date.now());
-            this.log.warn(
-              `Card metrics failed for ${ticker}: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }),
-      );
     }
 
     return out;
@@ -882,6 +870,88 @@ export class FundamentalsService {
     return this.store.countDocuments().exec();
   }
 
+  /** STOCK-TICKERS coverage for Value: stored / reliable / complete (full payload). */
+  async coverageStats(): Promise<ValueScreenerCoverage> {
+    const stocks = await this.universe.listStockEntries();
+    const tickers = stocks.map((s) => s.yahooTicker);
+    const universe = tickers.length;
+    if (!universe) return { universe: 0, stored: 0, reliable: 0, complete: 0 };
+
+    const docs = await this.store
+      .find({ yahooTicker: { $in: tickers } })
+      .select('yahooTicker scaleVersion valuationReliable payload')
+      .lean<
+        Array<{
+          yahooTicker: string;
+          scaleVersion?: number;
+          valuationReliable?: boolean;
+          payload?: unknown;
+        }>
+      >()
+      .exec();
+
+    let stored = 0;
+    let reliable = 0;
+    let complete = 0;
+    for (const doc of docs) {
+      stored += 1;
+      const scaled = doc.scaleVersion === FUNDAMENTALS_SCALE_VERSION;
+      const ok = scaled && doc.valuationReliable !== false;
+      if (ok) reliable += 1;
+      if (ok && doc.payload && typeof doc.payload === 'object') complete += 1;
+    }
+    return { universe, stored, reliable, complete };
+  }
+
+  /** Tickers among `tickers` that already have a full scaled payload. */
+  async completeTickerSet(tickers: string[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    if (!tickers.length) return out;
+    const docs = await this.store
+      .find({
+        yahooTicker: { $in: tickers },
+        scaleVersion: FUNDAMENTALS_SCALE_VERSION,
+        valuationReliable: { $ne: false },
+        payload: { $exists: true, $ne: null },
+      })
+      .select('yahooTicker')
+      .lean<Array<{ yahooTicker: string }>>()
+      .exec();
+    for (const d of docs) out.add(String(d.yahooTicker).toUpperCase());
+    return out;
+  }
+
+  async latestRefreshRun(): Promise<ValueScreenerLastRun> {
+    const doc = await this.refreshRuns
+      .findOne()
+      .sort({ startedAt: -1 })
+      .lean<any>()
+      .exec();
+    if (!doc) return null;
+    return {
+      kind: String(doc.kind ?? 'full'),
+      trigger: String(doc.trigger ?? 'cron'),
+      status: String(doc.status ?? 'completed'),
+      startedAt: doc.startedAt ? new Date(doc.startedAt).toISOString() : null,
+      finishedAt: doc.finishedAt ? new Date(doc.finishedAt).toISOString() : null,
+      total: Number(doc.total) || 0,
+      done: Number(doc.done) || 0,
+      ok: Number(doc.ok) || 0,
+      skip: Number(doc.skip) || 0,
+      fail: Number(doc.fail) || 0,
+    };
+  }
+
+  async lastFullAtIso(): Promise<string | null> {
+    const doc = await this.refreshRuns
+      .findOne({ status: 'completed' })
+      .sort({ finishedAt: -1 })
+      .select('finishedAt')
+      .lean<{ finishedAt?: Date }>()
+      .exec();
+    return doc?.finishedAt ? new Date(doc.finishedAt).toISOString() : null;
+  }
+
   /**
    * Recompute EPS/FCF/DCF premiums and N/3 stars from stored payloads.
    * Needed once for docs written before those fields existed.
@@ -934,7 +1004,14 @@ export class FundamentalsService {
     const byYahoo = new Map(stocks.map((s) => [s.yahooTicker, s]));
     const tickers = stocks.map((s) => s.yahooTicker);
     if (!tickers.length) {
-      return { rows: [], total: 0, counts: { all: 0, undervalued: 0, 1: 0, 2: 0, 3: 0 } };
+      return {
+        rows: [],
+        total: 0,
+        counts: { all: 0, undervalued: 0, 0: 0, 1: 0, 2: 0, 3: 0 },
+        coverage: { universe: 0, stored: 0, reliable: 0, complete: 0 },
+        lastFullAt: null,
+        lastRun: null,
+      };
     }
 
     const docs = await this.store
@@ -950,7 +1027,7 @@ export class FundamentalsService {
       .exec();
 
     const scored: ValueScreenerRow[] = [];
-    const counts = { all: 0, undervalued: 0, 1: 0, 2: 0, 3: 0 };
+    const counts = { all: 0, undervalued: 0, 0: 0, 1: 0, 2: 0, 3: 0 };
 
     for (const doc of docs) {
       const listing = byYahoo.get(String(doc.yahooTicker || '').toUpperCase());
@@ -973,6 +1050,7 @@ export class FundamentalsService {
       const bestPremiumPct = finiteNum(doc.bestPremiumPct) ?? computed.bestPremiumPct;
       counts.all += 1;
       if (starCount >= 1) counts.undervalued += 1;
+      if (starCount === 0) counts[0] += 1;
       if (starCount === 1) counts[1] += 1;
       if (starCount === 2) counts[2] += 1;
       if (starCount === 3) counts[3] += 1;
@@ -1009,7 +1087,12 @@ export class FundamentalsService {
     scored.sort((a, b) => compareValueRows(a, b, sort, dir));
     const rows = scored.slice(offset, offset + limit);
     await this.fillTaForRows(rows);
-    return { rows, total: scored.length, counts };
+    const [coverage, lastRun, lastFullAt] = await Promise.all([
+      this.coverageStats(),
+      this.latestRefreshRun(),
+      this.lastFullAtIso(),
+    ]);
+    return { rows, total: scored.length, counts, coverage, lastFullAt, lastRun };
   }
 
   async getTickerInterest(yahooTicker: string): Promise<TickerInterest> {

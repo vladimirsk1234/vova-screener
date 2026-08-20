@@ -9,6 +9,7 @@ export const REJECTION = 'ScanRejection';
 export const TRACKED_SIGNAL = 'TrackedSignal';
 export const PRESET = 'Preset';
 export const INSTRUMENT_FUNDAMENTALS = 'InstrumentFundamentals';
+export const FUNDAMENTALS_REFRESH_RUN = 'FundamentalsRefreshRun';
 
 export const InstrumentSchema = new Schema(
   {
@@ -303,3 +304,29 @@ export const InstrumentFundamentalsSchema = new Schema(
 );
 InstrumentFundamentalsSchema.index({ stars: -1, bestPremiumPct: 1 });
 InstrumentFundamentalsSchema.index({ interestRank: -1, stars: -1 });
+
+/**
+ * Latest EOD / catch-up fundamentals refresh progress.
+ * Written by FundamentalsRefreshService; Value screener reads the newest doc.
+ */
+export const FundamentalsRefreshRunSchema = new Schema(
+  {
+    kind: { type: String, enum: ['full', 'missing'], default: 'full' },
+    trigger: { type: String, enum: ['cron', 'boot', 'catch-up'], default: 'cron' },
+    status: {
+      type: String,
+      enum: ['running', 'completed', 'failed'],
+      default: 'running',
+      index: true,
+    },
+    startedAt: { type: Date, required: true },
+    finishedAt: Date,
+    total: { type: Number, default: 0 },
+    done: { type: Number, default: 0 },
+    ok: { type: Number, default: 0 },
+    skip: { type: Number, default: 0 },
+    fail: { type: Number, default: 0 },
+  },
+  { versionKey: false },
+);
+FundamentalsRefreshRunSchema.index({ startedAt: -1 });

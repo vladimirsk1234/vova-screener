@@ -18,6 +18,7 @@
     }
   },
   "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"],
   "ts-node": {
     "transpileOnly": true,
     "require": ["tsconfig-paths/register"]

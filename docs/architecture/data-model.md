@@ -203,23 +203,33 @@ Indexes: partial-unique `{ yahooTicker, tf, universe }` while `status: 'active'`
 holding `{ maxRiskUsd, minRr, fundamentalsFilter }` behind `GET/PUT /api/settings`.
 
 ### `instrumentFundamentals`
-FMP snapshot for the Fundamentals page, Results/History cards, and the Settings valuation filter.
-One document per `yahooTicker`:
+FMP snapshot for the Fundamentals page, Results/History cards, Value screener, and the Settings
+valuation filter. One document per `yahooTicker`:
 
 `{ yahooTicker, payload, fairValue, premiumPct, growthRatePct, blendedPe, ltDebtToCapitalTTM,
-fetchedAt, updatedAt }`.
+   epsFairValue, fcfFairValue, dcfFairValue, epsPremiumPct, fcfPremiumPct, dcfPremiumPct,
+   stars, bestPremiumPct, interest, scaleVersion, valuationReliable, fetchedAt, updatedAt }`.
 
 `payload` is the assembled `FundamentalsPayload` (metric `eps`; other metrics recompute from
-`annual` without FMP). Card fields are denormalized for list/filter reads.
+`annual` without FMP). Card / Value fields are denormalized for list/filter reads.
+`stars` is how many of EPS / FCF / DCF have `premiumPct < 0` (0–3).
 
-Reads never call FMP when a document exists. Writes:
+Reads for listed tickers (STOCK-TICKERS / ETF) never call FMP — only Mongo. Unknown Manual
+tickers may pull FMP once on first Manual scan. Writes:
 
-- first miss (page or card) — one `fetchFresh` / slim fetch, then upsert
-- daily cron (`VOVA_FUNDAMENTALS_CRON`, default 02:15 ET) — `/profile` + recompute premium
-- weekly cron (`VOVA_FUNDAMENTALS_FULL_CRON`, default Sunday 03:15 ET) — full 13-endpoint pull
+- weekday EOD cron (`VOVA_FUNDAMENTALS_FULL_CRON`, default Mon–Fri 18:15 ET) — full 13-endpoint pull
+  for every active stock + ETF ticker, then recompute stars
+- boot catch-up — if coverage is incomplete, or today's EOD slot was already missed after 18:15 ET,
+  the same full/missing walk starts immediately (Nest cron does not fire retroactively)
+- unknown Manual miss — one `fetchFresh`, then upsert (not added to the Value universe)
 
 No Mongo TTL: a stale document is served rather than hitting FMP. A failed refresh keeps the
 previous document (same stale-fallback idea as `barSeries`).
+
+### `fundamentalsRefreshRuns`
+Progress of the latest EOD / boot catch-up walk:
+`{ kind, trigger, status, startedAt, finishedAt, total, done, ok, skip, fail }`.
+Value screener exposes this as `lastRun` / `lastFullAt` so the UI can show coverage and update age.
 
 ## Deferred
 

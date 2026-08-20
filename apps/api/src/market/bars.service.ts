@@ -66,10 +66,24 @@ export class BarsService {
   async getBars(
     yahooTicker: string,
     tf: Timeframe,
-    opts: { maxAgeHours?: number; force?: boolean; signal?: AbortSignal } = {},
+    opts: {
+      maxAgeHours?: number;
+      force?: boolean;
+      /** Never call Yahoo — return Mongo cache or null. */
+      cacheOnly?: boolean;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<BarsResult> {
     const interval = this.intervalOf(tf);
     const maxAgeMs = (opts.maxAgeHours ?? 12) * 3_600_000;
+
+    if (opts.cacheOnly) {
+      const doc = await this.barSeries.findOne({ yahooTicker, interval }).lean<any>().exec();
+      if (doc?.barCount) {
+        return { bars: this.decode(doc, tf), fromCache: true, fetchedAt: new Date(doc.updatedAt) };
+      }
+      return { bars: null, fromCache: true, fetchedAt: null };
+    }
 
     if (!opts.force) {
       const doc = await this.barSeries.findOne({ yahooTicker, interval }).lean<any>().exec();

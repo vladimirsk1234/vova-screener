@@ -88,12 +88,34 @@ export function nyTimeMinutes(date: Date = new Date()): number {
 }
 
 const SESSION_CLOSE_MINUTES = 16 * 60; // 16:00 ET
+/** Default fundamentals EOD cron slot (18:15 ET Mon–Fri). */
+export const FUNDAMENTALS_EOD_MINUTES = 18 * 60 + 15;
 
 /** True after the US cash session close (or on weekend). */
 export function isAfterSessionClose(date: Date = new Date()): boolean {
   const { weekday } = partsInNy(date);
   if (weekday === 0 || weekday === 6) return true;
   return nyTimeMinutes(date) >= SESSION_CLOSE_MINUTES;
+}
+
+/** True on a weekday at/after the fundamentals EOD cron slot (default 18:15 ET). */
+export function isPastFundamentalsEodSlot(date: Date = new Date()): boolean {
+  const { weekday } = partsInNy(date);
+  if (weekday === 0 || weekday === 6) return false;
+  return nyTimeMinutes(date) >= FUNDAMENTALS_EOD_MINUTES;
+}
+
+/**
+ * True when `at` is on today's NY calendar date and at/after cash close (16:00 ET),
+ * or on a later NY date — i.e. a full pull that covers today's EOD snapshot.
+ */
+export function isFullRunAfterTodaysClose(at: Date | null | undefined, now: Date = new Date()): boolean {
+  if (!at) return false;
+  const today = partsInNy(now);
+  const run = partsInNy(at);
+  if (run.dateStr > today.dateStr) return true;
+  if (run.dateStr < today.dateStr) return false;
+  return nyTimeMinutes(at) >= SESSION_CLOSE_MINUTES;
 }
 
 /** True on the last Mon–Fri of the month in America/New_York. */

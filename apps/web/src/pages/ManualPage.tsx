@@ -40,8 +40,8 @@ function initialTicker(): string {
 }
 
 /**
- * The only screen that starts a scan. Manual runs are ad-hoc checks against a live chart, so
- * they always pull fresh bars and never feed the tracked-signal history.
+ * The only screen that starts a scan. Listed tickers use Mongo bars/fundamentals; unknown
+ * tickers pull live Yahoo + FMP once (backend sets forceRefresh).
  */
 export function ManualPage() {
   const navigate = useNavigate();
@@ -141,7 +141,8 @@ export function ManualPage() {
         useLastHlSl: true,
         newOnly: false,
         riskPerTrade: settings.data?.maxRiskUsd ?? 100,
-        forceRefresh: true,
+        // Backend sets forceRefresh only when the ticker is not in STOCK-TICKERS / ETF.
+        forceRefresh: false,
       });
       localStorage.setItem(TICKER_KEY, parsed.ticker);
       setHistory(rememberManualSearch(parsed.ticker));

@@ -4,6 +4,8 @@ import { resolveMongoUri } from './local-mongo';
 import {
   BAR_SERIES,
   BarSeriesSchema,
+  FUNDAMENTALS_REFRESH_RUN,
+  FundamentalsRefreshRunSchema,
   INSTRUMENT,
   INSTRUMENT_FUNDAMENTALS,
   InstrumentFundamentalsSchema,
@@ -23,6 +25,7 @@ import {
 const models = MongooseModule.forFeature([
   { name: INSTRUMENT, schema: InstrumentSchema },
   { name: INSTRUMENT_FUNDAMENTALS, schema: InstrumentFundamentalsSchema },
+  { name: FUNDAMENTALS_REFRESH_RUN, schema: FundamentalsRefreshRunSchema },
   { name: BAR_SERIES, schema: BarSeriesSchema },
   { name: SCAN_RUN, schema: ScanRunSchema },
   { name: SIGNAL, schema: SignalSchema },

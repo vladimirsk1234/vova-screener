@@ -18,7 +18,7 @@ export type ValueScore = {
   stars: 0 | 1 | 2 | 3;
 };
 
-export type ValueStarsFilter = 'undervalued' | '1' | '2' | '3' | 'all';
+export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | 'all';
 export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
 export type ValueSortDir = 'asc' | 'desc';
 export type ValueInterest = 'interested' | 'not_interested';
