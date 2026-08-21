@@ -9,8 +9,10 @@ import {
   inferAdrRatio,
   inferShareScale,
   peSanityOk,
-  pickScaledEps,
-  scaleAmount,
+    pickScaledEps,
+    pickScaledFcf,
+    fcfFromCashFlow,
+    scaleAmount,
   scaleDcf,
   scaleTev,
 } from './fundamentalsScale.ts';
@@ -183,7 +185,7 @@ describe('PDD listing units vs peTTM', () => {
       peTtm,
     });
     assert.equal(scale.version, FUNDAMENTALS_SCALE_VERSION);
-    assert.equal(scale.version, 2);
+    assert.equal(scale.version, 3);
     assert.equal(scale.adrRatio, 4);
     assert.equal(scale.shareScale, 'ads');
     assert.equal(scale.perShareFactor, 1);
@@ -199,6 +201,72 @@ describe('PDD listing units vs peTTM', () => {
     assert.ok(Math.abs(picked - 10.07) < 0.2, `picked=${picked}`);
     const pe = price / picked;
     assert.ok(pe > 7 && pe < 12, `pe=${pe}`);
+  });
+});
+
+describe('pickScaledFcf listing units', () => {
+  const price = 90;
+  const adsShares = 1_400_000_000;
+  const ordinaryShares = adsShares * 4;
+  const companyFcf = 10.08e9;
+  const adsFcf = companyFcf / adsShares;
+  const ordinaryFcf = companyFcf / ordinaryShares;
+
+  it('rebuilds FCF/sh from company FCF / ADS when FMP field is ordinary', () => {
+    const scale = buildFundamentalsScale({
+      ticker: 'PDD',
+      reportedCurrency: 'USD',
+      listingCurrency: 'USD',
+      netIncome: 10.07 * adsShares,
+      fmpEps: 10.07,
+      dilutedShares: ordinaryShares,
+      price,
+      fxToListing: 1,
+      peTtm: 9,
+    });
+    assert.equal(scale.shareScale, 'ads');
+    assert.equal(scale.perShareFactor, 1);
+    const fromCf = fcfFromCashFlow({
+      freeCashFlow: companyFcf,
+      dilutedShares: ordinaryShares,
+      fxToListing: 1,
+      adrRatio: 4,
+    });
+    assert.ok(fromCf != null);
+    assert.ok(Math.abs(fromCf - adsFcf) < 0.05, `fromCf=${fromCf}`);
+    const picked = pickScaledFcf({
+      fmpFcfPerShare: ordinaryFcf,
+      freeCashFlow: companyFcf,
+      dilutedShares: ordinaryShares,
+      scale,
+      price,
+    });
+    assert.ok(picked != null);
+    assert.ok(Math.abs(picked - adsFcf) < 0.05, `picked=${picked}`);
+    assert.ok(Math.abs(picked - ordinaryFcf) > 1);
+  });
+
+  it('keeps already-ADS FMP FCF/sh when income shares are ADS counts', () => {
+    const scale = buildFundamentalsScale({
+      ticker: 'PDD',
+      reportedCurrency: 'USD',
+      listingCurrency: 'USD',
+      netIncome: 10.07 * adsShares,
+      fmpEps: 10.07,
+      dilutedShares: adsShares,
+      price,
+      fxToListing: 1,
+      peTtm: 9,
+    });
+    const picked = pickScaledFcf({
+      fmpFcfPerShare: adsFcf,
+      freeCashFlow: companyFcf,
+      dilutedShares: adsShares,
+      scale,
+      price,
+    });
+    assert.ok(picked != null);
+    assert.ok(Math.abs(picked - adsFcf) < 0.05, `picked=${picked}`);
   });
 });
 

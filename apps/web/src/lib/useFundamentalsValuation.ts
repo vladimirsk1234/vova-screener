@@ -6,6 +6,8 @@ import {
   appendIntraYearTtmSteps,
   appendNextQuarterEstimate,
   buildValuationSeries,
+  growthOverrideFromSummary,
+  projectMetricByGrowth,
   seriesForFairValueChart,
   type ValuationMetric,
   type ValuationWindowYears,
@@ -54,19 +56,29 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
 
   const valuation = useMemo(() => {
     if (!fundQ.data) return null;
-    return buildValuationSeries(fundQ.data.annual, metric, {
+    const epsForward = (fundQ.data.estimates ?? []).map((e) => ({ year: e.year, metric: e.eps }));
+    const common = {
       currentPrice: fundQ.data.profile.price,
       windowYears,
-      forward:
-        metric === 'eps'
-          ? (fundQ.data.estimates ?? []).map((e) => ({ year: e.year, metric: e.eps }))
-          : [],
-      ttmMetric:
-        metric === 'eps'
-          ? fundQ.data.snapshot.ttmEps
-          : metric === 'fcf'
-            ? (fundQ.data.snapshot.ttmFcf ?? null)
-            : null,
+    };
+    if (metric !== 'fcf') {
+      return buildValuationSeries(fundQ.data.annual, metric, {
+        ...common,
+        forward: metric === 'eps' ? epsForward : [],
+        ttmMetric:
+          metric === 'eps' ? fundQ.data.snapshot.ttmEps : null,
+      });
+    }
+    const epsVal = buildValuationSeries(fundQ.data.annual, 'eps', {
+      ...common,
+      forward: epsForward,
+      ttmMetric: fundQ.data.snapshot.ttmEps,
+    });
+    return buildValuationSeries(fundQ.data.annual, 'fcf', {
+      ...common,
+      forward: [],
+      ttmMetric: fundQ.data.snapshot.ttmFcf ?? null,
+      ...growthOverrideFromSummary(epsVal.summary),
     });
   }, [fundQ.data, metric, windowYears]);
 
@@ -91,7 +103,17 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     const historical = seriesForFairValueChart(withQuarters, valuation.summary, undefined, {
       pinToday,
     });
-    const estimates = fundQ.data?.estimates ?? [];
+    const lastHist = [...historical].reverse().find((p) => !p.estimated && !p.forecast);
+    const fcfEstimates =
+      metric === 'fcf'
+        ? projectMetricByGrowth({
+            lastMetric: valuation.summary.fairValueAnchor ?? lastHist?.metric ?? null,
+            lastYear: lastHist?.year ?? 0,
+            growthPct: valuation.summary.growthRatePct,
+            years: (fundQ.data?.estimates ?? []).map((e) => ({ year: e.year, date: e.date })),
+          })
+        : [];
+    const estimates = metric === 'fcf' ? fcfEstimates : (fundQ.data?.estimates ?? []);
     const towardNextPrint = pinToday
       ? historical
       : appendNextQuarterEstimate(

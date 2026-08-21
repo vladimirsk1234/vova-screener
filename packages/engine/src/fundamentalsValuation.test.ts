@@ -8,7 +8,9 @@ import {
   cagrPct,
   fairValueFromEstimate,
   fairValueRatioFromGrowth,
+  growthOverrideFromSummary,
   nextQuarterIso,
+  projectMetricByGrowth,
   seriesForFairValueChart,
   firstForecastDate,
   firstNonForecastDate,
@@ -244,6 +246,52 @@ describe('valuation windows', () => {
       summary.fairValue > 210 && summary.fairValue < 280,
       `fv=${summary.fairValue}`,
     );
+  });
+
+  it('PDD-like FCF uses EPS forward CAGR, not lumpy trailing FCF', () => {
+    const hist: AnnualFundamentalPoint[] = [
+      { ...fy(2022, 4.08, 40), fcfPerShare: 0.5 },
+      { ...fy(2023, 6.5, 70), fcfPerShare: 1.2 },
+      { ...fy(2024, 9.4, 85), fcfPerShare: 3.0 },
+      { ...fy(2025, 10.07, 90), fcfPerShare: 8.0 },
+    ];
+    const forward = [
+      { year: 2026, metric: 9.98 },
+      { year: 2027, metric: 12.08 },
+      { year: 2028, metric: 13.88 },
+    ];
+    const trailing = buildValuationSeries(hist, 'fcf', {
+      currentPrice: 90,
+      windowYears: 3,
+      ttmMetric: 8,
+    });
+    assert.ok(
+      trailing.summary.fairValue != null && trailing.summary.fairValue > 400,
+      `trailing fv=${trailing.summary.fairValue}`,
+    );
+
+    const eps = buildValuationSeries(hist, 'eps', {
+      currentPrice: 90,
+      windowYears: 3,
+      ttmMetric: 10.07,
+      forward,
+    });
+    const fcf = buildValuationSeries(hist, 'fcf', {
+      currentPrice: 90,
+      windowYears: 3,
+      ttmMetric: 8,
+      ...growthOverrideFromSummary(eps.summary),
+    });
+    assert.equal(fcf.summary.growthSource, 'forward');
+    assert.ok(eps.summary.growthRatePct != null && fcf.summary.growthRatePct != null);
+    assert.ok(Math.abs(fcf.summary.growthRatePct - eps.summary.growthRatePct) < 1e-9);
+    assert.ok(fcf.summary.fairValueRatio != null);
+    assert.ok(Math.abs((fcf.summary.fairValue ?? 0) - 8 * fcf.summary.fairValueRatio) < 1e-6);
+    assert.ok(
+      fcf.summary.fairValue != null && fcf.summary.fairValue > 160 && fcf.summary.fairValue < 280,
+      `fcf fv=${fcf.summary.fairValue}`,
+    );
+    assert.notEqual(fcf.summary.fairValue, trailing.summary.fairValue);
   });
 
   it('anchors fair value on TTM, not the first forward estimate', () => {
@@ -630,16 +678,28 @@ describe('valuation windows', () => {
     assert.equal(noToday[noToday.length - 1]?.date, '2026-05-28');
     assert.ok(!noToday.some((p) => p.date === '2026-08-16'));
 
+    const ttmMay = ttmFromQuarterly(quarters, '2026-05-28').ttm;
+    const projected = projectMetricByGrowth({
+      lastMetric: ttmMay,
+      lastYear: 2025,
+      growthPct: summary.growthRatePct,
+      years: [{ year: 2026, date: '2026-08-28' }],
+    });
     const withNext = appendNextQuarterEstimate(
       noToday,
       '2026-09-23',
-      [{ year: 2026, date: '2026-08-28', eps: 12 }],
+      projected,
       summary.fairValueRatio,
     );
     const nextQ = withNext[withNext.length - 1];
     assert.equal(nextQ?.date, '2026-09-23');
     assert.equal(nextQ?.forecast, true);
     assert.ok(nextQ?.fairValue != null && nextQ.fairValue !== fvMay);
+    const epsAsFv = 12 * (summary.fairValueRatio as number);
+    assert.ok(
+      Math.abs((nextQ?.fairValue ?? 0) - epsAsFv) > 0.5,
+      'next-quarter FCF FV must not be EPS × ratio',
+    );
   });
 
   it('uses next earnings date, else +91 days', () => {
@@ -709,6 +769,43 @@ describe('valuation windows', () => {
     assert.ok(fy2026);
     assert.equal(fy2026.fairValue, target);
     assert.ok(fy2026.fairValue !== nextQ.fairValue);
+  });
+
+  it('prefers estimate.metric over eps so FCF forecasts stay in FCF dollars', () => {
+    const hist = [fy(2024, 8, 120), fy(2025, 10, 150)];
+    hist[0]!.fcfPerShare = 4;
+    hist[1]!.fcfPerShare = 5;
+    const { series, summary } = buildValuationSeries(hist, 'fcf', {
+      currentPrice: 150,
+      windowYears: 5,
+      ttmMetric: 5,
+    });
+    const mixed = appendForwardFairValue(
+      series,
+      [{ year: 2026, date: '2026-12-31', eps: 14, metric: 6 }],
+      summary.fairValueRatio,
+    );
+    const fwd = mixed.find((p) => p.forecast && p.year === 2026);
+    assert.ok(fwd);
+    assert.equal(fwd.metric, 6);
+    assert.equal(fwd.fairValue, 6 * (summary.fairValueRatio as number));
+    assert.notEqual(fwd.fairValue, 14 * (summary.fairValueRatio as number));
+  });
+
+  it('projects FCF at (1+g)^Δt, not at the EPS estimate level', () => {
+    const pts = projectMetricByGrowth({
+      lastMetric: 8,
+      lastYear: 2025,
+      growthPct: 25,
+      years: [
+        { year: 2026, date: '2026-12-31' },
+        { year: 2027, date: '2027-12-31' },
+      ],
+    });
+    assert.equal(pts.length, 2);
+    assert.ok(Math.abs((pts[0]?.metric ?? 0) - 10) < 1e-9);
+    assert.ok(Math.abs((pts[1]?.metric ?? 0) - 12.5) < 1e-9);
+    assert.notEqual(pts[0]?.metric, 14);
   });
 
   it('computes table fair value as EPS × ratio', () => {

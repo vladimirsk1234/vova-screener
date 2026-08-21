@@ -6,7 +6,7 @@
  * in the exchange currency — without this layer, PE15/Lynch runs on garbage.
  */
 
-export const FUNDAMENTALS_SCALE_VERSION = 2;
+export const FUNDAMENTALS_SCALE_VERSION = 3;
 
 /** Ordinary shares represented by one ADS. 1 = not an ADR / already per listing share. */
 export const KNOWN_ADR_RATIO: Record<string, number> = {
@@ -404,6 +404,61 @@ export function pickScaledEps(opts: {
     return fromIncome;
   }
   return scaledFmp ?? fromIncome;
+}
+
+/**
+ * Company FCF in listing currency per ADS — same share-class path as `epsFromIncome`.
+ */
+export function fcfFromCashFlow(opts: {
+  freeCashFlow: number | null;
+  dilutedShares: number | null;
+  fxToListing: number;
+  adrRatio: number;
+}): number | null {
+  const { freeCashFlow, dilutedShares, fxToListing, adrRatio } = opts;
+  if (freeCashFlow == null || dilutedShares == null || !(dilutedShares > 0)) return null;
+  const fcf = freeCashFlow * (Number.isFinite(fxToListing) && fxToListing > 0 ? fxToListing : 1);
+  const adsShares = adrRatio > 1 ? dilutedShares / adrRatio : dilutedShares;
+  if (!(adsShares > 0)) return null;
+  const per = fcf / adsShares;
+  return Number.isFinite(per) ? per : null;
+}
+
+/**
+ * Prefer company FCF / diluted ADS shares when FMP `freeCashFlowPerShare` is on
+ * the wrong share class. Scores implied P/FCF the same way `pickScaledEps` scores PE.
+ */
+export function pickScaledFcf(opts: {
+  fmpFcfPerShare: number | null;
+  freeCashFlow: number | null;
+  dilutedShares: number | null;
+  scale: FundamentalsScale;
+  price?: number | null;
+}): number | null {
+  const { fmpFcfPerShare, freeCashFlow, dilutedShares, scale, price } = opts;
+  const scaledFmp = scaleAmount(fmpFcfPerShare, scale.fxToListing * scale.perShareFactor);
+  const fromCf = fcfFromCashFlow({
+    freeCashFlow,
+    dilutedShares,
+    fxToListing: scale.fxToListing,
+    adrRatio: scale.adrRatio,
+  });
+  const pFmp = impliedPe(price ?? null, scaledFmp);
+  const pCf = impliedPe(price ?? null, fromCf);
+  if (fromCf != null && peInBand(pCf) && !peInBand(pFmp)) return fromCf;
+  if (
+    fromCf != null &&
+    scaledFmp != null &&
+    Math.abs(fromCf) > 0 &&
+    !relClose(fromCf, scaledFmp, 0.3) &&
+    peInBand(pCf)
+  ) {
+    if (peInBand(pFmp) && listingPeScore(pFmp, null) <= listingPeScore(pCf, null)) {
+      return scaledFmp;
+    }
+    return fromCf;
+  }
+  return scaledFmp ?? fromCf;
 }
 
 export function scalePerShare(
