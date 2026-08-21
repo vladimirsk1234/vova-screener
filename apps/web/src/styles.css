@@ -1255,6 +1255,19 @@ a {
   background: linear-gradient(180deg, #0c0e12 0%, var(--bg) 40%);
 }
 
+.fund-refresh {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 2px;
+}
+
+.fund-refresh-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
 .fund-hero {
   display: grid;
   gap: 12px;

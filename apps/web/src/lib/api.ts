@@ -1,5 +1,7 @@
 /** REST client for @vova/api. Same-origin /api (Vite proxy in dev). */
 
+import { parseApiErrorBody } from './apiError';
+
 export type {
   AnnualFundamentalPoint,
   ValuationMetric,
@@ -716,14 +718,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    let detail = text;
-    try {
-      const body = JSON.parse(text) as { message?: unknown };
-      if (typeof body.message === 'string' && body.message.trim()) detail = body.message;
-    } catch {
-      /* keep raw body */
-    }
-    throw new Error(detail || `${res.status} ${res.statusText}`);
+    throw new Error(parseApiErrorBody(res.status, text));
   }
   return res.json() as Promise<T>;
 }
