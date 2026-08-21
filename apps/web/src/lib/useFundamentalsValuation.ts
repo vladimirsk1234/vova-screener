@@ -52,6 +52,8 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     queryFn: () => api.fundamentals(ticker, 'eps'),
     enabled: enabled && Boolean(ticker),
     staleTime: 60_000,
+    retry: 1,
+    refetchInterval: (q) => (q.state.status === 'error' ? 10_000 : false),
   });
 
   const valuation = useMemo(() => {

@@ -61,6 +61,12 @@ class InstrumentsController {
     });
   }
 
+  /** EOD / catch-up progress — same numbers the Value tab shows. */
+  @Get('fundamentals-refresh')
+  fundamentalsRefresh() {
+    return this.fundamentalsSvc.refreshStatus();
+  }
+
   @Get(':ticker/chart')
   chart(
     @Param('ticker') ticker: string,

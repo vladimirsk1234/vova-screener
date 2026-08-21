@@ -145,6 +145,15 @@ export function FundamentalsPanel({
   onDcfChartSeries?: (series: DcfScenarioSeries) => void;
 }) {
 
+  const refreshQ = useQuery({
+    queryKey: ['fundamentals-refresh'],
+    queryFn: () => api.fundamentalsRefresh(),
+    enabled: fundQ.isError || fundQ.isLoading,
+    refetchInterval: (q) => (q.state.data?.lastRun?.status === 'running' ? 5_000 : false),
+  });
+  const run = refreshQ.data?.lastRun;
+  const coverage = refreshQ.data?.coverage;
+
   const fyRows = useMemo(() => {
     if (!fundQ.data) return [];
     const windowed = sliceToWindow(fundQ.data.annual, windowYears);
@@ -180,6 +189,14 @@ export function FundamentalsPanel({
           {(fundQ.error as Error).message.includes('FMP_API_KEY')
             ? 'Set FMP_API_KEY on the API server to load fundamentals.'
             : (fundQ.error as Error).message}
+        </p>
+      ) : null}
+      {run?.status === 'running' ? (
+        <p className="muted small">
+          Updating {run.done}/{run.total}
+          {coverage
+            ? ` · ${coverage.complete}/${coverage.universe} scored`
+            : null}
         </p>
       ) : null}
 
