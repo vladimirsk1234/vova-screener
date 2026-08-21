@@ -53,7 +53,6 @@ class InstrumentsController {
       : 'desc';
     const lim = Number(limit);
     const off = Number(offset);
-    this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.listScreener({
       stars: star,
       sort: s,
@@ -63,10 +62,9 @@ class InstrumentsController {
     });
   }
 
-  /** EOD / catch-up progress — same numbers the Value tab shows. */
+  /** EOD / catch-up progress — same numbers the Value tab shows. Do not kick from this poll. */
   @Get('fundamentals-refresh')
   fundamentalsRefreshStatus() {
-    this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.refreshStatus();
   }
 

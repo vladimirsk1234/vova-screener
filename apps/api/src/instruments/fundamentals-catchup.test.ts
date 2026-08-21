@@ -10,6 +10,7 @@ describe('fundamentalsCatchUpKind', () => {
     complete: 100,
     pastEodSlot: true,
     todayFullDone: false,
+    completedPassToday: false,
   };
 
   it('waits when the universe list is still empty', () => {
@@ -20,6 +21,31 @@ describe('fundamentalsCatchUpKind', () => {
     assert.equal(
       fundamentalsCatchUpKind({ ...ready, complete: 40, pastEodSlot: false }),
       'missing',
+    );
+  });
+
+  it('does not restart missing after a pass already finished today', () => {
+    assert.equal(
+      fundamentalsCatchUpKind({
+        ...ready,
+        complete: 40,
+        pastEodSlot: false,
+        completedPassToday: true,
+      }),
+      null,
+    );
+  });
+
+  it('still runs evening full after a morning missing pass', () => {
+    assert.equal(
+      fundamentalsCatchUpKind({
+        ...ready,
+        complete: 40,
+        completedPassToday: true,
+        todayFullDone: false,
+        pastEodSlot: true,
+      }),
+      'full',
     );
   });
 
@@ -37,23 +63,23 @@ describe('fundamentalsCatchUpKind', () => {
 });
 
 describe('refreshProgressPct', () => {
-  it('uses the running job when present', () => {
+  it('uses universe coverage so a remaining-batch job does not look stuck at 2%', () => {
     assert.equal(
       refreshProgressPct({
-        run: { status: 'running', done: 25, total: 100 },
-        coverage: { complete: 1, universe: 100 },
+        run: { status: 'running', done: 20, total: 827 },
+        coverage: { complete: 2025, universe: 2095 },
       }),
-      25,
+      97,
     );
   });
 
-  it('falls back to coverage when idle', () => {
+  it('falls back to the running job when coverage is empty', () => {
     assert.equal(
       refreshProgressPct({
-        run: { status: 'completed', done: 100, total: 100 },
-        coverage: { complete: 40, universe: 80 },
+        run: { status: 'running', done: 25, total: 100 },
+        coverage: { complete: 0, universe: 0 },
       }),
-      50,
+      25,
     );
   });
 });

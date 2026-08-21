@@ -5,28 +5,30 @@ import { fundamentalsUpdateBanner, refreshPollMs } from './fundamentalsRefresh.t
 describe('fundamentalsUpdateBanner', () => {
   it('shows Updating N/total while a job is running', () => {
     const banner = fundamentalsUpdateBanner({
-      lastRun: { status: 'running', done: 12, total: 80 },
-      coverage: { complete: 40, universe: 100 },
+      lastRun: { status: 'running', done: 20, total: 827 },
+      coverage: { complete: 2025, universe: 2095 },
     });
-    assert.equal(banner?.text, 'Updating 12/80 · 40/100 scored');
-    assert.equal(banner?.pct, 15);
+    assert.equal(banner?.text, 'Updating 20/827 · 2025/2095 scored');
+    assert.equal(banner?.pct, 97);
   });
 
-  it('shows Starting… when coverage is incomplete but last run is idle', () => {
-    const banner = fundamentalsUpdateBanner({
-      lastRun: { status: 'completed', done: 80, total: 80 },
-      coverage: { complete: 40, universe: 100 },
-    });
-    assert.equal(banner?.text, 'Starting fundamentals update… · 40/100 scored');
-    assert.equal(banner?.pct, 40);
+  it('hides when the last run finished even if some names are still missing', () => {
+    assert.equal(
+      fundamentalsUpdateBanner({
+        lastRun: { status: 'completed', done: 827, total: 827 },
+        coverage: { complete: 2025, universe: 2095 },
+      }),
+      null,
+    );
   });
 
-  it('shows Starting… when coverage is still empty', () => {
-    const banner = fundamentalsUpdateBanner({
-      coverage: { complete: 0, universe: 0 },
-    });
-    assert.equal(banner?.text, 'Starting fundamentals update…');
-    assert.equal(banner?.pct, 0);
+  it('hides when coverage is empty and no job is running', () => {
+    assert.equal(
+      fundamentalsUpdateBanner({
+        coverage: { complete: 0, universe: 0 },
+      }),
+      null,
+    );
   });
 
   it('hides when coverage is complete and no job is running', () => {
@@ -41,14 +43,14 @@ describe('fundamentalsUpdateBanner', () => {
 });
 
 describe('refreshPollMs', () => {
-  it('polls quickly while running or incomplete', () => {
+  it('polls only while a job is running', () => {
     assert.equal(
       refreshPollMs({ lastRun: { status: 'running', done: 1, total: 2 } }),
       3_000,
     );
-    assert.equal(refreshPollMs({ coverage: { complete: 1, universe: 10 } }), 5_000);
-    assert.equal(refreshPollMs({ coverage: { complete: 0, universe: 0 } }), 5_000);
+    assert.equal(refreshPollMs({ coverage: { complete: 1, universe: 10 } }), false);
+    assert.equal(refreshPollMs({ coverage: { complete: 0, universe: 0 } }), false);
     assert.equal(refreshPollMs({ coverage: { complete: 10, universe: 10 } }), false);
-    assert.equal(refreshPollMs(undefined), 5_000);
+    assert.equal(refreshPollMs(undefined), false);
   });
 });
