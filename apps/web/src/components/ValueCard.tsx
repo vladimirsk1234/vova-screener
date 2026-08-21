@@ -1,14 +1,13 @@
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { isLowLtDebt, normalizePctPoints, VALUE_STAR_TOTAL } from '@vova/engine';
 import type { Interest, SeqStructStatus, ValueScreenerRow } from '../lib/api';
 import { api } from '../lib/api';
 
-const STAR_TOTAL = 3;
-
 function starsLabel(stars: number): string {
-  const n = Math.max(0, Math.min(STAR_TOTAL, stars));
-  return `${'★'.repeat(n)}${'☆'.repeat(STAR_TOTAL - n)} ${n}/${STAR_TOTAL}`;
+  const n = Math.max(0, Math.min(VALUE_STAR_TOTAL, stars));
+  return `${'★'.repeat(n)}${'☆'.repeat(VALUE_STAR_TOTAL - n)} ${n}/${VALUE_STAR_TOTAL}`;
 }
 
 function valuationLabel(premiumPct: number | null): { text: string; className: string } {
@@ -43,6 +42,8 @@ export function ValueCard({ row }: { row: ValueScreenerRow }) {
   const eps = valuationLabel(row.epsPremiumPct);
   const fcf = valuationLabel(row.fcfPremiumPct);
   const dcf = valuationLabel(row.dcfPremiumPct);
+  const debtPct = normalizePctPoints(row.ltDebtToCapitalTTM);
+  const debtLow = isLowLtDebt(row.ltDebtToCapitalTTM);
 
   const markInterest = useMutation({
     mutationFn: (next: Interest | null) => api.setTickerInterest(row.yahooTicker, next),
@@ -80,7 +81,7 @@ export function ValueCard({ row }: { row: ValueScreenerRow }) {
           <strong>{row.symbol}</strong>
           <span className="muted ellipsis">{row.companyName}</span>
         </div>
-        <span className="value-stars" title={`${row.stars} of ${STAR_TOTAL} metrics undervalued`}>
+        <span className="value-stars" title={`${row.stars} of ${VALUE_STAR_TOTAL} metrics (EPS/FCF/DCF undervalued, LT D/C < 50%)`}>
           {starsLabel(row.stars)}
         </span>
       </div>
@@ -105,6 +106,13 @@ export function ValueCard({ row }: { row: ValueScreenerRow }) {
         <span>
           <span className="lbl">DCF</span>{' '}
           <span className={dcf.className}>{dcf.text}</span>
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">LT D/C</span>{' '}
+          <span className={debtLow ? 'fund-pos' : ''}>
+            {debtPct == null ? '—' : `${debtPct.toFixed(0)}%`}
+          </span>
         </span>
       </div>
 

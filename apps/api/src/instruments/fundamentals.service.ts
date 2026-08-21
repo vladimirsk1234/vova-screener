@@ -173,10 +173,20 @@ export type ValueScreenerLastRun = {
   fail: number;
 } | null;
 
+export type ValueStarCounts = {
+  all: number;
+  undervalued: number;
+  0: number;
+  1: number;
+  2: number;
+  3: number;
+  4: number;
+};
+
 export type ValueScreenerPage = {
   rows: ValueScreenerRow[];
   total: number;
-  counts: { all: number; undervalued: number; 0: number; 1: number; 2: number; 3: number };
+  counts: ValueStarCounts;
   coverage: ValueScreenerCoverage;
   lastFullAt: string | null;
   lastRun: ValueScreenerLastRun;
@@ -534,6 +544,10 @@ function parseInterest(value: unknown): ValueInterest | null {
   return value === 'interested' || value === 'not_interested' ? value : null;
 }
 
+function emptyStarCounts(): ValueStarCounts {
+  return { all: 0, undervalued: 0, 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+}
+
 function starFieldsFromPremia(
   premia: {
     epsFairValue: number | null;
@@ -542,11 +556,17 @@ function starFieldsFromPremia(
     epsPremiumPct: number | null;
     fcfPremiumPct: number | null;
     dcfPremiumPct: number | null;
+    ltDebtToCapitalTTM?: number | null;
   },
 ): StarFields {
   const score = scoreValueStars(premia);
   return {
-    ...premia,
+    epsFairValue: premia.epsFairValue,
+    fcfFairValue: premia.fcfFairValue,
+    dcfFairValue: premia.dcfFairValue,
+    epsPremiumPct: premia.epsPremiumPct,
+    fcfPremiumPct: premia.fcfPremiumPct,
+    dcfPremiumPct: premia.dcfPremiumPct,
     stars: score.stars,
     bestPremiumPct: bestValuePremium(premia),
   };
@@ -578,6 +598,7 @@ function starFieldsFromPayload(payload: FundamentalsPayload): StarFields {
     epsPremiumPct,
     fcfPremiumPct,
     dcfPremiumPct,
+    ltDebtToCapitalTTM: finiteNum(payload.snapshot?.ltDebtToCapitalTTM),
   });
 }
 
@@ -988,28 +1009,78 @@ export class FundamentalsService {
   }
 
   /**
-   * Recompute EPS/FCF/DCF premiums and N/3 stars from stored payloads.
-   * Needed once for docs written before those fields existed.
+   * Recompute EPS/FCF/DCF/LT-D/C N/4 stars.
+   * Docs missing stars rebuild from payload; everyone else is rescored from
+   * denormalized premia + LT D/C so the 4-star formula applies without a full FMP refill.
    */
   async backfillStarFields(): Promise<number> {
-    const docs = await this.store
+    const now = new Date();
+    const ops: Array<{
+      updateOne: { filter: { yahooTicker: string }; update: { $set: StarFields & { updatedAt: Date } } };
+    }> = [];
+
+    const missing = await this.store
       .find({ payload: { $exists: true, $ne: null }, stars: { $exists: false } })
       .select('yahooTicker payload')
       .lean<Array<{ yahooTicker: string; payload: FundamentalsPayload }>>()
       .exec();
-    if (!docs.length) return 0;
-    const ops = [];
-    for (const doc of docs) {
+    for (const doc of missing) {
       if (!doc.payload || typeof doc.payload !== 'object') continue;
       if (!hasCurrentScale(doc.payload, FUNDAMENTALS_SCALE_VERSION)) continue;
-      const stars = starFieldsFromPayload(doc.payload);
       ops.push({
         updateOne: {
           filter: { yahooTicker: doc.yahooTicker },
-          update: { $set: { ...stars, updatedAt: new Date() } },
+          update: { $set: { ...starFieldsFromPayload(doc.payload), updatedAt: now } },
         },
       });
     }
+
+    const stored = await this.store
+      .find({ payload: { $exists: true, $ne: null }, stars: { $exists: true } })
+      .select(
+        'yahooTicker ltDebtToCapitalTTM epsFairValue fcfFairValue dcfFairValue epsPremiumPct fcfPremiumPct dcfPremiumPct premiumPct fairValue stars bestPremiumPct',
+      )
+      .lean<
+        Array<{
+          yahooTicker: string;
+          ltDebtToCapitalTTM?: number;
+          epsFairValue?: number;
+          fcfFairValue?: number;
+          dcfFairValue?: number;
+          epsPremiumPct?: number;
+          fcfPremiumPct?: number;
+          dcfPremiumPct?: number;
+          premiumPct?: number;
+          fairValue?: number;
+          stars?: number;
+          bestPremiumPct?: number;
+        }>
+      >()
+      .exec();
+    for (const doc of stored) {
+      const next = starFieldsFromPremia({
+        epsFairValue: finiteNum(doc.epsFairValue) ?? finiteNum(doc.fairValue),
+        fcfFairValue: finiteNum(doc.fcfFairValue),
+        dcfFairValue: finiteNum(doc.dcfFairValue),
+        epsPremiumPct: finiteNum(doc.epsPremiumPct) ?? finiteNum(doc.premiumPct),
+        fcfPremiumPct: finiteNum(doc.fcfPremiumPct),
+        dcfPremiumPct: finiteNum(doc.dcfPremiumPct),
+        ltDebtToCapitalTTM: finiteNum(doc.ltDebtToCapitalTTM),
+      });
+      if (
+        finiteNum(doc.stars) === next.stars &&
+        finiteNum(doc.bestPremiumPct) === finiteNum(next.bestPremiumPct)
+      ) {
+        continue;
+      }
+      ops.push({
+        updateOne: {
+          filter: { yahooTicker: doc.yahooTicker },
+          update: { $set: { ...next, updatedAt: now } },
+        },
+      });
+    }
+
     if (!ops.length) return 0;
     const res = await this.store.bulkWrite(ops, { ordered: false });
     this.log.log(`Backfilled Value stars on ${res.modifiedCount ?? ops.length} fundamentals docs`);
@@ -1042,7 +1113,7 @@ export class FundamentalsService {
       return {
         rows: [],
         total: 0,
-        counts: { all: 0, undervalued: 0, 0: 0, 1: 0, 2: 0, 3: 0 },
+        counts: emptyStarCounts(),
         coverage: { universe: 0, stored: 0, reliable: 0, complete: 0 },
         lastFullAt: null,
         lastRun: null,
@@ -1062,7 +1133,10 @@ export class FundamentalsService {
       .exec();
 
     const scored: ValueScreenerRow[] = [];
-    const counts = { all: 0, undervalued: 0, 0: 0, 1: 0, 2: 0, 3: 0 };
+    const counts = emptyStarCounts();
+    const starWrites: Array<{
+      updateOne: { filter: { yahooTicker: string }; update: { $set: { stars: number; bestPremiumPct: number | null } } };
+    }> = [];
 
     for (const doc of docs) {
       const listing = byYahoo.get(String(doc.yahooTicker || '').toUpperCase());
@@ -1073,6 +1147,7 @@ export class FundamentalsService {
       const epsFairValue = finiteNum(doc.epsFairValue) ?? finiteNum(doc.fairValue);
       const fcfFairValue = finiteNum(doc.fcfFairValue);
       const dcfFairValue = finiteNum(doc.dcfFairValue);
+      const ltDebtToCapitalTTM = finiteNum(doc.ltDebtToCapitalTTM);
       const computed = starFieldsFromPremia({
         epsFairValue,
         fcfFairValue,
@@ -1080,15 +1155,28 @@ export class FundamentalsService {
         epsPremiumPct,
         fcfPremiumPct,
         dcfPremiumPct,
+        ltDebtToCapitalTTM,
       });
-      const starCount = finiteNum(doc.stars) ?? computed.stars;
-      const bestPremiumPct = finiteNum(doc.bestPremiumPct) ?? computed.bestPremiumPct;
+      const starCount = computed.stars;
+      const bestPremiumPct = computed.bestPremiumPct;
+      if (
+        finiteNum(doc.stars) !== starCount ||
+        finiteNum(doc.bestPremiumPct) !== finiteNum(bestPremiumPct)
+      ) {
+        starWrites.push({
+          updateOne: {
+            filter: { yahooTicker: listing.yahooTicker },
+            update: { $set: { stars: starCount, bestPremiumPct } },
+          },
+        });
+      }
       counts.all += 1;
       if (starCount >= 1) counts.undervalued += 1;
       if (starCount === 0) counts[0] += 1;
       if (starCount === 1) counts[1] += 1;
       if (starCount === 2) counts[2] += 1;
       if (starCount === 3) counts[3] += 1;
+      if (starCount === 4) counts[4] += 1;
       if (!rowMatchesStarsFilter(starCount, filter)) continue;
 
       const interest = parseInterest(doc.interest);
@@ -1121,11 +1209,20 @@ export class FundamentalsService {
 
     scored.sort((a, b) => compareValueRows(a, b, sort, dir));
     const rows = scored.slice(offset, offset + limit);
+    const persistStars =
+      starWrites.length > 0
+        ? this.store.bulkWrite(starWrites, { ordered: false }).catch((err) => {
+            this.log.warn(
+              `Value stars persist skipped: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          })
+        : Promise.resolve();
     await this.fillTaForRows(rows);
     const [coverage, lastRun, lastFullAt] = await Promise.all([
       this.coverageStats(),
       this.latestRefreshRun(),
       this.lastFullAtIso(),
+      persistStars,
     ]);
     return { rows, total: scored.length, counts, coverage, lastFullAt, lastRun };
   }

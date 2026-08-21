@@ -4,13 +4,14 @@ import {
   bestValuePremium,
   compareValueRows,
   interestRankOf,
+  isLowLtDebt,
   rowMatchesStarsFilter,
   scoreValueStars,
   VALUE_INTEREST_RANK,
 } from './valueScore.ts';
 
 describe('scoreValueStars', () => {
-  it('counts FCF-only as 1/3, not 2', () => {
+  it('counts FCF-only as 1/4, not 2', () => {
     const got = scoreValueStars({
       epsPremiumPct: 12,
       fcfPremiumPct: -8,
@@ -20,16 +21,17 @@ describe('scoreValueStars', () => {
     assert.equal(got.epsUndervalued, false);
     assert.equal(got.fcfUndervalued, true);
     assert.equal(got.dcfUndervalued, false);
+    assert.equal(got.ltDebtLow, false);
   });
 
-  it('counts EPS-only as 1/3', () => {
+  it('counts EPS-only as 1/4', () => {
     assert.equal(
       scoreValueStars({ epsPremiumPct: -3, fcfPremiumPct: 1, dcfPremiumPct: 0 }).stars,
       1,
     );
   });
 
-  it('counts EPS+DCF as 2/3', () => {
+  it('counts EPS+DCF as 2/4', () => {
     const got = scoreValueStars({
       epsPremiumPct: -10,
       fcfPremiumPct: 2,
@@ -40,7 +42,7 @@ describe('scoreValueStars', () => {
     assert.equal(got.dcfUndervalued, true);
   });
 
-  it('counts all three as 3/3', () => {
+  it('counts all three premia as 3/4 when LT D/C is missing', () => {
     assert.equal(
       scoreValueStars({ epsPremiumPct: -1, fcfPremiumPct: -2, dcfPremiumPct: -3 }).stars,
       3,
@@ -64,6 +66,82 @@ describe('scoreValueStars', () => {
       0,
     );
   });
+
+  it('awards a fourth star when LT D/C is below 50%', () => {
+    const got = scoreValueStars({
+      epsPremiumPct: -1,
+      fcfPremiumPct: -2,
+      dcfPremiumPct: -3,
+      ltDebtToCapitalTTM: 45,
+    });
+    assert.equal(got.stars, 4);
+    assert.equal(got.ltDebtLow, true);
+  });
+
+  it('treats FMP decimal 0.45 as 45% and awards the LT D/C star', () => {
+    const got = scoreValueStars({
+      epsPremiumPct: 10,
+      fcfPremiumPct: 10,
+      dcfPremiumPct: 10,
+      ltDebtToCapitalTTM: 0.45,
+    });
+    assert.equal(got.stars, 1);
+    assert.equal(got.ltDebtLow, true);
+  });
+
+  it('does not award LT D/C at 50% or above', () => {
+    assert.equal(
+      scoreValueStars({
+        epsPremiumPct: -1,
+        fcfPremiumPct: -2,
+        dcfPremiumPct: -3,
+        ltDebtToCapitalTTM: 50,
+      }).stars,
+      3,
+    );
+    assert.equal(
+      scoreValueStars({
+        epsPremiumPct: -1,
+        fcfPremiumPct: -2,
+        dcfPremiumPct: -3,
+        ltDebtToCapitalTTM: 0.5,
+      }).stars,
+      3,
+    );
+    assert.equal(
+      scoreValueStars({
+        epsPremiumPct: -1,
+        fcfPremiumPct: -2,
+        dcfPremiumPct: -3,
+        ltDebtToCapitalTTM: 75,
+      }).stars,
+      3,
+    );
+  });
+
+  it('does not award LT D/C when the ratio is missing', () => {
+    assert.equal(
+      scoreValueStars({
+        epsPremiumPct: -1,
+        fcfPremiumPct: -2,
+        dcfPremiumPct: -3,
+        ltDebtToCapitalTTM: null,
+      }).stars,
+      3,
+    );
+  });
+});
+
+describe('isLowLtDebt', () => {
+  it('is true only for finite ratios strictly below 50%', () => {
+    assert.equal(isLowLtDebt(0.45), true);
+    assert.equal(isLowLtDebt(49.9), true);
+    assert.equal(isLowLtDebt(50), false);
+    assert.equal(isLowLtDebt(0.5), false);
+    assert.equal(isLowLtDebt(75), false);
+    assert.equal(isLowLtDebt(null), false);
+    assert.equal(isLowLtDebt(Number.NaN), false);
+  });
 });
 
 describe('bestValuePremium', () => {
@@ -83,14 +161,17 @@ describe('bestValuePremium', () => {
 });
 
 describe('rowMatchesStarsFilter', () => {
-  it('undervalued is 1/3 and up; all includes 0/3; 0/1/2/3 are exact', () => {
+  it('undervalued is 1/4 and up; all includes 0/4; 0/1/2/3/4 are exact', () => {
     assert.equal(rowMatchesStarsFilter(0, 'undervalued'), false);
     assert.equal(rowMatchesStarsFilter(1, 'undervalued'), true);
+    assert.equal(rowMatchesStarsFilter(4, 'undervalued'), true);
     assert.equal(rowMatchesStarsFilter(0, 'all'), true);
     assert.equal(rowMatchesStarsFilter(0, '0'), true);
     assert.equal(rowMatchesStarsFilter(1, '0'), false);
     assert.equal(rowMatchesStarsFilter(2, '2'), true);
     assert.equal(rowMatchesStarsFilter(3, '2'), false);
+    assert.equal(rowMatchesStarsFilter(4, '4'), true);
+    assert.equal(rowMatchesStarsFilter(3, '4'), false);
   });
 });
 
@@ -115,9 +196,9 @@ describe('compareValueRows', () => {
     interestRank: premia.rank ?? VALUE_INTEREST_RANK.none,
   });
 
-  it('sorts 3/3 before 1/3 when stars desc', () => {
+  it('sorts 4/4 before 1/4 when stars desc', () => {
     const a = row('AAA', 1, { best: -50 });
-    const b = row('BBB', 3, { best: -1 });
+    const b = row('BBB', 4, { best: -1 });
     const rows = [a, b].sort((x, y) => compareValueRows(x, y, 'stars', 'desc'));
     assert.equal(rows[0].symbol, 'BBB');
   });
@@ -129,20 +210,21 @@ describe('compareValueRows', () => {
     assert.equal(rows[0].symbol, 'BBB');
   });
 
-  it('filters undervalued then paginates 3/3 first', () => {
+  it('filters undervalued then paginates 4/4 first', () => {
     const rows = [
       row('ZERO', 0, { best: -40 }),
       row('ONE', 1, { best: -10 }),
       row('TWO', 2, { best: -8 }),
       row('THREE', 3, { best: -2 }),
+      row('FOUR', 4, { best: -1 }),
     ];
     const filtered = rows.filter((r) => rowMatchesStarsFilter(r.stars, 'undervalued'));
     filtered.sort((a, b) => compareValueRows(a, b, 'stars', 'desc'));
     assert.deepEqual(
       filtered.map((r) => r.symbol),
-      ['THREE', 'TWO', 'ONE'],
+      ['FOUR', 'THREE', 'TWO', 'ONE'],
     );
-    assert.equal(filtered.slice(0, 2)[0].symbol, 'THREE');
+    assert.equal(filtered.slice(0, 2)[0].symbol, 'FOUR');
     assert.equal(filtered.slice(0, 2).length, 2);
   });
 

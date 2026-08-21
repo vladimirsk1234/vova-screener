@@ -29,7 +29,7 @@ class InstrumentsController {
   }
 
   /**
-   * Fundamental Value screener: STOCK-TICKERS ranked by how many of EPS/FCF/DCF are undervalued.
+   * Fundamental Value screener: STOCK-TICKERS ranked by how many of EPS/FCF/DCF/LT D/C score a star.
    */
   @Get('fundamentals-screener')
   fundamentalsScreener(
@@ -39,7 +39,7 @@ class InstrumentsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const starFilters = ['undervalued', '0', '1', '2', '3', 'all'] as const;
+    const starFilters = ['undervalued', '0', '1', '2', '3', '4', 'all'] as const;
     const sorts = ['stars', 'eps', 'fcf', 'dcf', 'symbol', 'interest'] as const;
     const dirs = ['asc', 'desc'] as const;
     const star = starFilters.includes(stars as (typeof starFilters)[number])

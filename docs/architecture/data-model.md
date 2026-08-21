@@ -212,7 +212,7 @@ valuation filter. One document per `yahooTicker`:
 
 `payload` is the assembled `FundamentalsPayload` (metric `eps`; other metrics recompute from
 `annual` without FMP). Card / Value fields are denormalized for list/filter reads.
-`stars` is how many of EPS / FCF / DCF have `premiumPct < 0` (0–3).
+`stars` is how many of EPS / FCF / DCF have `premiumPct < 0`, plus one if LT D/C is strictly below 50% (0–4).
 
 Reads for listed tickers (STOCK-TICKERS / ETF) never call FMP — only Mongo. Unknown Manual
 tickers may pull FMP once on first Manual scan. Writes:

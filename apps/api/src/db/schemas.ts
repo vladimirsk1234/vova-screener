@@ -281,7 +281,7 @@ export const InstrumentFundamentalsSchema = new Schema(
     epsPremiumPct: Number,
     fcfPremiumPct: Number,
     dcfPremiumPct: Number,
-    /** How many of EPS/FCF/DCF are undervalued (0–3). */
+    /** How many of EPS/FCF/DCF are undervalued plus LT D/C < 50% (0–4). */
     stars: Number,
     /** Most negative of the three premiums — sort tie-break. */
     bestPremiumPct: Number,
