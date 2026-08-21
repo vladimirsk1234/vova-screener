@@ -10,7 +10,6 @@ import { SortChips, type SortOption } from '../components/SortChips';
 import { UniverseTabs } from '../components/UniverseTabs';
 import { ValueCard } from '../components/ValueCard';
 import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
-import { fundamentalsUpdateBanner } from '../lib/fundamentalsRefresh';
 
 const PAGE_SIZE = 100;
 
@@ -101,18 +100,10 @@ function statusLine(first: {
       `Updating ${run.done}/${run.total}${started ? ` · started ${started}` : ''}`,
     );
   } else {
-    const updating = fundamentalsUpdateBanner({
-      lastRun: run,
-      coverage: cov,
-    });
-    if (updating) {
-      bits.push(updating.text);
-    } else {
-      const eod = formatEodEt(first.lastFullAt ?? run?.finishedAt);
-      if (eod) {
-        const fail = run && run.fail > 0 ? ` · ${run.fail} fail` : '';
-        bits.push(`EOD ${eod}${fail}`);
-      }
+    const eod = formatEodEt(first.lastFullAt ?? run?.finishedAt);
+    if (eod) {
+      const fail = run && run.fail > 0 ? ` · ${run.fail} fail` : '';
+      bits.push(`EOD ${eod}${fail}`);
     }
   }
 
@@ -144,12 +135,8 @@ export function ValuePage() {
     },
     placeholderData: keepPreviousData,
     staleTime: 60_000,
-    refetchInterval: (q) => {
-      const first = q.state.data?.pages[0];
-      if (first?.lastRun?.status === 'running') return 5_000;
-      if (first?.coverage && first.coverage.complete < first.coverage.universe) return 8_000;
-      return false;
-    },
+    refetchInterval: (q) =>
+      q.state.data?.pages[0]?.lastRun?.status === 'running' ? 5_000 : false,
   });
 
   const rows = page.data?.pages.flatMap((p) => p.rows) ?? [];
@@ -206,13 +193,8 @@ export function ValuePage() {
 
       {!page.isLoading && rows.length === 0 ? (
         <p className="empty">
-          {first?.lastRun?.status === 'running' ||
-          (first?.coverage && first.coverage.complete < first.coverage.universe)
-            ? `Updating fundamentals ${
-                first.lastRun?.status === 'running'
-                  ? `${first.lastRun.done}/${first.lastRun.total}`
-                  : `${first.coverage?.complete ?? 0}/${first.coverage?.universe ?? 0}`
-              }. Names appear here as the EOD job scores them.`
+          {first?.lastRun?.status === 'running'
+            ? `Updating fundamentals ${first.lastRun.done}/${first.lastRun.total}. Names appear here as the EOD job scores them.`
             : 'No names match this filter yet. The weekday EOD job scores every STOCK-TICKERS name into Mongo; open this tab again after the update finishes.'}
         </p>
       ) : null}

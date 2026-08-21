@@ -12,6 +12,7 @@ import {
   isFullRunAfterTodaysClose,
   isPastFundamentalsEodSlot,
   MARKET_TZ,
+  partsInNy,
 } from '../scans/period';
 import { UniverseService } from '../universe/universe.service';
 import { fundamentalsCatchUpKind } from './fundamentals-catchup';
@@ -62,8 +63,8 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
       );
     }
     await this.waitForUniverse();
-    await this.catchUpOnBoot();
-    await this.retryCatchUpAfterBoot();
+    const ran = await this.catchUpOnBoot();
+    await this.retryCatchUpAfterBoot(ran);
   }
 
   /** STOCK-TICKERS import is fire-and-forget — wait so we do not skip or complete 0 names. */
@@ -92,20 +93,22 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
    * Empty/partial Mongo or a missed weekday EOD after 18:15 ET → run now, do not wait for
    * tomorrow's cron (Nest does not fire missed slots).
    */
-  private async catchUpOnBoot() {
+  private async catchUpOnBoot(): Promise<boolean> {
     try {
       const decision = await this.shouldRunFullNow();
       if (!decision) {
         this.log.log('Fundamentals catch-up skipped — coverage ok and today EOD already done');
-        return;
+        return false;
       }
       this.log.log(`Fundamentals boot catch-up: ${decision}`);
       if (decision === 'missing') await this.runMissing({ trigger: 'boot' });
       else await this.runFull({ trigger: 'boot' });
+      return true;
     } catch (err) {
       this.log.warn(
         `Fundamentals catch-up failed: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return false;
     }
   }
 
@@ -124,8 +127,9 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
     }
   }
 
-  /** Universe import can finish after the first wait; retry a few times, then HTTP kick covers the rest. */
-  private async retryCatchUpAfterBoot() {
+  /** Universe import can finish after the first wait; do not start a second walk after one already ran. */
+  private async retryCatchUpAfterBoot(alreadyRan: boolean) {
+    if (alreadyRan) return;
     for (const delay of [15_000, 45_000, 120_000]) {
       await sleep(delay);
       if (this.busy) return;
@@ -139,15 +143,23 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
   }
 
   async shouldRunFullNow(now: Date = new Date()): Promise<'missing' | 'full' | null> {
-    const coverage = await this.fundamentals.coverageStats();
-    const last = await this.latestCompletedFullAt();
+    const [coverage, last, latest] = await Promise.all([
+      this.fundamentals.coverageStats(),
+      this.latestCompletedFullAt(),
+      this.fundamentals.latestRefreshRun(),
+    ]);
+    const jobOpen = this.busy || latest?.status === 'running';
+    const completedPassToday = Boolean(
+      last && partsInNy(last).dateStr === partsInNy(now).dateStr,
+    );
     return fundamentalsCatchUpKind({
       fmpConfigured: this.fmp.configured(),
-      busy: this.busy,
+      busy: jobOpen,
       universe: coverage.universe,
       complete: coverage.complete,
       pastEodSlot: isPastFundamentalsEodSlot(now),
       todayFullDone: isFullRunAfterTodaysClose(last, now),
+      completedPassToday,
     });
   }
 

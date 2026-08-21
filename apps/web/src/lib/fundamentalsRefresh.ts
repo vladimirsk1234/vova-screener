@@ -18,20 +18,16 @@ export function fundamentalsUpdateBanner(input: {
   const run = input.lastRun;
   const cov = input.coverage;
   const running = Boolean(run && run.status === 'running' && run.total > 0);
-  const incomplete = cov != null && (cov.universe <= 0 || cov.complete < cov.universe);
-  if (!running && !incomplete) return null;
+  if (!running || !run) return null;
   const scored = cov && cov.universe > 0 ? ` · ${cov.complete}/${cov.universe} scored` : '';
-  const text =
-    running && run
-      ? `Updating ${run.done}/${run.total}${scored}`
-      : `Starting fundamentals update…${scored}`;
   const pct =
-    running && run
-      ? Math.round((run.done / run.total) * 100)
-      : cov && cov.universe > 0
-        ? Math.round((cov.complete / cov.universe) * 100)
-        : 0;
-  return { text, pct: Math.max(0, Math.min(100, pct)) };
+    cov && cov.universe > 0
+      ? Math.round((cov.complete / cov.universe) * 100)
+      : Math.round((run.done / run.total) * 100);
+  return {
+    text: `Updating ${run.done}/${run.total}${scored}`,
+    pct: Math.max(0, Math.min(100, pct)),
+  };
 }
 
 export function refreshPollMs(
@@ -42,9 +38,6 @@ export function refreshPollMs(
       }
     | undefined,
 ): number | false {
-  const run = input?.lastRun;
-  const cov = input?.coverage;
-  if (run?.status === 'running') return 3_000;
-  if (cov == null || cov.universe <= 0 || cov.complete < cov.universe) return 5_000;
+  if (input?.lastRun?.status === 'running') return 3_000;
   return false;
 }
