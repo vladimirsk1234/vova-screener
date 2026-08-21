@@ -13,6 +13,7 @@ import {
   type ValuationWindowYears,
 } from '@vova/engine';
 import { api, type FundamentalsPayload } from './api';
+import { isFundamentalsPendingError } from './apiError';
 
 export type DividendHud = {
   yieldPct: number | null;
@@ -52,8 +53,12 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     queryFn: () => api.fundamentals(ticker, 'eps'),
     enabled: enabled && Boolean(ticker),
     staleTime: 60_000,
-    retry: 1,
-    refetchInterval: (q) => (q.state.status === 'error' ? 10_000 : false),
+    retry: (count: number, err: Error) =>
+      isFundamentalsPendingError(err) ? count < 40 : count < 1,
+    retryDelay: (_count: number, err: Error) =>
+      isFundamentalsPendingError(err) ? 4_000 : 1_000,
+    refetchInterval: (q: { state: { status: string; error: unknown } }) =>
+      q.state.status === 'error' && isFundamentalsPendingError(q.state.error) ? 8_000 : false,
   });
 
   const valuation = useMemo(() => {

@@ -12,6 +12,7 @@ class InstrumentsController {
   constructor(
     private readonly instruments: InstrumentsService,
     private readonly fundamentalsSvc: FundamentalsService,
+    private readonly fundamentalsRefresh: FundamentalsRefreshService,
   ) {}
 
   /**
@@ -52,6 +53,7 @@ class InstrumentsController {
       : 'desc';
     const lim = Number(limit);
     const off = Number(offset);
+    this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.listScreener({
       stars: star,
       sort: s,
@@ -63,7 +65,8 @@ class InstrumentsController {
 
   /** EOD / catch-up progress — same numbers the Value tab shows. */
   @Get('fundamentals-refresh')
-  fundamentalsRefresh() {
+  fundamentalsRefreshStatus() {
+    this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.refreshStatus();
   }
 
@@ -140,6 +143,7 @@ class InstrumentsController {
   fundamentals(@Param('ticker') ticker: string, @Query('metric') metric?: string) {
     const allowed: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
     const m = allowed.includes(metric as ValuationMetric) ? (metric as ValuationMetric) : 'eps';
+    this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.get(ticker, m);
   }
 

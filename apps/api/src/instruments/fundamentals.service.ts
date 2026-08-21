@@ -633,16 +633,24 @@ export class FundamentalsService {
       await this.persist(ticker, payload, 'full');
       return payload;
     } catch (err) {
+      if (!this.fmp.configured()) {
+        throw new ServiceUnavailableException(
+          'Set FMP_API_KEY on the API server to load fundamentals.',
+        );
+      }
       const run = await this.latestRefreshRun();
       const updating =
         run?.status === 'running' && run.total > 0
           ? ` Updating ${run.done}/${run.total}.`
           : '';
       const listed = await this.universe.isInTrackedUniverse(ticker);
-      const wait = listed
-        ? ` Wait for the EOD refresh.${updating}`
-        : updating || ` ${err instanceof Error ? err.message : String(err)}`;
-      throw new NotFoundException(`No fundamentals in Mongo for ${ticker} yet.${wait}`);
+      if (listed) {
+        throw new ServiceUnavailableException(
+          `Fundamentals for ${ticker} are still loading.${updating || ' The EOD refresh will fill them.'}`,
+        );
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new NotFoundException(`No fundamentals for ${ticker}. ${updating || detail}`);
     }
   }
 
