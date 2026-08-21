@@ -41,12 +41,20 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
       this.log.warn('FMP_API_KEY is not set — fundamentals refresh is off');
       return;
     }
-    void this.fundamentals.invalidateUnscaledStore().catch((err) => {
+    // Wipe must finish before coverage is measured — otherwise catch-up sees a full
+    // store, skips, then invalidate empties every payload and nothing refills.
+    void this.startBootRefresh();
+  }
+
+  private async startBootRefresh() {
+    try {
+      await this.fundamentals.invalidateUnscaledStore();
+    } catch (err) {
       this.log.warn(
         `Unscaled fundamentals purge failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    });
-    void this.catchUpOnBoot();
+    }
+    await this.catchUpOnBoot();
   }
 
   /**

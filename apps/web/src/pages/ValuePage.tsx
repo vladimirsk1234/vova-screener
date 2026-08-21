@@ -193,8 +193,9 @@ export function ValuePage() {
 
       {!page.isLoading && rows.length === 0 ? (
         <p className="empty">
-          No names match this filter yet. The weekday EOD job scores every STOCK-TICKERS name into
-          Mongo; open this tab again after the update finishes.
+          {first?.lastRun?.status === 'running'
+            ? `Updating fundamentals ${first.lastRun.done}/${first.lastRun.total}. Names appear here as the EOD job scores them.`
+            : 'No names match this filter yet. The weekday EOD job scores every STOCK-TICKERS name into Mongo; open this tab again after the update finishes.'}
         </p>
       ) : null}
 

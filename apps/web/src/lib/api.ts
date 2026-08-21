@@ -716,7 +716,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
+    let detail = text;
+    try {
+      const body = JSON.parse(text) as { message?: unknown };
+      if (typeof body.message === 'string' && body.message.trim()) detail = body.message;
+    } catch {
+      /* keep raw body */
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
 }
@@ -884,6 +891,12 @@ export const api = {
       `/instruments/fundamentals-cards${query({ tickers: unique.join(',') })}`,
     );
   },
+  fundamentalsRefresh: () =>
+    request<{
+      coverage: ValueScreenerPage['coverage'];
+      lastRun: ValueScreenerPage['lastRun'];
+      lastFullAt: string | null;
+    }>('/instruments/fundamentals-refresh'),
   fundamentalsScreener: (opts: {
     stars?: ValueStarsFilter;
     sort?: ValueScreenerSort;
