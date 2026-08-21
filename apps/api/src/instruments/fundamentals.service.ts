@@ -3,13 +3,17 @@ import { Injectable, Logger, NotFoundException, ServiceUnavailableException } fr
 import {
   FUNDAMENTALS_SCALE_VERSION,
   annualizedPriceReturnPct,
+  appendForwardFairValue,
   bestValuePremium,
   buildValuationSeries,
   compareValueRows,
   completeFiscalYears,
+  growthOverrideFromSummary,
   impliedPe,
   interestRankOf,
   peInBand,
+  pickScaledFcf,
+  projectMetricByGrowth,
   rowMatchesStarsFilter,
   scaleDcf,
   scalePerShare,
@@ -326,11 +330,23 @@ function quarterlyEpsRows(
 function quarterlyFundamentalRows(
   incomeQ: Record<string, unknown>[],
   cashQ: Record<string, unknown>[],
-): Array<{ date: string; eps: number | null; fcfPerShare: number | null }> {
+): Array<{
+  date: string;
+  eps: number | null;
+  fcfPerShare: number | null;
+  freeCashFlow: number | null;
+  dilutedShares: number | null;
+}> {
   const incByDate = byDateKey(incomeQ);
   const cfByDate = byDateKey(cashQ);
   const dates = new Set<string>([...incByDate.keys(), ...cfByDate.keys()]);
-  const out: Array<{ date: string; eps: number | null; fcfPerShare: number | null }> = [];
+  const out: Array<{
+    date: string;
+    eps: number | null;
+    fcfPerShare: number | null;
+    freeCashFlow: number | null;
+    dilutedShares: number | null;
+  }> = [];
   for (const date of [...dates].sort()) {
     if (date.length !== 10) continue;
     const inc = incByDate.get(date) ?? {};
@@ -345,7 +361,7 @@ function quarterlyFundamentalRows(
       fmpNum(cf.weightedAverageShsOut);
     const fcfPerShare =
       fcf != null && shares != null && shares > 0 ? fcf / shares : null;
-    out.push({ date, eps, fcfPerShare });
+    out.push({ date, eps, fcfPerShare, freeCashFlow: fcf, dilutedShares: shares });
   }
   return out;
 }
@@ -548,6 +564,7 @@ function starFieldsFromPayload(payload: FundamentalsPayload): StarFields {
       windowYears: 5,
       forward: [],
       ttmMetric: finiteNum(payload.snapshot?.ttmFcf),
+      ...growthOverrideFromSummary(payload.valuation?.summary),
     });
     fcfFairValue = finiteNum(fcfVal.summary.fairValue);
     fcfPremiumPct = finiteNum(fcfVal.summary.premiumPct);
@@ -1330,15 +1347,30 @@ export class FundamentalsService {
       windowYears: 5,
       forward: forwardFor(metric, stored.estimates),
       ttmMetric: metric === 'fcf' ? stored.snapshot.ttmFcf ?? null : null,
+      ...(metric === 'fcf' ? growthOverrideFromSummary(stored.valuation?.summary) : {}),
     });
+    const lastHist = [...valuation.series].reverse().find((p) => !p.estimated && !p.forecast);
+    const forecastSeries =
+      metric === 'fcf'
+        ? appendForwardFairValue(
+            valuation.series,
+            projectMetricByGrowth({
+              lastMetric: valuation.summary.fairValueAnchor ?? lastHist?.metric ?? null,
+              lastYear: lastHist?.year ?? 0,
+              growthPct: valuation.summary.growthRatePct,
+              years: stored.estimates,
+            }),
+            valuation.summary.fairValueRatio,
+          )
+        : this.extendForecast(
+            valuation.series,
+            stored.estimates,
+            valuation.summary.fairValueRatio,
+          );
     return {
       ...stored,
       valuation,
-      forecastSeries: this.extendForecast(
-        valuation.series,
-        stored.estimates,
-        valuation.summary.fairValueRatio,
-      ),
+      forecastSeries,
     };
   }
 
@@ -1894,9 +1926,6 @@ export class FundamentalsService {
       peTTMRaw,
     );
     const ttmEpsRaw = ttmPick.ttm;
-    const ttmFcfRaw = ttmFromQuarterly(
-      rawQuarters.map((q) => ({ date: q.date, metric: q.fcfPerShare })),
-    );
     const aligned = await this.alignToListing({
       yahooTicker,
       listingCurrency: profile.currency,
@@ -1929,16 +1958,34 @@ export class FundamentalsService {
       .map((q) => ({
         date: q.date,
         eps: scalePerShare(q.eps, aligned.scale),
-        fcfPerShare: scalePerShare(q.fcfPerShare, aligned.scale),
+        fcfPerShare: pickScaledFcf({
+          fmpFcfPerShare: q.fcfPerShare,
+          freeCashFlow: q.freeCashFlow,
+          dilutedShares: q.dilutedShares,
+          scale: aligned.scale,
+          price,
+        }),
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
-    const ttmFcf = scalePerShare(ttmFcfRaw.ttm, aligned.scale);
+    const ttmFcf = ttmFromQuarterly(
+      quarters.map((q) => ({ date: q.date, metric: q.fcfPerShare })),
+    ).ttm;
 
+    const epsValuation =
+      metric === 'fcf'
+        ? buildValuationSeries(annual, 'eps', {
+            currentPrice: price,
+            windowYears: 5,
+            forward: forwardFor('eps', estimateParsed),
+            ttmMetric: ttmEps,
+          })
+        : null;
     const valuation = buildValuationSeries(annual, metric, {
       currentPrice: price,
       windowYears: 5,
       forward: forwardFor(metric, estimateParsed),
-      ttmMetric: ttmEps,
+      ttmMetric: metric === 'fcf' ? ttmFcf : ttmEps,
+      ...(metric === 'fcf' ? growthOverrideFromSummary(epsValuation?.summary) : {}),
     });
 
     const pbTTM = fmpNum(ratiosTtm?.priceToBookRatioTTM) ?? fmpNum(keyTtm?.pbRatioTTM);
@@ -2027,7 +2074,20 @@ export class FundamentalsService {
         };
       });
 
-    const forecastSeries = this.extendForecast(valuation.series, estimateParsed, fvRatio);
+    const lastFy = annual[annual.length - 1];
+    const forecastSeries =
+      metric === 'fcf'
+        ? appendForwardFairValue(
+            valuation.series,
+            projectMetricByGrowth({
+              lastMetric: valuation.summary.fairValueAnchor ?? lastFy?.fcfPerShare ?? null,
+              lastYear: lastFy?.year ?? 0,
+              growthPct: valuation.summary.growthRatePct,
+              years: estimateParsed,
+            }),
+            fvRatio,
+          )
+        : this.extendForecast(valuation.series, estimateParsed, fvRatio);
     const performance = this.buildPerformance(annual, tickerCloses, spyCloses);
 
     return {

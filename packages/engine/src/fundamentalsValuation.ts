@@ -124,7 +124,7 @@ export type ValuationSummary = {
    * May be shorter than `windowYears` (IPO / turnaround). Null when CAGR is N/A.
    */
   growthSpanYears: number | null;
-  /** Always trailing — analyst estimates do not set the growth rate. */
+  /** Trailing window CAGR, or window-to-estimate when `forward` is used. */
   growthSource: 'trailing' | 'forward';
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
@@ -530,6 +530,14 @@ export function buildValuationSeries(
      * anchor — closer to “current earnings” than the last closed FY.
      */
     ttmMetric?: number | null;
+    /**
+     * When set, skip this metric's own CAGR and use these values for the
+     * orange-box ratio. FCF borrows EPS forward CAGR this way — do not pass
+     * EPS estimates as `forward` for FCF (that mixes FCF-start with EPS-end).
+     */
+    growthRatePct?: number | null;
+    growthSpanYears?: number | null;
+    growthSource?: 'trailing' | 'forward';
   } = {},
 ): { series: ValuationSeriesPoint[]; summary: ValuationSummary } {
   const windowYears = opts.windowYears === undefined ? null : opts.windowYears;
@@ -545,10 +553,25 @@ export function buildValuationSeries(
     windowLookbackYears(windowYears),
   );
   const forward = forwardMetricCagrDetail(sorted, opts.forward ?? [], metric);
-  const useForward = forward.growthPct != null;
-  const growthSource = useForward ? ('forward' as const) : ('trailing' as const);
-  const growthRatePct = useForward ? forward.growthPct : trailing.growthPct;
-  const growthSpanYears = useForward ? forward.spanYears : trailing.spanYears;
+  const useOverride = opts.growthRatePct !== undefined;
+  const useForward = !useOverride && forward.growthPct != null;
+  const growthSource = useOverride
+    ? (opts.growthSource ?? 'forward')
+    : useForward
+      ? ('forward' as const)
+      : ('trailing' as const);
+  const growthRatePct = useOverride
+    ? opts.growthRatePct != null && finite(opts.growthRatePct)
+      ? opts.growthRatePct
+      : null
+    : useForward
+      ? forward.growthPct
+      : trailing.growthPct;
+  const growthSpanYears = useOverride
+    ? (opts.growthSpanYears ?? null)
+    : useForward
+      ? forward.spanYears
+      : trailing.spanYears;
   const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct, {
     spanYears: growthSpanYears,
     windowYears,
@@ -635,6 +658,60 @@ export function buildValuationSeries(
   };
 }
 
+/** Copy EPS orange-box growth onto FCF without mixing FCF/EPS CAGR endpoints. */
+export function growthOverrideFromSummary(
+  summary:
+    | Pick<ValuationSummary, 'growthRatePct' | 'growthSpanYears' | 'growthSource'>
+    | null
+    | undefined,
+): {
+  growthRatePct?: number;
+  growthSpanYears?: number | null;
+  growthSource?: 'trailing' | 'forward';
+} {
+  if (summary?.growthRatePct == null || !finite(summary.growthRatePct)) return {};
+  return {
+    growthRatePct: summary.growthRatePct,
+    growthSpanYears: summary.growthSpanYears,
+    growthSource: summary.growthSource,
+  };
+}
+
+/**
+ * Project the selected metric forward at `growthPct`: metric_t = last × (1+g)^Δt.
+ * Used for FCF (FMP has no FCF estimates) so the dashed FV stays in FCF dollars.
+ */
+export function projectMetricByGrowth(opts: {
+  lastMetric: number | null | undefined;
+  lastYear: number;
+  growthPct: number | null | undefined;
+  years: Array<{ year: number; date?: string }>;
+  horizonYears?: number;
+}): ForwardEstimatePoint[] {
+  const lastMetric = opts.lastMetric;
+  const growthPct = opts.growthPct;
+  if (!finite(lastMetric) || lastMetric <= 0 || !finite(growthPct)) return [];
+  const g = 1 + growthPct / 100;
+  if (!(g > 0)) return [];
+  const horizon = opts.horizonYears ?? FORWARD_FAIR_VALUE_YEARS;
+  const fromYears: Array<{ year: number; date?: string }> = [...opts.years]
+    .filter((e) => Number.isFinite(e.year) && e.year > opts.lastYear)
+    .sort((a, b) => a.year - b.year);
+  const src: Array<{ year: number; date?: string }> = fromYears.length
+    ? fromYears
+    : Array.from({ length: horizon }, (_, i) => ({ year: opts.lastYear + i + 1 }));
+  const out: ForwardEstimatePoint[] = [];
+  for (const y of src) {
+    if (out.length >= horizon) break;
+    const dt = y.year - opts.lastYear;
+    if (dt <= 0) continue;
+    const metric = lastMetric * Math.pow(g, dt);
+    if (!finite(metric) || metric <= 0) continue;
+    out.push({ year: y.year, date: y.date, metric });
+  }
+  return out;
+}
+
 /**
  * Chart series whose last fair-value point equals `summary.fairValue`.
  * Historical years stay `metric × ratio`. When `pinToday` is true (Sales /
@@ -716,6 +793,13 @@ export function nextIsoDate(iso: string): string {
 /** ~one fiscal quarter after `lastSolidIso` when FMP has no next-earnings date. */
 const QUARTER_FALLBACK_DAYS = 91;
 
+/** Prefer an explicit metric (FCF projection) over EPS so mixed estimate blobs stay in-unit. */
+function estimatePointMetric(est: ForwardEstimatePoint): number | null {
+  if (finite(est.metric)) return est.metric;
+  if (finite(est.eps)) return est.eps;
+  return null;
+}
+
 export function nextQuarterIso(
   lastSolidIso: string,
   nextEarningsDate?: string | null,
@@ -757,7 +841,7 @@ export function appendNextQuarterEstimate(
     .filter((e) => Number.isFinite(e.year) && e.year > (lastHist.year ?? 0))
     .sort((a, b) => a.year - b.year)[0];
   if (!nextEst) return series;
-  const metric = finite(nextEst.eps) ? nextEst.eps : finite(nextEst.metric) ? nextEst.metric : null;
+  const metric = estimatePointMetric(nextEst);
   if (metric == null || metric <= 0) return series;
   const nextQ = nextQuarterIso(last.date, nextEarningsDate);
   const lastT = Date.parse(`${last.date.slice(0, 10)}T00:00:00Z`);
@@ -891,7 +975,7 @@ function ensureDateAfter(date: string, after: string): string {
 }
 
 /**
- * Append up to `horizonYears` forward points: FV = EPS × ratio, Normal P/E = EPS × multiple.
+ * Append up to `horizonYears` forward points: FV = metric × ratio, Normal P/E = metric × multiple.
  * Skips years already in the historical / TTM series. Dates are forced strictly
  * after the previous point so lightweight-charts can plot them.
  */
@@ -921,7 +1005,7 @@ export function appendForwardFairValue(
   let added = 0;
   for (const est of candidates) {
     if (added >= horizonYears) break;
-    const metric = finite(est.eps) ? est.eps : finite(est.metric) ? est.metric : null;
+    const metric = estimatePointMetric(est);
     const positive = metric != null && metric > 0;
     const fv = positive && hasFv ? metric * fairValueRatio : null;
     const npe = positive && hasNpe ? metric * normalMultiple : null;
