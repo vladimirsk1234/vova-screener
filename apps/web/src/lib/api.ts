@@ -472,7 +472,7 @@ export type ValueScreenerRow = {
   };
 };
 
-export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | 'all';
+export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | '4' | 'all';
 export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
 
 export type TickerInterest = {
@@ -484,7 +484,7 @@ export type TickerInterest = {
 export type ValueScreenerPage = {
   rows: ValueScreenerRow[];
   total: number;
-  counts: { all: number; undervalued: number; 0: number; 1: number; 2: number; 3: number };
+  counts: { all: number; undervalued: number; 0: number; 1: number; 2: number; 3: number; 4: number };
   coverage: { universe: number; stored: number; reliable: number; complete: number };
   lastFullAt: string | null;
   lastRun: {

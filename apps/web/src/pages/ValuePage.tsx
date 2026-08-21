@@ -13,15 +13,16 @@ import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const PAGE_SIZE = 100;
 
-const STAR_FILTERS = ['undervalued', '3', '2', '1', '0'] as const;
+const STAR_FILTERS = ['undervalued', '4', '3', '2', '1', '0'] as const;
 type StarChip = (typeof STAR_FILTERS)[number];
 
 const STAR_LABEL: Record<StarChip, string> = {
   undervalued: 'Undervalued',
-  '3': '3/3',
-  '2': '2/3',
-  '1': '1/3',
-  '0': '0/3',
+  '4': '4/4',
+  '3': '3/4',
+  '2': '2/4',
+  '1': '1/4',
+  '0': '0/4',
 };
 
 const SORTS: SortOption<ValueScreenerSort>[] = [
@@ -86,7 +87,7 @@ function statusLine(first: {
   if (first.stars === 'undervalued') {
     bits.push(`${first.total} undervalued`);
   } else {
-    bits.push(`${first.total} at ${first.stars}/3`);
+    bits.push(`${first.total} at ${first.stars}/4`);
   }
 
   if (universe != null) {
@@ -163,7 +164,7 @@ export function ValuePage() {
             const count =
               v === 'undervalued'
                 ? counts?.undervalued
-                : counts?.[Number(v) as 0 | 1 | 2 | 3];
+                : counts?.[Number(v) as 0 | 1 | 2 | 3 | 4];
             const label = STAR_LABEL[v];
             return count != null ? `${label} ${count}` : label;
           }}
@@ -173,7 +174,7 @@ export function ValuePage() {
           <span className="muted small">
             {first
               ? statusLine({ ...first, stars })
-              : 'Ranking Stocks by EPS / FCF / DCF undervaluation'}
+              : 'Ranking Stocks by EPS / FCF / DCF undervaluation and LT D/C'}
           </span>
           <SortChips
             options={SORTS}

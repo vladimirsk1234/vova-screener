@@ -1,24 +1,27 @@
 /**
- * Value-screener stars: how many of EPS / FCF / DCF say the name is undervalued.
- * One star is 1/3 (any single metric), not “star 1 = EPS”.
+ * Value-screener stars: how many of EPS / FCF / DCF / LT D/C say the name is a buy.
+ * One star is 1/4 (any single metric), not “star 1 = EPS”.
  */
 
-export const VALUE_STAR_TOTAL = 3;
+export const VALUE_STAR_TOTAL = 4;
+export const LT_DEBT_CAPITAL_MAX_PCT = 50;
 
 export type ValuePremia = {
   epsPremiumPct: number | null;
   fcfPremiumPct: number | null;
   dcfPremiumPct: number | null;
+  ltDebtToCapitalTTM?: number | null;
 };
 
 export type ValueScore = {
   epsUndervalued: boolean;
   fcfUndervalued: boolean;
   dcfUndervalued: boolean;
-  stars: 0 | 1 | 2 | 3;
+  ltDebtLow: boolean;
+  stars: 0 | 1 | 2 | 3 | 4;
 };
 
-export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | 'all';
+export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | '4' | 'all';
 export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
 export type ValueSortDir = 'asc' | 'desc';
 export type ValueInterest = 'interested' | 'not_interested';
@@ -39,14 +42,28 @@ export function isUndervaluedPremium(premiumPct: number | null | undefined): boo
   return premiumPct != null && Number.isFinite(premiumPct) && premiumPct < 0;
 }
 
+/** FMP mixes decimals (0.18) and whole percents (18); normalize to percent points. */
+export function normalizePctPoints(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  return Math.abs(n) <= 1.5 ? n * 100 : n;
+}
+
+/** Long-term debt / capital below 50%. Missing numbers do not count. */
+export function isLowLtDebt(ltDebtToCapitalTTM: number | null | undefined): boolean {
+  const pct = normalizePctPoints(ltDebtToCapitalTTM);
+  return pct != null && pct < LT_DEBT_CAPITAL_MAX_PCT;
+}
+
 export function scoreValueStars(premia: ValuePremia): ValueScore {
   const epsUndervalued = isUndervaluedPremium(premia.epsPremiumPct);
   const fcfUndervalued = isUndervaluedPremium(premia.fcfPremiumPct);
   const dcfUndervalued = isUndervaluedPremium(premia.dcfPremiumPct);
+  const ltDebtLow = isLowLtDebt(premia.ltDebtToCapitalTTM);
   const stars = (Number(epsUndervalued) +
     Number(fcfUndervalued) +
-    Number(dcfUndervalued)) as 0 | 1 | 2 | 3;
-  return { epsUndervalued, fcfUndervalued, dcfUndervalued, stars };
+    Number(dcfUndervalued) +
+    Number(ltDebtLow)) as 0 | 1 | 2 | 3 | 4;
+  return { epsUndervalued, fcfUndervalued, dcfUndervalued, ltDebtLow, stars };
 }
 
 /** Most negative finite premium — used as the tie-break after star count. */
