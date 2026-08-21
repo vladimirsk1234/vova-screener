@@ -608,8 +608,8 @@ export class FundamentalsService {
   ) {}
 
   /**
-   * Mongo first. Listed tickers never hit FMP on miss (EOD job fills them).
-   * Unknown Manual tickers still pull live so a one-off chart works.
+   * Mongo first. Listed tickers never hit FMP on miss (EOD job fills them)
+   * unless the user opened a chart — then we fill that one name live.
    */
   async get(yahooTicker: string, metric: ValuationMetric = 'eps'): Promise<FundamentalsPayload> {
     if (!METRICS.includes(metric)) metric = 'eps';
@@ -621,27 +621,37 @@ export class FundamentalsService {
     }
 
     const stored = await this.loadStored(ticker);
-    if (
-      stored &&
-      hasCurrentScale(stored, FUNDAMENTALS_SCALE_VERSION) &&
-      Array.isArray(stored.quarters) &&
-      Object.prototype.hasOwnProperty.call(stored.snapshot ?? {}, 'ttmFcf')
-    ) {
+    if (stored && this.payloadUsable(stored)) {
       const payload = this.payloadForMetric(stored, metric);
       this.remember(ticker, payload);
       return { ...payload, cached: true };
     }
 
-    const listed = await this.universe.isInTrackedUniverse(ticker);
-    if (listed) {
-      throw new NotFoundException(
-        `No fundamentals in Mongo for ${ticker} yet — wait for the EOD refresh`,
-      );
+    try {
+      this.log.log(`Live-filling fundamentals for ${ticker} (not in Mongo or scale stale)`);
+      const payload = await this.fetchFresh(ticker, metric);
+      await this.persist(ticker, payload, 'full');
+      return payload;
+    } catch (err) {
+      if (!this.fmp.configured()) {
+        throw new ServiceUnavailableException(
+          'Set FMP_API_KEY on the API server to load fundamentals.',
+        );
+      }
+      const run = await this.latestRefreshRun();
+      const updating =
+        run?.status === 'running' && run.total > 0
+          ? ` Updating ${run.done}/${run.total}.`
+          : '';
+      const listed = await this.universe.isInTrackedUniverse(ticker);
+      if (listed) {
+        throw new ServiceUnavailableException(
+          `Fundamentals for ${ticker} are still loading.${updating || ' The EOD refresh will fill them.'}`,
+        );
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new NotFoundException(`No fundamentals for ${ticker}. ${updating || detail}`);
     }
-
-    const payload = await this.fetchFresh(ticker, metric);
-    await this.persist(ticker, payload, 'full');
-    return payload;
   }
 
   /**
@@ -827,15 +837,12 @@ export class FundamentalsService {
     return rows.map((r) => r.yahooTicker);
   }
 
-  /** Drop pre-normalization Mongo snapshots so XYF-style unit errors cannot linger. */
+  /** Drop pre-normalization (v1) snapshots. v2+ stay readable while catch-up re-fetches. */
   async invalidateUnscaledStore(): Promise<number> {
     const res = await this.store
       .updateMany(
         {
-          $or: [
-            { scaleVersion: { $exists: false } },
-            { scaleVersion: { $ne: FUNDAMENTALS_SCALE_VERSION } },
-          ],
+          $or: [{ scaleVersion: { $exists: false } }, { scaleVersion: { $lt: 2 } }],
         },
         {
           $unset: {
@@ -856,8 +863,6 @@ export class FundamentalsService {
           },
           $set: {
             updatedAt: new Date(),
-            // Stamp current scale so the next boot does not wipe the same docs again.
-            scaleVersion: FUNDAMENTALS_SCALE_VERSION,
           },
         },
       )
@@ -957,6 +962,19 @@ export class FundamentalsService {
       skip: Number(doc.skip) || 0,
       fail: Number(doc.fail) || 0,
     };
+  }
+
+  async refreshStatus(): Promise<{
+    coverage: ValueScreenerCoverage;
+    lastRun: ValueScreenerLastRun;
+    lastFullAt: string | null;
+  }> {
+    const [coverage, lastRun, lastFullAt] = await Promise.all([
+      this.coverageStats(),
+      this.latestRefreshRun(),
+      this.lastFullAtIso(),
+    ]);
+    return { coverage, lastRun, lastFullAt };
   }
 
   async lastFullAtIso(): Promise<string | null> {
@@ -1252,9 +1270,11 @@ export class FundamentalsService {
   private async loadStored(ticker: string): Promise<FundamentalsPayload | null> {
     const doc = await this.store.findOne({ yahooTicker: ticker }).lean<any>().exec();
     if (!doc?.payload || typeof doc.payload !== 'object') return null;
-    const payload = doc.payload as FundamentalsPayload;
-    if (!hasCurrentScale(payload, FUNDAMENTALS_SCALE_VERSION)) return null;
-    return payload;
+    return doc.payload as FundamentalsPayload;
+  }
+
+  private payloadUsable(stored: FundamentalsPayload): boolean {
+    return Array.isArray(stored.annual) && stored.annual.length > 0;
   }
 
   private remember(ticker: string, payload: FundamentalsPayload) {

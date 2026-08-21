@@ -16,6 +16,8 @@ import {
   type FundamentalsPayload,
   type HorizonReturns,
 } from '../lib/api';
+import { isFundamentalsPendingError } from '../lib/apiError';
+import { fundamentalsUpdateBanner, refreshPollMs } from '../lib/fundamentalsRefresh';
 import {
   dcfChartSeriesFromPayload,
   dcfFairValueToday,
@@ -145,6 +147,22 @@ export function FundamentalsPanel({
   onDcfChartSeries?: (series: DcfScenarioSeries) => void;
 }) {
 
+  const refreshQ = useQuery({
+    queryKey: ['fundamentals-refresh'],
+    queryFn: () => api.fundamentalsRefresh(),
+    enabled: Boolean(ticker),
+    refetchInterval: (q) => refreshPollMs(q.state.data),
+  });
+  const pending = fundQ.isLoading || (fundQ.isError && isFundamentalsPendingError(fundQ.error));
+  const fatal =
+    fundQ.isError && !isFundamentalsPendingError(fundQ.error)
+      ? (fundQ.error as Error)
+      : null;
+  const banner = fundamentalsUpdateBanner({
+    lastRun: refreshQ.data?.lastRun,
+    coverage: refreshQ.data?.coverage,
+  });
+
   const fyRows = useMemo(() => {
     if (!fundQ.data) return [];
     const windowed = sliceToWindow(fundQ.data.annual, windowYears);
@@ -174,12 +192,21 @@ export function FundamentalsPanel({
         onChange={onTabChange}
       />
 
-      {fundQ.isLoading ? <p className="muted small">Loading FMP fundamentals…</p> : null}
-      {fundQ.error ? (
+      {banner ? (
+        <div className="fund-refresh" role="status">
+          <p className="fund-refresh-text">{banner.text}</p>
+          <div className="bar" aria-hidden="true">
+            <div className="bar-fill" style={{ width: `${banner.pct}%` }} />
+          </div>
+        </div>
+      ) : null}
+
+      {pending ? <p className="muted small">Loading FMP fundamentals…</p> : null}
+      {fatal ? (
         <p className="error">
-          {(fundQ.error as Error).message.includes('FMP_API_KEY')
+          {fatal.message.includes('FMP_API_KEY')
             ? 'Set FMP_API_KEY on the API server to load fundamentals.'
-            : (fundQ.error as Error).message}
+            : fatal.message}
         </p>
       ) : null}
 

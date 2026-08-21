@@ -14,6 +14,7 @@ import {
   MARKET_TZ,
 } from '../scans/period';
 import { UniverseService } from '../universe/universe.service';
+import { fundamentalsCatchUpKind } from './fundamentals-catchup';
 import { FundamentalsService } from './fundamentals.service';
 
 const FULL_CRON = process.env.VOVA_FUNDAMENTALS_FULL_CRON || '15 18 * * 1-5';
@@ -41,12 +42,50 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
       this.log.warn('FMP_API_KEY is not set — fundamentals refresh is off');
       return;
     }
-    void this.fundamentals.invalidateUnscaledStore().catch((err) => {
+    // Wipe must finish before coverage is measured — otherwise catch-up sees a full
+    // store, skips, then invalidate empties every payload and nothing refills.
+    void this.startBootRefresh();
+  }
+
+  /** Value / Fundamentals screens call this so a skipped boot catch-up still starts. */
+  kickIfNeeded() {
+    void this.kickIfNeededAsync();
+  }
+
+  private async startBootRefresh() {
+    try {
+      await this.failInterruptedRuns();
+      await this.fundamentals.invalidateUnscaledStore();
+    } catch (err) {
       this.log.warn(
         `Unscaled fundamentals purge failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-    });
-    void this.catchUpOnBoot();
+    }
+    await this.waitForUniverse();
+    await this.catchUpOnBoot();
+    await this.retryCatchUpAfterBoot();
+  }
+
+  /** STOCK-TICKERS import is fire-and-forget — wait so we do not skip or complete 0 names. */
+  private async waitForUniverse(maxMs = 90_000): Promise<number> {
+    const started = Date.now();
+    while (Date.now() - started < maxMs) {
+      const n = (await this.universe.listActiveYahooTickers()).length;
+      if (n > 0) return n;
+      await sleep(2000);
+    }
+    return (await this.universe.listActiveYahooTickers()).length;
+  }
+
+  private async failInterruptedRuns() {
+    const res = await this.runs
+      .updateMany(
+        { status: 'running' },
+        { $set: { status: 'failed', finishedAt: new Date() } },
+      )
+      .exec();
+    const n = res.modifiedCount ?? 0;
+    if (n) this.log.warn(`Marked ${n} interrupted fundamentals runs as failed`);
   }
 
   /**
@@ -70,15 +109,46 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
     }
   }
 
-  async shouldRunFullNow(now: Date = new Date()): Promise<'missing' | 'full' | null> {
-    if (!this.fmp.configured() || this.busy) return null;
-    const coverage = await this.fundamentals.coverageStats();
-    if (coverage.universe > 0 && coverage.complete < coverage.universe) return 'missing';
+  private async kickIfNeededAsync() {
+    try {
+      if (this.busy || !this.fmp.configured()) return;
+      const decision = await this.shouldRunFullNow();
+      if (!decision) return;
+      this.log.log(`Fundamentals catch-up kick: ${decision}`);
+      if (decision === 'missing') await this.runMissing({ trigger: 'catch-up' });
+      else await this.runFull({ trigger: 'catch-up' });
+    } catch (err) {
+      this.log.warn(
+        `Fundamentals catch-up kick failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
-    if (!isPastFundamentalsEodSlot(now)) return null;
+  /** Universe import can finish after the first wait; retry a few times, then HTTP kick covers the rest. */
+  private async retryCatchUpAfterBoot() {
+    for (const delay of [15_000, 45_000, 120_000]) {
+      await sleep(delay);
+      if (this.busy) return;
+      const decision = await this.shouldRunFullNow();
+      if (!decision) continue;
+      this.log.log(`Fundamentals delayed catch-up: ${decision}`);
+      if (decision === 'missing') await this.runMissing({ trigger: 'catch-up' });
+      else await this.runFull({ trigger: 'catch-up' });
+      return;
+    }
+  }
+
+  async shouldRunFullNow(now: Date = new Date()): Promise<'missing' | 'full' | null> {
+    const coverage = await this.fundamentals.coverageStats();
     const last = await this.latestCompletedFullAt();
-    if (isFullRunAfterTodaysClose(last, now)) return null;
-    return 'full';
+    return fundamentalsCatchUpKind({
+      fmpConfigured: this.fmp.configured(),
+      busy: this.busy,
+      universe: coverage.universe,
+      complete: coverage.complete,
+      pastEodSlot: isPastFundamentalsEodSlot(now),
+      todayFullDone: isFullRunAfterTodaysClose(last, now),
+    });
   }
 
   private async latestCompletedFullAt(): Promise<Date | null> {
@@ -137,6 +207,10 @@ export class FundamentalsRefreshService implements OnApplicationBootstrap {
     let runId: string | null = null;
     try {
       const tickers = await resolveTickers();
+      if (!tickers.length) {
+        this.log.warn(`${kind} refresh skipped — ticker list is empty (trigger=${trigger})`);
+        return counts;
+      }
       this.log.log(`${kind} refresh starting for ${tickers.length} tickers (trigger=${trigger})`);
       const startedAt = new Date();
       const created = await this.runs.create({

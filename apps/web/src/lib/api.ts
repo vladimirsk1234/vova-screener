@@ -1,5 +1,7 @@
 /** REST client for @vova/api. Same-origin /api (Vite proxy in dev). */
 
+import { parseApiErrorBody } from './apiError';
+
 export type {
   AnnualFundamentalPoint,
   ValuationMetric,
@@ -716,7 +718,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
+    throw new Error(parseApiErrorBody(res.status, text));
   }
   return res.json() as Promise<T>;
 }
@@ -884,6 +886,12 @@ export const api = {
       `/instruments/fundamentals-cards${query({ tickers: unique.join(',') })}`,
     );
   },
+  fundamentalsRefresh: () =>
+    request<{
+      coverage: ValueScreenerPage['coverage'];
+      lastRun: ValueScreenerPage['lastRun'];
+      lastFullAt: string | null;
+    }>('/instruments/fundamentals-refresh'),
   fundamentalsScreener: (opts: {
     stars?: ValueStarsFilter;
     sort?: ValueScreenerSort;
