@@ -558,6 +558,16 @@ export function ChartPage() {
             <span>Growth</span> {growthPct(fundSummary?.growthRatePct)}
           </span>
           <span className="chart-pine-metric">
+            <span>MoS</span>{' '}
+            {fundSummary?.premiumPct == null ? '—' : growthPct(-fundSummary.premiumPct)}
+          </span>
+          <span className="chart-pine-metric">
+            <span>EPS×FV</span>{' '}
+            {fundSummary?.fairValueRatio == null
+              ? '—'
+              : `${fundSummary.fairValueRatio.toFixed(1)}×`}
+          </span>
+          <span className="chart-pine-metric">
             <span>LT D/C</span> {fundDebtPct == null ? '—' : `${fundDebtPct.toFixed(0)}%`}
           </span>
         </div>

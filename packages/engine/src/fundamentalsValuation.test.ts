@@ -17,6 +17,7 @@ import {
   lastForecastDate,
   lastSeriesDate,
   sliceToWindow,
+  estimateChainChgPct,
   forwardMetricCagr,
   trailingMetricCagr,
   ttmFromQuarterly,
@@ -194,7 +195,7 @@ describe('valuation windows', () => {
     assert.ok(summary.premiumPct != null);
   });
 
-  it('uses forward CAGR through the last positive estimate when analysts are present', () => {
+  it('uses estimate-to-estimate CAGR when analysts are present', () => {
     const hist = mixedGrowthHistory();
     const windowed = sliceToWindow(hist, 5);
     const forward = [
@@ -210,9 +211,10 @@ describe('valuation windows', () => {
     assert.equal(summary.growthSource, 'forward');
     assert.ok(fwd != null && summary.growthRatePct != null);
     assert.ok(Math.abs(summary.growthRatePct - fwd) < 1e-9);
+    assert.ok(Math.abs(fwd - 50) < 1e-6);
   });
 
-  it('PDD-like 3Y + estimates: ratio ~23× and FV near $230, not $1600', () => {
+  it('PDD-like 3Y + estimates: Street chain CAGR, not GAAP-to-Street', () => {
     const hist = [
       fy(2022, 4.08, 40),
       fy(2023, 6.5, 70),
@@ -230,22 +232,43 @@ describe('valuation windows', () => {
       ],
     });
     assert.equal(summary.growthSource, 'forward');
-    assert.ok(summary.growthRatePct != null);
-    assert.ok(
-      summary.growthRatePct > 20 && summary.growthRatePct < 26,
-      `g=${summary.growthRatePct}`,
-    );
+    const street = cagrPct(9.98, 13.88, 2);
+    assert.ok(street != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - street) < 1e-6);
+    assert.ok(summary.growthRatePct > 16 && summary.growthRatePct < 20, `g=${summary.growthRatePct}`);
     assert.equal(summary.fairValueRule, 'pe_g');
-    assert.ok(summary.fairValueRatio != null);
-    assert.ok(
-      summary.fairValueRatio > 20 && summary.fairValueRatio < 26,
-      `ratio=${summary.fairValueRatio}`,
-    );
     assert.ok(summary.fairValue != null);
     assert.ok(
-      summary.fairValue > 210 && summary.fairValue < 280,
+      summary.fairValue > 160 && summary.fairValue < 210,
       `fv=${summary.fairValue}`,
     );
+  });
+
+  it('does not mix GAAP history into Street estimate CAGR (Adobe)', () => {
+    const hist = [
+      fy(2020, 10.83, 500),
+      fy(2021, 10.02, 650),
+      fy(2022, 10.1, 340),
+      fy(2023, 11.82, 580),
+      fy(2024, 12.36, 440),
+      fy(2025, 16.7, 520),
+    ];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 275.3,
+      windowYears: 5,
+      ttmMetric: 17.47,
+      forward: [
+        { year: 2026, metric: 24.41 },
+        { year: 2027, metric: 27.49 },
+        { year: 2028, metric: 31.15 },
+      ],
+    });
+    const street = cagrPct(24.41, 31.15, 2);
+    assert.ok(street != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - street) < 0.05);
+    assert.ok(summary.growthRatePct > 12 && summary.growthRatePct < 14);
+    const fakeGaapToStreet = ((24.41 - 16.7) / 16.7) * 100;
+    assert.ok(summary.growthRatePct < fakeGaapToStreet / 2);
   });
 
   it('PDD-like FCF uses EPS forward CAGR, not lumpy trailing FCF', () => {
@@ -288,7 +311,7 @@ describe('valuation windows', () => {
     assert.ok(fcf.summary.fairValueRatio != null);
     assert.ok(Math.abs((fcf.summary.fairValue ?? 0) - 8 * fcf.summary.fairValueRatio) < 1e-6);
     assert.ok(
-      fcf.summary.fairValue != null && fcf.summary.fairValue > 160 && fcf.summary.fairValue < 280,
+      fcf.summary.fairValue != null && fcf.summary.fairValue > 120 && fcf.summary.fairValue < 200,
       `fcf fv=${fcf.summary.fairValue}`,
     );
     assert.notEqual(fcf.summary.fairValue, trailing.summary.fairValue);
@@ -1011,5 +1034,16 @@ describe('valuationChartRange', () => {
     const forecast = withFwd.filter((p) => p.forecast);
     assert.equal(forecast.length, 3);
     assert.ok(forecast.every((p) => p.normalValue != null && p.normalValue > 0));
+  });
+
+  it('leaves the first Street estimate % Chg blank so GAAP is not mixed in', () => {
+    const chg = estimateChainChgPct([
+      { year: 2026, eps: 24.41 },
+      { year: 2027, eps: 27.49 },
+      { year: 2028, eps: 31.15 },
+    ]);
+    assert.equal(chg[0], null);
+    assert.ok(chg[1] != null && Math.abs(chg[1] - ((27.49 / 24.41 - 1) * 100)) < 0.01);
+    assert.ok(chg[2] != null && chg[2] > 12 && chg[2] < 15);
   });
 });

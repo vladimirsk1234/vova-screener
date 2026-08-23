@@ -48,8 +48,8 @@ export type AnnualFundamentalPoint = {
 };
 
 /**
- * Forward analyst estimate for the selected metric. Fast Graphs reads its Growth Rate off the
- * whole displayed window, estimates included, so these years drive both the ratio and the anchor.
+ * Forward analyst estimate for the selected metric. Street EPS is often non-GAAP;
+ * do not mix these points with GAAP history when computing growth.
  */
 export type ForwardMetricPoint = {
   year: number;
@@ -124,7 +124,7 @@ export type ValuationSummary = {
    * May be shorter than `windowYears` (IPO / turnaround). Null when CAGR is N/A.
    */
   growthSpanYears: number | null;
-  /** Trailing window CAGR, or window-to-estimate when `forward` is used. */
+  /** Trailing GAAP-window CAGR, or estimate-to-estimate when `forward` is used. */
   growthSource: 'trailing' | 'forward';
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
@@ -410,32 +410,28 @@ export function windowLookbackYears(windowYears: ValuationWindowYears): number {
 }
 
 /**
- * Fast Graphs–style growth: base is the earliest positive year still in the window, end is the
- * last positive analyst estimate. A trough-year base inflates this the same way it does in FG —
- * the rate is a property of the displayed window, not of the trailing history alone.
+ * Forward growth from the Street estimate chain only.
+ * Starting at a GAAP year and ending at a Street estimate invents a fake jump
+ * (Adobe FY2025 GAAP $16.70 → FY2026 Street $24.41 = +46%).
+ * `_windowed` / `_metric` stay on the signature so existing callers compile.
  */
 export function forwardMetricCagrDetail(
-  windowed: AnnualFundamentalPoint[],
+  _windowed: AnnualFundamentalPoint[],
   forward: ForwardMetricPoint[],
-  metric: ValuationMetric,
+  _metric?: ValuationMetric,
 ): TrailingCagrResult {
-  const base = [...windowed]
+  const pts = [...forward]
     .sort((a, b) => a.year - b.year)
-    .find((p) => {
-      const m = pickMetric(p, metric);
-      return finite(m) && m > 0;
-    });
-  if (!base) return { growthPct: null, spanYears: null };
-  const end = [...forward]
-    .sort((a, b) => a.year - b.year)
-    .filter((p) => finite(p.metric) && (p.metric as number) > 0)
-    .pop();
-  if (!end) return { growthPct: null, spanYears: null };
-  const span = end.year - base.year;
-  if (span < 2) return { growthPct: null, spanYears: null };
-  const a = pickMetric(base, metric);
-  if (!finite(a)) return { growthPct: null, spanYears: null };
-  return { growthPct: cagrPct(a, end.metric as number, span), spanYears: span };
+    .filter((p) => finite(p.metric) && (p.metric as number) > 0);
+  if (pts.length < 2) return { growthPct: null, spanYears: null };
+  const first = pts[0]!;
+  const last = pts[pts.length - 1]!;
+  const span = last.year - first.year;
+  if (span < 1) return { growthPct: null, spanYears: null };
+  return {
+    growthPct: cagrPct(first.metric as number, last.metric as number, span),
+    spanYears: span,
+  };
 }
 
 export function forwardMetricCagr(
@@ -489,6 +485,22 @@ export function yoyChgPct(curr: number | null | undefined, prev: number | null |
   return ((curr - prev) / Math.abs(prev)) * 100;
 }
 
+/**
+ * Year-over-year % on the estimate chain only. The first row is always null —
+ * do not compare the first Street year to the last GAAP FY.
+ */
+export function estimateChainChgPct(
+  estimates: Array<{ year: number; eps?: number | null; metric?: number | null }>,
+): Array<number | null> {
+  const sorted = [...estimates].sort((a, b) => a.year - b.year);
+  return sorted.map((row, i) => {
+    if (i === 0) return null;
+    const curr = finite(row.metric) ? row.metric : row.eps;
+    const prev = finite(sorted[i - 1]!.metric) ? sorted[i - 1]!.metric : sorted[i - 1]!.eps;
+    return yoyChgPct(curr, prev);
+  });
+}
+
 /** Price CAGR over `years` looking back from the last bar. */
 export function annualizedPriceReturnPct(
   bars: Array<{ date: string; close: number }>,
@@ -520,9 +532,9 @@ export function buildValuationSeries(
     /** Visible years for the chart and Normal P/E. Default MAX (all complete years). */
     windowYears?: ValuationWindowYears;
     /**
-     * Analyst estimates. When the last positive estimate is ≥2 years after the
-     * first profitable FY in the window, growth is that window-to-estimate CAGR
-     * (`growthSource: 'forward'`). Estimates still do not set the FV anchor.
+     * Street analyst estimates. When two or more positive estimates exist, growth
+     * is that estimate-to-estimate CAGR (`growthSource: 'forward'`).
+     * Estimates still do not set the FV anchor.
      */
     forward?: ForwardMetricPoint[];
     /**

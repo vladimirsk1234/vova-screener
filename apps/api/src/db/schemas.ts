@@ -272,6 +272,8 @@ export const InstrumentFundamentalsSchema = new Schema(
     fairValue: Number,
     premiumPct: Number,
     growthRatePct: Number,
+    growth10yPct: Number,
+    forwardGrowthPct: Number,
     blendedPe: Number,
     ltDebtToCapitalTTM: Number,
     /** Fair values for the Value tab (EPS / FCF / FMP DCF). */

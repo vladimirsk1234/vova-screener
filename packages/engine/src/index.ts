@@ -18,6 +18,7 @@ export {
   type CloseScanOptions,
 } from './sequenceVova';
 export * from './fundamentalsValuation';
+export * from './forecastReturns';
 export * from './fundamentalsScale';
 export * from './dcfFairValue';
 export * from './valueScore';

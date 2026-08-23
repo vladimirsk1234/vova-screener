@@ -39,7 +39,7 @@ class InstrumentsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const starFilters = ['undervalued', '0', '1', '2', '3', '4', 'all'] as const;
+    const starFilters = ['undervalued', '0', '1', '2', '3', '4', 'all', 'garp'] as const;
     const sorts = ['stars', 'eps', 'fcf', 'dcf', 'symbol', 'interest'] as const;
     const dirs = ['asc', 'desc'] as const;
     const star = starFilters.includes(stars as (typeof starFilters)[number])

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import {
+  buildForecastScenarios,
+  dividendCoverage,
   expectedDcfFairValueByYear,
   fairValueFromEstimate,
   formatScaleCaption,
@@ -80,6 +82,18 @@ function compact(n: number | null | undefined) {
     notation: 'compact',
     maximumFractionDigits: 2,
   }).format(n);
+}
+
+function scorecardLine(bucket?: {
+  beat: number;
+  meet: number;
+  miss: number;
+  total: number;
+  beatPct: number | null;
+}) {
+  if (!bucket || bucket.total <= 0) return '—';
+  const beat = bucket.beatPct != null ? `${bucket.beatPct.toFixed(0)}% beat` : '';
+  return `${bucket.beat}/${bucket.meet}/${bucket.miss} (${bucket.total})${beat ? ` · ${beat}` : ''}`;
 }
 
 function fvRuleLabel(rule: string | undefined) {
@@ -171,9 +185,27 @@ export function FundamentalsPanel({
     return fundQ.data.incomeTrend.filter((row) => row.year >= minYear);
   }, [fundQ.data, windowYears]);
 
+  const [customPe, setCustomPe] = useState('');
+  const customMultiple = (() => {
+    const n = Number(customPe);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+
   const snap = fundQ.data?.snapshot;
   const profile = fundQ.data?.profile;
   const summary = valuation?.summary;
+  const forecast = useMemo(() => {
+    if (!summary) return null;
+    return buildForecastScenarios({
+      price: summary.currentPrice,
+      fairValue: summary.fairValue,
+      fairValueRatio: summary.fairValueRatio,
+      normalMultiple: summary.normalMultiple,
+      customMultiple,
+      dividendYieldPct: asPctPoints(fundQ.data?.snapshot.dividendYieldTTM),
+      estimates: fundQ.data?.estimates ?? [],
+    });
+  }, [summary, customMultiple, fundQ.data?.snapshot.dividendYieldTTM, fundQ.data?.estimates]);
   const premiumClass =
     summary?.premiumPct == null
       ? ''
@@ -221,8 +253,15 @@ export function FundamentalsPanel({
               </h2>
               <p className="fund-sub">
                 Price {money(summary?.currentPrice)} ·{' '}
-                <span className={premiumClass}>{pct(summary?.premiumPct)} vs fair</span>
-                {snap?.estAnnualRorPct != null ? <> · Est. ROR {pct(snap.estAnnualRorPct)}</> : null}
+                <span className={premiumClass}>
+                  {forecast?.marginOfSafetyPct != null
+                    ? `${pct(forecast.marginOfSafetyPct)} margin of safety`
+                    : `${pct(summary?.premiumPct)} vs fair`}
+                </span>
+                {forecast?.rorPegPct != null ? <> · Est. ROR {pct(forecast.rorPegPct)}</> : null}
+                {forecast?.horizonYears != null ? (
+                  <> · {forecast.horizonYears.toFixed(2)}y horizon</>
+                ) : null}
                 {formatScaleCaption(fundQ.data?.scale ?? null) ? (
                   <> · {formatScaleCaption(fundQ.data?.scale ?? null)}</>
                 ) : null}
@@ -299,13 +338,39 @@ export function FundamentalsPanel({
       {tab === 'forecasting' && snap ? (
         <div className="fund-layout">
           <aside className="fund-sidebar">
-            <Metric label="Est. Annual ROR" value={pct(snap.estAnnualRorPct)} />
+            <Metric label="Est. ROR (P=E=G)" value={pct(forecast?.rorPegPct)} />
+            <Metric label="Est. ROR (Normal P/E)" value={pct(forecast?.rorNormalPct)} />
+            <Metric
+              label="Future price (P=E=G)"
+              value={money(forecast?.futurePricePeg ?? snap.futurePrice)}
+            />
+            <Metric label="Future price (Normal)" value={money(forecast?.futurePriceNormal)} />
+            <Metric
+              label="Horizon"
+              value={
+                forecast?.horizonYears != null ? `${forecast.horizonYears.toFixed(2)}y` : '—'
+              }
+            />
+            <Metric label="Margin of safety" value={pct(forecast?.marginOfSafetyPct)} />
             <Metric label="Fair Value $" value={money(summary?.fairValue)} />
-            <Metric label="Future price" value={money(snap.futurePrice)} />
             <Metric label="Fwd EPS" value={money(snap.fwdEps)} />
             <Metric label="Fwd P/E" value={ratio(snap.fwdPe)} />
             <Metric label="Blended P/E" value={ratio(snap.blendedPe)} />
             <Metric label="Div Yld" value={pct(asPctPoints(snap.dividendYieldTTM))} />
+            <label className="fund-custom-pe">
+              <span>Custom P/E</span>
+              <input
+                type="number"
+                min={1}
+                step={0.1}
+                value={customPe}
+                onChange={(e) => setCustomPe(e.target.value)}
+                placeholder="21"
+              />
+            </label>
+            {customMultiple != null ? (
+              <Metric label={`Est. ROR (${customMultiple}×)`} value={pct(forecast?.rorCustomPct)} />
+            ) : null}
           </aside>
         </div>
       ) : null}
@@ -321,17 +386,33 @@ export function FundamentalsPanel({
                   <th>EPS</th>
                   <th>% Chg</th>
                   <th>Div</th>
+                  <th>OCF cov</th>
+                  <th>FCF cov</th>
                 </tr>
               </thead>
               <tbody>
-                {fyRows.map((row) => (
-                  <tr key={row.date}>
-                    <td>{row.year}</td>
-                    <td>{money(row.eps)}</td>
-                    <td>{pct(row.epsChgPct)}</td>
-                    <td>{money(row.dividend)}</td>
-                  </tr>
-                ))}
+                {fyRows.map((row) => {
+                  const annual = fundQ.data?.annual.find((a) => a.year === row.year);
+                  const cover = dividendCoverage({
+                    dividend: row.dividend,
+                    dilutedShares: annual?.dilutedShares,
+                    operatingCashFlow: row.operatingCashFlow,
+                    freeCashFlow: row.freeCashFlow,
+                  });
+                  return (
+                    <tr key={row.date}>
+                      <td>{row.year}</td>
+                      <td>{money(row.eps)}</td>
+                      <td>{pct(row.epsChgPct)}</td>
+                      <td>{money(row.dividend)}</td>
+                      <td>{cover.ocfCover != null ? `${cover.ocfCover.toFixed(1)}×` : '—'}</td>
+                      <td>
+                        {cover.fcfCover != null ? `${cover.fcfCover.toFixed(1)}×` : '—'}
+                        {cover.status !== 'none' ? ` ${cover.status}` : ''}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -369,6 +450,22 @@ export function FundamentalsPanel({
           ) : (
             <p className="muted small">No analyst estimates from FMP for this symbol.</p>
           )}
+        </section>
+      ) : null}
+
+      {tab === 'forecasting' && snap?.analystScorecard ? (
+        <section className="fund-section">
+          <h3 className="fund-section-title">Analyst scorecard</h3>
+          <div className="fund-metric-grid">
+            <Metric
+              label="1Y beat / meet / miss"
+              value={scorecardLine(snap.analystScorecard.y1)}
+            />
+            <Metric
+              label="2Y beat / meet / miss"
+              value={scorecardLine(snap.analystScorecard.y2)}
+            />
+          </div>
         </section>
       ) : null}
 
@@ -437,8 +534,12 @@ export function FundamentalsPanel({
         <p className="muted small fund-footnote">
           Fair value (orange): GDF / GDF…P/E=G / P/E=G — GAAP diluted EPS × 15× when growth &lt; 15%
           (or when the CAGR span is under 2 years on a multi-year window), else P/E = growth %.
-          Normal P/E is the median price/EPS on the selected 1Y / 3Y / 5Y / 8Y / 10Y / MAX window. Per-share
-          figures are converted to the listing currency (and per ADS when the ADR ratio is known).
+          Est. ROR = (future price / today)^(1/horizon) − 1 + dividend yield, where future price is
+          the last Street EPS × the P=E=G or Normal P/E multiple. Horizon is the years to that FY-end,
+          not a fixed 5 years. History is GAAP diluted; Street estimates are often non-GAAP — the first
+          estimate % Chg is blank so those two series are not mixed. Normal P/E is the median price/EPS
+          on the selected 1Y / 3Y / 5Y / 8Y / 10Y / MAX window. Per-share figures are converted to the
+          listing currency (and per ADS when the ADR ratio is known).
           Source: Financial Modeling Prep GAAP diluted, not FAST Graphs adjusted operating EPS.
           S&amp;P credit rating is not in FMP.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}

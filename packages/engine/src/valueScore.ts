@@ -21,7 +21,11 @@ export type ValueScore = {
   stars: 0 | 1 | 2 | 3 | 4;
 };
 
-export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | '4' | 'all';
+export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | '4' | 'all' | 'garp';
+
+/** Colton Growth-style GARP: 10Y EPS CAGR ≥ 15%, forward ≥ 10%, EPS below fair value. */
+export const GARP_TRAILING_MIN_PCT = 15;
+export const GARP_FORWARD_MIN_PCT = 10;
 export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
 export type ValueSortDir = 'asc' | 'desc';
 export type ValueInterest = 'interested' | 'not_interested';
@@ -76,9 +80,25 @@ export function bestValuePremium(premia: ValuePremia): number | null {
 }
 
 export function rowMatchesStarsFilter(stars: number, filter: ValueStarsFilter): boolean {
-  if (filter === 'all') return true;
+  if (filter === 'all' || filter === 'garp') return true;
   if (filter === 'undervalued') return stars >= 1;
   return stars === Number(filter);
+}
+
+export function isGarpCandidate(opts: {
+  growth10yPct: number | null | undefined;
+  forwardGrowthPct: number | null | undefined;
+  epsPremiumPct: number | null | undefined;
+}): boolean {
+  return (
+    opts.growth10yPct != null &&
+    Number.isFinite(opts.growth10yPct) &&
+    opts.growth10yPct >= GARP_TRAILING_MIN_PCT &&
+    opts.forwardGrowthPct != null &&
+    Number.isFinite(opts.forwardGrowthPct) &&
+    opts.forwardGrowthPct >= GARP_FORWARD_MIN_PCT &&
+    isUndervaluedPremium(opts.epsPremiumPct)
+  );
 }
 
 function finiteOrNull(n: number | null): number | null {

@@ -5,10 +5,14 @@ import {
   annualizedPriceReturnPct,
   appendForwardFairValue,
   bestValuePremium,
+  buildForecastScenarios,
   buildValuationSeries,
   compareValueRows,
   completeFiscalYears,
+  estimateChainChgPct,
+  forwardMetricCagr,
   growthOverrideFromSummary,
+  isGarpCandidate,
   impliedPe,
   interestRankOf,
   peInBand,
@@ -18,8 +22,11 @@ import {
   scaleDcf,
   scalePerShare,
   scaleTev,
+  scoreAnalystBeats,
   scoreValueStars,
   seqStructFromBars,
+  sliceToWindow,
+  trailingMetricCagr,
   ttmFromQuarterly,
   yoyChgPct,
   type AnnualFundamentalPoint,
@@ -30,6 +37,7 @@ import {
   type SeqStructStatus,
   type Timeframe,
   type ValuationMetric,
+  type BeatMissBucket,
   type ValuationSeriesPoint,
   type ValueInterest,
   type ValueScreenerSort,
@@ -146,6 +154,8 @@ export type ValueScreenerRow = {
   dcfFairValue: number | null;
   bestPremiumPct: number | null;
   growthRatePct: number | null;
+  growth10yPct: number | null;
+  forwardGrowthPct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
   interest: ValueInterest | null;
@@ -176,6 +186,7 @@ export type ValueScreenerLastRun = {
 export type ValueStarCounts = {
   all: number;
   undervalued: number;
+  garp: number;
   0: number;
   1: number;
   2: number;
@@ -281,6 +292,11 @@ export type FundamentalsPayload = {
     spCreditRating: null;
     estAnnualRorPct: number | null;
     futurePrice: number | null;
+    estAnnualRorNormalPct?: number | null;
+    futurePriceNormal?: number | null;
+    forecastHorizonYears?: number | null;
+    marginOfSafetyPct?: number | null;
+    analystScorecard?: { y1: BeatMissBucket; y2: BeatMissBucket };
     debtToEquityTTM: number | null;
     currentRatioTTM: number | null;
     profitMarginTTM: number | null;
@@ -545,7 +561,59 @@ function parseInterest(value: unknown): ValueInterest | null {
 }
 
 function emptyStarCounts(): ValueStarCounts {
-  return { all: 0, undervalued: 0, 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+  return { all: 0, undervalued: 0, garp: 0, 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
+}
+
+function applyEstimateChainChg(rows: EstimateRow[]): void {
+  const chg = estimateChainChgPct(rows);
+  for (let i = 0; i < rows.length; i++) rows[i]!.epsChgPct = chg[i] ?? null;
+}
+
+function garpGrowthFrom(
+  annual: AnnualFundamentalPoint[] | undefined,
+  estimates: Array<{ year: number; eps?: number | null }> | undefined,
+): { growth10yPct: number | null; forwardGrowthPct: number | null } {
+  const growth10yPct =
+    annual?.length ? trailingMetricCagr(sliceToWindow(annual, 10), 'eps', 10) : null;
+  const forwardGrowthPct = forwardMetricCagr(
+    [],
+    (estimates ?? []).map((e) => ({ year: e.year, metric: e.eps ?? null })),
+    'eps',
+  );
+  return { growth10yPct, forwardGrowthPct };
+}
+
+function forecastSnapshotFields(opts: {
+  price: number | null | undefined;
+  fairValue: number | null | undefined;
+  fairValueRatio: number | null | undefined;
+  normalMultiple: number | null | undefined;
+  dividendYieldTTM: number | null | undefined;
+  estimates: Array<{ year: number; date?: string; eps: number | null }>;
+}): {
+  estAnnualRorPct: number | null;
+  futurePrice: number | null;
+  estAnnualRorNormalPct: number | null;
+  futurePriceNormal: number | null;
+  forecastHorizonYears: number | null;
+  marginOfSafetyPct: number | null;
+} {
+  const got = buildForecastScenarios({
+    price: opts.price,
+    fairValue: opts.fairValue,
+    fairValueRatio: opts.fairValueRatio,
+    normalMultiple: opts.normalMultiple,
+    dividendYieldPct: asPctPoints(opts.dividendYieldTTM),
+    estimates: opts.estimates,
+  });
+  return {
+    estAnnualRorPct: got.rorPegPct,
+    futurePrice: got.futurePricePeg,
+    estAnnualRorNormalPct: got.rorNormalPct,
+    futurePriceNormal: got.futurePriceNormal,
+    forecastHorizonYears: got.horizonYears,
+    marginOfSafetyPct: got.marginOfSafetyPct,
+  };
 }
 
 function starFieldsFromPremia(
@@ -1016,7 +1084,7 @@ export class FundamentalsService {
   async backfillStarFields(): Promise<number> {
     const now = new Date();
     const ops: Array<{
-      updateOne: { filter: { yahooTicker: string }; update: { $set: StarFields & { updatedAt: Date } } };
+      updateOne: { filter: { yahooTicker: string }; update: { $set: Record<string, unknown> } };
     }> = [];
 
     const missing = await this.store
@@ -1081,6 +1149,24 @@ export class FundamentalsService {
       });
     }
 
+    const missingGarp = await this.store
+      .find({
+        payload: { $exists: true, $ne: null },
+        $or: [{ growth10yPct: { $exists: false } }, { growth10yPct: null }],
+      })
+      .select('yahooTicker payload')
+      .lean<Array<{ yahooTicker: string; payload: FundamentalsPayload }>>()
+      .exec();
+    for (const doc of missingGarp) {
+      if (!doc.payload || typeof doc.payload !== 'object') continue;
+      ops.push({
+        updateOne: {
+          filter: { yahooTicker: doc.yahooTicker },
+          update: { $set: { ...garpGrowthFrom(doc.payload.annual, doc.payload.estimates), updatedAt: now } },
+        },
+      });
+    }
+
     if (!ops.length) return 0;
     const res = await this.store.bulkWrite(ops, { ordered: false });
     this.log.log(`Backfilled Value stars on ${res.modifiedCount ?? ops.length} fundamentals docs`);
@@ -1127,7 +1213,7 @@ export class FundamentalsService {
         valuationReliable: { $ne: false },
       })
       .select(
-        'yahooTicker fairValue premiumPct growthRatePct blendedPe ltDebtToCapitalTTM epsFairValue fcfFairValue dcfFairValue epsPremiumPct fcfPremiumPct dcfPremiumPct stars bestPremiumPct interest interestRank taSnapshot',
+        'yahooTicker fairValue premiumPct growthRatePct growth10yPct forwardGrowthPct blendedPe ltDebtToCapitalTTM epsFairValue fcfFairValue dcfFairValue epsPremiumPct fcfPremiumPct dcfPremiumPct stars bestPremiumPct interest interestRank taSnapshot',
       )
       .lean<any[]>()
       .exec();
@@ -1170,14 +1256,26 @@ export class FundamentalsService {
           },
         });
       }
+      const growth10yPct = finiteNum(doc.growth10yPct);
+      const forwardGrowthPct = finiteNum(doc.forwardGrowthPct);
+      const garp = isGarpCandidate({
+        growth10yPct,
+        forwardGrowthPct,
+        epsPremiumPct,
+      });
       counts.all += 1;
       if (starCount >= 1) counts.undervalued += 1;
+      if (garp) counts.garp += 1;
       if (starCount === 0) counts[0] += 1;
       if (starCount === 1) counts[1] += 1;
       if (starCount === 2) counts[2] += 1;
       if (starCount === 3) counts[3] += 1;
       if (starCount === 4) counts[4] += 1;
-      if (!rowMatchesStarsFilter(starCount, filter)) continue;
+      if (filter === 'garp') {
+        if (!garp) continue;
+      } else if (!rowMatchesStarsFilter(starCount, filter)) {
+        continue;
+      }
 
       const interest = parseInterest(doc.interest);
       const ta = (doc.taSnapshot ?? {}) as TaSnapshotMap;
@@ -1195,6 +1293,8 @@ export class FundamentalsService {
         dcfFairValue,
         bestPremiumPct,
         growthRatePct: finiteNum(doc.growthRatePct),
+        growth10yPct,
+        forwardGrowthPct,
         blendedPe: finiteNum(doc.blendedPe),
         ltDebtToCapitalTTM: finiteNum(doc.ltDebtToCapitalTTM),
         interest,
@@ -1396,6 +1496,7 @@ export class FundamentalsService {
       fairValue: card.fairValue,
       premiumPct: card.premiumPct,
       growthRatePct: card.growthRatePct,
+      ...garpGrowthFrom(payload.annual, payload.estimates),
       blendedPe: card.blendedPe,
       ltDebtToCapitalTTM: card.ltDebtToCapitalTTM,
       ...stars,
@@ -1510,13 +1611,14 @@ export class FundamentalsService {
     const dcfVal = stored.snapshot.dcf;
     const dcfPremiumPct =
       dcfVal != null && dcfVal > 0 ? ((price - dcfVal) / dcfVal) * 100 : stored.snapshot.dcfPremiumPct;
-    const fv = valuation.summary.fairValue;
-    const growth = valuation.summary.growthRatePct;
-    const divYldPts = asPctPoints(stored.snapshot.dividendYieldTTM) ?? 0;
-    const reversion =
-      fv != null && fv > 0 && price > 0 ? (Math.pow(fv / price, 1 / 5) - 1) * 100 : 0;
-    const estAnnualRorPct =
-      growth == null && fv == null ? null : (growth ?? 0) + divYldPts + reversion;
+    const forecast = forecastSnapshotFields({
+      price,
+      fairValue: valuation.summary.fairValue,
+      fairValueRatio: valuation.summary.fairValueRatio,
+      normalMultiple: valuation.summary.normalMultiple,
+      dividendYieldTTM: stored.snapshot.dividendYieldTTM,
+      estimates: stored.estimates,
+    });
     return {
       ...stored,
       profile: {
@@ -1531,7 +1633,7 @@ export class FundamentalsService {
         blendedPe,
         fwdPe,
         dcfPremiumPct,
-        estAnnualRorPct,
+        ...forecast,
         nextEarningsDate: stored.snapshot.nextEarningsDate ?? null,
       },
       valuation,
@@ -2023,12 +2125,7 @@ export class FundamentalsService {
       .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
 
-    const histEps = annual.map((a) => a.eps);
-    const lastHistEps = histEps[histEps.length - 1] ?? null;
-    for (let i = 0; i < estimateParsed.length; i++) {
-      const prev = i === 0 ? lastHistEps : estimateParsed[i - 1]!.eps;
-      estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
-    }
+    applyEstimateChainChg(estimateParsed);
 
     const peTTMRaw =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
@@ -2064,11 +2161,7 @@ export class FundamentalsService {
       const scaled = aligned.estimateEps[i]?.eps ?? null;
       estimateParsed[i]!.eps = scaled;
     }
-    const lastHistEpsScaled = annual[annual.length - 1]?.eps ?? null;
-    for (let i = 0; i < estimateParsed.length; i++) {
-      const prev = i === 0 ? lastHistEpsScaled : estimateParsed[i - 1]!.eps;
-      estimateParsed[i]!.epsChgPct = yoyChgPct(estimateParsed[i]!.eps, prev);
-    }
+    applyEstimateChainChg(estimateParsed);
     const peTTM = aligned.peTTM;
     const ttmEps = aligned.ttmEps;
     const quarters = rawQuarters
@@ -2149,24 +2242,18 @@ export class FundamentalsService {
       peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
 
     const fvRatio = valuation.summary.fairValueRatio;
-    // Today's FV is TTM / last FY × the trailing-window ratio. Future price uses the far estimate.
-    const horizonEps = [...estimateParsed]
-      .filter((e) => e.eps != null && Number.isFinite(e.eps) && e.eps > 0)
-      .pop()?.eps ?? null;
-    const futurePrice =
-      horizonEps != null && fvRatio != null ? horizonEps * fvRatio : null;
-
-    const divYldPts = asPctPoints(dividendYieldTTM) ?? 0;
-    const growth = valuation.summary.growthRatePct;
-    const fv = valuation.summary.fairValue;
-    const reversion =
-      price != null && fv != null && price > 0 && fv > 0
-        ? (Math.pow(fv / price, 1 / 5) - 1) * 100
-        : 0;
-    const estAnnualRorPct =
-      growth == null && fv == null
-        ? null
-        : (growth ?? 0) + divYldPts + reversion;
+    const forecast = forecastSnapshotFields({
+      price,
+      fairValue: valuation.summary.fairValue,
+      fairValueRatio: fvRatio,
+      normalMultiple: valuation.summary.normalMultiple,
+      dividendYieldTTM,
+      estimates: estimateParsed,
+    });
+    const analystScorecard = {
+      y1: scoreAnalystBeats(earningsRows, 1),
+      y2: scoreAnalystBeats(earningsRows, 2),
+    };
 
     const dcfVal = aligned.dcf;
     const dcfPremiumPct =
@@ -2245,8 +2332,8 @@ export class FundamentalsService {
         tev,
         ltDebtToCapitalTTM,
         spCreditRating: null,
-        estAnnualRorPct,
-        futurePrice,
+        ...forecast,
+        analystScorecard,
         debtToEquityTTM,
         currentRatioTTM,
         profitMarginTTM,

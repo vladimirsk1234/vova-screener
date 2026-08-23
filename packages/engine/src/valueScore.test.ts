@@ -5,6 +5,7 @@ import {
   compareValueRows,
   interestRankOf,
   isLowLtDebt,
+  isGarpCandidate,
   rowMatchesStarsFilter,
   scoreValueStars,
   VALUE_INTEREST_RANK,
@@ -254,5 +255,26 @@ describe('interestRankOf', () => {
     assert.equal(interestRankOf(null), 1);
     assert.equal(interestRankOf('interested'), 2);
     assert.equal(interestRankOf('not_interested'), 0);
+  });
+});
+
+describe('isGarpCandidate', () => {
+  it('requires 10Y ≥ 15%, forward ≥ 10%, and EPS undervalued', () => {
+    assert.equal(
+      isGarpCandidate({ growth10yPct: 16, forwardGrowthPct: 12, epsPremiumPct: -5 }),
+      true,
+    );
+    assert.equal(
+      isGarpCandidate({ growth10yPct: 14, forwardGrowthPct: 12, epsPremiumPct: -5 }),
+      false,
+    );
+    assert.equal(
+      isGarpCandidate({ growth10yPct: 16, forwardGrowthPct: 9, epsPremiumPct: -5 }),
+      false,
+    );
+    assert.equal(
+      isGarpCandidate({ growth10yPct: 16, forwardGrowthPct: 12, epsPremiumPct: 2 }),
+      false,
+    );
   });
 });

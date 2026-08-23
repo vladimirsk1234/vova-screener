@@ -13,11 +13,12 @@ import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const PAGE_SIZE = 100;
 
-const STAR_FILTERS = ['undervalued', '4', '3', '2', '1', '0'] as const;
+const STAR_FILTERS = ['undervalued', 'garp', '4', '3', '2', '1', '0'] as const;
 type StarChip = (typeof STAR_FILTERS)[number];
 
 const STAR_LABEL: Record<StarChip, string> = {
   undervalued: 'Undervalued',
+  garp: 'GARP',
   '4': '4/4',
   '3': '3/4',
   '2': '2/4',
@@ -86,6 +87,8 @@ function statusLine(first: {
 
   if (first.stars === 'undervalued') {
     bits.push(`${first.total} undervalued`);
+  } else if (first.stars === 'garp') {
+    bits.push(`${first.total} GARP (10Y≥15%, fwd≥10%, below FV)`);
   } else {
     bits.push(`${first.total} at ${first.stars}/4`);
   }
@@ -164,7 +167,9 @@ export function ValuePage() {
             const count =
               v === 'undervalued'
                 ? counts?.undervalued
-                : counts?.[Number(v) as 0 | 1 | 2 | 3 | 4];
+                : v === 'garp'
+                  ? counts?.garp
+                  : counts?.[Number(v) as 0 | 1 | 2 | 3 | 4];
             const label = STAR_LABEL[v];
             return count != null ? `${label} ${count}` : label;
           }}
