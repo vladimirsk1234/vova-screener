@@ -1,6 +1,7 @@
 import {
   AreaSeries,
   CandlestickSeries,
+  HistogramSeries,
   LineSeries,
   LineType,
   createChart,
@@ -217,6 +218,21 @@ function valuationLinePoints(valuationSeries: ValuationSeriesPoint[]): {
       ? [lastSolidNormal, ...normalForecastOnly]
       : normalForecastOnly;
   return { fairPts, forecastPts, forecastOnly, normalPts, normalForecastPts, dividendPts };
+}
+
+function earningsPowerBars(
+  series: ValuationSeriesPoint[],
+): Array<{ time: Time; value: number; color?: string }> {
+  const out: Array<{ time: Time; value: number; color?: string }> = [];
+  for (const p of series) {
+    if (p.earningsPower == null || !Number.isFinite(p.earningsPower) || p.earningsPower <= 0) continue;
+    out.push({
+      time: p.date.slice(0, 10) as Time,
+      value: p.earningsPower,
+      color: p.forecast || p.estimated ? 'rgba(8, 153, 129, 0.28)' : 'rgba(8, 153, 129, 0.55)',
+    });
+  }
+  return out;
 }
 
 function seriesToFairPoints(series: ValuationSeriesPoint[]): LinePoint[] {
@@ -654,6 +670,17 @@ export function mountSequenceChart(
     optimistic: seriesToFairPoints(dcfForecastSeries.optimistic),
   };
   if (mode === 'fundamentals') {
+    const earnBars = earningsPowerBars(valuationSeries);
+    if (earnBars.length) {
+      const hist = chart.addSeries(HistogramSeries, {
+        color: 'rgba(8, 153, 129, 0.55)',
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+        lastValueVisible: false,
+        priceLineVisible: false,
+        autoscaleInfoProvider: floorProvider,
+      });
+      hist.setData(earnBars);
+    }
     addFairValueFill(chart, [...fairPts, ...forecastOnly], floorProvider);
   }
 

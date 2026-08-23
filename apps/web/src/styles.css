@@ -1504,6 +1504,24 @@ a {
   flex-direction: column;
 }
 
+.fund-custom-pe {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.fund-custom-pe input {
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-2);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0 10px;
+}
+
 .fund-section {
   display: flex;
   flex-direction: column;

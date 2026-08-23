@@ -330,6 +330,14 @@ export type FundamentalsPayload = {
     spCreditRating: null;
     estAnnualRorPct: number | null;
     futurePrice: number | null;
+    estAnnualRorNormalPct?: number | null;
+    futurePriceNormal?: number | null;
+    forecastHorizonYears?: number | null;
+    marginOfSafetyPct?: number | null;
+    analystScorecard?: {
+      y1: { beat: number; meet: number; miss: number; total: number; beatPct: number | null; missPct: number | null };
+      y2: { beat: number; meet: number; miss: number; total: number; beatPct: number | null; missPct: number | null };
+    };
     debtToEquityTTM: number | null;
     currentRatioTTM: number | null;
     profitMarginTTM: number | null;
@@ -461,6 +469,8 @@ export type ValueScreenerRow = {
   dcfFairValue: number | null;
   bestPremiumPct: number | null;
   growthRatePct: number | null;
+  growth10yPct?: number | null;
+  forwardGrowthPct?: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
   interest: Interest | null;
@@ -472,7 +482,7 @@ export type ValueScreenerRow = {
   };
 };
 
-export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | '4' | 'all';
+export type ValueStarsFilter = 'undervalued' | '0' | '1' | '2' | '3' | '4' | 'all' | 'garp';
 export type ValueScreenerSort = 'stars' | 'eps' | 'fcf' | 'dcf' | 'symbol' | 'interest';
 
 export type TickerInterest = {
@@ -484,7 +494,7 @@ export type TickerInterest = {
 export type ValueScreenerPage = {
   rows: ValueScreenerRow[];
   total: number;
-  counts: { all: number; undervalued: number; 0: number; 1: number; 2: number; 3: number; 4: number };
+  counts: { all: number; undervalued: number; garp?: number; 0: number; 1: number; 2: number; 3: number; 4: number };
   coverage: { universe: number; stored: number; reliable: number; complete: number };
   lastFullAt: string | null;
   lastRun: {
