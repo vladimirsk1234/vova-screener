@@ -120,6 +120,18 @@ describe('buildDcfChartSeries', () => {
     assert.ok(pts.every((p) => p.date >= '2026-08-19'));
   });
 
+  it('plots Sep-FY roll-forward dates from lastHistDate, not 12-31', () => {
+    const pts = buildDcfChartSeries({
+      ...base,
+      asOf: '2026-08-19',
+      lastHistDate: '2025-09-27',
+    });
+    assert.deepEqual(
+      pts.slice(1).map((p) => p.date),
+      ['2026-09-27', '2027-09-27', '2028-09-27'],
+    );
+  });
+
   it('falls back to the FMP headline when the local model cannot run', () => {
     const pts = buildDcfChartSeries({
       ...base,

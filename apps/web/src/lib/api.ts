@@ -313,6 +313,8 @@ export type FundamentalsPayload = {
   snapshot: {
     peTTM: number | null;
     ttmEps: number | null;
+    ttmOperatingEps?: number | null;
+    ttmGaapEps?: number | null;
     ttmAsOf?: string | null;
     ttmFcf?: number | null;
     pbTTM: number | null;
@@ -333,6 +335,8 @@ export type FundamentalsPayload = {
     estAnnualRorNormalPct?: number | null;
     futurePriceNormal?: number | null;
     forecastHorizonYears?: number | null;
+    forecastGrowthRatePct?: number | null;
+    forecastFairValueRatio?: number | null;
     marginOfSafetyPct?: number | null;
     analystScorecard?: {
       y1: { beat: number; meet: number; miss: number; total: number; beatPct: number | null; missPct: number | null };
@@ -362,7 +366,13 @@ export type FundamentalsPayload = {
     years: PerformanceYear[];
   };
   annual: import('@vova/engine').AnnualFundamentalPoint[];
-  quarters?: Array<{ date: string; eps: number | null; fcfPerShare?: number | null }>;
+  quarters?: Array<{
+    date: string;
+    eps: number | null;
+    gaapEps?: number | null;
+    operatingEps?: number | null;
+    fcfPerShare?: number | null;
+  }>;
   incomeTrend: Array<{
     year: number;
     date: string;

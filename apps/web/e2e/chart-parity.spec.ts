@@ -48,6 +48,8 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'Weekly' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Monthly' })).toHaveCount(0);
     const periodChips = page.locator('.chart-period-chips');
+    await expect(periodChips.getByRole('button', { name: 'MAX', exact: true })).toBeVisible();
+    await expect(periodChips.getByRole('button', { name: '19Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '1Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '3Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
@@ -68,6 +70,7 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Op. EPS', exact: true })).toBeVisible();
     const legend = page.locator('.chart-fund-hud');
     await expect(legend.getByText('Fair value', { exact: true })).toBeVisible();
     await expect(legend.getByText('Normal P/E').first()).toBeVisible();

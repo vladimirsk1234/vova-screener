@@ -2,12 +2,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FUNDAMENTALS_SCALE_VERSION,
+  afterTaxOperatingIncome,
   buildFundamentalsScale,
+  effectiveTaxRate,
   epsFromIncome,
   formatScaleCaption,
   fxToListingMultiplier,
   inferAdrRatio,
   inferShareScale,
+  operatingEpsFromGaap,
   peSanityOk,
     pickScaledEps,
     pickScaledFcf,
@@ -273,5 +276,94 @@ describe('pickScaledFcf listing units', () => {
 describe('scaleAmount', () => {
   it('returns null for null input', () => {
     assert.equal(scaleAmount(null, 2), null);
+  });
+});
+
+describe('after-tax operating EPS (FMP NOPAT proxy for FG operating earnings)', () => {
+  // AAPL FY2019 10-K, split-adjusted 4:1. FG Historical table showed 2.97 —
+  // that is GAAP diluted. NOPAT / shares is the closest FMP operating proxy.
+  const aapl2019 = {
+    operatingIncome: 63_930_000_000,
+    incomeBeforeTax: 65_737_000_000,
+    incomeTaxExpense: 10_481_000_000,
+    netIncome: 55_256_000_000,
+    dilutedShares: 18_471_336_000,
+    gaapEps: 2.97,
+  };
+
+  it('uses the filing tax rate, not a flat 21%', () => {
+    const rate = effectiveTaxRate(aapl2019.incomeBeforeTax, aapl2019.incomeTaxExpense);
+    assert.ok(rate != null);
+    assert.ok(rate > 0.15 && rate < 0.17, `rate=${rate}`);
+    const nopat = afterTaxOperatingIncome(aapl2019);
+    assert.ok(nopat != null);
+    const expected = aapl2019.operatingIncome * (1 - rate);
+    assert.ok(Math.abs(nopat - expected) < 1);
+  });
+
+  it('lands AAPL FY2019 operating EPS near GAAP 2.97 (FG table), not pre-tax ~3.46', () => {
+    const op = operatingEpsFromGaap({
+      ...aapl2019,
+      fxToListing: 1,
+      adrRatio: 1,
+    });
+    assert.ok(op != null);
+    assert.ok(op > 2.85 && op < 3.05, `operatingEps=${op}`);
+    const pretax = aapl2019.operatingIncome / aapl2019.dilutedShares;
+    assert.ok(pretax > 3.4, `pretax=${pretax}`);
+    assert.ok(Math.abs(op - pretax) > 0.3);
+  });
+
+  it('inherits a 4:1 split from GAAP so filing-share NOPAT is not 4× too high', () => {
+    const filingShares = aapl2019.dilutedShares / 4;
+    const op = operatingEpsFromGaap({
+      ...aapl2019,
+      dilutedShares: filingShares,
+      fxToListing: 1,
+      adrRatio: 1,
+    });
+    assert.ok(op != null);
+    assert.ok(op > 2.85 && op < 3.05, `operatingEps=${op}`);
+    const naive = afterTaxOperatingIncome(aapl2019)! / filingShares;
+    assert.ok(naive > 11, `naive=${naive}`);
+  });
+
+  it('AAPL FY2011 NOPAT/share matches the FG 0.99 table print after 28:1 splits', () => {
+    // FY2011 10-K; 7:1 (2014) × 4:1 (2020) = 28.
+    const filing = {
+      operatingIncome: 33_790_000_000,
+      incomeBeforeTax: 34_205_000_000,
+      incomeTaxExpense: 8_283_000_000,
+      netIncome: 25_922_000_000,
+      dilutedShares: 924_258_000,
+      gaapEps: 0.99,
+    };
+    const op = operatingEpsFromGaap({
+      ...filing,
+      fxToListing: 1,
+      adrRatio: 1,
+    });
+    assert.ok(op != null);
+    assert.ok(Math.abs(op - 0.99) < 0.05, `operatingEps=${op}`);
+  });
+
+  it('falls back to NOPAT/shares when net income is the opposite sign', () => {
+    const op = operatingEpsFromGaap({
+      gaapEps: -1,
+      netIncome: -100,
+      operatingIncome: 50,
+      incomeBeforeTax: 50,
+      incomeTaxExpense: 10,
+      dilutedShares: 10,
+      fxToListing: 1,
+      adrRatio: 1,
+    });
+    const nopat = afterTaxOperatingIncome({
+      operatingIncome: 50,
+      incomeBeforeTax: 50,
+      incomeTaxExpense: 10,
+    });
+    assert.ok(op != null && nopat != null);
+    assert.ok(Math.abs(op - nopat / 10) < 1e-9);
   });
 });

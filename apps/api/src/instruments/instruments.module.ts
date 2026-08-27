@@ -139,7 +139,7 @@ class InstrumentsController {
   /** Fast Graphs–style fundamental valuation. Reads Mongo; FMP only for unknown Manual tickers. */
   @Get(':ticker/fundamentals')
   fundamentals(@Param('ticker') ticker: string, @Query('metric') metric?: string) {
-    const allowed: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
+    const allowed: ValuationMetric[] = ['eps', 'operatingEps', 'revenue', 'fcf', 'ownerEarnings'];
     const m = allowed.includes(metric as ValuationMetric) ? (metric as ValuationMetric) : 'eps';
     this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.get(ticker, m);

@@ -4,6 +4,7 @@ import {
   fallbackForeignPerUsd,
   fxToListingMultiplier,
   normalizeCurrency,
+  operatingEpsFromGaap,
   pickScaledEps,
   pickScaledFcf,
   scaleCompany,
@@ -21,6 +22,20 @@ export type IncomeScaleAnchor = {
   dilutedShares: number | null;
   reportedCurrency: string | null;
 };
+
+/** FMP income-statement fields used for the NOPAT operating-EPS proxy. */
+export function incomeOperatingFields(row: Record<string, unknown>): {
+  operatingIncome: number | null;
+  incomeBeforeTax: number | null;
+  incomeTaxExpense: number | null;
+} {
+  return {
+    operatingIncome: fmpNum(row.operatingIncome) ?? fmpNum(row.ebit),
+    incomeBeforeTax: fmpNum(row.incomeBeforeTax) ?? fmpNum(row.ebit),
+    incomeTaxExpense:
+      fmpNum(row.incomeTaxExpense) ?? fmpNum(row.incomeTaxProvision) ?? fmpNum(row.incomeTax),
+  };
+}
 
 export function incomeAnchor(rows: Record<string, unknown>[]): IncomeScaleAnchor | null {
   const sorted = [...rows].sort((a, b) => {
@@ -139,20 +154,40 @@ export function scaleAnnualPoint(
     yearFx != null && yearFx > 0 && yearFx !== scale.fxToListing
       ? { ...scale, fxToListing: yearFx }
       : scale;
-  const eps = pickScaledEps({
-    fmpEps: point.eps,
+  const gaapEps = pickScaledEps({
+    fmpEps: point.gaapEps ?? point.eps,
     netIncome: point.netIncome,
     dilutedShares: point.dilutedShares ?? null,
     scale: yearScale,
     price: point.price,
     peTtm,
   });
+  const operatingIncome = scaleCompany(point.operatingIncome, yearScale);
+  const incomeBeforeTax = scaleCompany(point.incomeBeforeTax, yearScale);
+  const incomeTaxExpense = scaleCompany(point.incomeTaxExpense, yearScale);
+  const netIncome = scaleCompany(point.netIncome, yearScale);
+  const operatingEps = operatingEpsFromGaap({
+    gaapEps,
+    netIncome: point.netIncome,
+    operatingIncome: point.operatingIncome ?? null,
+    incomeBeforeTax: point.incomeBeforeTax ?? null,
+    incomeTaxExpense: point.incomeTaxExpense ?? null,
+    dilutedShares: point.dilutedShares ?? null,
+    fxToListing: yearScale.fxToListing,
+    adrRatio: yearScale.adrRatio,
+  });
+  const eps = gaapEps;
   const price = point.price;
   const pe =
     price != null && eps != null && eps > 0 && price > 0 ? price / eps : point.pe;
   return {
     ...point,
     eps,
+    gaapEps,
+    operatingEps: operatingEps ?? null,
+    operatingIncome,
+    incomeBeforeTax,
+    incomeTaxExpense,
     revenuePerShare: scalePerShare(point.revenuePerShare, yearScale),
     fcfPerShare: pickScaledFcf({
       fmpFcfPerShare: point.fcfPerShare,
@@ -164,10 +199,63 @@ export function scaleAnnualPoint(
     ownerEarningsPerShare: scalePerShare(point.ownerEarningsPerShare, yearScale),
     pe,
     revenue: scaleCompany(point.revenue, yearScale),
-    netIncome: scaleCompany(point.netIncome, yearScale),
+    netIncome,
     operatingCashFlow: scaleCompany(point.operatingCashFlow, yearScale),
     freeCashFlow: scaleCompany(point.freeCashFlow, yearScale),
     dividend: scaleDividend(point.dividend, price, yearScale),
+  };
+}
+
+export function scaleQuarterPoint(
+  q: {
+    date: string;
+    eps: number | null;
+    netIncome?: number | null;
+    operatingIncome?: number | null;
+    incomeBeforeTax?: number | null;
+    incomeTaxExpense?: number | null;
+    fcfPerShare: number | null;
+    freeCashFlow: number | null;
+    dilutedShares: number | null;
+  },
+  scale: FundamentalsScale,
+  price: number | null,
+): {
+  date: string;
+  eps: number | null;
+  gaapEps: number | null;
+  operatingEps: number | null;
+  fcfPerShare: number | null;
+} {
+  const gaapEps = pickScaledEps({
+    fmpEps: q.eps,
+    netIncome: q.netIncome ?? null,
+    dilutedShares: q.dilutedShares,
+    scale,
+    price,
+  });
+  const operatingEps = operatingEpsFromGaap({
+    gaapEps,
+    netIncome: q.netIncome ?? null,
+    operatingIncome: q.operatingIncome ?? null,
+    incomeBeforeTax: q.incomeBeforeTax ?? null,
+    incomeTaxExpense: q.incomeTaxExpense ?? null,
+    dilutedShares: q.dilutedShares,
+    fxToListing: scale.fxToListing,
+    adrRatio: scale.adrRatio,
+  });
+  return {
+    date: q.date,
+    eps: gaapEps,
+    gaapEps,
+    operatingEps: operatingEps ?? null,
+    fcfPerShare: pickScaledFcf({
+      fmpFcfPerShare: q.fcfPerShare,
+      freeCashFlow: q.freeCashFlow,
+      dilutedShares: q.dilutedShares,
+      scale,
+      price,
+    }),
   };
 }
 

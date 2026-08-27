@@ -282,6 +282,92 @@ export function epsFromIncome(opts: {
   return Number.isFinite(eps) ? eps : null;
 }
 
+/** US federal statutory fallback when the filing tax rate is unusable. */
+export const FALLBACK_TAX_RATE = 0.21;
+/** Cap one-off tax spikes so NOPAT does not collapse. */
+export const MAX_EFFECTIVE_TAX_RATE = 0.6;
+
+/**
+ * Effective tax rate from FMP `incomeTaxExpense / incomeBeforeTax`.
+ * Null when IBT ≤ 0 (loss years) so callers can fall back.
+ */
+export function effectiveTaxRate(
+  incomeBeforeTax: number | null | undefined,
+  incomeTaxExpense: number | null | undefined,
+): number | null {
+  if (
+    incomeBeforeTax == null ||
+    incomeTaxExpense == null ||
+    !Number.isFinite(incomeBeforeTax) ||
+    !Number.isFinite(incomeTaxExpense) ||
+    incomeBeforeTax <= 0
+  ) {
+    return null;
+  }
+  const rate = incomeTaxExpense / incomeBeforeTax;
+  if (!Number.isFinite(rate)) return null;
+  if (rate < 0) return 0;
+  if (rate > MAX_EFFECTIVE_TAX_RATE) return MAX_EFFECTIVE_TAX_RATE;
+  return rate;
+}
+
+/**
+ * After-tax operating income (NOPAT). Closest FMP stand-in for FG
+ * “Adjusted (Operating) Earnings”, which is after-tax — not pre-tax EBIT.
+ * FMP has no FactSet-adjusted operating-EPS series.
+ */
+export function afterTaxOperatingIncome(opts: {
+  operatingIncome: number | null | undefined;
+  incomeBeforeTax?: number | null;
+  incomeTaxExpense?: number | null;
+}): number | null {
+  const oi = opts.operatingIncome;
+  if (oi == null || !Number.isFinite(oi)) return null;
+  const rate = effectiveTaxRate(opts.incomeBeforeTax, opts.incomeTaxExpense) ?? FALLBACK_TAX_RATE;
+  const nopat = oi * (1 - rate);
+  return Number.isFinite(nopat) ? nopat : null;
+}
+
+/**
+ * Operating EPS in listing / ADS units.
+ *
+ * Prefer `gaapEps × (NOPAT / netIncome)` so split, FX, and ADR corrections
+ * already applied to GAAP diluted carry over. Fall back to NOPAT / diluted
+ * ADS shares, then to GAAP, when the ratio would flip sign or hit a zero NI.
+ */
+export function operatingEpsFromGaap(opts: {
+  gaapEps: number | null;
+  netIncome: number | null;
+  operatingIncome: number | null;
+  incomeBeforeTax?: number | null;
+  incomeTaxExpense?: number | null;
+  dilutedShares: number | null;
+  fxToListing: number;
+  adrRatio: number;
+}): number | null {
+  const nopat = afterTaxOperatingIncome(opts);
+  const fromShares = epsFromIncome({
+    netIncome: nopat,
+    dilutedShares: opts.dilutedShares,
+    fxToListing: opts.fxToListing,
+    adrRatio: opts.adrRatio,
+  });
+  const { gaapEps, netIncome } = opts;
+  if (
+    nopat != null &&
+    gaapEps != null &&
+    Number.isFinite(gaapEps) &&
+    netIncome != null &&
+    Number.isFinite(netIncome) &&
+    netIncome !== 0 &&
+    Math.sign(nopat) === Math.sign(netIncome)
+  ) {
+    const scaled = gaapEps * (nopat / netIncome);
+    if (Number.isFinite(scaled)) return scaled;
+  }
+  return fromShares ?? (gaapEps != null && Number.isFinite(gaapEps) ? gaapEps : null);
+}
+
 export function peSanityOk(opts: {
   price: number | null;
   eps: number | null;

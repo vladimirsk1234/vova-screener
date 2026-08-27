@@ -8,8 +8,10 @@ import {
   cagrPct,
   fairValueFromEstimate,
   fairValueRatioFromGrowth,
+  grahamDoddMultiple,
   growthOverrideFromSummary,
   nextQuarterIso,
+  pickMetric,
   projectMetricByGrowth,
   seriesForFairValueChart,
   firstForecastDate,
@@ -18,11 +20,19 @@ import {
   lastSeriesDate,
   sliceToWindow,
   estimateChainChgPct,
+  fiscalYearForDate,
+  forecastGrowthFromEstimates,
+  ownerEarningsPerShareFromRow,
+  sumDividendsByFiscalYear,
+  closeOnOrBefore,
+  dividendStreak,
+  DEFAULT_VALUATION_WINDOW,
   forwardMetricCagr,
   trailingMetricCagr,
   ttmFromQuarterly,
   valuationChartLogicalRange,
   valuationChartRange,
+  VALUATION_WINDOW_CHIPS,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
 
@@ -106,9 +116,18 @@ describe('valuation windows', () => {
   });
 
   it('uses GDF / GDF…P/E=G / P/E=G bands at 5% and 15%', () => {
+    const noGrowth = fairValueRatioFromGrowth(0);
+    assert.equal(noGrowth.rule, 'gdf');
+    assert.equal(noGrowth.ratio, 8.5);
+
+    const twoPct = fairValueRatioFromGrowth(2);
+    assert.equal(twoPct.rule, 'gdf');
+    assert.equal(twoPct.ratio, 12.5);
+
     const slow = fairValueRatioFromGrowth(4.9);
     assert.equal(slow.rule, 'gdf');
-    assert.equal(slow.ratio, 15);
+    assert.equal(slow.ratio, grahamDoddMultiple(4.9));
+    assert.ok(slow.ratio != null && slow.ratio > 18 && slow.ratio < 19);
 
     const atGraham = fairValueRatioFromGrowth(5);
     assert.equal(atGraham.rule, 'gdf_pe_g');
@@ -129,6 +148,71 @@ describe('valuation windows', () => {
     const fast = fairValueRatioFromGrowth(20);
     assert.equal(fast.rule, 'pe_g');
     assert.equal(fast.ratio, 20);
+  });
+
+  it('floors Graham-Dodd at 1× for a deep earnings decline', () => {
+    assert.equal(grahamDoddMultiple(-10), 1);
+    const declining = fairValueRatioFromGrowth(-4);
+    assert.equal(declining.rule, 'gdf');
+    assert.equal(declining.ratio, 1);
+  });
+
+  it('exposes MAX + 19Y … 1Y window chips', () => {
+    assert.equal(VALUATION_WINDOW_CHIPS[0], null);
+    assert.equal(VALUATION_WINDOW_CHIPS[1], 19);
+    assert.equal(VALUATION_WINDOW_CHIPS[VALUATION_WINDOW_CHIPS.length - 1], 1);
+    assert.equal(VALUATION_WINDOW_CHIPS.length, 20);
+  });
+
+  it('keeps eight fiscal years for a 7Y window and twenty for 19Y when history exists', () => {
+    const hist = Array.from({ length: 22 }, (_, i) => fy(2004 + i, 1 + i * 0.1, 15 + i));
+    const seven = sliceToWindow(hist, 7);
+    assert.equal(seven[0]?.year, 2018);
+    assert.equal(seven[seven.length - 1]?.year, 2025);
+    assert.equal(seven.length, 8);
+    const nineteen = sliceToWindow(hist, 19);
+    assert.equal(nineteen[0]?.year, 2006);
+    assert.equal(nineteen.length, 20);
+  });
+
+  it('computes 7Y trailing CAGR on the selected span, not a fixed 5Y', () => {
+    const hist = mixedGrowthHistory();
+    const cagr5 = trailingMetricCagr(sliceToWindow(hist, 5), 'eps', 5);
+    const cagr7 = trailingMetricCagr(sliceToWindow(hist, 7), 'eps', 7);
+    assert.ok(cagr5 != null && cagr7 != null);
+    assert.ok(cagr5 !== cagr7, `5Y=${cagr5} 7Y=${cagr7}`);
+  });
+
+  it('defaults the EPS metric to GAAP and keeps NOPAT on operatingEps', () => {
+    const point: AnnualFundamentalPoint = {
+      ...fy(2019, 2.97, 73.49),
+      operatingEps: 8.87,
+      gaapEps: 2.97,
+    };
+    assert.equal(pickMetric(point, 'eps'), 2.97);
+    assert.equal(pickMetric(point, 'operatingEps'), 8.87);
+    const legacy = fy(2019, 2.97, 73.49);
+    assert.equal(pickMetric(legacy, 'eps'), 2.97);
+    assert.equal(pickMetric(legacy, 'operatingEps'), 2.97);
+  });
+
+  it('does not use NOPAT for trailing EPS CAGR when GAAP is present', () => {
+    const hist: AnnualFundamentalPoint[] = [
+      { ...fy(2018, 2.98, 58), operatingEps: 3.1, gaapEps: 2.98 },
+      { ...fy(2019, 2.97, 73), operatingEps: 3.4, gaapEps: 2.97 },
+    ];
+    const gaap = trailingMetricCagr(hist, 'eps', 1);
+    const op = trailingMetricCagr(hist, 'operatingEps', 1);
+    assert.ok(op != null && gaap != null);
+    assert.ok(Math.abs(gaap - ((2.97 / 2.98 - 1) * 100)) < 1e-6);
+    assert.ok(Math.abs(op - ((3.4 / 3.1 - 1) * 100)) < 1e-6);
+    assert.ok(op !== gaap);
+  });
+
+  it('maps dividend cash dates onto a September fiscal year', () => {
+    assert.equal(fiscalYearForDate('2025-08-14', 9), 2025);
+    assert.equal(fiscalYearForDate('2025-11-13', 9), 2026);
+    assert.equal(fiscalYearForDate('2025-12-31', 12), 2025);
   });
 
   it('blocks Lynch when CAGR span is under 2 years on a 5Y window (LYFT-style)', () => {
@@ -169,6 +253,30 @@ describe('valuation windows', () => {
     assert.ok(Math.abs(summary.fairValue - 2.88 * (summary.fairValueRatio as number)) < 1e-6);
   });
 
+  it('applies classic GDF 8.5+2g on a slow-growth 5Y window', () => {
+    const hist = [
+      fy(2020, 4.0, 60),
+      fy(2021, 4.08, 61),
+      fy(2022, 4.16, 62),
+      fy(2023, 4.24, 63),
+      fy(2024, 4.32, 64),
+      fy(2025, 4.4, 65),
+    ];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 65,
+      windowYears: 5,
+      ttmMetric: 4.4,
+    });
+    assert.equal(summary.growthSource, 'trailing');
+    assert.ok(summary.growthRatePct != null && summary.growthRatePct < 5);
+    assert.equal(summary.fairValueRule, 'gdf');
+    assert.ok(summary.fairValueRatio != null);
+    assert.equal(summary.fairValueRatio, grahamDoddMultiple(summary.growthRatePct!));
+    assert.ok(summary.fairValueRatio < 15);
+    assert.ok(summary.fairValue != null);
+    assert.ok(Math.abs(summary.fairValue - 4.4 * summary.fairValueRatio) < 1e-6);
+  });
+
   it('uses 15× when only one profitable FY exists in a multi-year window', () => {
     const hist = [fy(2025, 2.5, 40)];
     const { summary } = buildValuationSeries(hist, 'eps', {
@@ -195,53 +303,56 @@ describe('valuation windows', () => {
     assert.ok(summary.premiumPct != null);
   });
 
-  it('uses estimate-to-estimate CAGR when analysts are present', () => {
+  it('keeps Historical orange-box growth on trailing CAGR when Street estimates exist', () => {
     const hist = mixedGrowthHistory();
     const windowed = sliceToWindow(hist, 5);
     const forward = [
       { year: 2026, metric: 20 },
       { year: 2027, metric: 30 },
     ];
-    const fwd = forwardMetricCagr(windowed, forward, 'eps');
+    const trail = trailingMetricCagr(windowed, 'eps', 5);
     const { summary } = buildValuationSeries(hist, 'eps', {
       currentPrice: 110,
       windowYears: 5,
       forward,
     });
-    assert.equal(summary.growthSource, 'forward');
-    assert.ok(fwd != null && summary.growthRatePct != null);
-    assert.ok(Math.abs(summary.growthRatePct - fwd) < 1e-9);
-    assert.ok(Math.abs(fwd - 50) < 1e-6);
+    assert.equal(summary.growthSource, 'trailing');
+    assert.ok(trail != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - trail) < 1e-9);
+    const street = forwardMetricCagr(windowed, forward, 'eps');
+    assert.ok(street != null && Math.abs(street - 50) < 1e-6);
+    assert.notEqual(summary.growthRatePct, street);
   });
 
-  it('PDD-like 3Y + estimates: Street chain CAGR, not GAAP-to-Street', () => {
+  it('PDD-like 3Y Historical uses trailing, Forecasting uses Street-to-Street', () => {
     const hist = [
       fy(2022, 4.08, 40),
       fy(2023, 6.5, 70),
       fy(2024, 9.4, 85),
       fy(2025, 10.07, 90),
     ];
+    const forward = [
+      { year: 2026, metric: 9.98 },
+      { year: 2027, metric: 12.08 },
+      { year: 2028, metric: 13.88 },
+    ];
     const { summary } = buildValuationSeries(hist, 'eps', {
       currentPrice: 90,
       windowYears: 3,
       ttmMetric: 10.07,
-      forward: [
-        { year: 2026, metric: 9.98 },
-        { year: 2027, metric: 12.08 },
-        { year: 2028, metric: 13.88 },
-      ],
+      forward,
     });
-    assert.equal(summary.growthSource, 'forward');
+    assert.equal(summary.growthSource, 'trailing');
+    const trail = cagrPct(4.08, 10.07, 3);
+    assert.ok(trail != null && summary.growthRatePct != null);
+    assert.ok(Math.abs(summary.growthRatePct - trail) < 1e-6);
+    const box = forecastGrowthFromEstimates(forward);
     const street = cagrPct(9.98, 13.88, 2);
-    assert.ok(street != null && summary.growthRatePct != null);
-    assert.ok(Math.abs(summary.growthRatePct - street) < 1e-6);
-    assert.ok(summary.growthRatePct > 16 && summary.growthRatePct < 20, `g=${summary.growthRatePct}`);
-    assert.equal(summary.fairValueRule, 'pe_g');
-    assert.ok(summary.fairValue != null);
-    assert.ok(
-      summary.fairValue > 160 && summary.fairValue < 210,
-      `fv=${summary.fairValue}`,
-    );
+    assert.ok(street != null && box.growthRatePct != null);
+    assert.ok(Math.abs(box.growthRatePct - street) < 1e-6);
+    assert.ok(box.growthRatePct > 16 && box.growthRatePct < 20, `g=${box.growthRatePct}`);
+    assert.equal(box.fairValueRule, 'pe_g');
+    assert.notEqual(summary.fairValueRatio, box.fairValueRatio);
   });
 
   it('does not mix GAAP history into Street estimate CAGR (Adobe)', () => {
@@ -253,25 +364,30 @@ describe('valuation windows', () => {
       fy(2024, 12.36, 440),
       fy(2025, 16.7, 520),
     ];
+    const forward = [
+      { year: 2026, metric: 24.41 },
+      { year: 2027, metric: 27.49 },
+      { year: 2028, metric: 31.15 },
+    ];
     const { summary } = buildValuationSeries(hist, 'eps', {
       currentPrice: 275.3,
       windowYears: 5,
       ttmMetric: 17.47,
-      forward: [
-        { year: 2026, metric: 24.41 },
-        { year: 2027, metric: 27.49 },
-        { year: 2028, metric: 31.15 },
-      ],
+      forward,
     });
+    assert.equal(summary.growthSource, 'trailing');
+    const box = forecastGrowthFromEstimates(forward);
     const street = cagrPct(24.41, 31.15, 2);
-    assert.ok(street != null && summary.growthRatePct != null);
-    assert.ok(Math.abs(summary.growthRatePct - street) < 0.05);
-    assert.ok(summary.growthRatePct > 12 && summary.growthRatePct < 14);
+    assert.ok(street != null && box.growthRatePct != null);
+    assert.ok(Math.abs(box.growthRatePct - street) < 0.05);
+    assert.ok(box.growthRatePct > 12 && box.growthRatePct < 14);
     const fakeGaapToStreet = ((24.41 - 16.7) / 16.7) * 100;
-    assert.ok(summary.growthRatePct < fakeGaapToStreet / 2);
+    assert.ok(box.growthRatePct < fakeGaapToStreet / 2);
+    assert.ok(summary.growthRatePct != null);
+    assert.notEqual(summary.growthRatePct, box.growthRatePct);
   });
 
-  it('PDD-like FCF uses EPS forward CAGR, not lumpy trailing FCF', () => {
+  it('PDD-like FCF can borrow Historical EPS trailing, not lumpy FCF', () => {
     const hist: AnnualFundamentalPoint[] = [
       { ...fy(2022, 4.08, 40), fcfPerShare: 0.5 },
       { ...fy(2023, 6.5, 70), fcfPerShare: 1.2 },
@@ -305,13 +421,13 @@ describe('valuation windows', () => {
       ttmMetric: 8,
       ...growthOverrideFromSummary(eps.summary),
     });
-    assert.equal(fcf.summary.growthSource, 'forward');
+    assert.equal(fcf.summary.growthSource, 'trailing');
     assert.ok(eps.summary.growthRatePct != null && fcf.summary.growthRatePct != null);
     assert.ok(Math.abs(fcf.summary.growthRatePct - eps.summary.growthRatePct) < 1e-9);
     assert.ok(fcf.summary.fairValueRatio != null);
     assert.ok(Math.abs((fcf.summary.fairValue ?? 0) - 8 * fcf.summary.fairValueRatio) < 1e-6);
     assert.ok(
-      fcf.summary.fairValue != null && fcf.summary.fairValue > 120 && fcf.summary.fairValue < 200,
+      fcf.summary.fairValue != null && fcf.summary.fairValue > 250 && fcf.summary.fairValue < 320,
       `fcf fv=${fcf.summary.fairValue}`,
     );
     assert.notEqual(fcf.summary.fairValue, trailing.summary.fairValue);
@@ -1045,5 +1161,240 @@ describe('valuationChartRange', () => {
     assert.equal(chg[0], null);
     assert.ok(chg[1] != null && Math.abs(chg[1] - ((27.49 / 24.41 - 1) * 100)) < 0.01);
     assert.ok(chg[2] != null && chg[2] > 12 && chg[2] < 15);
+  });
+});
+
+describe('FMP field mapping', () => {
+  it('reads FMP ownersEarningsPerShare (plural) before the older ownerEarnings key', () => {
+    assert.equal(
+      ownerEarningsPerShareFromRow({ ownersEarningsPerShare: 2.3, ownerEarnings: 99 }),
+      2.3,
+    );
+    assert.equal(ownerEarningsPerShareFromRow({ ownerEarningsPerShare: 2.3 }), 2.3);
+    assert.equal(
+      ownerEarningsPerShareFromRow({ ownersEarnings: 230, averageSharesOutstanding: 100 }),
+      2.3,
+    );
+    assert.equal(
+      ownerEarningsPerShareFromRow({ ownerEarnings: 230, shares: 100 }),
+      2.3,
+    );
+    assert.equal(ownerEarningsPerShareFromRow({ ownerEarnings: 230 }), null);
+  });
+
+  it('uses FY-end close, not December, for a September fiscal year', () => {
+    const close = closeOnOrBefore(
+      [
+        { date: '2025-09-26', close: 227.5 },
+        { date: '2025-12-31', close: 250 },
+      ],
+      '2025-09-27',
+    );
+    assert.equal(close, 227.5);
+  });
+
+  it('counts consecutive fiscal dividend increases from the annual series', () => {
+    const streak = dividendStreak([
+      { year: 2020, dividend: 0.8 },
+      { year: 2021, dividend: 0.85 },
+      { year: 2022, dividend: 0.9 },
+      { year: 2023, dividend: 0.94 },
+      { year: 2024, dividend: 0.98 },
+      { year: 2025, dividend: 1.02 },
+    ]);
+    assert.equal(streak.consecPaid, 6);
+    assert.equal(streak.consecIncreases, 5);
+    assert.ok(streak.avgGrowthPct != null && streak.avgGrowthPct > 4 && streak.avgGrowthPct < 6);
+  });
+
+  it('keeps the default Value / Summary window at 5Y so cards match the chart', () => {
+    assert.equal(DEFAULT_VALUATION_WINDOW, 5);
+  });
+
+  it('sums AAPL-like adjDividend into September fiscal years, not calendar 2025', () => {
+    const byFy = sumDividendsByFiscalYear(
+      [
+        { date: '2024-11-14', adjDividend: 0.25 },
+        { date: '2025-02-13', adjDividend: 0.25 },
+        { date: '2025-05-15', adjDividend: 0.26 },
+        { date: '2025-08-14', adjDividend: 0.26 },
+        { date: '2025-11-13', adjDividend: 0.26 },
+      ],
+      9,
+    );
+    assert.ok(Math.abs((byFy.get(2025) ?? 0) - 1.02) < 1e-9);
+    assert.ok(Math.abs((byFy.get(2026) ?? 0) - 0.26) < 1e-9);
+    const calendar2025 = 0.25 + 0.26 + 0.26 + 0.26;
+    assert.notEqual(byFy.get(2025), calendar2025);
+  });
+});
+
+/**
+ * Live FAST Graphs (user login, 26 Aug 2026) vs formulas on captured FMP numbers.
+ * Do not invent other FG figures. Normal P/E needs FY-end prices — not in this fixture.
+ */
+describe('FAST Graphs live 26 Aug 2026 (AAPL / MSFT)', () => {
+  const FG = {
+    aapl: {
+      price: 313.45,
+      histGrowth: 25.67,
+      histFv: 25.67,
+      histNormalPe: 23.27,
+      fy25: 7.46,
+      fcstGrowth: 10.15,
+      fcstFv: 15,
+      street: [
+        { year: 2026, metric: 8.85 },
+        { year: 2027, metric: 9.54 },
+        { year: 2028, metric: 10.68 },
+      ],
+      histTable: [
+        { year: 2006, eps: 0.08 },
+        { year: 2025, eps: 7.46 },
+      ],
+    },
+    msft: {
+      price: 496.37,
+      histGrowth: 14.47,
+      histFv: 15,
+      histNormalPe: 22,
+      fy25: 13.64,
+      fcstGrowth: 18.23,
+      fcstFv: 18.23,
+      street: [
+        { year: 2027, metric: 19.58 },
+        { year: 2028, metric: 23.38 },
+        { year: 2029, metric: 28.4 },
+      ],
+    },
+  };
+  const FMP = {
+    aaplGaap: {
+      2019: 2.97,
+      2020: 3.28,
+      2021: 5.61,
+      2022: 6.11,
+      2023: 6.13,
+      2024: 6.08,
+      2025: 7.46,
+    },
+    aaplNopatFy25: 8.87,
+    aaplStreet: [
+      { year: 2026, metric: 8.83 },
+      { year: 2027, metric: 9.52 },
+      { year: 2028, metric: 10.62 },
+    ],
+    msftGaap: {
+      2022: 9.65,
+      2023: 9.68,
+      2024: 11.8,
+      2025: 13.64,
+      2026: 17.95,
+    },
+    msftNopatFy25: 17.22,
+    msftStreet: [
+      { year: 2027, metric: 19.72 },
+      { year: 2028, metric: 23.48 },
+      { year: 2029, metric: 28.6 },
+    ],
+  };
+
+  it('keeps FMP GAAP FY25 as the closest proxy — it matches FG operating EPS', () => {
+    assert.equal(FMP.aaplGaap[2025], FG.aapl.fy25);
+    assert.equal(FMP.msftGaap[2025], FG.msft.fy25);
+    assert.notEqual(FMP.aaplNopatFy25, FG.aapl.fy25);
+    assert.notEqual(FMP.msftNopatFy25, FG.msft.fy25);
+    assert.ok(FMP.aaplNopatFy25 > FG.aapl.fy25);
+    assert.ok(FMP.msftNopatFy25 > FG.msft.fy25);
+  });
+
+  it('documents year-level GAAP vs FG gaps without inventing a patched series', () => {
+    assert.equal(FMP.aaplGaap[2024], 6.08);
+    assert.equal(FG.aapl.fy25, 7.46);
+    assert.notEqual(FMP.aaplGaap[2024], 6.75);
+    assert.equal(FMP.msftGaap[2022], 9.65);
+    assert.notEqual(FMP.msftGaap[2022], 9.21);
+    assert.equal(FMP.msftGaap[2023], 9.68);
+    assert.notEqual(FMP.msftGaap[2023], 9.81);
+    assert.equal(FMP.msftGaap[2026], 17.95);
+    assert.notEqual(FMP.msftGaap[2026], 17.28);
+    assert.equal(FMP.aaplGaap[2019], 2.97);
+    assert.equal(FMP.aaplGaap[2020], 3.28);
+    assert.equal(FMP.aaplGaap[2023], 6.13);
+  });
+
+  it('applies the Historical / Forecasting rule split to FG Graph Key growth', () => {
+    const aaplHist = fairValueRatioFromGrowth(FG.aapl.histGrowth);
+    assert.equal(aaplHist.rule, 'pe_g');
+    assert.equal(aaplHist.ratio, FG.aapl.histFv);
+
+    const aaplFcst = fairValueRatioFromGrowth(FG.aapl.fcstGrowth, {
+      spanYears: 2,
+      windowYears: 1,
+    });
+    assert.equal(aaplFcst.rule, 'gdf_pe_g');
+    assert.equal(aaplFcst.ratio, FG.aapl.fcstFv);
+
+    const msftHist = fairValueRatioFromGrowth(FG.msft.histGrowth);
+    assert.equal(msftHist.rule, 'gdf_pe_g');
+    assert.equal(msftHist.ratio, FG.msft.histFv);
+
+    const msftFcst = fairValueRatioFromGrowth(FG.msft.fcstGrowth, {
+      spanYears: 2,
+      windowYears: 1,
+    });
+    assert.equal(msftFcst.rule, 'pe_g');
+    assert.equal(msftFcst.ratio, FG.msft.fcstFv);
+  });
+
+  it('AAPL Historical endpoint CAGR on the FG table is P/E=G but not FG 25.67% (FG is fitted)', () => {
+    const g = cagrPct(FG.aapl.histTable[0]!.eps, FG.aapl.histTable[1]!.eps, 19);
+    assert.ok(g != null);
+    const box = fairValueRatioFromGrowth(g);
+    assert.equal(box.rule, 'pe_g');
+    assert.ok(g > 26 && g < 28, `endpoint CAGR=${g}`);
+    assert.ok(Math.abs(g - FG.aapl.histGrowth) > 0.5);
+    assert.ok(box.ratio != null && Math.abs(box.ratio - Math.round(g * 100) / 100) < 1e-9);
+  });
+
+  it('AAPL Forecasting Street-to-Street from FMP estimates flips to 15× like FG', () => {
+    const box = forecastGrowthFromEstimates(FMP.aaplStreet);
+    assert.ok(box.growthRatePct != null);
+    assert.ok(box.growthRatePct > 9 && box.growthRatePct < 11, `g=${box.growthRatePct}`);
+    assert.equal(box.fairValueRule, 'gdf_pe_g');
+    assert.equal(box.fairValueRatio, FG.aapl.fcstFv);
+    const fgPrinted = forecastGrowthFromEstimates(FG.aapl.street);
+    assert.equal(fgPrinted.fairValueRatio, 15);
+    assert.ok(fgPrinted.growthRatePct != null && Math.abs(fgPrinted.growthRatePct - 10.15) > 0.1);
+  });
+
+  it('MSFT Forecasting FMP Street-to-Street stays P/E=G and is near FG 18.23×', () => {
+    const box = forecastGrowthFromEstimates(FMP.msftStreet);
+    assert.equal(box.fairValueRule, 'pe_g');
+    assert.ok(box.growthRatePct != null && box.growthRatePct > 19 && box.growthRatePct < 22);
+    assert.ok(
+      box.fairValueRatio != null &&
+        Math.abs(box.fairValueRatio - Math.round(box.growthRatePct * 100) / 100) < 1e-9,
+    );
+    assert.ok(Math.abs((box.fairValueRatio ?? 0) - FG.msft.fcstFv) > 1);
+    const fgPrinted = forecastGrowthFromEstimates(FG.msft.street);
+    assert.equal(fgPrinted.fairValueRule, 'pe_g');
+    assert.ok(fgPrinted.growthRatePct != null && fgPrinted.growthRatePct > 18);
+    // FG 18.23% is closer to last-actual→last-est (17.28→28.40 / 3y ≈ 18%). We stay Street-to-Street.
+  });
+
+  it('does not compute Normal P/E without FY-end prices (FG 23.27× / 22.00×)', () => {
+    const aapl = buildValuationSeries(
+      [
+        fy(2024, FMP.aaplGaap[2024], 0),
+        fy(2025, FMP.aaplGaap[2025], 0),
+      ],
+      'eps',
+      { currentPrice: FG.aapl.price, windowYears: null },
+    );
+    assert.equal(aapl.summary.latestMetric, FG.aapl.fy25);
+    assert.equal(aapl.summary.normalMultipleSource, 'fallback');
+    assert.notEqual(aapl.summary.normalMultiple, FG.aapl.histNormalPe);
+    assert.notEqual(aapl.summary.normalMultiple, FG.msft.histNormalPe);
   });
 });

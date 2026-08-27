@@ -8,15 +8,19 @@ import {
   buildForecastScenarios,
   buildValuationSeries,
   compareValueRows,
+  closeOnOrBefore,
   completeFiscalYears,
+  DEFAULT_VALUATION_WINDOW,
   estimateChainChgPct,
   forwardMetricCagr,
+  forecastGrowthFromEstimates,
+  ownerEarningsPerShareFromRow,
+  sumDividendsByFiscalYear,
   growthOverrideFromSummary,
   isGarpCandidate,
   impliedPe,
   interestRankOf,
   peInBand,
-  pickScaledFcf,
   projectMetricByGrowth,
   rowMatchesStarsFilter,
   scaleDcf,
@@ -65,8 +69,10 @@ import {
   fxToListingByYear,
   hasCurrentScale,
   incomeAnchor,
+  incomeOperatingFields,
   mostCommonReportedCurrency,
   scaleAnnualPoint,
+  scaleQuarterPoint,
 } from './listing-scale';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -74,7 +80,7 @@ const DCF_TTL_MS = 60 * 60 * 1000;
 const FAIL_TTL_MS = 30 * 60 * 1000;
 const WARM_GAP_MS = 250;
 const WARM_QUEUE_CAP = 300;
-const METRICS: ValuationMetric[] = ['eps', 'revenue', 'fcf', 'ownerEarnings'];
+const METRICS: ValuationMetric[] = ['eps', 'operatingEps', 'revenue', 'fcf', 'ownerEarnings'];
 const CARD_BATCH_LIMIT = 150;
 const CARD_CONCURRENCY = 5;
 
@@ -270,8 +276,11 @@ export type FundamentalsPayload = {
   scale?: FundamentalsScale | null;
   snapshot: {
     peTTM: number | null;
-    /** Trailing-twelve-month diluted EPS (anchor fallback when no forward estimate). */
+    /** Trailing-twelve-month GAAP diluted EPS (default EPS view). */
     ttmEps: number | null;
+    /** NOPAT / shares TTM — secondary; overshoots FG operating. */
+    ttmOperatingEps?: number | null;
+    ttmGaapEps?: number | null;
     /** Period-end of the last quarter included in a quarterly-built TTM. */
     ttmAsOf?: string | null;
     /** Trailing-twelve-month FCF per share from the last four cash-flow quarters. */
@@ -294,6 +303,8 @@ export type FundamentalsPayload = {
     estAnnualRorNormalPct?: number | null;
     futurePriceNormal?: number | null;
     forecastHorizonYears?: number | null;
+    forecastGrowthRatePct?: number | null;
+    forecastFairValueRatio?: number | null;
     marginOfSafetyPct?: number | null;
     analystScorecard?: { y1: BeatMissBucket; y2: BeatMissBucket };
     debtToEquityTTM: number | null;
@@ -319,7 +330,13 @@ export type FundamentalsPayload = {
   };
   annual: AnnualFundamentalPoint[];
   /** Reported quarters (listing-scaled). Used to step EPS / FCF charts mid-FY. */
-  quarters?: Array<{ date: string; eps: number | null; fcfPerShare?: number | null }>;
+  quarters?: Array<{
+    date: string;
+    eps: number | null;
+    gaapEps?: number | null;
+    operatingEps?: number | null;
+    fcfPerShare?: number | null;
+  }>;
   incomeTrend: Array<{
     year: number;
     date: string;
@@ -341,6 +358,16 @@ function yearOf(date: string | null): number | null {
   return Number.isFinite(y) ? y : null;
 }
 
+function fyEndMonthFromIncome(rows: Record<string, unknown>[]): number {
+  const last = [...rows]
+    .map((r) => (fmpStr(r.date) ?? '').slice(0, 10))
+    .filter((d) => d.length === 10)
+    .sort()
+    .pop();
+  const m = last ? Number(last.slice(5, 7)) : 12;
+  return Number.isFinite(m) && m >= 1 && m <= 12 ? m : 12;
+}
+
 function quarterlyEpsRows(
   rows: Record<string, unknown>[],
 ): Array<{ date: string; eps: number | null }> {
@@ -352,12 +379,20 @@ function quarterlyEpsRows(
     .filter((q) => q.date.length === 10);
 }
 
+function fmpGaapEps(row: Record<string, unknown>): number | null {
+  return fmpNum(row.epsdiluted) ?? fmpNum(row.epsDiluted) ?? fmpNum(row.eps);
+}
+
 function quarterlyFundamentalRows(
   incomeQ: Record<string, unknown>[],
   cashQ: Record<string, unknown>[],
 ): Array<{
   date: string;
   eps: number | null;
+  netIncome: number | null;
+  operatingIncome: number | null;
+  incomeBeforeTax: number | null;
+  incomeTaxExpense: number | null;
   fcfPerShare: number | null;
   freeCashFlow: number | null;
   dilutedShares: number | null;
@@ -368,6 +403,10 @@ function quarterlyFundamentalRows(
   const out: Array<{
     date: string;
     eps: number | null;
+    netIncome: number | null;
+    operatingIncome: number | null;
+    incomeBeforeTax: number | null;
+    incomeTaxExpense: number | null;
     fcfPerShare: number | null;
     freeCashFlow: number | null;
     dilutedShares: number | null;
@@ -376,8 +415,8 @@ function quarterlyFundamentalRows(
     if (date.length !== 10) continue;
     const inc = incByDate.get(date) ?? {};
     const cf = cfByDate.get(date) ?? {};
-    const eps =
-      fmpNum(inc.epsdiluted) ?? fmpNum(inc.epsDiluted) ?? fmpNum(inc.eps);
+    const eps = fmpGaapEps(inc);
+    const op = incomeOperatingFields(inc);
     const fcf = fmpNum(cf.freeCashFlow);
     const shares =
       fmpNum(inc.weightedAverageShsOutDil) ??
@@ -386,7 +425,17 @@ function quarterlyFundamentalRows(
       fmpNum(cf.weightedAverageShsOut);
     const fcfPerShare =
       fcf != null && shares != null && shares > 0 ? fcf / shares : null;
-    out.push({ date, eps, fcfPerShare, freeCashFlow: fcf, dilutedShares: shares });
+    out.push({
+      date,
+      eps,
+      netIncome: fmpNum(inc.netIncome),
+      operatingIncome: op.operatingIncome,
+      incomeBeforeTax: op.incomeBeforeTax,
+      incomeTaxExpense: op.incomeTaxExpense,
+      fcfPerShare,
+      freeCashFlow: fcf,
+      dilutedShares: shares,
+    });
   }
   return out;
 }
@@ -430,11 +479,10 @@ function asPctPoints(n: number | null | undefined): number | null {
 }
 
 /**
- * FMP only estimates EPS, so revenue / FCF / owner-earnings views keep the trailing growth rate
- * and the last reported year as their fair value anchor.
+ * Estimates are for Forecasting only. Historical orange-box growth is trailing.
  */
 function forwardFor(metric: ValuationMetric, estimates: EstimateRow[]): ForwardMetricPoint[] {
-  if (metric !== 'eps') return [];
+  if (metric !== 'eps' && metric !== 'operatingEps') return [];
   return estimates.map((e) => ({ year: e.year, metric: e.eps }));
 }
 
@@ -595,12 +643,15 @@ function forecastSnapshotFields(opts: {
   estAnnualRorNormalPct: number | null;
   futurePriceNormal: number | null;
   forecastHorizonYears: number | null;
+  forecastGrowthRatePct: number | null;
+  forecastFairValueRatio: number | null;
   marginOfSafetyPct: number | null;
 } {
+  const box = forecastGrowthFromEstimates(opts.estimates);
   const got = buildForecastScenarios({
     price: opts.price,
     fairValue: opts.fairValue,
-    fairValueRatio: opts.fairValueRatio,
+    fairValueRatio: box.fairValueRatio,
     normalMultiple: opts.normalMultiple,
     dividendYieldPct: asPctPoints(opts.dividendYieldTTM),
     estimates: opts.estimates,
@@ -611,6 +662,8 @@ function forecastSnapshotFields(opts: {
     estAnnualRorNormalPct: got.rorNormalPct,
     futurePriceNormal: got.futurePriceNormal,
     forecastHorizonYears: got.horizonYears,
+    forecastGrowthRatePct: box.growthRatePct,
+    forecastFairValueRatio: box.fairValueRatio,
     marginOfSafetyPct: got.marginOfSafetyPct,
   };
 }
@@ -648,7 +701,7 @@ function starFieldsFromPayload(payload: FundamentalsPayload): StarFields {
   if (reliable && Array.isArray(payload.annual) && payload.annual.length) {
     const fcfVal = buildValuationSeries(payload.annual, 'fcf', {
       currentPrice: payload.profile?.price ?? null,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: [],
       ttmMetric: finiteNum(payload.snapshot?.ttmFcf),
       ...growthOverrideFromSummary(payload.valuation?.summary),
@@ -1570,11 +1623,17 @@ export class FundamentalsService {
 
   private payloadForMetric(stored: FundamentalsPayload, metric: ValuationMetric): FundamentalsPayload {
     if (metric === 'eps') return stored;
+    const ttmMetric =
+      metric === 'fcf'
+        ? stored.snapshot.ttmFcf ?? null
+        : metric === 'operatingEps'
+          ? stored.snapshot.ttmOperatingEps ?? null
+          : null;
     const valuation = buildValuationSeries(stored.annual, metric, {
       currentPrice: stored.profile.price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor(metric, stored.estimates),
-      ttmMetric: metric === 'fcf' ? stored.snapshot.ttmFcf ?? null : null,
+      ttmMetric,
       ...(metric === 'fcf' ? growthOverrideFromSummary(stored.valuation?.summary) : {}),
     });
     const lastHist = [...valuation.series].reverse().find((p) => !p.estimated && !p.forecast);
@@ -1609,7 +1668,7 @@ export class FundamentalsService {
   ): FundamentalsPayload {
     const valuation = buildValuationSeries(stored.annual, 'eps', {
       currentPrice: price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor('eps', stored.estimates),
       ttmMetric: stored.snapshot.ttmEps,
     });
@@ -1745,15 +1804,17 @@ export class FundamentalsService {
       const date = fmpStr(inc.date) ?? fmpStr(inc.calendarYear);
       const y = yearOf(date) ?? Number(fmpStr(inc.calendarYear));
       if (!date || !Number.isFinite(y)) continue;
-      const eps =
-        fmpNum(inc.epsdiluted) ??
-        fmpNum(inc.epsDiluted) ??
-        fmpNum(inc.eps);
+      const eps = fmpGaapEps(inc);
+      const op = incomeOperatingFields(inc);
       annual.push({
         date: date.slice(0, 10),
         year: y,
         price: null,
         eps,
+        gaapEps: eps,
+        operatingIncome: op.operatingIncome,
+        incomeBeforeTax: op.incomeBeforeTax,
+        incomeTaxExpense: op.incomeTaxExpense,
         revenuePerShare: null,
         fcfPerShare: null,
         ownerEarningsPerShare: null,
@@ -1808,11 +1869,15 @@ export class FundamentalsService {
       mktCap: profile.mktCap,
     });
 
+    const cardQuarters = quarterlyFundamentalRows(incomeQuarterly, []).map((q) =>
+      scaleQuarterPoint(q, aligned.scale, price),
+    );
+    const ttmGaap = ttmFromQuarterly(cardQuarters.map((q) => ({ date: q.date, eps: q.eps }))).ttm;
     const valuation = buildValuationSeries(aligned.annual, 'eps', {
       currentPrice: price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: aligned.estimateEps.map((e) => ({ year: e.year, metric: e.eps })),
-      ttmMetric: aligned.ttmEps,
+      ttmMetric: ttmGaap != null && ttmGaap > 0 ? ttmGaap : aligned.ttmEps,
     });
 
     const ltDebtToCapitalTTM =
@@ -1893,14 +1958,14 @@ export class FundamentalsService {
       eps: scalePerShare(e.eps, scale),
     }));
     let ttmEps = scalePerShare(opts.ttmEps, scale);
-    const lastEps = annual[annual.length - 1]?.eps ?? null;
-    if (!peInBand(impliedPe(opts.price, ttmEps)) && peInBand(impliedPe(opts.price, lastEps))) {
-      ttmEps = lastEps;
+    const lastGaap = annual[annual.length - 1]?.gaapEps ?? annual[annual.length - 1]?.eps ?? null;
+    if (!peInBand(impliedPe(opts.price, ttmEps)) && peInBand(impliedPe(opts.price, lastGaap))) {
+      ttmEps = lastGaap;
     }
     const scaledUnits = scale.fxToListing !== 1 || scale.perShareFactor !== 1;
     let peTTM = impliedPe(opts.price, ttmEps);
     if (!scaledUnits && peInBand(opts.peTTM)) peTTM = opts.peTTM;
-    if (!peInBand(peTTM)) peTTM = impliedPe(opts.price, lastEps);
+    if (!peInBand(peTTM)) peTTM = impliedPe(opts.price, lastGaap);
 
     const latestShares = last?.dilutedShares ?? anchor?.dilutedShares ?? null;
     let mktCap = opts.mktCap;
@@ -1917,7 +1982,7 @@ export class FundamentalsService {
 
     const tev = scaleTev(opts.tev, mktCap, scale);
     const dcf = scaleDcf(opts.dcf, scale, opts.price);
-    if (!peInBand(impliedPe(opts.price, ttmEps ?? lastEps))) {
+    if (!peInBand(impliedPe(opts.price, ttmEps ?? lastGaap))) {
       scale.reliable = false;
     }
 
@@ -1929,26 +1994,7 @@ export class FundamentalsService {
     estimates: EstimateRow[],
     fairValueRatio: number | null,
   ): ValuationSeriesPoint[] {
-    const out: ValuationSeriesPoint[] = series.map((p) => ({ ...p, estimated: false }));
-    const lastHistYear = out[out.length - 1]?.year ?? 0;
-    for (const est of estimates) {
-      if (!est.estimated || est.year <= lastHistYear) continue;
-      const eps = est.eps;
-      const positive = eps != null && Number.isFinite(eps) && eps > 0;
-      const fv = positive && fairValueRatio != null ? eps * fairValueRatio : null;
-      out.push({
-        date: est.date,
-        year: est.year,
-        price: null,
-        metric: eps,
-        earningsPower: fv,
-        fairValue: fv,
-        normalValue: null,
-        pe: null,
-        estimated: true,
-      });
-    }
-    return out;
+    return appendForwardFairValue(series, estimates, fairValueRatio);
   }
 
   private async fetchFresh(
@@ -2021,23 +2067,14 @@ export class FundamentalsService {
 
     const ownerByYear = new Map<number, number>();
     for (const row of ownerEarn) {
-      const y = yearOf(fmpStr(row.date));
-      const oe = fmpNum(row.ownerEarnings);
-      const shares =
-        fmpNum(row.averageSharesOutstanding) ??
-        fmpNum(row.weightedAverageShsOut) ??
-        fmpNum(row.shares);
-      if (y == null || oe == null || !shares || shares <= 0) continue;
-      ownerByYear.set(y, oe / shares);
+      const y = yearOf(fmpStr(row.date)) ?? Number(fmpStr(row.calendarYear));
+      const perShare = ownerEarningsPerShareFromRow(row);
+      if (y == null || !Number.isFinite(y) || perShare == null) continue;
+      ownerByYear.set(y, perShare);
     }
 
-    const divByYear = new Map<number, number>();
-    for (const row of dividendsRaw) {
-      const y = yearOf(fmpStr(row.date));
-      const d = fmpNum(row.adjDividend) ?? fmpNum(row.dividend);
-      if (y == null || d == null) continue;
-      divByYear.set(y, (divByYear.get(y) ?? 0) + d);
-    }
+    const fyEndMonth = fyEndMonthFromIncome(income);
+    const divByYear = sumDividendsByFiscalYear(dividendsRaw, fyEndMonth);
 
     const dates = new Set<string>();
     for (const d of incomeByDate.keys()) dates.add(d);
@@ -2057,10 +2094,9 @@ export class FundamentalsService {
       const rt = ratioByDate.get(date) ?? {};
 
       const eps =
-        fmpNum(inc.epsdiluted) ??
-        fmpNum(inc.epsDiluted) ??
-        fmpNum(inc.eps) ??
+        fmpGaapEps(inc) ??
         fmpNum(km.netIncomePerShare);
+      const op = incomeOperatingFields(inc);
       const revenuePerShare = fmpNum(km.revenuePerShare);
       const fcfPerShare =
         fmpNum(km.freeCashFlowPerShare) ??
@@ -2073,7 +2109,7 @@ export class FundamentalsService {
           if (fcf == null || !shares || shares <= 0) return null;
           return fcf / shares;
         })();
-      const price = yearEnd.get(y) ?? null;
+      const price = closeOnOrBefore(tickerCloses, date) ?? yearEnd.get(y) ?? null;
       const pe =
         fmpNum(rt.priceToEarningsRatio) ??
         fmpNum(km.peRatio) ??
@@ -2084,6 +2120,10 @@ export class FundamentalsService {
         year: y,
         price,
         eps,
+        gaapEps: eps,
+        operatingIncome: op.operatingIncome,
+        incomeBeforeTax: op.incomeBeforeTax,
+        incomeTaxExpense: op.incomeTaxExpense,
         revenuePerShare,
         fcfPerShare,
         ownerEarningsPerShare: ownerByYear.get(y) ?? null,
@@ -2173,20 +2213,16 @@ export class FundamentalsService {
     }
     applyEstimateChainChg(estimateParsed);
     const peTTM = aligned.peTTM;
-    const ttmEps = aligned.ttmEps;
+    const ttmGaapEps = aligned.ttmEps;
     const quarters = rawQuarters
-      .map((q) => ({
-        date: q.date,
-        eps: scalePerShare(q.eps, aligned.scale),
-        fcfPerShare: pickScaledFcf({
-          fmpFcfPerShare: q.fcfPerShare,
-          freeCashFlow: q.freeCashFlow,
-          dilutedShares: q.dilutedShares,
-          scale: aligned.scale,
-          price,
-        }),
-      }))
+      .map((q) => scaleQuarterPoint(q, aligned.scale, price))
       .sort((a, b) => a.date.localeCompare(b.date));
+    const ttmGaapPick = ttmFromQuarterly(quarters.map((q) => ({ date: q.date, eps: q.eps })));
+    const ttmOpPick = ttmFromQuarterly(
+      quarters.map((q) => ({ date: q.date, eps: q.operatingEps })),
+    );
+    const ttmEps = ttmGaapPick.ttm != null && ttmGaapPick.ttm > 0 ? ttmGaapPick.ttm : ttmGaapEps;
+    const ttmOperatingEps = ttmOpPick.ttm != null && ttmOpPick.ttm > 0 ? ttmOpPick.ttm : null;
     const ttmFcf = ttmFromQuarterly(
       quarters.map((q) => ({ date: q.date, metric: q.fcfPerShare })),
     ).ttm;
@@ -2195,16 +2231,17 @@ export class FundamentalsService {
       metric === 'fcf'
         ? buildValuationSeries(annual, 'eps', {
             currentPrice: price,
-            windowYears: 5,
+            windowYears: DEFAULT_VALUATION_WINDOW,
             forward: forwardFor('eps', estimateParsed),
             ttmMetric: ttmEps,
           })
         : null;
     const valuation = buildValuationSeries(annual, metric, {
       currentPrice: price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor(metric, estimateParsed),
-      ttmMetric: metric === 'fcf' ? ttmFcf : ttmEps,
+      ttmMetric:
+        metric === 'fcf' ? ttmFcf : metric === 'operatingEps' ? ttmOperatingEps : ttmEps,
       ...(metric === 'fcf' ? growthOverrideFromSummary(epsValuation?.summary) : {}),
     });
 
@@ -2327,7 +2364,9 @@ export class FundamentalsService {
       snapshot: {
         peTTM,
         ttmEps,
-        ttmAsOf: ttmPick.asOf,
+        ttmGaapEps,
+        ttmOperatingEps,
+        ttmAsOf: ttmGaapPick.asOf ?? ttmPick.asOf,
         ttmFcf,
         pbTTM,
         psTTM,
