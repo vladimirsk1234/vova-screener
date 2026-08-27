@@ -3,7 +3,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import { TRACKED_SIGNAL } from '../db/schemas';
-import { FmpClient, yahooToFmpSymbol } from '../market/fmp.client';
+import { FmpClient } from '../market/fmp.client';
 
 export type HistoryEpsEnrichResult = {
   configured: boolean;
@@ -63,7 +63,8 @@ export class HistoryEpsService {
       try {
         let hit = epsCache.get(cacheKey);
         if (!hit) {
-          hit = await this.fmp.epsAsOf(yahooToFmpSymbol(ticker), asOf);
+          const fmpSymbol = await this.fmp.resolveFmpSymbol(ticker);
+          hit = await this.fmp.epsAsOf(fmpSymbol, asOf);
           epsCache.set(cacheKey, hit);
         }
         const eps = hit.eps;

@@ -1,5 +1,8 @@
 /** Financial Modeling Prep (stable API) client for fundamentals + prices. */
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { fmpSymbolCandidates } from './fmpSymbol';
+
+export { fmpMappedSymbol, fmpSymbolCandidates, yahooToFmpSymbol } from './fmpSymbol';
 
 const BASE = 'https://financialmodelingprep.com/stable';
 
@@ -19,18 +22,6 @@ function str(v: unknown): string | null {
   if (v == null) return null;
   const s = String(v).trim();
   return s || null;
-}
-
-/** Yahoo → FMP symbol (class shares BRK-B → BRK.B; Canadian suffixes kept). */
-export function yahooToFmpSymbol(yahooTicker: string): string {
-  const s = String(yahooTicker || '')
-    .trim()
-    .toUpperCase();
-  if (!s) return s;
-  if (/\.(TO|V|NE|CN)$/.test(s)) return s;
-  const classShare = s.match(/^([A-Z0-9]+)-([A-Z])$/);
-  if (classShare) return `${classShare[1]}.${classShare[2]}`;
-  return s.replace(/-/g, '.');
 }
 
 function sleep(ms: number) {
@@ -61,6 +52,28 @@ export class FmpClient {
 
   configured(): boolean {
     return Boolean(process.env.FMP_API_KEY?.trim());
+  }
+
+  /** Pick the first candidate FMP accepts (cheap profile probe before a full pull). */
+  async resolveFmpSymbol(yahooTicker: string): Promise<string> {
+    const candidates = fmpSymbolCandidates(yahooTicker);
+    if (!candidates.length) return '';
+    if (candidates.length === 1) return candidates[0];
+    for (const symbol of candidates) {
+      try {
+        const profile = await this.profile(symbol);
+        if (profile.companyName) return symbol;
+      } catch {
+        /* try next candidate */
+      }
+      try {
+        const income = await this.incomeAnnual(symbol, 2);
+        if (income.length) return symbol;
+      } catch {
+        /* try next candidate */
+      }
+    }
+    return candidates[0];
   }
 
   private async limit<T>(fn: () => Promise<T>): Promise<T> {

@@ -28,7 +28,5 @@ export function parseApiErrorBody(status: number, text: string): string {
 
 export function isFundamentalsPendingError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  return /still loading|No fundamentals|Wait for the EOD|EOD refresh|Updating \d+\s*\/\s*\d+/i.test(
-    msg,
-  );
+  return /still loading|Wait for the EOD|EOD refresh|Updating \d+\s*\/\s*\d+/i.test(msg);
 }

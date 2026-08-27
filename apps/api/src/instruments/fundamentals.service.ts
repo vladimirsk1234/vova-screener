@@ -55,7 +55,6 @@ import {
   fmpNum,
   fmpStr,
   sanitizeCustomDcfAssumptions,
-  yahooToFmpSymbol,
   type CustomDcfPayload,
   type FmpEarningsRow,
 } from '../market/fmp.client';
@@ -727,17 +726,27 @@ export class FundamentalsService {
           'Set FMP_API_KEY on the API server to load fundamentals.',
         );
       }
+      if (err instanceof NotFoundException || err instanceof ServiceUnavailableException) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const run = await this.latestRefreshRun();
+        const updating =
+          run?.status === 'running' && run.total > 0
+            ? ` Updating ${run.done}/${run.total}.`
+            : '';
+        const rateLimited =
+          /429|rate limit|FMP request failed \(429\)/i.test(msg) && run?.status === 'running';
+        if (rateLimited) {
+          throw new ServiceUnavailableException(
+            `Fundamentals for ${ticker} are still loading.${updating}`,
+          );
+        }
+        throw err;
+      }
       const run = await this.latestRefreshRun();
       const updating =
         run?.status === 'running' && run.total > 0
           ? ` Updating ${run.done}/${run.total}.`
           : '';
-      const listed = await this.universe.isInTrackedUniverse(ticker);
-      if (listed) {
-        throw new ServiceUnavailableException(
-          `Fundamentals for ${ticker} are still loading.${updating || ' The EOD refresh will fill them.'}`,
-        );
-      }
       const detail = err instanceof Error ? err.message : String(err);
       throw new NotFoundException(`No fundamentals for ${ticker}. ${updating || detail}`);
     }
@@ -817,7 +826,7 @@ export class FundamentalsService {
     rawAssumptions: Record<string, unknown> = {},
   ): Promise<CustomDcfPayload> {
     const ticker = yahooTicker.toUpperCase();
-    const fmpSymbol = yahooToFmpSymbol(ticker);
+    const fmpSymbol = await this.fmp.resolveFmpSymbol(ticker);
     const assumptions = sanitizeCustomDcfAssumptions(rawAssumptions);
     const cacheKey = customDcfCacheKey(fmpSymbol, assumptions);
     const hit = this.dcfCache.get(cacheKey);
@@ -851,7 +860,7 @@ export class FundamentalsService {
     yahooTicker: string,
     asOf: string,
   ): Promise<{ eps: number | null; positive: boolean | null; asOf: string; reportDate: string | null }> {
-    const fmpSymbol = yahooToFmpSymbol(yahooTicker);
+    const fmpSymbol = await this.fmp.resolveFmpSymbol(yahooTicker);
     const { eps, date } = await this.fmp.epsAsOf(fmpSymbol, asOf);
     return {
       eps,
@@ -969,7 +978,8 @@ export class FundamentalsService {
     const ticker = yahooTicker.toUpperCase();
     const stored = await this.loadStored(ticker);
     if (!stored || !hasCurrentScale(stored, FUNDAMENTALS_SCALE_VERSION)) return false;
-    const profile = await this.fmp.profile(yahooToFmpSymbol(ticker)).catch(() => null);
+    const fmpSymbol = await this.fmp.resolveFmpSymbol(ticker);
+    const profile = await this.fmp.profile(fmpSymbol).catch(() => null);
     const price = profile?.price;
     if (price == null || !Number.isFinite(price) || price <= 0) return false;
     const next = this.repricePayload(stored, price, profile);
@@ -1720,7 +1730,7 @@ export class FundamentalsService {
   private async fetchCardSlim(
     yahooTicker: string,
   ): Promise<{ metrics: CardFundamentals; scale: FundamentalsScale }> {
-    const fmpSymbol = yahooToFmpSymbol(yahooTicker);
+    const fmpSymbol = await this.fmp.resolveFmpSymbol(yahooTicker);
     const [profile, income, incomeQuarterly, keyTtm, ratiosTtm, estimatesRaw] = await Promise.all([
       this.fmp.profile(fmpSymbol).catch(() => emptyProfile(fmpSymbol)),
       this.fmp.incomeAnnual(fmpSymbol).catch(() => []),
@@ -1945,7 +1955,7 @@ export class FundamentalsService {
     yahooTicker: string,
     metric: ValuationMetric,
   ): Promise<FundamentalsPayload> {
-    const fmpSymbol = yahooToFmpSymbol(yahooTicker);
+    const fmpSymbol = await this.fmp.resolveFmpSymbol(yahooTicker);
     const instrument = await this.universe.findOne(yahooTicker);
 
     const [
