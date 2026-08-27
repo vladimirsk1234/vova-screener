@@ -6,7 +6,9 @@ import {
   expectedDcfFairValueByYear,
   fairValueFromEstimate,
   formatScaleCaption,
+  pickMetric,
   sliceToWindow,
+  yoyChgPct,
   type ValuationMetric,
   type ValuationSummary,
   type ValuationWindowYears,
@@ -29,11 +31,20 @@ import {
 import { Chips } from '../components/Chips';
 
 const METRICS = [
-  { id: 'eps' as const, label: 'EPS' },
+  { id: 'eps' as const, label: 'Op. EPS' },
+  { id: 'gaapEps' as const, label: 'GAAP EPS' },
   { id: 'revenue' as const, label: 'Sales/sh' },
   { id: 'fcf' as const, label: 'FCF/sh' },
   { id: 'ownerEarnings' as const, label: 'Owner earn.' },
 ];
+
+const METRIC_TABLE_LABEL: Record<ValuationMetric, string> = {
+  eps: 'Op. EPS',
+  gaapEps: 'GAAP EPS',
+  revenue: 'Sales/sh',
+  fcf: 'FCF/sh',
+  ownerEarnings: 'Owner earn.',
+};
 
 export const FUND_TABS = ['summary', 'forecasting', 'dcf', 'performance', 'profile'] as const;
 export type FundTab = (typeof FUND_TABS)[number];
@@ -180,10 +191,24 @@ export function FundamentalsPanel({
   const fyRows = useMemo(() => {
     if (!fundQ.data) return [];
     const windowed = sliceToWindow(fundQ.data.annual, windowYears);
-    const minYear = windowed[0]?.year;
-    if (minYear == null) return [];
-    return fundQ.data.incomeTrend.filter((row) => row.year >= minYear);
-  }, [fundQ.data, windowYears]);
+    return windowed
+      .slice()
+      .reverse()
+      .map((row, idx, arr) => {
+        const metricVal = pickMetric(row, metric);
+        const older = arr[idx + 1];
+        return {
+          year: row.year,
+          date: row.date,
+          metric: metricVal,
+          metricChgPct: yoyChgPct(metricVal, older ? pickMetric(older, metric) : null),
+          dividend: row.dividend ?? null,
+          operatingCashFlow: row.operatingCashFlow,
+          freeCashFlow: row.freeCashFlow,
+          dilutedShares: row.dilutedShares ?? null,
+        };
+      });
+  }, [fundQ.data, windowYears, metric]);
 
   const [customPe, setCustomPe] = useState('');
   const customMultiple = (() => {
@@ -377,13 +402,13 @@ export function FundamentalsPanel({
 
       {tab === 'summary' && fyRows.length ? (
         <section className="fund-section">
-          <h3 className="fund-section-title">FY EPS / Chg / Div</h3>
+          <h3 className="fund-section-title">FY {METRIC_TABLE_LABEL[metric]} / Chg / Div</h3>
           <div className="fund-table-wrap">
             <table className="fund-table">
               <thead>
                 <tr>
                   <th>Year</th>
-                  <th>EPS</th>
+                  <th>{METRIC_TABLE_LABEL[metric]}</th>
                   <th>% Chg</th>
                   <th>Div</th>
                   <th>OCF cov</th>
@@ -392,18 +417,17 @@ export function FundamentalsPanel({
               </thead>
               <tbody>
                 {fyRows.map((row) => {
-                  const annual = fundQ.data?.annual.find((a) => a.year === row.year);
                   const cover = dividendCoverage({
                     dividend: row.dividend,
-                    dilutedShares: annual?.dilutedShares,
+                    dilutedShares: row.dilutedShares,
                     operatingCashFlow: row.operatingCashFlow,
                     freeCashFlow: row.freeCashFlow,
                   });
                   return (
                     <tr key={row.date}>
                       <td>{row.year}</td>
-                      <td>{money(row.eps)}</td>
-                      <td>{pct(row.epsChgPct)}</td>
+                      <td>{money(row.metric)}</td>
+                      <td>{pct(row.metricChgPct)}</td>
                       <td>{money(row.dividend)}</td>
                       <td>{cover.ocfCover != null ? `${cover.ocfCover.toFixed(1)}×` : '—'}</td>
                       <td>
@@ -532,16 +556,19 @@ export function FundamentalsPanel({
 
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
-          Fair value (orange): GDF / GDF…P/E=G / P/E=G — GAAP diluted EPS × 15× when growth &lt; 15%
-          (or when the CAGR span is under 2 years on a multi-year window), else P/E = growth %.
-          Est. ROR = (future price / today)^(1/horizon) − 1 + dividend yield, where future price is
-          the last Street EPS × the P=E=G or Normal P/E multiple. Horizon is the years to that FY-end,
-          not a fixed 5 years. History is GAAP diluted; Street estimates are often non-GAAP — the first
-          estimate % Chg is blank so those two series are not mixed. Normal P/E is the median price/EPS
-          on the selected 1Y / 3Y / 5Y / 8Y / 10Y / MAX window. Per-share figures are converted to the
-          listing currency (and per ADS when the ADR ratio is known).
-          Source: Financial Modeling Prep GAAP diluted, not FAST Graphs adjusted operating EPS.
-          S&amp;P credit rating is not in FMP.
+          Fair value (orange): GDF / GDF…P/E=G / P/E=G — 8.5+2g when growth &lt; 5%, 15× when
+          5–15% (or when the CAGR span is under 2 years on a multi-year window), else P/E = growth %.
+          Default Op. EPS is FMP after-tax operating income / diluted shares (NOPAT), the closest
+          field FMP has to FAST Graphs “Adjusted (Operating) Earnings”. GAAP diluted is a separate
+          chip. Est. ROR = (future price / today)^(1/horizon) − 1 + dividend yield, where future
+          price is the last Street EPS × the P=E=G or Normal P/E multiple. Horizon is the years to
+          that FY-end, not a fixed 5 years. Street estimates are FMP consensus (typically non-GAAP)
+          — the first estimate % Chg is blank so history and Street are not mixed. FCF / Sales /
+          Owner earn. keep trailing growth (FMP has no per-share estimates for them). Normal P/E is
+          the median price/metric on the selected 1Y…19Y / MAX window. Per-share figures are
+          converted to the listing currency (and per ADS when the ADR ratio is known).
+          FMP does not ship FactSet-style adjusted operating EPS, FG score, recession shading, or
+          S&amp;P credit rating.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}
           {fundQ.data?.cached ? ' · cached' : ''}
         </p>
@@ -1017,7 +1044,7 @@ function PerformanceTab({
                 <td>{pct(spy.y10)}</td>
               </tr>
               <tr>
-                <td>EPS CAGR</td>
+                <td>Op. EPS CAGR</td>
                 <td>{pct(eps.y1)}</td>
                 <td>{pct(eps.y3)}</td>
                 <td>{pct(eps.y5)}</td>
@@ -1026,7 +1053,10 @@ function PerformanceTab({
             </tbody>
           </table>
         </div>
-        <p className="muted small">Price vs SPY from Yahoo bars. EPS from FMP. No SPY EPS line.</p>
+        <p className="muted small">
+          Price vs SPY from Yahoo bars. Op. EPS CAGR uses the same FMP NOPAT proxy as Summary. No
+          SPY EPS line.
+        </p>
       </section>
       {years.length ? (
         <section className="fund-section">
@@ -1038,7 +1068,7 @@ function PerformanceTab({
                   <th>Year</th>
                   <th>{ticker}</th>
                   <th>SPY</th>
-                  <th>EPS %chg</th>
+                  <th>Op. EPS %chg</th>
                 </tr>
               </thead>
               <tbody>

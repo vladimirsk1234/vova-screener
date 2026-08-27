@@ -847,6 +847,12 @@ a {
   margin: 8px 0 12px;
 }
 
+.chart-period-chips .chip {
+  padding: 0 10px;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
 .chart-view-toggle {
   display: flex;
   gap: 8px;

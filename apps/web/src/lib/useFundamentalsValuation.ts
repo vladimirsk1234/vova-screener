@@ -73,7 +73,11 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
         ...common,
         forward: metric === 'eps' ? epsForward : [],
         ttmMetric:
-          metric === 'eps' ? fundQ.data.snapshot.ttmEps : null,
+          metric === 'eps'
+            ? fundQ.data.snapshot.ttmEps
+            : metric === 'gaapEps'
+              ? fundQ.data.snapshot.ttmGaapEps ?? fundQ.data.snapshot.ttmEps
+              : null,
       });
     }
     const epsVal = buildValuationSeries(fundQ.data.annual, 'eps', {
@@ -93,7 +97,15 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     if (!valuation) return [];
     const quarterPts =
       metric === 'eps'
-        ? (fundQ.data?.quarters ?? []).map((q) => ({ date: q.date, eps: q.eps }))
+        ? (fundQ.data?.quarters ?? []).map((q) => ({
+            date: q.date,
+            eps: q.operatingEps ?? q.eps,
+          }))
+        : metric === 'gaapEps'
+          ? (fundQ.data?.quarters ?? []).map((q) => ({
+              date: q.date,
+              eps: q.gaapEps ?? q.eps,
+            }))
         : metric === 'fcf'
           ? (fundQ.data?.quarters ?? []).map((q) => ({ date: q.date, metric: q.fcfPerShare }))
           : [];
@@ -106,7 +118,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
           valuation.summary.normalMultiple,
         )
       : valuation.series;
-    const pinToday = metric !== 'eps' && metric !== 'fcf';
+    const pinToday = metric !== 'eps' && metric !== 'gaapEps' && metric !== 'fcf';
     const historical = seriesForFairValueChart(withQuarters, valuation.summary, undefined, {
       pinToday,
     });
@@ -120,7 +132,12 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
             years: (fundQ.data?.estimates ?? []).map((e) => ({ year: e.year, date: e.date })),
           })
         : [];
-    const estimates = metric === 'fcf' ? fcfEstimates : (fundQ.data?.estimates ?? []);
+    const estimates =
+      metric === 'fcf'
+        ? fcfEstimates
+        : metric === 'gaapEps'
+          ? []
+          : (fundQ.data?.estimates ?? []);
     const towardNextPrint = pinToday
       ? historical
       : appendNextQuarterEstimate(

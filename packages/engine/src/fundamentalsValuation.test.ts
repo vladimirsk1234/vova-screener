@@ -8,8 +8,10 @@ import {
   cagrPct,
   fairValueFromEstimate,
   fairValueRatioFromGrowth,
+  grahamDoddMultiple,
   growthOverrideFromSummary,
   nextQuarterIso,
+  pickMetric,
   projectMetricByGrowth,
   seriesForFairValueChart,
   firstForecastDate,
@@ -23,6 +25,7 @@ import {
   ttmFromQuarterly,
   valuationChartLogicalRange,
   valuationChartRange,
+  VALUATION_WINDOW_CHIPS,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
 
@@ -106,9 +109,18 @@ describe('valuation windows', () => {
   });
 
   it('uses GDF / GDF…P/E=G / P/E=G bands at 5% and 15%', () => {
+    const noGrowth = fairValueRatioFromGrowth(0);
+    assert.equal(noGrowth.rule, 'gdf');
+    assert.equal(noGrowth.ratio, 8.5);
+
+    const twoPct = fairValueRatioFromGrowth(2);
+    assert.equal(twoPct.rule, 'gdf');
+    assert.equal(twoPct.ratio, 12.5);
+
     const slow = fairValueRatioFromGrowth(4.9);
     assert.equal(slow.rule, 'gdf');
-    assert.equal(slow.ratio, 15);
+    assert.equal(slow.ratio, grahamDoddMultiple(4.9));
+    assert.ok(slow.ratio != null && slow.ratio > 18 && slow.ratio < 19);
 
     const atGraham = fairValueRatioFromGrowth(5);
     assert.equal(atGraham.rule, 'gdf_pe_g');
@@ -129,6 +141,65 @@ describe('valuation windows', () => {
     const fast = fairValueRatioFromGrowth(20);
     assert.equal(fast.rule, 'pe_g');
     assert.equal(fast.ratio, 20);
+  });
+
+  it('floors Graham-Dodd at 1× for a deep earnings decline', () => {
+    assert.equal(grahamDoddMultiple(-10), 1);
+    const declining = fairValueRatioFromGrowth(-4);
+    assert.equal(declining.rule, 'gdf');
+    assert.equal(declining.ratio, 1);
+  });
+
+  it('exposes MAX + 19Y … 1Y window chips', () => {
+    assert.equal(VALUATION_WINDOW_CHIPS[0], null);
+    assert.equal(VALUATION_WINDOW_CHIPS[1], 19);
+    assert.equal(VALUATION_WINDOW_CHIPS[VALUATION_WINDOW_CHIPS.length - 1], 1);
+    assert.equal(VALUATION_WINDOW_CHIPS.length, 20);
+  });
+
+  it('keeps eight fiscal years for a 7Y window and twenty for 19Y when history exists', () => {
+    const hist = Array.from({ length: 22 }, (_, i) => fy(2004 + i, 1 + i * 0.1, 15 + i));
+    const seven = sliceToWindow(hist, 7);
+    assert.equal(seven[0]?.year, 2018);
+    assert.equal(seven[seven.length - 1]?.year, 2025);
+    assert.equal(seven.length, 8);
+    const nineteen = sliceToWindow(hist, 19);
+    assert.equal(nineteen[0]?.year, 2006);
+    assert.equal(nineteen.length, 20);
+  });
+
+  it('computes 7Y trailing CAGR on the selected span, not a fixed 5Y', () => {
+    const hist = mixedGrowthHistory();
+    const cagr5 = trailingMetricCagr(sliceToWindow(hist, 5), 'eps', 5);
+    const cagr7 = trailingMetricCagr(sliceToWindow(hist, 7), 'eps', 7);
+    assert.ok(cagr5 != null && cagr7 != null);
+    assert.ok(cagr5 !== cagr7, `5Y=${cagr5} 7Y=${cagr7}`);
+  });
+
+  it('defaults the EPS metric to operating EPS and keeps GAAP on gaapEps', () => {
+    const point: AnnualFundamentalPoint = {
+      ...fy(2019, 2.97, 73.49),
+      operatingEps: 2.91,
+      gaapEps: 2.97,
+    };
+    assert.equal(pickMetric(point, 'eps'), 2.91);
+    assert.equal(pickMetric(point, 'gaapEps'), 2.97);
+    const legacy = fy(2019, 2.97, 73.49);
+    assert.equal(pickMetric(legacy, 'eps'), 2.97);
+    assert.equal(pickMetric(legacy, 'gaapEps'), 2.97);
+  });
+
+  it('uses operating EPS for trailing CAGR when both series exist', () => {
+    const hist: AnnualFundamentalPoint[] = [
+      { ...fy(2018, 2.98, 58), operatingEps: 3.1, gaapEps: 2.98 },
+      { ...fy(2019, 2.97, 73), operatingEps: 3.4, gaapEps: 2.97 },
+    ];
+    const op = trailingMetricCagr(hist, 'eps', 1);
+    const gaap = trailingMetricCagr(hist, 'gaapEps', 1);
+    assert.ok(op != null && gaap != null);
+    assert.ok(Math.abs(op - ((3.4 / 3.1 - 1) * 100)) < 1e-6);
+    assert.ok(Math.abs(gaap - ((2.97 / 2.98 - 1) * 100)) < 1e-6);
+    assert.ok(op !== gaap);
   });
 
   it('blocks Lynch when CAGR span is under 2 years on a 5Y window (LYFT-style)', () => {
@@ -167,6 +238,30 @@ describe('valuation windows', () => {
     assert.equal(summary.fairValueRatio, Math.round(summary.growthRatePct! * 100) / 100);
     assert.ok(summary.fairValue != null);
     assert.ok(Math.abs(summary.fairValue - 2.88 * (summary.fairValueRatio as number)) < 1e-6);
+  });
+
+  it('applies classic GDF 8.5+2g on a slow-growth 5Y window', () => {
+    const hist = [
+      fy(2020, 4.0, 60),
+      fy(2021, 4.08, 61),
+      fy(2022, 4.16, 62),
+      fy(2023, 4.24, 63),
+      fy(2024, 4.32, 64),
+      fy(2025, 4.4, 65),
+    ];
+    const { summary } = buildValuationSeries(hist, 'eps', {
+      currentPrice: 65,
+      windowYears: 5,
+      ttmMetric: 4.4,
+    });
+    assert.equal(summary.growthSource, 'trailing');
+    assert.ok(summary.growthRatePct != null && summary.growthRatePct < 5);
+    assert.equal(summary.fairValueRule, 'gdf');
+    assert.ok(summary.fairValueRatio != null);
+    assert.equal(summary.fairValueRatio, grahamDoddMultiple(summary.growthRatePct!));
+    assert.ok(summary.fairValueRatio < 15);
+    assert.ok(summary.fairValue != null);
+    assert.ok(Math.abs(summary.fairValue - 4.4 * summary.fairValueRatio) < 1e-6);
   });
 
   it('uses 15× when only one profitable FY exists in a multi-year window', () => {

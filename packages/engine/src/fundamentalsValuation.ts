@@ -1,28 +1,44 @@
 /**
  * Fast Graphs–style valuation: Normal P/E is median historical price/metric;
  * Fair Value (orange line) uses three FG formulas from trailing metric CAGR in
- * the selected lookback window (1Y / 3Y / 5Y / 8Y / 10Y / MAX):
- *   GDF          — growth < 5%     → P/E = 15 (capped Graham; we do not use 8.5+2g)
- *   GDF…P/E=G    — 5% ≤ growth < 15% → P/E = 15
+ * the selected lookback window (1Y … 19Y / MAX):
+ *   GDF          — growth < 5%     → P/E = 8.5 + 2g (classic Graham-Dodd)
+ *   GDF…P/E=G    — 5% ≤ growth < 15% → P/E = 15 (blend toward 15)
  *   P/E=G        — growth ≥ 15%    → P/E = growth % (Lynch PEG=1)
  * The multiple is fixed for the whole window; each point is metric × that ratio.
- * GAAP diluted EPS from FMP — not FAST Graphs adjusted operating EPS.
+ * Default EPS is FMP after-tax operating income / diluted shares (NOPAT proxy
+ * for FG “Adjusted (Operating) Earnings”). GAAP diluted stays on `gaapEps`.
+ * FMP has no FactSet-style adjusted operating-EPS series.
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
  */
 
-export type ValuationMetric = 'eps' | 'revenue' | 'fcf' | 'ownerEarnings';
+export type ValuationMetric = 'eps' | 'gaapEps' | 'revenue' | 'fcf' | 'ownerEarnings';
 
 /** FAST Graphs orange-box labels: GDF / GDF…P/E=G / P/E=G. */
 export type FairValueRule = 'gdf' | 'gdf_pe_g' | 'pe_g' | 'none';
 
-/** Chart / Normal P/E window. `null` = MAX (all complete years). */
-export type ValuationWindowYears = 1 | 3 | 5 | 8 | 10 | null;
+/** Chart / Normal P/E window in fiscal years. `null` = MAX (all complete years). */
+export type ValuationWindowYears = number | null;
 
-/** Growth below this uses GDF (still 15× under our capped-Graham rule). */
+/** FG Historical chips: MAX, 19Y … 1Y. */
+export const VALUATION_LOOKBACK_MAX = 19;
+
+export const VALUATION_WINDOW_CHIPS: Array<ValuationWindowYears> = [
+  null,
+  ...Array.from({ length: VALUATION_LOOKBACK_MAX }, (_, i) => VALUATION_LOOKBACK_MAX - i),
+];
+
+/** Growth below this uses classic Graham-Dodd (8.5 + 2g). */
 export const GRAHAM_GROWTH_MAX = 5;
+/** Graham no-growth multiple. */
+export const GRAHAM_DODD_CONSTANT = 8.5;
+/** Graham growth coefficient (P/E = 8.5 + 2g). */
+export const GRAHAM_DODD_GROWTH_COEF = 2;
+/** Floor so a deep earnings decline cannot produce a negative multiple. */
+export const GRAHAM_DODD_PE_MIN = 1;
 /** Growth at/above this uses P/E = growth % (Lynch PEG=1). */
 export const LYNCH_GROWTH_MIN = 15;
-/** Fixed fair-value multiple for GDF and GDF…P/E=G bands. */
+/** Fixed fair-value multiple for the 5–15% GDF…P/E=G band. */
 export const FAIR_VALUE_PE = 15;
 /** @deprecated Use FAIR_VALUE_PE / LYNCH_GROWTH_MIN. Kept for callers. */
 export const GROWTH_PE_FLOOR = FAIR_VALUE_PE;
@@ -33,7 +49,19 @@ export type AnnualFundamentalPoint = {
   year: number;
   /** Year-end (or nearest) adjusted close */
   price: number | null;
+  /**
+   * Default per-share earnings for the EPS view: operating (NOPAT) when the
+   * API filled `operatingEps`, else the legacy GAAP diluted field.
+   */
   eps: number | null;
+  /** FMP after-tax operating income / diluted shares (FG operating-EPS proxy). */
+  operatingEps?: number | null;
+  /** FMP GAAP diluted EPS. */
+  gaapEps?: number | null;
+  /** Filing-currency operating income (EBIT-like). Used to rebuild operating EPS. */
+  operatingIncome?: number | null;
+  incomeBeforeTax?: number | null;
+  incomeTaxExpense?: number | null;
   revenuePerShare: number | null;
   fcfPerShare: number | null;
   ownerEarningsPerShare: number | null;
@@ -67,7 +95,7 @@ export type ValuationSeriesPoint = {
    * on the price axis.
    */
   earningsPower: number | null;
-  /** Metric × fair-value ratio (15× or Lynch). Absent when growth is N/A. */
+  /** Metric × fair-value ratio (GDF / 15× / Lynch). Absent when growth is N/A. */
   fairValue: number | null;
   /** Metric × Normal P/E (median historical price/metric). */
   normalValue: number | null;
@@ -129,7 +157,7 @@ export type ValuationSummary = {
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
   years: number;
-  /** 1, 3, 5, 8, 10, or null for MAX. */
+  /** 1–19, or null for MAX. */
   windowYears: ValuationWindowYears;
 };
 
@@ -147,6 +175,10 @@ function median(vals: number[]): number | null {
 export function pickMetric(point: AnnualFundamentalPoint, metric: ValuationMetric): number | null {
   switch (metric) {
     case 'eps':
+      if (finite(point.operatingEps)) return point.operatingEps;
+      return finite(point.eps) ? point.eps : null;
+    case 'gaapEps':
+      if (finite(point.gaapEps)) return point.gaapEps;
       return finite(point.eps) ? point.eps : null;
     case 'revenue':
       return finite(point.revenuePerShare) ? point.revenuePerShare : null;
@@ -404,9 +436,16 @@ export function trailingMetricCagr(
   return trailingMetricCagrDetail(points, metric, lookbackYears).growthPct;
 }
 
-/** Lookback for trailing CAGR: 1 / 3 / 5 / 8 / 10, or a long span for MAX. */
+/** Lookback for trailing CAGR: selected N years, or a long span for MAX. */
 export function windowLookbackYears(windowYears: ValuationWindowYears): number {
-  return windowYears ?? 1000;
+  return windowYears != null && windowYears > 0 ? windowYears : 1000;
+}
+
+/** Classic Graham-Dodd: 8.5 + 2g, floored so declining names stay plottable. */
+export function grahamDoddMultiple(growthPct: number): number {
+  const pe = GRAHAM_DODD_CONSTANT + GRAHAM_DODD_GROWTH_COEF * growthPct;
+  if (!Number.isFinite(pe)) return FAIR_VALUE_PE;
+  return Math.max(GRAHAM_DODD_PE_MIN, Math.round(pe * 100) / 100);
 }
 
 /**
@@ -451,8 +490,8 @@ export type FairValueRatioOpts = {
 
 /**
  * Fair Value Ratio from trailing growth (FAST Graphs orange line):
- *   g < 5%           → 15× (GDF, capped)
- *   5% ≤ g < 15%     → 15× (GDF…P/E=G)
+ *   g < 5%           → 8.5 + 2g (GDF, classic Graham-Dodd)
+ *   5% ≤ g < 15%     → 15× (GDF…P/E=G — blend toward 15)
  *   g ≥ 15%          → P/E = g (P/E=G / Lynch)
  * When `windowYears` / `spanYears` are supplied: Lynch is blocked if the window
  * is not 1Y and the CAGR span is shorter than 2 years (IPO / GAAP turnaround
@@ -475,7 +514,7 @@ export function fairValueRatioFromGrowth(
     }
   }
   if (growthPct == null || !finite(growthPct)) return { ratio: null, rule: 'none' };
-  if (growthPct < GRAHAM_GROWTH_MAX) return { ratio: FAIR_VALUE_PE, rule: 'gdf' };
+  if (growthPct < GRAHAM_GROWTH_MAX) return { ratio: grahamDoddMultiple(growthPct), rule: 'gdf' };
   if (growthPct < LYNCH_GROWTH_MIN) return { ratio: FAIR_VALUE_PE, rule: 'gdf_pe_g' };
   return { ratio: Math.round(growthPct * 100) / 100, rule: 'pe_g' };
 }

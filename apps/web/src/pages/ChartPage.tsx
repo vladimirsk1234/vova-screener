@@ -626,10 +626,13 @@ export function ChartPage() {
         ) : (
           <Chips
             value={fund.windowYears == null ? 'max' : String(fund.windowYears)}
-            options={['1', '3', '5', '8', '10', 'max']}
+            options={[
+              'max',
+              ...Array.from({ length: 19 }, (_, i) => String(19 - i)),
+            ]}
             format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
             onChange={(id) =>
-              fund.setWindowYears(id === 'max' ? null : (Number(id) as 1 | 3 | 5 | 8 | 10))
+              fund.setWindowYears(id === 'max' ? null : Number(id))
             }
           />
         )}

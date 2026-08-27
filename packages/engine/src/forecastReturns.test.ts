@@ -60,6 +60,29 @@ describe('forecast returns', () => {
     assert.ok(Math.abs((marginOfSafetyPct(275, 262) ?? 0) + 4.96) < 0.1);
     assert.ok((marginOfSafetyPct(230, 292) ?? 0) > 20);
   });
+
+  it('ROR uses Street horizon EPS × multiple, not a GAAP/operating history jump', () => {
+    const street = buildForecastScenarios({
+      price: 313.45,
+      fairValue: 7.5 * 15,
+      fairValueRatio: 15,
+      normalMultiple: 22,
+      dividendYieldPct: 0.4,
+      estimates: [
+        { year: 2026, date: '2026-09-26', eps: 7.4 },
+        { year: 2027, date: '2027-09-25', eps: 8.1 },
+        { year: 2028, date: '2028-09-30', eps: 8.9 },
+      ],
+      asOfIso: '2026-08-26',
+    });
+    assert.equal(street.horizonEps, 8.9);
+    const future = futurePriceAt(8.9, 15);
+    const years = forecastHorizonYears('2026-08-26', '2028-09-30');
+    const expected = annualizedRorPct(313.45, future, years, 0.4);
+    assert.ok(street.rorPegPct != null && expected != null);
+    assert.ok(Math.abs(street.rorPegPct - expected) < 1e-9);
+    assert.notEqual(street.horizonEps, 2.97);
+  });
 });
 
 describe('analyst scorecard', () => {
