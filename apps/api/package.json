@@ -12,7 +12,7 @@
     "smoke:delisted": "node -r ts-node/register -r tsconfig-paths/register src/dev/delisted-purge-smoke.ts",
     "smoke:normalize": "node -r ts-node/register -r tsconfig-paths/register src/dev/normalize-symbols-smoke.ts",
     "typecheck": "tsc --noEmit",
-    "test:period": "node --experimental-strip-types --test src/scans/period.test.ts src/instruments/fundamentals-catchup.test.ts src/market/fmpSymbol.test.ts"
+    "test:period": "node --experimental-strip-types --test src/scans/period.test.ts src/instruments/fundamentals-catchup.test.ts src/market/fmpSymbol.test.ts src/market/fmp.client.test.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

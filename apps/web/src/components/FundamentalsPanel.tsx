@@ -780,7 +780,7 @@ function DcfTab({
   };
   const todayOf = (id: DcfPreset) => {
     const payload = payloadFor(id);
-    return payload ? dcfFairValueToday(payload) : null;
+    return payload ? dcfFairValueToday(payload, lastHistDate) : null;
   };
   const fvToday = {
     conservative: todayOf('conservative'),
@@ -819,19 +819,18 @@ function DcfTab({
     setApplied(draftToAssumptions(draft));
   };
 
-  const yearlyFairValue = useMemo(
-    () =>
-      data
-        ? expectedDcfFairValueByYear({
-            years: data.years,
-            wacc: data.wacc,
-            terminalValue: data.terminalValue,
-            netDebt: data.netDebt,
-            dilutedShares: data.dilutedShares,
-          })
-        : [],
-    [data],
-  );
+  const yearlyFairValue = useMemo(() => {
+    if (!data) return new Map<number, number | null>();
+    const rows = expectedDcfFairValueByYear({
+      years: data.years,
+      wacc: data.wacc,
+      terminalValue: data.terminalValue,
+      netDebt: data.netDebt,
+      dilutedShares: data.dilutedShares,
+      lastHistDate,
+    });
+    return new Map(rows.map((r) => [r.year, r.fairValuePerShare]));
+  }, [data, lastHistDate]);
 
   const chartSeries = useMemo<DcfScenarioSeries>(() => {
     const out: DcfScenarioSeries = {
@@ -983,7 +982,7 @@ function DcfTab({
                     <td>{compact(row.ebitda)}</td>
                     <td>{compact(row.ufcf)}</td>
                     <td>{compact(row.pvUfcf)}</td>
-                    <td>{money(yearlyFairValue[i]?.fairValuePerShare)}</td>
+                    <td>{money(yearlyFairValue.get(row.year) ?? null)}</td>
                   </tr>
                 ))}
               </tbody>
