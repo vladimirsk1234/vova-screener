@@ -2,14 +2,16 @@
  * Fast Graphs–style valuation: Normal P/E is median historical price/metric;
  * Fair Value (orange line) uses three FG formulas from trailing metric CAGR in
  * the selected lookback window (1Y … 19Y / MAX):
- *   GDF          — growth < 5%     → P/E = 8.5 + 2g (classic Graham-Dodd)
- *   GDF…P/E=G    — 5% ≤ growth < 15% → P/E = 15 (blend toward 15)
- *   P/E=G        — growth ≥ 15%    → P/E = growth % (Lynch PEG=1)
+ *   GDF          — 0 ≤ growth < 5%     → P/E = 8.5 + 2g (classic Graham-Dodd)
+ *   GDF…P/E=G    — growth < 0 or 5–15% → P/E = 15 (FG NOK uses 15× at −2.5%)
+ *   P/E=G        — growth ≥ 15%        → P/E = growth % (Lynch PEG=1)
  * The multiple is fixed for the whole window; each point is metric × that ratio.
- * Default EPS is FMP GAAP diluted — live FMP vs FG shows this matches
- * “Adjusted (Operating) Earnings” in most AAPL/MSFT years. `operatingEps`
- * (NOPAT / shares) is kept as a secondary series; it overshoots FG (AAPL
- * FY25 8.87 vs 7.46). FMP has no FactSet-adjusted operating-EPS field.
+ * Default EPS is FMP GAAP diluted for same-currency US names — live FMP vs FG
+ * matches “Adjusted (Operating) Earnings” in most AAPL/MSFT years. For ADRs /
+ * foreign books (`reportedCurrency !== listingCurrency`), default `eps` is FMP
+ * historical consensus in listing units (Street operating proxy). `gaapEps`
+ * stays FX-scaled GAAP. `operatingEps` (NOPAT / shares) is a secondary series
+ * and overshoots FG (AAPL FY25 8.87 vs 7.46). FMP has no FactSet operating EPS.
  * Historical orange-box growth is trailing in the selected window.
  * Forecasting uses a separate Street-to-Street CAGR and can flip the rule.
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
@@ -33,13 +35,13 @@ export const VALUATION_WINDOW_CHIPS: Array<ValuationWindowYears> = [
   ...Array.from({ length: VALUATION_LOOKBACK_MAX }, (_, i) => VALUATION_LOOKBACK_MAX - i),
 ];
 
-/** Growth below this uses classic Graham-Dodd (8.5 + 2g). */
+/** Growth below this (and ≥ 0) uses classic Graham-Dodd (8.5 + 2g). Negative uses 15×. */
 export const GRAHAM_GROWTH_MAX = 5;
 /** Graham no-growth multiple. */
 export const GRAHAM_DODD_CONSTANT = 8.5;
 /** Graham growth coefficient (P/E = 8.5 + 2g). */
 export const GRAHAM_DODD_GROWTH_COEF = 2;
-/** Floor so a deep earnings decline cannot produce a negative multiple. */
+/** Floor on 8.5+2g itself; declining names use 15× in `fairValueRatioFromGrowth`, not this. */
 export const GRAHAM_DODD_PE_MIN = 1;
 /** Growth at/above this uses P/E = growth % (Lynch PEG=1). */
 export const LYNCH_GROWTH_MIN = 15;
@@ -54,11 +56,14 @@ export type AnnualFundamentalPoint = {
   year: number;
   /** Year-end (or nearest) adjusted close */
   price: number | null;
-  /** Default EPS view: FMP GAAP diluted (closest FMP match to FG operating). */
+  /**
+   * Default EPS view: FMP GAAP diluted for same-currency names; FMP historical
+   * consensus (`epsAvg`) for ADR / foreign-book listings.
+   */
   eps: number | null;
   /** NOPAT / diluted shares — secondary; overshoots FG adjusted operating. */
   operatingEps?: number | null;
-  /** Explicit GAAP diluted when `eps` is used as the default series. */
+  /** FX-scaled GAAP diluted. Used by the GAAP path; default `eps` may be Street. */
   gaapEps?: number | null;
   /** Filing-currency operating income (EBIT-like). Used to rebuild operating EPS. */
   operatingIncome?: number | null;
@@ -177,8 +182,8 @@ function median(vals: number[]): number | null {
 export function pickMetric(point: AnnualFundamentalPoint, metric: ValuationMetric): number | null {
   switch (metric) {
     case 'eps':
-      if (finite(point.gaapEps)) return point.gaapEps;
-      return finite(point.eps) ? point.eps : null;
+      if (finite(point.eps)) return point.eps;
+      return finite(point.gaapEps) ? point.gaapEps : null;
     case 'operatingEps':
       if (finite(point.operatingEps)) return point.operatingEps;
       return finite(point.eps) ? point.eps : null;
@@ -524,7 +529,8 @@ export type FairValueRatioOpts = {
 
 /**
  * Fair Value Ratio from trailing growth (FAST Graphs orange line):
- *   g < 5%           → 8.5 + 2g (GDF, classic Graham-Dodd)
+ *   g < 0            → 15× (GDF…P/E=G — FG NOK at −2.5%, not 8.5+2g floored at 1)
+ *   0 ≤ g < 5%       → 8.5 + 2g (GDF, classic Graham-Dodd)
  *   5% ≤ g < 15%     → 15× (GDF…P/E=G — blend toward 15)
  *   g ≥ 15%          → P/E = g (P/E=G / Lynch)
  * When `windowYears` / `spanYears` are supplied: Lynch is blocked if the window
@@ -548,6 +554,7 @@ export function fairValueRatioFromGrowth(
     }
   }
   if (growthPct == null || !finite(growthPct)) return { ratio: null, rule: 'none' };
+  if (growthPct < 0) return { ratio: FAIR_VALUE_PE, rule: 'gdf_pe_g' };
   if (growthPct < GRAHAM_GROWTH_MAX) return { ratio: grahamDoddMultiple(growthPct), rule: 'gdf' };
   if (growthPct < LYNCH_GROWTH_MIN) return { ratio: FAIR_VALUE_PE, rule: 'gdf_pe_g' };
   return { ratio: Math.round(growthPct * 100) / 100, rule: 'pe_g' };

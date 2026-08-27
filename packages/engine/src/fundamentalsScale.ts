@@ -5,8 +5,9 @@
  * sometimes applies an ADR ratio twice. The listing price is already per ADS
  * in the exchange currency — without this layer, PE15/Lynch runs on garbage.
  */
+import type { AnnualFundamentalPoint } from './fundamentalsValuation.ts';
 
-export const FUNDAMENTALS_SCALE_VERSION = 3;
+export const FUNDAMENTALS_SCALE_VERSION = 4;
 
 /** Ordinary shares represented by one ADS. 1 = not an ADR / already per listing share. */
 export const KNOWN_ADR_RATIO: Record<string, number> = {
@@ -20,6 +21,8 @@ export const KNOWN_ADR_RATIO: Record<string, number> = {
   INFY: 1,
   PDD: 4,
   NTES: 5,
+  /** Nokia NYSE ADR = 1 ordinary Helsinki share. Do not infer 2–40. */
+  NOK: 1,
 };
 
 /** Filing-currency units per 1 USD, used when FMP forex is missing. */
@@ -88,14 +91,24 @@ export function normalizeCurrency(code: string | null | undefined): string | nul
   return raw;
 }
 
-export function knownAdrRatio(ticker: string | null | undefined): number {
-  if (!ticker) return 1;
-  const key = String(ticker)
+function adrTickerKey(ticker: string | null | undefined): string {
+  return String(ticker ?? '')
     .trim()
     .toUpperCase()
     .replace(/-.*$/, '');
-  const n = KNOWN_ADR_RATIO[key];
+}
+
+export function knownAdrRatio(ticker: string | null | undefined): number {
+  if (!ticker) return 1;
+  const n = KNOWN_ADR_RATIO[adrTickerKey(ticker)];
   return n != null && n > 0 ? n : 1;
+}
+
+/** True when `ticker` is in `KNOWN_ADR_RATIO`, including explicit 1 (NOK, IBN). */
+export function hasPinnedAdrRatio(ticker: string | null | undefined): boolean {
+  if (!ticker) return false;
+  const n = KNOWN_ADR_RATIO[adrTickerKey(ticker)];
+  return n != null && n > 0;
 }
 
 export function fallbackForeignPerUsd(currency: string | null | undefined): number {
@@ -167,7 +180,7 @@ export function inferAdrRatio(opts: {
   fmpEps: number | null;
   dilutedShares: number | null;
 }): number {
-  const known = knownAdrRatio(opts.ticker);
+  if (hasPinnedAdrRatio(opts.ticker)) return knownAdrRatio(opts.ticker);
   const { netIncome, fmpEps, dilutedShares } = opts;
   if (
     netIncome != null &&
@@ -177,12 +190,11 @@ export function inferAdrRatio(opts: {
     fmpEps !== 0
   ) {
     const ordinary = netIncome / dilutedShares;
-    const candidates = known > 1 ? [known, ...COMMON_ADR.filter((r) => r !== known)] : [...COMMON_ADR];
-    for (const r of candidates) {
+    for (const r of COMMON_ADR) {
       if (relClose(fmpEps, ordinary * r) || relClose(fmpEps, ordinary * r * r)) return r;
     }
   }
-  return known;
+  return 1;
 }
 
 export function perShareFactor(shareScale: ShareScale, adrRatio: number): number {
@@ -554,6 +566,92 @@ export function scalePerShare(
   return scaleAmount(value, scale.fxToListing * scale.perShareFactor);
 }
 
+/**
+ * Street / analyst consensus is already listing-currency (FMP NOK `epsAvg` is USD).
+ * Never apply `fxToListing`. ADR `perShareFactor` only when the caller can prove
+ * estimates are per-ordinary share (`estimatesAreOrdinary`).
+ */
+export function scaleStreetEstimate(
+  value: number | null | undefined,
+  scale: FundamentalsScale,
+  opts?: { estimatesAreOrdinary?: boolean },
+): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  if (opts?.estimatesAreOrdinary && scale.perShareFactor !== 1) {
+    return scaleAmount(value, scale.perShareFactor);
+  }
+  return value;
+}
+
+/** ADR / foreign books: filing currency differs from the listing (NOK EUR vs NYSE USD). */
+export function usesStreetEpsHistory(scale: {
+  reportedCurrency?: string | null;
+  listingCurrency?: string | null;
+} | null | undefined): boolean {
+  if (!scale) return false;
+  const reported = normalizeCurrency(scale.reportedCurrency);
+  const listing = normalizeCurrency(scale.listingCurrency);
+  return Boolean(reported && listing && reported !== listing);
+}
+
+/**
+ * For FX ADRs, replace default `eps` with listing-currency Street consensus.
+ * `gaapEps` stays the FX-scaled GAAP path. Same-currency US names are unchanged.
+ * Missing years fall back to GAAP.
+ */
+export function applyStreetConsensusHistory(
+  annual: AnnualFundamentalPoint[],
+  consensus: Array<{ year: number; eps?: number | null; metric?: number | null }>,
+  scale: {
+    reportedCurrency?: string | null;
+    listingCurrency?: string | null;
+  } | null | undefined,
+): AnnualFundamentalPoint[] {
+  if (!usesStreetEpsHistory(scale) || !annual.length) return annual;
+  const byYear = new Map<number, number>();
+  for (const row of consensus) {
+    const v =
+      row.eps != null && Number.isFinite(row.eps)
+        ? row.eps
+        : row.metric != null && Number.isFinite(row.metric)
+          ? row.metric
+          : null;
+    if (!Number.isFinite(row.year) || v == null) continue;
+    byYear.set(row.year, v);
+  }
+  if (!byYear.size) return annual;
+  return annual.map((p) => {
+    const gaap = p.gaapEps ?? p.eps;
+    const street = byYear.get(p.year);
+    return {
+      ...p,
+      gaapEps: gaap,
+      eps: street != null ? street : gaap,
+    };
+  });
+}
+
+/**
+ * Fair-value EPS anchor: last Street FY for foreign books, else GAAP TTM.
+ */
+export function defaultEpsTtm(
+  annual: AnnualFundamentalPoint[],
+  gaapTtm: number | null | undefined,
+  scale: {
+    reportedCurrency?: string | null;
+    listingCurrency?: string | null;
+  } | null | undefined,
+): number | null {
+  if (usesStreetEpsHistory(scale)) {
+    for (let i = annual.length - 1; i >= 0; i--) {
+      const v = annual[i]?.eps;
+      if (v != null && Number.isFinite(v) && v > 0) return v;
+    }
+  }
+  if (gaapTtm != null && Number.isFinite(gaapTtm) && gaapTtm > 0) return gaapTtm;
+  return null;
+}
+
 export function scaleCompany(
   value: number | null | undefined,
   scale: FundamentalsScale,
@@ -598,6 +696,7 @@ export function formatScaleCaption(scale: FundamentalsScale | null | undefined):
   if (scale.adrRatio > 1) bits.push(`1 ADS = ${scale.adrRatio} ord`);
   if (scale.reportedCurrency && scale.reportedCurrency !== listing) {
     bits.push(`from ${scale.reportedCurrency}`);
+    bits.push('Street EPS');
   }
   return bits.join(' · ');
 }

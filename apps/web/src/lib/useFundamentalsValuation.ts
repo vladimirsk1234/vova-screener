@@ -11,6 +11,7 @@ import {
   growthOverrideFromSummary,
   projectMetricByGrowth,
   seriesForFairValueChart,
+  usesStreetEpsHistory,
   type ValuationMetric,
   type ValuationSeriesPoint,
   type ValuationSummary,
@@ -27,6 +28,7 @@ export type DividendHud = {
 
 function quarterPoints(metric: ValuationMetric, data: FundamentalsPayload | undefined) {
   if (metric === 'eps') {
+    if (usesStreetEpsHistory(data?.scale)) return [];
     return (data?.quarters ?? []).map((q) => ({ date: q.date, eps: q.eps }));
   }
   if (metric === 'operatingEps') {

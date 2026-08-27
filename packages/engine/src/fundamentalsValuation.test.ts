@@ -35,6 +35,10 @@ import {
   VALUATION_WINDOW_CHIPS,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
+import {
+  applyStreetConsensusHistory,
+  defaultEpsTtm,
+} from './fundamentalsScale.ts';
 
 function fy(
   year: number,
@@ -150,11 +154,17 @@ describe('valuation windows', () => {
     assert.equal(fast.ratio, 20);
   });
 
-  it('floors Graham-Dodd at 1× for a deep earnings decline', () => {
+  it('uses 15× when trailing growth is negative, not GDF floored at 1', () => {
     assert.equal(grahamDoddMultiple(-10), 1);
     const declining = fairValueRatioFromGrowth(-4);
-    assert.equal(declining.rule, 'gdf');
-    assert.equal(declining.ratio, 1);
+    assert.equal(declining.rule, 'gdf_pe_g');
+    assert.equal(declining.ratio, 15);
+    const nokLike = fairValueRatioFromGrowth(-2.5);
+    assert.equal(nokLike.rule, 'gdf_pe_g');
+    assert.equal(nokLike.ratio, 15);
+    const zero = fairValueRatioFromGrowth(0);
+    assert.equal(zero.rule, 'gdf');
+    assert.equal(zero.ratio, 8.5);
   });
 
   it('exposes MAX + 19Y … 1Y window chips', () => {
@@ -194,6 +204,14 @@ describe('valuation windows', () => {
     const legacy = fy(2019, 2.97, 73.49);
     assert.equal(pickMetric(legacy, 'eps'), 2.97);
     assert.equal(pickMetric(legacy, 'operatingEps'), 2.97);
+  });
+
+  it('prefers Street consensus on eps over gaapEps when they differ', () => {
+    const point: AnnualFundamentalPoint = {
+      ...fy(2025, 0.26, 10.5),
+      gaapEps: 0.13,
+    };
+    assert.equal(pickMetric(point, 'eps'), 0.26);
   });
 
   it('does not use NOPAT for trailing EPS CAGR when GAAP is present', () => {
@@ -1396,5 +1414,116 @@ describe('FAST Graphs live 26 Aug 2026 (AAPL / MSFT)', () => {
     assert.equal(aapl.summary.normalMultipleSource, 'fallback');
     assert.notEqual(aapl.summary.normalMultiple, FG.aapl.histNormalPe);
     assert.notEqual(aapl.summary.normalMultiple, FG.msft.histNormalPe);
+  });
+});
+
+/**
+ * NOK NYSE ADR: EUR GAAP vs USD listing. Street consensus is already USD.
+ * Without (A)+(B)+(C) this was EPS×FV 1.0× and FV $0.14 (“7073% overvalued”).
+ */
+describe('NOK-like ADR / foreign filing (EUR GAAP + USD Street)', () => {
+  const fx = 1.165;
+  const price = 10.5;
+  const gaapEur: Record<number, number> = {
+    2021: 0.2,
+    2022: 0.18,
+    2023: 0.12,
+    2024: 0.23,
+    2025: 0.11,
+  };
+  const streetUsd: Record<number, number> = {
+    2021: 0.42,
+    2022: 0.48,
+    2023: 0.3,
+    2024: 0.33,
+    2025: 0.26,
+  };
+  const scale = { reportedCurrency: 'EUR', listingCurrency: 'USD' };
+
+  function nokHistory(): AnnualFundamentalPoint[] {
+    return [2021, 2022, 2023, 2024, 2025].map((year) => {
+      const gaapUsd = gaapEur[year]! * fx;
+      return {
+        ...fy(year, gaapUsd, price),
+        gaapEps: gaapUsd,
+      };
+    });
+  }
+
+  it('does not overlay Street onto AAPL-like same-currency GAAP', () => {
+    const hist: AnnualFundamentalPoint[] = [
+      { ...fy(2025, 7.46, 313), gaapEps: 7.46 },
+    ];
+    const out = applyStreetConsensusHistory(
+      hist,
+      [{ year: 2025, eps: 8.85 }],
+      { reportedCurrency: 'USD', listingCurrency: 'USD' },
+    );
+    assert.equal(out[0]?.eps, 7.46);
+    assert.equal(out[0]?.gaapEps, 7.46);
+    assert.equal(pickMetric(out[0]!, 'eps'), 7.46);
+  });
+
+  it('overlays USD Street on default eps and keeps FX-scaled GAAP on gaapEps', () => {
+    const overlaid = applyStreetConsensusHistory(
+      nokHistory(),
+      Object.entries(streetUsd).map(([year, eps]) => ({ year: Number(year), eps })),
+      scale,
+    );
+    const fy25 = overlaid.find((p) => p.year === 2025);
+    assert.equal(fy25?.eps, 0.26);
+    assert.ok(fy25?.gaapEps != null && Math.abs(fy25.gaapEps - 0.11 * fx) < 1e-9);
+    assert.equal(pickMetric(fy25!, 'eps'), 0.26);
+  });
+
+  it('falls back to FX-scaled GAAP when a year has no consensus', () => {
+    const overlaid = applyStreetConsensusHistory(
+      nokHistory(),
+      [
+        { year: 2023, eps: 0.3 },
+        { year: 2024, eps: 0.33 },
+        { year: 2025, eps: 0.26 },
+      ],
+      scale,
+    );
+    const fy21 = overlaid.find((p) => p.year === 2021);
+    assert.ok(fy21?.eps != null && Math.abs(fy21.eps - 0.2 * fx) < 1e-9);
+    assert.equal(overlaid.find((p) => p.year === 2025)?.eps, 0.26);
+  });
+
+  it('produces FG-like FV: 15× on Street ~0.26, several dollars, not $0.14', () => {
+    const overlaid = applyStreetConsensusHistory(
+      nokHistory(),
+      Object.entries(streetUsd).map(([year, eps]) => ({ year: Number(year), eps })),
+      scale,
+    );
+    const ttm = defaultEpsTtm(overlaid, 0.11 * fx, scale);
+    assert.ok(ttm != null && ttm >= 0.26 && ttm <= 0.35, `ttm=${ttm}`);
+    const { summary } = buildValuationSeries(overlaid, 'eps', {
+      currentPrice: price,
+      windowYears: 5,
+      ttmMetric: ttm,
+    });
+    assert.ok(summary.growthRatePct != null && summary.growthRatePct < 0, `g=${summary.growthRatePct}`);
+    assert.equal(summary.fairValueRule, 'gdf_pe_g');
+    assert.equal(summary.fairValueRatio, 15);
+    assert.ok(
+      summary.latestMetric != null &&
+        summary.latestMetric >= 0.26 &&
+        summary.latestMetric <= 0.35,
+      `eps=${summary.latestMetric}`,
+    );
+    assert.ok(summary.fairValue != null);
+    assert.ok(summary.fairValue > 3.5 && summary.fairValue < 8, `fv=${summary.fairValue}`);
+    assert.ok(Math.abs(summary.fairValue - 0.26 * 15) < 1e-6);
+    assert.ok(summary.premiumPct != null && summary.premiumPct < 400);
+    assert.ok(Math.abs(summary.fairValue - 0.14) > 1);
+
+    const broken = buildValuationSeries(nokHistory(), 'eps', {
+      currentPrice: price,
+      windowYears: 5,
+      ttmMetric: 0.11 * fx,
+    });
+    assert.ok((broken.summary.fairValue ?? 0) < 3, `gaap-only fv=${broken.summary.fairValue}`);
   });
 });
