@@ -61,6 +61,29 @@ describe('forecast returns', () => {
     assert.ok((marginOfSafetyPct(230, 292) ?? 0) > 20);
   });
 
+  it('AAPL Street estimates use Forecasting 15×, not Historical P/E=G 25.67×', () => {
+    const got = buildForecastScenarios({
+      price: 313.45,
+      fairValue: 7.46 * 25.67,
+      fairValueRatio: undefined,
+      normalMultiple: 23.27,
+      dividendYieldPct: 0.34,
+      estimates: [
+        { year: 2026, date: '2026-09-26', eps: 8.83 },
+        { year: 2027, date: '2027-09-25', eps: 9.52 },
+        { year: 2028, date: '2028-09-26', eps: 10.62 },
+      ],
+      asOfIso: '2026-08-26',
+    });
+    assert.equal(got.fairValueRatio, 15);
+    assert.equal(got.fairValueRule, 'gdf_pe_g');
+    assert.ok(got.growthRatePct != null && got.growthRatePct > 9 && got.growthRatePct < 11);
+    assert.equal(got.horizonEps, 10.62);
+    assert.ok(got.futurePricePeg != null);
+    assert.ok(Math.abs(got.futurePricePeg - 10.62 * 15) < 1e-9);
+    assert.ok(Math.abs((got.futurePricePeg ?? 0) - 10.62 * 25.67) > 50);
+  });
+
   it('ROR uses Street horizon EPS × multiple, not a GAAP/operating history jump', () => {
     const street = buildForecastScenarios({
       price: 313.45,

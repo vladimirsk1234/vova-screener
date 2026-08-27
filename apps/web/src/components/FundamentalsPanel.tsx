@@ -31,16 +31,16 @@ import {
 import { Chips } from '../components/Chips';
 
 const METRICS = [
-  { id: 'eps' as const, label: 'Op. EPS' },
-  { id: 'gaapEps' as const, label: 'GAAP EPS' },
+  { id: 'eps' as const, label: 'EPS' },
+  { id: 'operatingEps' as const, label: 'Op. EPS' },
   { id: 'revenue' as const, label: 'Sales/sh' },
   { id: 'fcf' as const, label: 'FCF/sh' },
   { id: 'ownerEarnings' as const, label: 'Owner earn.' },
 ];
 
 const METRIC_TABLE_LABEL: Record<ValuationMetric, string> = {
-  eps: 'Op. EPS',
-  gaapEps: 'GAAP EPS',
+  eps: 'EPS',
+  operatingEps: 'Op. EPS',
   revenue: 'Sales/sh',
   fcf: 'FCF/sh',
   ownerEarnings: 'Owner earn.',
@@ -224,7 +224,7 @@ export function FundamentalsPanel({
     return buildForecastScenarios({
       price: summary.currentPrice,
       fairValue: summary.fairValue,
-      fairValueRatio: summary.fairValueRatio,
+      fairValueRatio: undefined,
       normalMultiple: summary.normalMultiple,
       customMultiple,
       dividendYieldPct: asPctPoints(fundQ.data?.snapshot.dividendYieldTTM),
@@ -294,14 +294,14 @@ export function FundamentalsPanel({
             </div>
             <dl className="fund-hero-stats">
               <div>
-                <dt>{growthLabel(summary?.growthSource, windowYears, summary?.growthSpanYears)}</dt>
-                <dd>{pct(summary?.growthRatePct)}</dd>
+                <dt>Growth (fwd)</dt>
+                <dd>{pct(forecast?.growthRatePct)}</dd>
               </div>
               <div>
                 <dt>FV ratio</dt>
                 <dd>
-                  {summary?.fairValueRatio != null ? `${money(summary.fairValueRatio, 2)}×` : '—'}
-                  <span className="fund-hero-hint">{fvRuleLabel(summary?.fairValueRule)}</span>
+                  {forecast?.fairValueRatio != null ? `${money(forecast.fairValueRatio, 2)}×` : '—'}
+                  <span className="fund-hero-hint">{fvRuleLabel(forecast?.fairValueRule ?? undefined)}</span>
                 </dd>
               </div>
               <div>
@@ -377,7 +377,14 @@ export function FundamentalsPanel({
               }
             />
             <Metric label="Margin of safety" value={pct(forecast?.marginOfSafetyPct)} />
-            <Metric label="Fair Value $" value={money(summary?.fairValue)} />
+            <Metric
+              label="Fair Value $"
+              value={money(
+                snap.ttmEps != null && forecast?.fairValueRatio != null
+                  ? snap.ttmEps * forecast.fairValueRatio
+                  : summary?.fairValue,
+              )}
+            />
             <Metric label="Fwd EPS" value={money(snap.fwdEps)} />
             <Metric label="Fwd P/E" value={ratio(snap.fwdPe)} />
             <Metric label="Blended P/E" value={ratio(snap.blendedPe)} />
@@ -464,7 +471,7 @@ export function FundamentalsPanel({
                       <td>{row.year}</td>
                       <td>{money(row.eps)}</td>
                       <td>{pct(row.epsChgPct)}</td>
-                      <td>{money(fairValueFromEstimate(row.eps, summary?.fairValueRatio))}</td>
+                      <td>{money(fairValueFromEstimate(row.eps, forecast?.fairValueRatio ?? summary?.fairValueRatio))}</td>
                       <td>{row.analysts != null ? String(row.analysts) : '—'}</td>
                     </tr>
                   ))}
@@ -556,19 +563,17 @@ export function FundamentalsPanel({
 
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
-          Fair value (orange): GDF / GDF…P/E=G / P/E=G — 8.5+2g when growth &lt; 5%, 15× when
-          5–15% (or when the CAGR span is under 2 years on a multi-year window), else P/E = growth %.
-          Default Op. EPS is FMP after-tax operating income / diluted shares (NOPAT), the closest
-          field FMP has to FAST Graphs “Adjusted (Operating) Earnings”. GAAP diluted is a separate
-          chip. Est. ROR = (future price / today)^(1/horizon) − 1 + dividend yield, where future
-          price is the last Street EPS × the P=E=G or Normal P/E multiple. Horizon is the years to
-          that FY-end, not a fixed 5 years. Street estimates are FMP consensus (typically non-GAAP)
-          — the first estimate % Chg is blank so history and Street are not mixed. FCF / Sales /
-          Owner earn. keep trailing growth (FMP has no per-share estimates for them). Normal P/E is
-          the median price/metric on the selected 1Y…19Y / MAX window. Per-share figures are
-          converted to the listing currency (and per ADS when the ADR ratio is known).
-          FMP does not ship FactSet-style adjusted operating EPS, FG score, recession shading, or
-          S&amp;P credit rating.
+          Historical Graph Key uses trailing metric CAGR on the selected 1Y…19Y / MAX window:
+          8.5+2g when growth &lt; 5%, 15× when 5–15% (or a short CAGR span), else P/E = growth %.
+          Default EPS is FMP GAAP diluted — live FMP vs FG (26 Aug 2026) matches AAPL operating
+          EPS in most years (FY25 7.46 = 7.46); NOPAT / shares (Op. EPS chip) overshoots (AAPL
+          FY25 8.87). Forecasting uses a separate Street-to-Street CAGR and can flip the rule
+          (AAPL Historical 25.67× vs Forecasting 15×). Est. ROR = (future price / today)^(1/horizon)
+          − 1 + dividend yield. First estimate % Chg is blank so history and Street are not mixed.
+          FCF / Sales / Owner earn. keep trailing growth. Owner earn. reads FMP
+          <code> ownersEarningsPerShare</code>. Dividends are summed on the fiscal year
+          (FG DPS), not the calendar year. FMP has no FactSet-adjusted operating series, FG score,
+          or S&amp;P credit rating.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}
           {fundQ.data?.cached ? ' · cached' : ''}
         </p>
@@ -1044,7 +1049,7 @@ function PerformanceTab({
                 <td>{pct(spy.y10)}</td>
               </tr>
               <tr>
-                <td>Op. EPS CAGR</td>
+                <td>EPS CAGR</td>
                 <td>{pct(eps.y1)}</td>
                 <td>{pct(eps.y3)}</td>
                 <td>{pct(eps.y5)}</td>
@@ -1054,8 +1059,8 @@ function PerformanceTab({
           </table>
         </div>
         <p className="muted small">
-          Price vs SPY from Yahoo bars. Op. EPS CAGR uses the same FMP NOPAT proxy as Summary. No
-          SPY EPS line.
+          Price vs SPY from Yahoo bars. EPS CAGR uses FMP GAAP diluted (closest FMP match to FG
+          operating). No SPY EPS line.
         </p>
       </section>
       {years.length ? (
@@ -1068,7 +1073,7 @@ function PerformanceTab({
                   <th>Year</th>
                   <th>{ticker}</th>
                   <th>SPY</th>
-                  <th>Op. EPS %chg</th>
+                  <th>EPS %chg</th>
                 </tr>
               </thead>
               <tbody>

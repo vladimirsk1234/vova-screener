@@ -6,13 +6,16 @@
  *   GDF…P/E=G    — 5% ≤ growth < 15% → P/E = 15 (blend toward 15)
  *   P/E=G        — growth ≥ 15%    → P/E = growth % (Lynch PEG=1)
  * The multiple is fixed for the whole window; each point is metric × that ratio.
- * Default EPS is FMP after-tax operating income / diluted shares (NOPAT proxy
- * for FG “Adjusted (Operating) Earnings”). GAAP diluted stays on `gaapEps`.
- * FMP has no FactSet-style adjusted operating-EPS series.
+ * Default EPS is FMP GAAP diluted — live FMP vs FG shows this matches
+ * “Adjusted (Operating) Earnings” in most AAPL/MSFT years. `operatingEps`
+ * (NOPAT / shares) is kept as a secondary series; it overshoots FG (AAPL
+ * FY25 8.87 vs 7.46). FMP has no FactSet-adjusted operating-EPS field.
+ * Historical orange-box growth is trailing in the selected window.
+ * Forecasting uses a separate Street-to-Street CAGR and can flip the rule.
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
  */
 
-export type ValuationMetric = 'eps' | 'gaapEps' | 'revenue' | 'fcf' | 'ownerEarnings';
+export type ValuationMetric = 'eps' | 'operatingEps' | 'revenue' | 'fcf' | 'ownerEarnings';
 
 /** FAST Graphs orange-box labels: GDF / GDF…P/E=G / P/E=G. */
 export type FairValueRule = 'gdf' | 'gdf_pe_g' | 'pe_g' | 'none';
@@ -49,14 +52,11 @@ export type AnnualFundamentalPoint = {
   year: number;
   /** Year-end (or nearest) adjusted close */
   price: number | null;
-  /**
-   * Default per-share earnings for the EPS view: operating (NOPAT) when the
-   * API filled `operatingEps`, else the legacy GAAP diluted field.
-   */
+  /** Default EPS view: FMP GAAP diluted (closest FMP match to FG operating). */
   eps: number | null;
-  /** FMP after-tax operating income / diluted shares (FG operating-EPS proxy). */
+  /** NOPAT / diluted shares — secondary; overshoots FG adjusted operating. */
   operatingEps?: number | null;
-  /** FMP GAAP diluted EPS. */
+  /** Explicit GAAP diluted when `eps` is used as the default series. */
   gaapEps?: number | null;
   /** Filing-currency operating income (EBIT-like). Used to rebuild operating EPS. */
   operatingIncome?: number | null;
@@ -152,7 +152,7 @@ export type ValuationSummary = {
    * May be shorter than `windowYears` (IPO / turnaround). Null when CAGR is N/A.
    */
   growthSpanYears: number | null;
-  /** Trailing GAAP-window CAGR, or estimate-to-estimate when `forward` is used. */
+  /** Historical orange box is always trailing. Forecasting has its own Street CAGR. */
   growthSource: 'trailing' | 'forward';
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
@@ -175,10 +175,10 @@ function median(vals: number[]): number | null {
 export function pickMetric(point: AnnualFundamentalPoint, metric: ValuationMetric): number | null {
   switch (metric) {
     case 'eps':
-      if (finite(point.operatingEps)) return point.operatingEps;
-      return finite(point.eps) ? point.eps : null;
-    case 'gaapEps':
       if (finite(point.gaapEps)) return point.gaapEps;
+      return finite(point.eps) ? point.eps : null;
+    case 'operatingEps':
+      if (finite(point.operatingEps)) return point.operatingEps;
       return finite(point.eps) ? point.eps : null;
     case 'revenue':
       return finite(point.revenuePerShare) ? point.revenuePerShare : null;
@@ -481,6 +481,38 @@ export function forwardMetricCagr(
   return forwardMetricCagrDetail(windowed, forward, metric).growthPct;
 }
 
+export type ForecastGrowthBox = {
+  growthRatePct: number | null;
+  growthSpanYears: number | null;
+  fairValueRatio: number | null;
+  fairValueRule: FairValueRule;
+};
+
+/**
+ * FG Forecasting Graph Key: Street-to-Street CAGR (first estimate → last),
+ * then the same GDF / 15× / P/E=G rule. Not mixed with trailing history.
+ * A 1-year estimate span is allowed to use Lynch (same as Historical 1Y).
+ */
+export function forecastGrowthFromEstimates(
+  estimates: Array<{ year: number; eps?: number | null; metric?: number | null }>,
+): ForecastGrowthBox {
+  const forward: ForwardMetricPoint[] = estimates.map((e) => ({
+    year: e.year,
+    metric: finite(e.metric) ? e.metric : finite(e.eps) ? e.eps : null,
+  }));
+  const { growthPct, spanYears } = forwardMetricCagrDetail([], forward);
+  const { ratio, rule } = fairValueRatioFromGrowth(growthPct, {
+    spanYears,
+    windowYears: 1,
+  });
+  return {
+    growthRatePct: growthPct,
+    growthSpanYears: spanYears,
+    fairValueRatio: ratio,
+    fairValueRule: rule,
+  };
+}
+
 export type FairValueRatioOpts = {
   /** Calendar years behind the CAGR. Null when growth is N/A (e.g. one profitable FY). */
   spanYears?: number | null;
@@ -517,6 +549,67 @@ export function fairValueRatioFromGrowth(
   if (growthPct < GRAHAM_GROWTH_MAX) return { ratio: grahamDoddMultiple(growthPct), rule: 'gdf' };
   if (growthPct < LYNCH_GROWTH_MIN) return { ratio: FAIR_VALUE_PE, rule: 'gdf_pe_g' };
   return { ratio: Math.round(growthPct * 100) / 100, rule: 'pe_g' };
+}
+
+/** Map a cash date onto a fiscal year ending in `fyEndMonth` (1–12). */
+export function fiscalYearForDate(iso: string, fyEndMonth: number): number | null {
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return null;
+  const end = fyEndMonth >= 1 && fyEndMonth <= 12 ? fyEndMonth : 12;
+  return m <= end ? y : y + 1;
+}
+
+function numField(row: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const n = row[key];
+    if (typeof n === 'number' && Number.isFinite(n)) return n;
+    if (typeof n === 'string' && n.trim()) {
+      const v = Number(n);
+      if (Number.isFinite(v)) return v;
+    }
+  }
+  return null;
+}
+
+/**
+ * FMP `/owner-earnings` uses `ownersEarnings` / `ownersEarningsPerShare`
+ * (plural). Older payloads used `ownerEarnings`. Prefer the per-share field.
+ */
+export function ownerEarningsPerShareFromRow(row: Record<string, unknown>): number | null {
+  const perShare = numField(row, 'ownersEarningsPerShare', 'ownerEarningsPerShare', 'oeps');
+  if (perShare != null) return perShare;
+  const oe = numField(row, 'ownersEarnings', 'ownerEarnings');
+  const shares = numField(
+    row,
+    'averageSharesOutstanding',
+    'weightedAverageShsOutDil',
+    'weightedAverageShsOut',
+    'shares',
+  );
+  if (oe == null || shares == null || shares <= 0) return null;
+  return oe / shares;
+}
+
+/** Sum FMP `adjDividend` into fiscal-year DPS buckets (FG table), not calendar years. */
+export function sumDividendsByFiscalYear(
+  rows: Array<Record<string, unknown>>,
+  fyEndMonth: number,
+): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const row of rows) {
+    const rawDate = String(row.date ?? '').slice(0, 10);
+    const y =
+      rawDate.length === 10
+        ? fiscalYearForDate(rawDate, fyEndMonth)
+        : Number.isFinite(Number(rawDate.slice(0, 4)))
+          ? Number(rawDate.slice(0, 4))
+          : null;
+    const d = numField(row, 'adjDividend', 'dividend');
+    if (y == null || d == null) continue;
+    out.set(y, (out.get(y) ?? 0) + d);
+  }
+  return out;
 }
 
 export function yoyChgPct(curr: number | null | undefined, prev: number | null | undefined): number | null {
@@ -571,9 +664,8 @@ export function buildValuationSeries(
     /** Visible years for the chart and Normal P/E. Default MAX (all complete years). */
     windowYears?: ValuationWindowYears;
     /**
-     * Street analyst estimates. When two or more positive estimates exist, growth
-     * is that estimate-to-estimate CAGR (`growthSource: 'forward'`).
-     * Estimates still do not set the FV anchor.
+     * Street analyst estimates — used by Forecasting (`forecastGrowthFromEstimates`),
+     * not by this Historical orange box. Kept on the signature for callers.
      */
     forward?: ForwardMetricPoint[];
     /**
@@ -583,8 +675,7 @@ export function buildValuationSeries(
     ttmMetric?: number | null;
     /**
      * When set, skip this metric's own CAGR and use these values for the
-     * orange-box ratio. FCF borrows EPS forward CAGR this way — do not pass
-     * EPS estimates as `forward` for FCF (that mixes FCF-start with EPS-end).
+     * orange-box ratio. FCF may borrow Historical EPS trailing this way.
      */
     growthRatePct?: number | null;
     growthSpanYears?: number | null;
@@ -603,26 +694,18 @@ export function buildValuationSeries(
     metric,
     windowLookbackYears(windowYears),
   );
-  const forward = forwardMetricCagrDetail(sorted, opts.forward ?? [], metric);
   const useOverride = opts.growthRatePct !== undefined;
-  const useForward = !useOverride && forward.growthPct != null;
-  const growthSource = useOverride
-    ? (opts.growthSource ?? 'forward')
-    : useForward
-      ? ('forward' as const)
-      : ('trailing' as const);
+  const growthSource: 'trailing' | 'forward' = useOverride
+    ? (opts.growthSource ?? 'trailing')
+    : 'trailing';
   const growthRatePct = useOverride
     ? opts.growthRatePct != null && finite(opts.growthRatePct)
       ? opts.growthRatePct
       : null
-    : useForward
-      ? forward.growthPct
-      : trailing.growthPct;
+    : trailing.growthPct;
   const growthSpanYears = useOverride
     ? (opts.growthSpanYears ?? null)
-    : useForward
-      ? forward.spanYears
-      : trailing.spanYears;
+    : trailing.spanYears;
   const { ratio: fairValueRatio, rule: fairValueRule } = fairValueRatioFromGrowth(growthRatePct, {
     spanYears: growthSpanYears,
     windowYears,

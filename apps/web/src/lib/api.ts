@@ -313,6 +313,7 @@ export type FundamentalsPayload = {
   snapshot: {
     peTTM: number | null;
     ttmEps: number | null;
+    ttmOperatingEps?: number | null;
     ttmGaapEps?: number | null;
     ttmAsOf?: string | null;
     ttmFcf?: number | null;
@@ -334,6 +335,8 @@ export type FundamentalsPayload = {
     estAnnualRorNormalPct?: number | null;
     futurePriceNormal?: number | null;
     forecastHorizonYears?: number | null;
+    forecastGrowthRatePct?: number | null;
+    forecastFairValueRatio?: number | null;
     marginOfSafetyPct?: number | null;
     analystScorecard?: {
       y1: { beat: number; meet: number; miss: number; total: number; beatPct: number | null; missPct: number | null };

@@ -69,8 +69,8 @@ test.describe('chart parity UI', () => {
     expect(fundRowBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(box?.y ?? 0);
     await expect(page.getByRole('button', { name: 'Summary' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Op. EPS', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'GAAP EPS', exact: true })).toBeVisible();
     const legend = page.locator('.chart-fund-hud');
     await expect(legend.getByText('Fair value', { exact: true })).toBeVisible();
     await expect(legend.getByText('Normal P/E').first()).toBeVisible();

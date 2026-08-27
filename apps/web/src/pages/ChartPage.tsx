@@ -325,7 +325,11 @@ export function ChartPage() {
     () => (view === 'fundamentals' ? stripTaOverlays(settings) : settings),
     [view, settings],
   );
-  const valuationSeries = view === 'fundamentals' ? fund.chartSeries : EMPTY_VALUATION;
+  const activeFundSeries =
+    fundTab === 'forecasting' && fund.forecastChartSeries.length
+      ? fund.forecastChartSeries
+      : fund.chartSeries;
+  const valuationSeries = view === 'fundamentals' ? activeFundSeries : EMPTY_VALUATION;
   const dcfSeriesForChart =
     view === 'fundamentals' && fundTab === 'dcf' ? dcfChartSeries : EMPTY_DCF_SCENARIO_SERIES;
 
@@ -410,6 +414,7 @@ export function ChartPage() {
     dcfSeriesForChart,
     view,
     fund.windowYears,
+    fundTab,
   ]);
 
   useEffect(() => {
@@ -447,7 +452,10 @@ export function ChartPage() {
   const showMetrics = Boolean(pine || row);
   const canMark = Boolean(ticker);
   const marking = markInterest.isPending;
-  const fundSummary = fund.valuation?.summary;
+  const fundSummary =
+    fundTab === 'forecasting' && fund.forecastValuation?.summary
+      ? fund.forecastValuation.summary
+      : fund.valuation?.summary;
   const fundBadge = valuationBadge(fundSummary?.premiumPct);
   const fundDebtPct = asPctPoints(fund.fundQ.data?.snapshot.ltDebtToCapitalTTM ?? null);
 
@@ -675,7 +683,7 @@ export function ChartPage() {
             <li>
               <span className="fund-swatch fund-swatch--fair" /> Fair value
             </li>
-            {fund.chartSeries.some((p) => p.forecast) ? (
+            {activeFundSeries.some((p) => p.forecast) ? (
               <li>
                 <span className="fund-swatch fund-swatch--fair-fwd" /> Fair value (3y)
               </li>
@@ -683,12 +691,12 @@ export function ChartPage() {
             <li>
               <span className="fund-swatch fund-swatch--normal" /> Normal P/E
             </li>
-            {fund.chartSeries.some((p) => p.forecast && p.normalValue != null) ? (
+            {activeFundSeries.some((p) => p.forecast && p.normalValue != null) ? (
               <li>
                 <span className="fund-swatch fund-swatch--normal-fwd" /> Normal P/E (3y)
               </li>
             ) : null}
-            {fund.chartSeries.some(
+            {activeFundSeries.some(
               (p) => !p.forecast && !p.estimated && p.dividend != null && p.dividend > 0,
             ) ? (
               <li>

@@ -176,7 +176,7 @@ export function scaleAnnualPoint(
     fxToListing: yearScale.fxToListing,
     adrRatio: yearScale.adrRatio,
   });
-  const eps = operatingEps ?? gaapEps;
+  const eps = gaapEps;
   const price = point.price;
   const pe =
     price != null && eps != null && eps > 0 && price > 0 ? price / eps : point.pe;
@@ -246,7 +246,7 @@ export function scaleQuarterPoint(
   });
   return {
     date: q.date,
-    eps: operatingEps ?? gaapEps,
+    eps: gaapEps,
     gaapEps,
     operatingEps: operatingEps ?? null,
     fcfPerShare: pickScaledFcf({

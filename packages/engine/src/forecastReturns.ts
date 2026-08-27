@@ -1,8 +1,15 @@
 /**
  * Fast Graphs–style forecast math: future price = horizon EPS × target multiple,
  * annualized ROR over the actual estimate horizon (not a fixed 5 years).
+ * The Forecasting Graph Key (growth / FV ratio) is Street-to-Street and can
+ * differ from the Historical MAX trailing orange box.
  * Pure math — no I/O.
  */
+
+import {
+  forecastGrowthFromEstimates,
+  type FairValueRule,
+} from './fundamentalsValuation.ts';
 
 function finite(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n);
@@ -93,6 +100,11 @@ export type ForecastScenarios = {
   horizonYears: number | null;
   horizonDate: string | null;
   horizonEps: number | null;
+  /** Street-to-Street CAGR behind the Forecasting FV ratio. */
+  growthRatePct: number | null;
+  growthSpanYears: number | null;
+  fairValueRatio: number | null;
+  fairValueRule: FairValueRule | null;
   futurePricePeg: number | null;
   futurePriceNormal: number | null;
   futurePriceCustom: number | null;
@@ -117,13 +129,22 @@ export function buildForecastScenarios(opts: {
   const horizonDate = horizon?.date ?? (horizon ? `${horizon.year}-12-31` : null);
   const years = forecastHorizonYears(asOf, horizonDate);
   const div = opts.dividendYieldPct ?? 0;
-  const futurePeg = futurePriceAt(horizon?.eps ?? null, opts.fairValueRatio ?? null);
+  const box = forecastGrowthFromEstimates(opts.estimates);
+  const pegRatio =
+    opts.fairValueRatio != null && finite(opts.fairValueRatio) && opts.fairValueRatio > 0
+      ? opts.fairValueRatio
+      : box.fairValueRatio;
+  const futurePeg = futurePriceAt(horizon?.eps ?? null, pegRatio);
   const futureNormal = futurePriceAt(horizon?.eps ?? null, opts.normalMultiple ?? null);
   const futureCustom = futurePriceAt(horizon?.eps ?? null, opts.customMultiple ?? null);
   return {
     horizonYears: years,
     horizonDate,
     horizonEps: horizon?.eps ?? null,
+    growthRatePct: box.growthRatePct,
+    growthSpanYears: box.growthSpanYears,
+    fairValueRatio: pegRatio,
+    fairValueRule: box.fairValueRule === 'none' ? null : box.fairValueRule,
     futurePricePeg: futurePeg,
     futurePriceNormal: futureNormal,
     futurePriceCustom: futureCustom,
