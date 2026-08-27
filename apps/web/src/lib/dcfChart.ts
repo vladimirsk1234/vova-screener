@@ -10,18 +10,26 @@ export const EMPTY_DCF_SCENARIO_SERIES: DcfScenarioSeries = {
   optimistic: [],
 };
 
-export function dcfModelInput(data: CustomDcfPayload) {
+export function dcfModelInput(data: CustomDcfPayload, lastHistDate?: string | null) {
   return {
     years: data.years,
     wacc: data.wacc,
     terminalValue: data.terminalValue,
     netDebt: data.netDebt,
     dilutedShares: data.dilutedShares,
+    lastHistDate,
   };
 }
 
-export function dcfFairValueToday(data: CustomDcfPayload): number | null {
-  const local = expectedDcfFairValueToday(dcfModelInput(data));
+/**
+ * Same t=0 model as the chart: forecast-only years, then FMP headline if local
+ * cannot run. Never the simple `/discounted-cash-flow` number.
+ */
+export function dcfFairValueToday(
+  data: CustomDcfPayload,
+  lastHistDate?: string | null,
+): number | null {
+  const local = expectedDcfFairValueToday(dcfModelInput(data, lastHistDate));
   if (local != null && Number.isFinite(local) && local > 0) return local;
   if (
     data.equityValuePerShare != null &&
@@ -38,10 +46,9 @@ export function dcfChartSeriesFromPayload(
   lastHistDate?: string | null,
 ): ValuationSeriesPoint[] {
   return buildDcfChartSeries({
-    ...dcfModelInput(data),
+    ...dcfModelInput(data, lastHistDate),
     asOf: data.asOf || new Date().toISOString(),
     fmpEquityValuePerShare: data.equityValuePerShare,
-    lastHistDate,
   }).map((p) => ({
     date: p.date,
     year: p.year ?? Number(p.date.slice(0, 4)),

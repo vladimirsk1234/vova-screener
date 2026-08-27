@@ -1,6 +1,10 @@
 /**
  * Roll-forward DCF fair value at the end of each forecast year.
  * Pure math — Custom DCF cash flows come from FMP via the API layer.
+ *
+ * FMP `/custom-discounted-cash-flow` mixes ~5 history years with ~5 forecast
+ * years (strings, newest first). Only year > last completed FY is future UFCF.
+ * Discounting 2021–2025 as if they were t=1…n understates today vs FMP.
  */
 
 export type DcfYearInput = {
@@ -14,6 +18,11 @@ export type DcfFairValueInput = {
   terminalValue: number | null;
   netDebt: number | null;
   dilutedShares: number | null;
+  /**
+   * Last complete FY-end (YYYY-MM-DD) or a year-like value. Forecast years
+   * are those with year > this FY (and > max historical year in `years`).
+   */
+  lastHistDate?: string | null;
 };
 
 export type DcfYearFairValue = {
@@ -25,8 +34,6 @@ export type DcfChartSeriesInput = DcfFairValueInput & {
   asOf: string;
   /** FMP headline — used only when the local t=0 model cannot run. */
   fmpEquityValuePerShare?: number | null;
-  /** Last complete FY-end (YYYY-MM-DD) so Sep-FY names are not plotted on 12-31. */
-  lastHistDate?: string | null;
 };
 
 export type DcfChartPoint = {
@@ -36,13 +43,57 @@ export type DcfChartPoint = {
   fairValue: number;
 };
 
+function finite(n: unknown): n is number {
+  return typeof n === 'number' && Number.isFinite(n);
+}
+
+/** FMP sends year as a string ("2026"); lastHistDate is YYYY-MM-DD. */
+export function dcfYearNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const direct = Number(trimmed);
+    if (Number.isFinite(direct) && Math.abs(direct) >= 1000) return Math.trunc(direct);
+    const m = /(\d{4})/.exec(trimmed);
+    return m ? Number(m[1]) : null;
+  }
+  return null;
+}
+
 function fyEndIso(year: number, lastHistDate?: string | null): string {
   const md = lastHistDate && /^\d{4}-(\d{2}-\d{2})/.exec(lastHistDate.slice(0, 10));
   return `${year}-${md?.[1] ?? '12-31'}`;
 }
 
-function finite(n: unknown): n is number {
-  return typeof n === 'number' && Number.isFinite(n);
+/**
+ * Last completed fiscal year: year of `lastHistDate`, or the max year in
+ * `years` that is on or before that FY (history rows in the FMP payload).
+ */
+export function lastCompletedFiscalYear(input: Pick<DcfFairValueInput, 'lastHistDate' | 'years'>): number | null {
+  const fromDate = dcfYearNumber(input.lastHistDate);
+  const years = input.years
+    .map((r) => dcfYearNumber(r.year))
+    .filter((y): y is number => y != null);
+  if (fromDate != null) {
+    const historical = years.filter((y) => y <= fromDate);
+    return historical.length ? Math.max(...historical) : fromDate;
+  }
+  return null;
+}
+
+/** Oldest-first forecast rows only (year > last completed FY). */
+export function forecastDcfYears(input: DcfFairValueInput): DcfYearInput[] {
+  const rows: DcfYearInput[] = [];
+  for (const r of input.years) {
+    const year = dcfYearNumber(r.year);
+    if (year == null) continue;
+    rows.push({ year, ufcf: r.ufcf });
+  }
+  rows.sort((a, b) => a.year - b.year);
+  const lastFy = lastCompletedFiscalYear({ lastHistDate: input.lastHistDate, years: rows });
+  if (lastFy == null) return rows;
+  return rows.filter((r) => r.year > lastFy);
 }
 
 /**
@@ -56,7 +107,8 @@ function finite(n: unknown): n is number {
  * uses that for the asOf point so the path stays on one model.
  */
 export function expectedDcfFairValueByYear(input: DcfFairValueInput): DcfYearFairValue[] {
-  const { years, wacc, terminalValue, netDebt, dilutedShares } = input;
+  const years = forecastDcfYears(input);
+  const { wacc, terminalValue, netDebt, dilutedShares } = input;
   const n = years.length;
   const ready =
     finite(wacc) &&
@@ -80,7 +132,8 @@ export function expectedDcfFairValueByYear(input: DcfFairValueInput): DcfYearFai
 }
 
 export function expectedDcfFairValueToday(input: DcfFairValueInput): number | null {
-  const { years, wacc, terminalValue, netDebt, dilutedShares } = input;
+  const years = forecastDcfYears(input);
+  const { wacc, terminalValue, netDebt, dilutedShares } = input;
   if (
     !finite(wacc) ||
     wacc <= -0.99 ||
