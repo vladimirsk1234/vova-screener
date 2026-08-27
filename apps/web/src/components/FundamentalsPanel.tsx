@@ -577,17 +577,22 @@ export function FundamentalsPanel({
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
           Historical Graph Key uses trailing metric CAGR on the selected 1Y…19Y / MAX window:
-          8.5+2g when growth &lt; 5%, 15× when 5–15% (or a short CAGR span), else P/E = growth %.
-          Default EPS is FMP GAAP diluted — live FMP vs FG (26 Aug 2026) matches AAPL operating
-          EPS in most years (FY25 7.46 = 7.46); NOPAT / shares (Op. EPS chip) overshoots (AAPL
-          FY25 8.87). Forecasting uses a separate Street-to-Street CAGR and can flip the rule
-          (AAPL Historical 25.67× vs Forecasting 15×). Est. ROR = (future price / today)^(1/horizon)
+          8.5+2g when 0 ≤ growth &lt; 5%, 15× when growth is negative or 5–15% (or a short CAGR
+          span), else P/E = growth %. Default EPS is FMP GAAP diluted for same-currency US names
+          — live FMP vs FG (26 Aug 2026) matches AAPL operating EPS in most years (FY25 7.46 =
+          7.46); NOPAT / shares (Op. EPS chip) overshoots (AAPL FY25 8.87). For ADRs / foreign
+          books (filing currency ≠ listing, e.g. NOK EUR vs NYSE USD) the orange EPS line uses
+          FMP historical consensus (epsAvg) in listing units as an operating-earnings proxy;
+          FX-scaled GAAP stays on gaapEps. Street estimates are already listing-currency and are
+          not FX-converted again. 1 NOK ADR = 1 Helsinki share. Forecasting uses a separate
+          Street-to-Street CAGR and can flip the rule (AAPL Historical 25.67× vs Forecasting
+          15×). Est. ROR = (future price / today)^(1/horizon)
           − 1 + dividend yield. First estimate % Chg is blank so history and Street are not mixed.
           FCF / Sales / Owner earn. keep trailing growth. Owner earn. reads FMP
           <code> ownersEarningsPerShare</code>. Dividends are summed on the fiscal year
           (FG DPS), not the calendar year; streak / Div CAGR come from that series.
           Normal P/E uses the last close on or before each FY-end. Value cards persist the
-          same 5Y GAAP valuation as the default Summary window. Snapshot DCF is FMP&apos;s
+          same 5Y default-EPS valuation as the Summary window. Snapshot DCF is FMP&apos;s
           simple headline; the DCF tab is Custom DCF. FMP has no FactSet-adjusted operating
           series, FG score, or S&amp;P credit rating.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}
@@ -1077,8 +1082,9 @@ function PerformanceTab({
           </table>
         </div>
         <p className="muted small">
-          Price vs SPY from Yahoo bars. EPS CAGR uses FMP GAAP diluted (closest FMP match to FG
-          operating). No SPY EPS line.
+          Price vs SPY from Yahoo bars. EPS CAGR uses the default EPS series (FMP GAAP diluted
+          for same-currency US names; FMP Street consensus for ADR / foreign books). No SPY EPS
+          line.
         </p>
       </section>
       {years.length ? (

@@ -25,7 +25,10 @@ import {
   rowMatchesStarsFilter,
   scaleDcf,
   scalePerShare,
+  scaleStreetEstimate,
   scaleTev,
+  applyStreetConsensusHistory,
+  defaultEpsTtm,
   scoreAnalystBeats,
   scoreValueStars,
   seqStructFromBars,
@@ -276,7 +279,7 @@ export type FundamentalsPayload = {
   scale?: FundamentalsScale | null;
   snapshot: {
     peTTM: number | null;
-    /** Trailing-twelve-month GAAP diluted EPS (default EPS view). */
+    /** Trailing-twelve-month default EPS (GAAP for US names; Street last FY for FX ADRs). */
     ttmEps: number | null;
     /** NOPAT / shares TTM — secondary; overshoots FG operating. */
     ttmOperatingEps?: number | null;
@@ -381,6 +384,20 @@ function quarterlyEpsRows(
 
 function fmpGaapEps(row: Record<string, unknown>): number | null {
   return fmpNum(row.epsdiluted) ?? fmpNum(row.epsDiluted) ?? fmpNum(row.eps);
+}
+
+function fmpStreetEps(row: Record<string, unknown>, historical: boolean): number | null {
+  if (historical) {
+    return fmpNum(row.epsAvg) ?? fmpNum(row.estimatedEpsAvg) ?? fmpNum(row.estimatedEps);
+  }
+  return fmpNum(row.estimatedEpsAvg) ?? fmpNum(row.estimatedEps) ?? fmpNum(row.epsAvg);
+}
+
+function parseAnalystEstimateYear(row: Record<string, unknown>): { year: number; date: string } | null {
+  const date = fmpStr(row.date) ?? '';
+  const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+  if (!Number.isFinite(y)) return null;
+  return { year: y, date: date || `${y}-12-31` };
 }
 
 function quarterlyFundamentalRows(
@@ -1796,7 +1813,7 @@ export class FundamentalsService {
       this.fmp.incomeQuarterly(fmpSymbol),
       this.fmp.keyMetricsTtm(fmpSymbol),
       this.fmp.ratiosTtm(fmpSymbol),
-      this.fmp.analystEstimates(fmpSymbol),
+      this.fmp.analystEstimates(fmpSymbol, 30),
     ]);
 
     const annual: AnnualFundamentalPoint[] = [];
@@ -1836,18 +1853,25 @@ export class FundamentalsService {
     const lastHistYear = completed[completed.length - 1]?.year ?? 0;
     const estimateParsed = estimatesRaw
       .map((row) => {
-        const date = fmpStr(row.date) ?? '';
-        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+        const parsed = parseAnalystEstimateYear(row);
+        if (!parsed) return null;
         return {
-          year: y,
-          eps:
-            fmpNum(row.estimatedEpsAvg) ??
-            fmpNum(row.estimatedEps) ??
-            fmpNum(row.epsAvg),
+          year: parsed.year,
+          eps: fmpStreetEps(row, false),
         };
       })
-      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
+      .filter((r): r is { year: number; eps: number | null } => r != null && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
+    const consensusHistory = estimatesRaw
+      .map((row) => {
+        const parsed = parseAnalystEstimateYear(row);
+        if (!parsed) return null;
+        return {
+          year: parsed.year,
+          eps: fmpStreetEps(row, true),
+        };
+      })
+      .filter((r): r is { year: number; eps: number | null } => r != null && r.year <= lastHistYear);
 
     const peTTMRaw =
       fmpNum(ratiosTtm?.priceToEarningsRatioTTM) ??
@@ -1862,6 +1886,7 @@ export class FundamentalsService {
       income,
       annual: completed,
       estimateEps: estimateParsed,
+      consensusHistory,
       ttmEps: ttmEpsRaw,
       peTTM: peTTMRaw,
       tev: null,
@@ -1877,7 +1902,7 @@ export class FundamentalsService {
       currentPrice: price,
       windowYears: DEFAULT_VALUATION_WINDOW,
       forward: aligned.estimateEps.map((e) => ({ year: e.year, metric: e.eps })),
-      ttmMetric: ttmGaap != null && ttmGaap > 0 ? ttmGaap : aligned.ttmEps,
+      ttmMetric: defaultEpsTtm(aligned.annual, ttmGaap ?? aligned.ttmEps, aligned.scale),
     });
 
     const ltDebtToCapitalTTM =
@@ -1910,6 +1935,7 @@ export class FundamentalsService {
     income: Record<string, unknown>[];
     annual: AnnualFundamentalPoint[];
     estimateEps: Array<{ year: number; eps: number | null }>;
+    consensusHistory?: Array<{ year: number; eps: number | null }>;
     ttmEps: number | null;
     peTTM: number | null;
     tev: number | null;
@@ -1950,14 +1976,20 @@ export class FundamentalsService {
       peTtm: opts.peTTM,
     });
 
-    const annual = opts.annual.map((p) =>
+    let annual = opts.annual.map((p) =>
       scaleAnnualPoint(p, scale, fxByYear.get(p.year), opts.peTTM),
     );
     const estimateEps = opts.estimateEps.map((e) => ({
       ...e,
-      eps: scalePerShare(e.eps, scale),
+      eps: scaleStreetEstimate(e.eps, scale),
     }));
+    const consensusHistory = (opts.consensusHistory ?? []).map((e) => ({
+      ...e,
+      eps: scaleStreetEstimate(e.eps, scale),
+    }));
+    annual = applyStreetConsensusHistory(annual, consensusHistory, scale);
     let ttmEps = scalePerShare(opts.ttmEps, scale);
+    ttmEps = defaultEpsTtm(annual, ttmEps, scale) ?? ttmEps;
     const lastGaap = annual[annual.length - 1]?.gaapEps ?? annual[annual.length - 1]?.eps ?? null;
     if (!peInBand(impliedPe(opts.price, ttmEps)) && peInBand(impliedPe(opts.price, lastGaap))) {
       ttmEps = lastGaap;
@@ -2038,7 +2070,7 @@ export class FundamentalsService {
         piotroskiScore: null,
         workingCapital: null,
       })),
-      this.fmp.analystEstimates(fmpSymbol),
+      this.fmp.analystEstimates(fmpSymbol, 30),
       this.fmp.incomeQuarterly(fmpSymbol),
       this.fmp.cashFlowQuarterly(fmpSymbol),
       this.fmp.dividends(fmpSymbol),
@@ -2154,15 +2186,12 @@ export class FundamentalsService {
     const lastHistYear = annual[annual.length - 1]?.year ?? 0;
     const estimateParsed: EstimateRow[] = estimatesRaw
       .map((row) => {
-        const date = fmpStr(row.date) ?? '';
-        const y = yearOf(date) ?? Number(fmpStr(row.calendarYear));
+        const parsed = parseAnalystEstimateYear(row);
+        if (!parsed) return null;
         return {
-          year: y,
-          date: date || (Number.isFinite(y) ? `${y}-12-31` : ''),
-          eps:
-            fmpNum(row.estimatedEpsAvg) ??
-            fmpNum(row.estimatedEps) ??
-            fmpNum(row.epsAvg),
+          year: parsed.year,
+          date: parsed.date,
+          eps: fmpStreetEps(row, false),
           epsChgPct: null as number | null,
           dividend: null as number | null,
           analysts:
@@ -2172,8 +2201,15 @@ export class FundamentalsService {
           estimated: true,
         };
       })
-      .filter((r) => Number.isFinite(r.year) && r.year > lastHistYear)
+      .filter((r): r is EstimateRow => r != null && r.year > lastHistYear)
       .sort((a, b) => a.year - b.year);
+    const consensusHistory = estimatesRaw
+      .map((row) => {
+        const parsed = parseAnalystEstimateYear(row);
+        if (!parsed) return null;
+        return { year: parsed.year, eps: fmpStreetEps(row, true) };
+      })
+      .filter((r): r is { year: number; eps: number | null } => r != null && r.year <= lastHistYear);
 
     applyEstimateChainChg(estimateParsed);
 
@@ -2197,6 +2233,7 @@ export class FundamentalsService {
       income,
       annual,
       estimateEps: estimateParsed.map((e) => ({ year: e.year, eps: e.eps })),
+      consensusHistory,
       ttmEps: ttmEpsRaw,
       peTTM: peTTMRaw,
       tev:
@@ -2213,7 +2250,6 @@ export class FundamentalsService {
     }
     applyEstimateChainChg(estimateParsed);
     const peTTM = aligned.peTTM;
-    const ttmGaapEps = aligned.ttmEps;
     const quarters = rawQuarters
       .map((q) => scaleQuarterPoint(q, aligned.scale, price))
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -2221,7 +2257,12 @@ export class FundamentalsService {
     const ttmOpPick = ttmFromQuarterly(
       quarters.map((q) => ({ date: q.date, eps: q.operatingEps })),
     );
-    const ttmEps = ttmGaapPick.ttm != null && ttmGaapPick.ttm > 0 ? ttmGaapPick.ttm : ttmGaapEps;
+    const ttmGaapEps =
+      ttmGaapPick.ttm != null && ttmGaapPick.ttm > 0
+        ? ttmGaapPick.ttm
+        : (annual[annual.length - 1]?.gaapEps ?? aligned.ttmEps);
+    const ttmEps =
+      defaultEpsTtm(annual, ttmGaapPick.ttm ?? aligned.ttmEps, aligned.scale) ?? aligned.ttmEps;
     const ttmOperatingEps = ttmOpPick.ttm != null && ttmOpPick.ttm > 0 ? ttmOpPick.ttm : null;
     const ttmFcf = ttmFromQuarterly(
       quarters.map((q) => ({ date: q.date, metric: q.fcfPerShare })),

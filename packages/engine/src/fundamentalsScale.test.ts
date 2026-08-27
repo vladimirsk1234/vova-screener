@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import {
   FUNDAMENTALS_SCALE_VERSION,
   afterTaxOperatingIncome,
+  applyStreetConsensusHistory,
   buildFundamentalsScale,
+  defaultEpsTtm,
   effectiveTaxRate,
   epsFromIncome,
   formatScaleCaption,
   fxToListingMultiplier,
   inferAdrRatio,
   inferShareScale,
+  knownAdrRatio,
   operatingEpsFromGaap,
   peSanityOk,
     pickScaledEps,
@@ -17,7 +20,10 @@ import {
     fcfFromCashFlow,
     scaleAmount,
   scaleDcf,
+  scalePerShare,
+  scaleStreetEstimate,
   scaleTev,
+  usesStreetEpsHistory,
 } from './fundamentalsScale.ts';
 import { computeNormalMultiple, type AnnualFundamentalPoint } from './fundamentalsValuation.ts';
 
@@ -188,7 +194,7 @@ describe('PDD listing units vs peTTM', () => {
       peTtm,
     });
     assert.equal(scale.version, FUNDAMENTALS_SCALE_VERSION);
-    assert.equal(scale.version, 3);
+    assert.equal(scale.version, 4);
     assert.equal(scale.adrRatio, 4);
     assert.equal(scale.shareScale, 'ads');
     assert.equal(scale.perShareFactor, 1);
@@ -365,5 +371,108 @@ describe('after-tax operating EPS (FMP NOPAT proxy for FG operating earnings)', 
     });
     assert.ok(op != null && nopat != null);
     assert.ok(Math.abs(op - nopat / 10) < 1e-9);
+  });
+});
+
+describe('NOK ADR pin and Street estimates (listing currency)', () => {
+  const fxToListing = 1.165;
+  const price = 10.5;
+  const netIncome = 0.11 * 5_000_000_000;
+  const dilutedShares = 5_000_000_000;
+  const fmpEps = 0.11;
+
+  it('pins NOK at 1 ADR and does not infer 2–40', () => {
+    assert.equal(knownAdrRatio('NOK'), 1);
+    const looksLikeTimesTwo = inferAdrRatio({
+      ticker: 'NOK',
+      netIncome,
+      fmpEps: 0.22,
+      dilutedShares,
+    });
+    assert.equal(looksLikeTimesTwo, 1);
+    const scale = buildFundamentalsScale({
+      ticker: 'NOK',
+      reportedCurrency: 'EUR',
+      listingCurrency: 'USD',
+      netIncome,
+      fmpEps,
+      dilutedShares,
+      price,
+      fxToListing,
+    });
+    assert.equal(scale.adrRatio, 1);
+    assert.equal(scale.perShareFactor, 1);
+    assert.equal(usesStreetEpsHistory(scale), true);
+  });
+
+  it('does not FX-multiply Street estimates that are already listing currency', () => {
+    const scale = buildFundamentalsScale({
+      ticker: 'NOK',
+      reportedCurrency: 'EUR',
+      listingCurrency: 'USD',
+      netIncome,
+      fmpEps,
+      dilutedShares,
+      price,
+      fxToListing,
+    });
+    assert.equal(scaleStreetEstimate(0.26, scale), 0.26);
+    assert.equal(scaleStreetEstimate(0.34, scale), 0.34);
+    const twiceFx = scalePerShare(0.26, scale);
+    assert.ok(twiceFx != null && Math.abs(twiceFx - 0.26 * fxToListing) < 1e-9);
+    assert.notEqual(scaleStreetEstimate(0.26, scale), twiceFx);
+  });
+
+  it('keeps AAPL same-currency estimates unscaled and off the Street-history path', () => {
+    const scale = buildFundamentalsScale({
+      ticker: 'AAPL',
+      reportedCurrency: 'USD',
+      listingCurrency: 'USD',
+      netIncome: 7.46 * 15e9,
+      fmpEps: 7.46,
+      dilutedShares: 15e9,
+      price: 313,
+      fxToListing: 1,
+    });
+    assert.equal(usesStreetEpsHistory(scale), false);
+    assert.equal(scaleStreetEstimate(8.83, scale), 8.83);
+    assert.equal(scalePerShare(8.83, scale), 8.83);
+    const hist: AnnualFundamentalPoint[] = [
+      {
+        date: '2025-09-27',
+        year: 2025,
+        price: 313,
+        eps: 7.46,
+        gaapEps: 7.46,
+        revenuePerShare: null,
+        fcfPerShare: null,
+        ownerEarningsPerShare: null,
+        pe: 313 / 7.46,
+        revenue: null,
+        netIncome: null,
+        operatingCashFlow: null,
+        freeCashFlow: null,
+      },
+    ];
+    const out = applyStreetConsensusHistory(hist, [{ year: 2025, eps: 8.85 }], scale);
+    assert.equal(out[0]?.eps, 7.46);
+    assert.equal(defaultEpsTtm(out, 7.5, scale), 7.5);
+  });
+
+  it('mentions Street EPS on a foreign-book caption', () => {
+    const scale = buildFundamentalsScale({
+      ticker: 'NOK',
+      reportedCurrency: 'EUR',
+      listingCurrency: 'USD',
+      netIncome,
+      fmpEps,
+      dilutedShares,
+      price,
+      fxToListing,
+    });
+    const cap = formatScaleCaption(scale);
+    assert.ok(cap?.includes('USD'));
+    assert.ok(cap?.includes('EUR'));
+    assert.ok(cap?.includes('Street EPS'));
   });
 });
