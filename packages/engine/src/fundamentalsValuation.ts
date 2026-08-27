@@ -25,6 +25,8 @@ export type ValuationWindowYears = number | null;
 
 /** FG Historical chips: MAX, 19Y … 1Y. */
 export const VALUATION_LOOKBACK_MAX = 19;
+/** Default chart / Value-card window. Same number as API persist so cards match Summary. */
+export const DEFAULT_VALUATION_WINDOW: ValuationWindowYears = 5;
 
 export const VALUATION_WINDOW_CHIPS: Array<ValuationWindowYears> = [
   null,
@@ -589,6 +591,57 @@ export function ownerEarningsPerShareFromRow(row: Record<string, unknown>): numb
   );
   if (oe == null || shares == null || shares <= 0) return null;
   return oe / shares;
+}
+
+/** Last close on or before `iso` (FY-end price for Normal P/E). Bars need not be sorted. */
+export function closeOnOrBefore(
+  bars: Array<{ date: string; close: number }>,
+  iso: string,
+): number | null {
+  const target = iso.slice(0, 10);
+  if (target.length !== 10) return null;
+  let hit: { date: string; close: number } | null = null;
+  for (const b of bars) {
+    const d = b.date.slice(0, 10);
+    if (d.length !== 10 || d > target || !Number.isFinite(b.close)) continue;
+    if (!hit || d > hit.date) hit = { date: d, close: b.close };
+  }
+  return hit?.close ?? null;
+}
+
+export type DividendStreak = {
+  consecPaid: number;
+  consecIncreases: number;
+  avgGrowthPct: number | null;
+};
+
+/** Consecutive fiscal-year DPS from the existing annual dividend series. */
+export function dividendStreak(
+  rows: Array<{ year: number; dividend?: number | null }>,
+): DividendStreak {
+  const paid = [...rows]
+    .filter((r) => finite(r.dividend) && (r.dividend as number) > 0)
+    .sort((a, b) => a.year - b.year);
+  if (!paid.length) return { consecPaid: 0, consecIncreases: 0, avgGrowthPct: null };
+  let consecPaid = 1;
+  for (let i = paid.length - 1; i > 0; i--) {
+    if (paid[i]!.year === paid[i - 1]!.year + 1) consecPaid += 1;
+    else break;
+  }
+  let consecIncreases = 0;
+  for (let i = paid.length - 1; i > 0; i--) {
+    const curr = paid[i]!.dividend as number;
+    const prev = paid[i - 1]!.dividend as number;
+    if (paid[i]!.year !== paid[i - 1]!.year + 1) break;
+    if (curr > prev * 1.001) consecIncreases += 1;
+    else break;
+  }
+  const first = paid[paid.length - consecPaid]!;
+  const last = paid[paid.length - 1]!;
+  const span = last.year - first.year;
+  const avgGrowthPct =
+    span >= 1 ? cagrPct(first.dividend as number, last.dividend as number, span) : null;
+  return { consecPaid, consecIncreases, avgGrowthPct };
 }
 
 /** Sum FMP `adjDividend` into fiscal-year DPS buckets (FG table), not calendar years. */

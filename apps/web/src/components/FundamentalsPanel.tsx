@@ -3,6 +3,8 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import {
   buildForecastScenarios,
   dividendCoverage,
+  dividendStreak,
+  forecastGrowthFromEstimates,
   expectedDcfFairValueByYear,
   fairValueFromEstimate,
   formatScaleCaption,
@@ -219,18 +221,29 @@ export function FundamentalsPanel({
   const snap = fundQ.data?.snapshot;
   const profile = fundQ.data?.profile;
   const summary = valuation?.summary;
+  const divStreak = useMemo(
+    () => dividendStreak(fundQ.data?.annual ?? []),
+    [fundQ.data?.annual],
+  );
   const forecast = useMemo(() => {
     if (!summary) return null;
+    const estimates = fundQ.data?.estimates ?? [];
+    const box = forecastGrowthFromEstimates(estimates);
+    const ttm = fundQ.data?.snapshot.ttmEps;
+    const streetFv =
+      ttm != null && Number.isFinite(ttm) && ttm > 0 && box.fairValueRatio != null
+        ? ttm * box.fairValueRatio
+        : null;
     return buildForecastScenarios({
       price: summary.currentPrice,
-      fairValue: summary.fairValue,
+      fairValue: streetFv,
       fairValueRatio: undefined,
       normalMultiple: summary.normalMultiple,
       customMultiple,
       dividendYieldPct: asPctPoints(fundQ.data?.snapshot.dividendYieldTTM),
-      estimates: fundQ.data?.estimates ?? [],
+      estimates,
     });
-  }, [summary, customMultiple, fundQ.data?.snapshot.dividendYieldTTM, fundQ.data?.estimates]);
+  }, [summary, customMultiple, fundQ.data?.snapshot.dividendYieldTTM, fundQ.data?.snapshot.ttmEps, fundQ.data?.estimates]);
   const premiumClass =
     summary?.premiumPct == null
       ? ''
@@ -341,6 +354,16 @@ export function FundamentalsPanel({
                 <Metric label="Blended P/E" value={ratio(snap.blendedPe)} />
                 <Metric label="EPS Yld" value={pct(asPctPoints(snap.earningsYieldTTM))} />
                 <Metric label="Div Yld" value={pct(asPctPoints(snap.dividendYieldTTM))} />
+                {divStreak.consecPaid > 0 ? (
+                  <>
+                    <Metric label="Consec. Div Paid" value={String(divStreak.consecPaid)} />
+                    <Metric
+                      label="Consec. Div Increases"
+                      value={String(divStreak.consecIncreases)}
+                    />
+                    <Metric label="Div CAGR" value={pct(divStreak.avgGrowthPct)} />
+                  </>
+                ) : null}
                 <Metric label="S&P Credit Rating" value="—" />
                 <Metric label="Market Cap" value={compact(profile?.mktCap)} />
                 <Metric label="TEV" value={compact(snap.tev)} />
@@ -505,6 +528,7 @@ export function FundamentalsPanel({
           ticker={ticker}
           lynchFairValue={summary?.fairValue ?? null}
           price={summary?.currentPrice ?? profile?.price ?? null}
+          lastHistDate={fundQ.data?.annual[fundQ.data.annual.length - 1]?.date ?? null}
           onDcfChartSeries={onDcfChartSeries}
         />
       ) : null}
@@ -572,8 +596,11 @@ export function FundamentalsPanel({
           − 1 + dividend yield. First estimate % Chg is blank so history and Street are not mixed.
           FCF / Sales / Owner earn. keep trailing growth. Owner earn. reads FMP
           <code> ownersEarningsPerShare</code>. Dividends are summed on the fiscal year
-          (FG DPS), not the calendar year. FMP has no FactSet-adjusted operating series, FG score,
-          or S&amp;P credit rating.
+          (FG DPS), not the calendar year; streak / Div CAGR come from that series.
+          Normal P/E uses the last close on or before each FY-end. Value cards persist the
+          same 5Y GAAP valuation as the default Summary window. Snapshot DCF is FMP&apos;s
+          simple headline; the DCF tab is Custom DCF. FMP has no FactSet-adjusted operating
+          series, FG score, or S&amp;P credit rating.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}
           {fundQ.data?.cached ? ' · cached' : ''}
         </p>
@@ -685,11 +712,13 @@ function DcfTab({
   ticker,
   lynchFairValue,
   price: lynchPrice,
+  lastHistDate,
   onDcfChartSeries,
 }: {
   ticker: string;
   lynchFairValue: number | null;
   price: number | null;
+  lastHistDate?: string | null;
   onDcfChartSeries?: (series: DcfScenarioSeries) => void;
 }) {
   const seeded = useRef(false);
@@ -812,13 +841,13 @@ function DcfTab({
 
   const chartSeries = useMemo<DcfScenarioSeries>(() => {
     const out: DcfScenarioSeries = {
-      conservative: consQ.data ? dcfChartSeriesFromPayload(consQ.data) : [],
-      base: baseQ.data ? dcfChartSeriesFromPayload(baseQ.data) : [],
-      optimistic: optQ.data ? dcfChartSeriesFromPayload(optQ.data) : [],
+      conservative: consQ.data ? dcfChartSeriesFromPayload(consQ.data, lastHistDate) : [],
+      base: baseQ.data ? dcfChartSeriesFromPayload(baseQ.data, lastHistDate) : [],
+      optimistic: optQ.data ? dcfChartSeriesFromPayload(optQ.data, lastHistDate) : [],
     };
-    if (data) out[preset] = dcfChartSeriesFromPayload(data);
+    if (data) out[preset] = dcfChartSeriesFromPayload(data, lastHistDate);
     return out;
-  }, [baseQ.data, consQ.data, optQ.data, data, preset]);
+  }, [baseQ.data, consQ.data, optQ.data, data, preset, lastHistDate]);
 
   useEffect(() => {
     if (!onDcfChartSeries) return;

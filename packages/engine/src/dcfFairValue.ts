@@ -25,6 +25,8 @@ export type DcfChartSeriesInput = DcfFairValueInput & {
   asOf: string;
   /** FMP headline — used only when the local t=0 model cannot run. */
   fmpEquityValuePerShare?: number | null;
+  /** Last complete FY-end (YYYY-MM-DD) so Sep-FY names are not plotted on 12-31. */
+  lastHistDate?: string | null;
 };
 
 export type DcfChartPoint = {
@@ -34,8 +36,9 @@ export type DcfChartPoint = {
   fairValue: number;
 };
 
-function fyEndIso(year: number): string {
-  return `${year}-12-31`;
+function fyEndIso(year: number, lastHistDate?: string | null): string {
+  const md = lastHistDate && /^\d{4}-(\d{2}-\d{2})/.exec(lastHistDate.slice(0, 10));
+  return `${year}-${md?.[1] ?? '12-31'}`;
 }
 
 function finite(n: unknown): n is number {
@@ -127,7 +130,7 @@ export function buildDcfChartSeries(input: DcfChartSeriesInput): DcfChartPoint[]
     ) {
       continue;
     }
-    const date = fyEndIso(row.year);
+    const date = fyEndIso(row.year, input.lastHistDate);
     if (!asOf || date <= asOf) continue;
     points.push({ date, year: row.year, fairValue: row.fairValuePerShare });
   }

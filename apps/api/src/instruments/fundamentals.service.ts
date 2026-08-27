@@ -8,7 +8,9 @@ import {
   buildForecastScenarios,
   buildValuationSeries,
   compareValueRows,
+  closeOnOrBefore,
   completeFiscalYears,
+  DEFAULT_VALUATION_WINDOW,
   estimateChainChgPct,
   forwardMetricCagr,
   forecastGrowthFromEstimates,
@@ -699,7 +701,7 @@ function starFieldsFromPayload(payload: FundamentalsPayload): StarFields {
   if (reliable && Array.isArray(payload.annual) && payload.annual.length) {
     const fcfVal = buildValuationSeries(payload.annual, 'fcf', {
       currentPrice: payload.profile?.price ?? null,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: [],
       ttmMetric: finiteNum(payload.snapshot?.ttmFcf),
       ...growthOverrideFromSummary(payload.valuation?.summary),
@@ -1629,7 +1631,7 @@ export class FundamentalsService {
           : null;
     const valuation = buildValuationSeries(stored.annual, metric, {
       currentPrice: stored.profile.price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor(metric, stored.estimates),
       ttmMetric,
       ...(metric === 'fcf' ? growthOverrideFromSummary(stored.valuation?.summary) : {}),
@@ -1666,7 +1668,7 @@ export class FundamentalsService {
   ): FundamentalsPayload {
     const valuation = buildValuationSeries(stored.annual, 'eps', {
       currentPrice: price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor('eps', stored.estimates),
       ttmMetric: stored.snapshot.ttmEps,
     });
@@ -1873,7 +1875,7 @@ export class FundamentalsService {
     const ttmGaap = ttmFromQuarterly(cardQuarters.map((q) => ({ date: q.date, eps: q.eps }))).ttm;
     const valuation = buildValuationSeries(aligned.annual, 'eps', {
       currentPrice: price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: aligned.estimateEps.map((e) => ({ year: e.year, metric: e.eps })),
       ttmMetric: ttmGaap != null && ttmGaap > 0 ? ttmGaap : aligned.ttmEps,
     });
@@ -1992,26 +1994,7 @@ export class FundamentalsService {
     estimates: EstimateRow[],
     fairValueRatio: number | null,
   ): ValuationSeriesPoint[] {
-    const out: ValuationSeriesPoint[] = series.map((p) => ({ ...p, estimated: false }));
-    const lastHistYear = out[out.length - 1]?.year ?? 0;
-    for (const est of estimates) {
-      if (!est.estimated || est.year <= lastHistYear) continue;
-      const eps = est.eps;
-      const positive = eps != null && Number.isFinite(eps) && eps > 0;
-      const fv = positive && fairValueRatio != null ? eps * fairValueRatio : null;
-      out.push({
-        date: est.date,
-        year: est.year,
-        price: null,
-        metric: eps,
-        earningsPower: fv,
-        fairValue: fv,
-        normalValue: null,
-        pe: null,
-        estimated: true,
-      });
-    }
-    return out;
+    return appendForwardFairValue(series, estimates, fairValueRatio);
   }
 
   private async fetchFresh(
@@ -2126,7 +2109,7 @@ export class FundamentalsService {
           if (fcf == null || !shares || shares <= 0) return null;
           return fcf / shares;
         })();
-      const price = yearEnd.get(y) ?? null;
+      const price = closeOnOrBefore(tickerCloses, date) ?? yearEnd.get(y) ?? null;
       const pe =
         fmpNum(rt.priceToEarningsRatio) ??
         fmpNum(km.peRatio) ??
@@ -2248,14 +2231,14 @@ export class FundamentalsService {
       metric === 'fcf'
         ? buildValuationSeries(annual, 'eps', {
             currentPrice: price,
-            windowYears: 5,
+            windowYears: DEFAULT_VALUATION_WINDOW,
             forward: forwardFor('eps', estimateParsed),
             ttmMetric: ttmEps,
           })
         : null;
     const valuation = buildValuationSeries(annual, metric, {
       currentPrice: price,
-      windowYears: 5,
+      windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor(metric, estimateParsed),
       ttmMetric:
         metric === 'fcf' ? ttmFcf : metric === 'operatingEps' ? ttmOperatingEps : ttmEps,

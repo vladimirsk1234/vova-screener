@@ -33,11 +33,15 @@ export function dcfFairValueToday(data: CustomDcfPayload): number | null {
   return null;
 }
 
-export function dcfChartSeriesFromPayload(data: CustomDcfPayload): ValuationSeriesPoint[] {
+export function dcfChartSeriesFromPayload(
+  data: CustomDcfPayload,
+  lastHistDate?: string | null,
+): ValuationSeriesPoint[] {
   return buildDcfChartSeries({
     ...dcfModelInput(data),
     asOf: data.asOf || new Date().toISOString(),
     fmpEquityValuePerShare: data.equityValuePerShare,
+    lastHistDate,
   }).map((p) => ({
     date: p.date,
     year: p.year ?? Number(p.date.slice(0, 4)),

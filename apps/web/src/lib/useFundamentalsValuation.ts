@@ -6,6 +6,7 @@ import {
   appendIntraYearTtmSteps,
   appendNextQuarterEstimate,
   buildValuationSeries,
+  DEFAULT_VALUATION_WINDOW,
   forecastGrowthFromEstimates,
   growthOverrideFromSummary,
   projectMetricByGrowth,
@@ -111,7 +112,7 @@ function dividendHud(data: FundamentalsPayload | undefined): DividendHud | null 
 
 export function useFundamentalsValuation(ticker: string, enabled: boolean) {
   const [metric, setMetric] = useState<ValuationMetric>('eps');
-  const [windowYears, setWindowYears] = useState<ValuationWindowYears>(5);
+  const [windowYears, setWindowYears] = useState<ValuationWindowYears>(DEFAULT_VALUATION_WINDOW);
 
   const fundQ = useQuery({
     queryKey: ['fundamentals', ticker],

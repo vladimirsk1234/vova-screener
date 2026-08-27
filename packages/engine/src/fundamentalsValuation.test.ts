@@ -24,6 +24,9 @@ import {
   forecastGrowthFromEstimates,
   ownerEarningsPerShareFromRow,
   sumDividendsByFiscalYear,
+  closeOnOrBefore,
+  dividendStreak,
+  DEFAULT_VALUATION_WINDOW,
   forwardMetricCagr,
   trailingMetricCagr,
   ttmFromQuarterly,
@@ -1177,6 +1180,35 @@ describe('FMP field mapping', () => {
       2.3,
     );
     assert.equal(ownerEarningsPerShareFromRow({ ownerEarnings: 230 }), null);
+  });
+
+  it('uses FY-end close, not December, for a September fiscal year', () => {
+    const close = closeOnOrBefore(
+      [
+        { date: '2025-09-26', close: 227.5 },
+        { date: '2025-12-31', close: 250 },
+      ],
+      '2025-09-27',
+    );
+    assert.equal(close, 227.5);
+  });
+
+  it('counts consecutive fiscal dividend increases from the annual series', () => {
+    const streak = dividendStreak([
+      { year: 2020, dividend: 0.8 },
+      { year: 2021, dividend: 0.85 },
+      { year: 2022, dividend: 0.9 },
+      { year: 2023, dividend: 0.94 },
+      { year: 2024, dividend: 0.98 },
+      { year: 2025, dividend: 1.02 },
+    ]);
+    assert.equal(streak.consecPaid, 6);
+    assert.equal(streak.consecIncreases, 5);
+    assert.ok(streak.avgGrowthPct != null && streak.avgGrowthPct > 4 && streak.avgGrowthPct < 6);
+  });
+
+  it('keeps the default Value / Summary window at 5Y so cards match the chart', () => {
+    assert.equal(DEFAULT_VALUATION_WINDOW, 5);
   });
 
   it('sums AAPL-like adjDividend into September fiscal years, not calendar 2025', () => {
