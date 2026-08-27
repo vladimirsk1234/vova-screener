@@ -130,17 +130,6 @@ function growthSpanLabelYears(
   return windowYears;
 }
 
-function growthLabel(
-  source: string | undefined,
-  windowYears: ValuationWindowYears,
-  growthSpanYears?: number | null,
-) {
-  if (source === 'forward') return 'Growth (fwd)';
-  const years = growthSpanLabelYears(windowYears, growthSpanYears);
-  if (years == null) return 'Growth (max)';
-  return `Growth (${years}y)`;
-}
-
 function growthRateLabel(
   source: string | undefined,
   windowYears: ValuationWindowYears,
