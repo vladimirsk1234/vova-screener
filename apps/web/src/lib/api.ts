@@ -451,7 +451,10 @@ export type CustomDcfPayload = {
 /** Slim valuation fields for Results / History signal cards (FMP). */
 export type CardFundamentals = {
   fairValue: number | null;
-  /** (price − fairValue) / fairValue × 100. Same number the Settings valuation filter uses. */
+  /**
+   * (price − fairValue) / fairValue × 100. Same 5Y Op. EPS trailing number as the
+   * Fundamentals Summary default and the Settings valuation filter.
+   */
   premiumPct: number | null;
   growthRatePct: number | null;
   blendedPe: number | null;

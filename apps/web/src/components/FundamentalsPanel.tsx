@@ -591,18 +591,19 @@ export function FundamentalsPanel({
           when the 5Y path is still below 15% (CRM 10Y). Default chart metric is Op. EPS (NOPAT /
           diluted shares).
           FCF/sh is the cash-flow companion; both plot FV, last value, and a 3y dashed overlay.
-          GAAP diluted EPS stays internal (Value cards, Street estimates, ADR scale) and is not
-          a Summary chip. For ADRs / foreign books (filing currency ≠ listing, e.g. NOK EUR vs
-          NYSE USD) that internal EPS line uses FMP historical consensus (epsAvg) in listing
-          units; FX-scaled GAAP stays on gaapEps. Street estimates are already listing-currency
-          and are not FX-converted again. 1 NOK ADR = 1 Helsinki share. Forecasting uses a
-          separate Street-to-Street CAGR and can flip the rule (AAPL Historical 25.67× vs
-          Forecasting 15×). Est. ROR = (future price / today)^(1/horizon)
+          GAAP diluted EPS stays internal (Street estimates, ADR scale, FCF/sh growth borrow)
+          and is not a Summary chip. For ADRs / foreign books (filing currency ≠ listing, e.g.
+          NOK EUR vs NYSE USD) that internal EPS line uses FMP historical consensus (epsAvg) in
+          listing units; FX-scaled GAAP stays on gaapEps. Street estimates are already
+          listing-currency and are not FX-converted again. 1 NOK ADR = 1 Helsinki share.
+          Forecasting uses a separate Street-to-Street CAGR and can flip the rule (AAPL
+          Historical 25.67× vs Forecasting 15×). Est. ROR = (future price / today)^(1/horizon)
           − 1 + dividend yield. First estimate % Chg is blank so history and Street are not mixed.
           FCF/sh keeps trailing growth (borrowed from the internal EPS orange box). Dividends are
           summed on the fiscal year (FG DPS), not the calendar year; streak / Div CAGR come from
-          that series. Normal P/E uses the last close on or before each FY-end. Value cards
-          persist the same 5Y GAAP/Street EPS valuation. Snapshot DCF is FMP&apos;s simple
+          that series. Normal P/E uses the last close on or before each FY-end. Results / Value
+          cards persist the same 5Y Op. EPS trailing valuation as this Summary default. Snapshot
+          DCF is FMP&apos;s simple
           headline; the DCF tab is Custom DCF. FMP has no FactSet-adjusted operating series, FG
           score, or S&amp;P credit rating.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}

@@ -5,6 +5,7 @@ import {
   appendIntraYearTtmSteps,
   appendNextQuarterEstimate,
   buildFairValueChartSeries,
+  buildCardValuation,
   buildValuationSeries,
   cagrPct,
   fairValueFromEstimate,
@@ -1485,6 +1486,69 @@ describe('FMP field mapping', () => {
 
   it('keeps the default Value / Summary window at 5Y so cards match the chart', () => {
     assert.equal(DEFAULT_VALUATION_WINDOW, 5);
+  });
+
+  /**
+   * ALS-like: GAAP/Street EPS grew fast (Lynch, card used to say undervalued) while
+   * trailing Op. EPS declined (15×, tiny FV, 2000%+ overvalued on the chart).
+   * Results / Value cards must follow the Summary default, not leftover `eps`.
+   */
+  function alsLikeSplitHistory(): AnnualFundamentalPoint[] {
+    const rows: Array<[number, number, number, number]> = [
+      [2020, 0.56, 0.52, 25],
+      [2021, 0.9, 0.43, 30],
+      [2022, 1.45, 0.36, 38],
+      [2023, 2.34, 0.3, 48],
+      [2024, 3.77, 0.25, 58],
+      [2025, 6.13, 0.207, 67.51],
+    ];
+    return rows.map(([year, eps, operatingEps, price]) => ({
+      ...fy(year, eps, price),
+      operatingEps,
+      gaapEps: eps,
+    }));
+  }
+
+  it('cards use 5Y Op. EPS trailing so GAAP/Street growth cannot flip undervalued vs the chart', () => {
+    const hist = alsLikeSplitHistory();
+    const price = 67.51;
+    const ttmOp = 0.207;
+    const ttmGaap = 6.13;
+    const chart = buildValuationSeries(hist, DEFAULT_CHART_VALUATION_METRIC, {
+      currentPrice: price,
+      windowYears: DEFAULT_VALUATION_WINDOW,
+      forward: [],
+      ttmMetric: ttmOp,
+    });
+    const card = buildCardValuation(hist, { currentPrice: price, ttmOperatingEps: ttmOp });
+    const leftoverGaap = buildValuationSeries(hist, 'eps', {
+      currentPrice: price,
+      windowYears: DEFAULT_VALUATION_WINDOW,
+      forward: [
+        { year: 2026, metric: 8 },
+        { year: 2027, metric: 13 },
+      ],
+      ttmMetric: ttmGaap,
+    });
+    const street = forecastGrowthFromEstimates([
+      { year: 2026, eps: 8 },
+      { year: 2027, eps: 13 },
+    ]);
+
+    assert.equal(card.summary.metric, 'operatingEps');
+    assert.equal(card.summary.windowYears, 5);
+    assert.equal(card.summary.growthSource, 'trailing');
+    assert.equal(card.summary.premiumPct, chart.summary.premiumPct);
+    assert.equal(card.summary.growthRatePct, chart.summary.growthRatePct);
+    assert.equal(card.summary.fairValue, chart.summary.fairValue);
+    assert.ok(chart.summary.growthRatePct != null && chart.summary.growthRatePct < 0);
+    assert.equal(chart.summary.fairValueRatio, 15);
+    assert.ok(chart.summary.premiumPct != null && chart.summary.premiumPct > 1000);
+    assert.ok(leftoverGaap.summary.growthRatePct != null && leftoverGaap.summary.growthRatePct > 50);
+    assert.ok(leftoverGaap.summary.premiumPct != null && leftoverGaap.summary.premiumPct < 0);
+    assert.ok(street.growthRatePct != null && street.growthRatePct > 50);
+    assert.notEqual(Math.sign(chart.summary.premiumPct), Math.sign(leftoverGaap.summary.premiumPct));
+    assert.ok(Math.abs(card.summary.growthRatePct - street.growthRatePct) > 40);
   });
 
   it('defaults the Summary chart chip to Op. EPS and drops Sales / Owner / GAAP EPS', () => {
