@@ -5,9 +5,12 @@ import {
   appendForwardFairValue,
   appendIntraYearTtmSteps,
   appendNextQuarterEstimate,
+  availableValuationWindows,
   buildValuationSeries,
+  clampValuationWindow,
   DEFAULT_VALUATION_WINDOW,
   forecastGrowthFromEstimates,
+  fundamentalsHistoryBounds,
   growthOverrideFromSummary,
   projectMetricByGrowth,
   seriesForFairValueChart,
@@ -129,12 +132,23 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       q.state.status === 'error' && isFundamentalsPendingError(q.state.error) ? 8_000 : false,
   });
 
+  const history = useMemo(
+    () => fundamentalsHistoryBounds(fundQ.data?.annual ?? []),
+    [fundQ.data],
+  );
+  const historySpanYears = fundQ.data ? history.spanYears : null;
+  const effectiveWindowYears = clampValuationWindow(windowYears, historySpanYears);
+  const windowChipOptions = useMemo(
+    () => availableValuationWindows(historySpanYears).map((w) => (w == null ? 'max' : String(w))),
+    [historySpanYears],
+  );
+
   const valuation = useMemo(() => {
     if (!fundQ.data) return null;
     const epsForward = (fundQ.data.estimates ?? []).map((e) => ({ year: e.year, metric: e.eps }));
     const common = {
       currentPrice: fundQ.data.profile.price,
-      windowYears,
+      windowYears: effectiveWindowYears,
     };
     if (metric !== 'fcf') {
       return buildValuationSeries(fundQ.data.annual, metric, {
@@ -159,7 +173,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       ttmMetric: fundQ.data.snapshot.ttmFcf ?? null,
       ...growthOverrideFromSummary(epsVal.summary),
     });
-  }, [fundQ.data, metric, windowYears]);
+  }, [fundQ.data, metric, effectiveWindowYears]);
 
   const chartSeries = useMemo(
     () => (valuation ? chartSeriesFromValuation(valuation, metric, fundQ.data) : []),
@@ -173,7 +187,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     if (box.growthRatePct == null) return null;
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
-      windowYears,
+      windowYears: effectiveWindowYears,
       ttmMetric:
         metric === 'eps'
           ? fundQ.data.snapshot.ttmEps
@@ -182,7 +196,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       growthSpanYears: box.growthSpanYears,
       growthSource: 'forward',
     });
-  }, [fundQ.data, metric, windowYears]);
+  }, [fundQ.data, metric, effectiveWindowYears]);
 
   const forecastChartSeries = useMemo(
     () =>
@@ -195,8 +209,10 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
   return {
     metric,
     setMetric,
-    windowYears,
+    windowYears: effectiveWindowYears,
     setWindowYears,
+    windowChipOptions,
+    historyStartDate: history.firstDate,
     fundQ,
     valuation,
     forecastValuation,

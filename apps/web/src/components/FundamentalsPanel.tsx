@@ -576,7 +576,8 @@ export function FundamentalsPanel({
 
       {tab !== 'dcf' ? (
         <p className="muted small fund-footnote">
-          Historical Graph Key uses trailing metric CAGR on the selected 1Y…19Y / MAX window:
+          Historical Graph Key uses trailing metric CAGR on the selected 1Y / 3Y / 5Y / 8Y / 10Y /
+          15Y / MAX window:
           8.5+2g when 0 ≤ growth &lt; 5%, 15× when growth is negative or 5–15% (or a short CAGR
           span), else P/E = growth %. Default EPS is FMP GAAP diluted for same-currency US names
           — live FMP vs FG (26 Aug 2026) matches AAPL operating EPS in most years (FY25 7.46 =

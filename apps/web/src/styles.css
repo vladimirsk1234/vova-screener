@@ -842,8 +842,8 @@ a {
 }
 
 .chart-period-chips .chip-row {
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  overflow-x: hidden;
   margin: 8px 0 12px;
 }
 

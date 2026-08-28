@@ -1,7 +1,7 @@
 /**
  * Fast Graphs–style valuation: Normal P/E is median historical price/metric;
  * Fair Value (orange line) uses three FG formulas from trailing metric CAGR in
- * the selected lookback window (1Y … 19Y / MAX):
+ * the selected lookback window (1Y / 3Y / 5Y / 8Y / 10Y / 15Y / MAX):
  *   GDF          — 0 ≤ growth < 5%     → P/E = 8.5 + 2g (classic Graham-Dodd)
  *   GDF…P/E=G    — growth < 0 or 5–15% → P/E = 15 (FG NOK uses 15× at −2.5%)
  *   P/E=G        — growth ≥ 15%        → P/E = growth % (Lynch PEG=1)
@@ -25,14 +25,17 @@ export type FairValueRule = 'gdf' | 'gdf_pe_g' | 'pe_g' | 'none';
 /** Chart / Normal P/E window in fiscal years. `null` = MAX (all complete years). */
 export type ValuationWindowYears = number | null;
 
-/** FG Historical chips: MAX, 19Y … 1Y. */
-export const VALUATION_LOOKBACK_MAX = 19;
+/** Largest numbered FAST Graphs lookback chip (MAX is unbounded). */
+export const VALUATION_LOOKBACK_MAX = 15;
+/** FAST Graphs Historical steps — not every year. MAX is separate (`null`). */
+export const VALUATION_WINDOW_STEPS = [1, 3, 5, 8, 10, 15] as const;
 /** Default chart / Value-card window. Same number as API persist so cards match Summary. */
 export const DEFAULT_VALUATION_WINDOW: ValuationWindowYears = 5;
 
+/** FG Historical chips: MAX, 15Y, 10Y, 8Y, 5Y, 3Y, 1Y. */
 export const VALUATION_WINDOW_CHIPS: Array<ValuationWindowYears> = [
   null,
-  ...Array.from({ length: VALUATION_LOOKBACK_MAX }, (_, i) => VALUATION_LOOKBACK_MAX - i),
+  ...[...VALUATION_WINDOW_STEPS].reverse(),
 ];
 
 /** Growth below this (and ≥ 0) uses classic Graham-Dodd (8.5 + 2g). Negative uses 15×. */
@@ -164,7 +167,7 @@ export type ValuationSummary = {
   fairValueRatio: number | null;
   fairValueRule: FairValueRule;
   years: number;
-  /** 1–19, or null for MAX. */
+  /** 1/3/5/8/10/15, or null for MAX. */
   windowYears: ValuationWindowYears;
 };
 
@@ -258,6 +261,56 @@ export function sliceToWindow(
   return sorted.filter((p) => p.year >= minYear);
 }
 
+export type FundamentalsHistoryBounds = {
+  firstDate: string | null;
+  lastDate: string | null;
+  /** Calendar years between first and last complete FY. 0 when fewer than two FYs. */
+  spanYears: number;
+};
+
+/**
+ * First/last complete FMP fiscal year. The chart domain and offered lookback
+ * chips are clamped to this — not a hardcoded 20Y price window.
+ */
+export function fundamentalsHistoryBounds(
+  points: AnnualFundamentalPoint[],
+): FundamentalsHistoryBounds {
+  const sorted = completeFiscalYears(points);
+  if (!sorted.length) return { firstDate: null, lastDate: null, spanYears: 0 };
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+  return {
+    firstDate: first.date.slice(0, 10),
+    lastDate: last.date.slice(0, 10),
+    spanYears: Math.max(0, last.year - first.year),
+  };
+}
+
+/**
+ * MAX plus every FAST Graphs step that fits in `spanYears`.
+ * `spanYears == null` (history not loaded yet) returns the full chip set.
+ */
+export function availableValuationWindows(
+  spanYears: number | null | undefined,
+): ValuationWindowYears[] {
+  if (spanYears == null || !Number.isFinite(spanYears)) return [...VALUATION_WINDOW_CHIPS];
+  const chips: ValuationWindowYears[] = [null];
+  for (const n of [...VALUATION_WINDOW_STEPS].reverse()) {
+    if (n <= spanYears) chips.push(n);
+  }
+  return chips;
+}
+
+/** If the selected window is longer than FMP history, fall back to MAX. */
+export function clampValuationWindow(
+  windowYears: ValuationWindowYears,
+  spanYears: number | null | undefined,
+): ValuationWindowYears {
+  if (windowYears == null || windowYears <= 0) return null;
+  if (spanYears == null || !Number.isFinite(spanYears)) return windowYears;
+  return windowYears <= spanYears ? windowYears : null;
+}
+
 const DAY_MS = 86_400_000;
 
 export type ValuationChartRangeInput = {
@@ -266,6 +319,11 @@ export type ValuationChartRangeInput = {
   windowYears: ValuationWindowYears;
   /** First non-forecast FY / TTM date — used so the fiscal window start is not clipped. */
   firstHistoricalDate?: string | null;
+  /**
+   * First complete FMP FY-end. Visible `from` never starts before this year's
+   * Jan 1, so a 2Y IPO is not padded to 20Y of empty axis.
+   */
+  historyStartDate?: string | null;
   /** First dashed forecast point. */
   firstForecastDate?: string | null;
   /** Last dashed forecast point — included in `to` so the 3y tail stays on screen. */
@@ -323,7 +381,7 @@ export function lastSeriesDate(series: Array<{ date: string }>): string | null {
 
 /**
  * Visible Fundamentals range: N years of history (and the first FY in the window),
- * plus the dashed 3y forecast tail.
+ * plus the dashed 3y forecast tail. Never starts before the first FMP FY year.
  */
 export function valuationChartRange(input: ValuationChartRangeInput): { from: string; to: string } {
   const firstBar = input.firstBarDate.slice(0, 10);
@@ -343,6 +401,14 @@ export function valuationChartRange(input: ValuationChartRangeInput): { from: st
     fromMs = Number.isFinite(histMs) ? Math.min(calendarFrom, histMs) : calendarFrom;
     fromMs = Math.max(fromMs, firstBarMs);
   }
+
+  const historyStart = input.historyStartDate?.slice(0, 10);
+  const historyStartMs = historyStart ? isoDateMs(historyStart) : Number.NaN;
+  if (Number.isFinite(historyStartMs)) {
+    const fyYearStartMs = Date.UTC(new Date(historyStartMs).getUTCFullYear(), 0, 1);
+    fromMs = Math.max(fromMs, fyYearStartMs);
+  }
+  fromMs = Math.max(fromMs, firstBarMs);
 
   let toMs = lastBarMs;
   const lastFc = (input.lastForecastDate ?? input.firstForecastDate)?.slice(0, 10);

@@ -49,13 +49,24 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'Monthly' })).toHaveCount(0);
     const periodChips = page.locator('.chart-period-chips');
     await expect(periodChips.getByRole('button', { name: 'MAX', exact: true })).toBeVisible();
-    await expect(periodChips.getByRole('button', { name: '19Y', exact: true })).toBeVisible();
+    await expect(periodChips.getByRole('button', { name: '15Y', exact: true })).toBeVisible();
+    await expect(periodChips.getByRole('button', { name: '10Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '1Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '3Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '5Y', exact: true })).toBeVisible();
     await expect(periodChips.getByRole('button', { name: '8Y', exact: true })).toBeVisible();
+    await expect(periodChips.getByRole('button', { name: '19Y', exact: true })).toHaveCount(0);
+    await expect(periodChips.getByRole('button', { name: '18Y', exact: true })).toHaveCount(0);
+    await expect(periodChips.getByRole('button', { name: '2Y', exact: true })).toHaveCount(0);
+    await expect(periodChips.getByRole('button', { name: '4Y', exact: true })).toHaveCount(0);
+    await expect(periodChips.getByRole('button', { name: '7Y', exact: true })).toHaveCount(0);
     await expect(page.locator('.chart-fund-metrics').getByRole('button', { name: '1Y', exact: true })).toHaveCount(0);
     const periodBox = await periodChips.boundingBox();
+    const chipOverflow = await periodChips.locator('.chip-row').evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(chipOverflow.scrollWidth).toBeLessThanOrEqual(chipOverflow.clientWidth + 1);
     const stage = page.locator('.chart-stage');
     await expect(stage).toBeVisible();
     const box = await stage.boundingBox();

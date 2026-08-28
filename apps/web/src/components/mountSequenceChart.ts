@@ -463,12 +463,14 @@ function valuationRangeInput(
   valuationSeries: ValuationSeriesPoint[],
   windowYears: ValuationWindowYears | undefined,
   extraSeries: ValuationSeriesPoint[] = [],
+  historyStartDate?: string | null,
 ) {
   return valuationChartRange({
     firstBarDate: bars[0]!.date,
     lastBarDate: bars[bars.length - 1]!.date,
     windowYears: windowYears === undefined ? null : windowYears,
     firstHistoricalDate: firstNonForecastDate(valuationSeries),
+    historyStartDate,
     firstForecastDate: firstForecastDate(valuationSeries),
     lastForecastDate: lastForecastDate(valuationSeries),
     lastExtraDate: extraSeries.length ? lastSeriesDate(extraSeries) : null,
@@ -623,6 +625,7 @@ export function mountSequenceChart(
   mode: ChartMountMode = 'ta',
   windowYears?: ValuationWindowYears,
   dcfForecastSeries: DcfScenarioSeries = EMPTY_DCF_SCENARIO_SERIES,
+  historyStartDate?: string | null,
 ): { destroy: () => void; fitContent: () => void; chart: IChartApi; valuation: ValuationSeriesRefs } {
   const chart = createChart(container, {
     autoSize: true,
@@ -642,17 +645,22 @@ export function mountSequenceChart(
     timeScale: {
       borderColor: settings.grid_color,
       rightOffset: 8,
-      ...(mode === 'fundamentals' ? { minBarSpacing: 0.2 } : {}),
+      ...(mode === 'fundamentals'
+        ? {
+            minBarSpacing: 0.2,
+            lockVisibleTimeRangeOnResize: true,
+          }
+        : {}),
     },
     crosshair: { mode: 0 },
-    handleScroll: true,
+    handleScroll: mode !== 'fundamentals',
     handleScale:
       mode === 'fundamentals'
         ? {
-            mouseWheel: true,
-            pinch: true,
+            mouseWheel: false,
+            pinch: false,
             // Native price-axis drag scales around the range centre, which drags 0 negative.
-            axisPressedMouseMove: { price: false, time: true },
+            axisPressedMouseMove: { price: false, time: false },
             axisDoubleClickReset: { price: false, time: true },
           }
         : true,
@@ -706,7 +714,7 @@ export function mountSequenceChart(
   }));
   const fundRange =
     mode === 'fundamentals' && payload.bars.length
-      ? valuationRangeInput(payload.bars, valuationSeries, windowYears, dcfAll)
+      ? valuationRangeInput(payload.bars, valuationSeries, windowYears, dcfAll, historyStartDate)
       : null;
   if (mode === 'fundamentals') {
     candleData.push(...futureWhitespace(payload.bars, [...valuationSeries, ...dcfAll]));
