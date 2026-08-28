@@ -82,6 +82,15 @@ test.describe('chart parity UI', () => {
     await expect(page.getByRole('button', { name: 'DCF', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'EPS', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Op. EPS', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sales/sh', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'FCF/sh', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Owner earn.', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Forecasting' })).toBeVisible();
+    await page.getByRole('button', { name: 'Forecasting' }).click();
+    await expect(page.getByText('future price')).toBeVisible();
+    await page.getByRole('button', { name: 'Summary' }).click();
+    await expect(page.getByRole('button', { name: 'Sales/sh', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Owner earn.', exact: true })).toBeVisible();
     const legend = page.locator('.chart-fund-hud');
     await expect(legend.getByText('Fair value', { exact: true })).toBeVisible();
     await expect(legend.getByText('Normal P/E').first()).toBeVisible();

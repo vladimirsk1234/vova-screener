@@ -939,7 +939,8 @@ export function growthOverrideFromSummary(
 
 /**
  * Project the selected metric forward at `growthPct`: metric_t = last × (1+g)^Δt.
- * Used for FCF (FMP has no FCF estimates) so the dashed FV stays in FCF dollars.
+ * Used when FMP has no Street estimates for that metric (FCF, Sales, Owner
+ * Earnings, Op. EPS) so the dashed FV stays in that metric's dollars.
  */
 export function projectMetricByGrowth(opts: {
   lastMetric: number | null | undefined;
@@ -999,6 +1000,10 @@ export function seriesForFairValueChart(
     return series;
   }
   if (lastDate && lastDate > asOfIso) return series;
+  const anchor =
+    summary.fairValueAnchor != null && finite(summary.fairValueAnchor) && summary.fairValueAnchor > 0
+      ? summary.fairValueAnchor
+      : null;
   const todayPoint: ValuationSeriesPoint = {
     date: asOfIso,
     year: Number(asOfIso.slice(0, 4)),
@@ -1006,7 +1011,8 @@ export function seriesForFairValueChart(
     metric: summary.fairValueAnchor,
     earningsPower: summary.fairValue,
     fairValue: summary.fairValue,
-    normalValue: null,
+    normalValue:
+      anchor != null && summary.normalMultiple > 0 ? anchor * summary.normalMultiple : null,
     dividend: null,
     pe: null,
     estimated: true,
@@ -1292,4 +1298,116 @@ export function appendForwardFairValue(
     added += 1;
   }
   return out;
+}
+
+/** Intra-year TTM steps + next-print dash. Sales / Owner Earnings pin a today-point instead. */
+export function pinsFairValueToday(metric: ValuationMetric): boolean {
+  return metric !== 'eps' && metric !== 'operatingEps' && metric !== 'fcf';
+}
+
+/** Street analyst years exist for GAAP/consensus EPS. Other chips project the metric. */
+export function usesStreetForwardEstimates(metric: ValuationMetric): boolean {
+  return metric === 'eps';
+}
+
+export function quarterlyPointsForMetric(
+  metric: ValuationMetric,
+  quarters:
+    | Array<{
+        date: string;
+        eps?: number | null;
+        operatingEps?: number | null;
+        fcfPerShare?: number | null;
+      }>
+    | undefined,
+  opts?: { streetEpsHistory?: boolean },
+): QuarterlyMetricPoint[] {
+  if (!quarters?.length) return [];
+  if (metric === 'eps') {
+    if (opts?.streetEpsHistory) return [];
+    return quarters.map((q) => ({ date: q.date, eps: q.eps ?? null }));
+  }
+  if (metric === 'operatingEps') {
+    return quarters.map((q) => ({ date: q.date, eps: q.operatingEps ?? q.eps ?? null }));
+  }
+  if (metric === 'fcf') {
+    return quarters.map((q) => ({ date: q.date, metric: q.fcfPerShare ?? null }));
+  }
+  return [];
+}
+
+/**
+ * Street years for EPS; otherwise last metric grown at `growthPct` on those
+ * calendar years (invents 3 years when the Street list is empty).
+ */
+export function chartEstimatesForMetric(
+  metric: ValuationMetric,
+  opts: {
+    lastMetric: number | null | undefined;
+    lastYear: number;
+    growthPct: number | null | undefined;
+    estimates: ForwardEstimatePoint[];
+  },
+): ForwardEstimatePoint[] {
+  if (usesStreetForwardEstimates(metric)) return opts.estimates;
+  return projectMetricByGrowth({
+    lastMetric: opts.lastMetric,
+    lastYear: opts.lastYear,
+    growthPct: opts.growthPct,
+    years: opts.estimates.map((e) => ({ year: e.year, date: e.date })),
+  });
+}
+
+export type FairValueChartInput = {
+  series: ValuationSeriesPoint[];
+  summary: ValuationSummary;
+  metric: ValuationMetric;
+  quarters?: QuarterlyMetricPoint[];
+  estimates?: ForwardEstimatePoint[];
+  nextEarningsDate?: string | null;
+  asOfIso?: string;
+  horizonYears?: number;
+};
+
+/**
+ * Chart series for one Summary / Forecasting metric: historical FV + Normal P/E,
+ * current (TTM or today-pin) value, and the dashed 3y overlay.
+ */
+export function buildFairValueChartSeries(input: FairValueChartInput): ValuationSeriesPoint[] {
+  const asOfIso = input.asOfIso ?? new Date().toISOString().slice(0, 10);
+  const horizonYears = input.horizonYears ?? FORWARD_FAIR_VALUE_YEARS;
+  const pinToday = pinsFairValueToday(input.metric);
+  const withQuarters = input.quarters?.length
+    ? appendIntraYearTtmSteps(
+        input.series,
+        input.quarters,
+        input.summary.fairValueRatio,
+        asOfIso,
+        input.summary.normalMultiple,
+      )
+    : input.series;
+  const historical = seriesForFairValueChart(withQuarters, input.summary, asOfIso, { pinToday });
+  const lastHist = [...historical].reverse().find((p) => !p.estimated && !p.forecast);
+  const estimates = chartEstimatesForMetric(input.metric, {
+    lastMetric: input.summary.fairValueAnchor ?? lastHist?.metric ?? null,
+    lastYear: lastHist?.year ?? 0,
+    growthPct: input.summary.growthRatePct,
+    estimates: input.estimates ?? [],
+  });
+  const towardNextPrint = pinToday
+    ? historical
+    : appendNextQuarterEstimate(
+        historical,
+        input.nextEarningsDate,
+        estimates,
+        input.summary.fairValueRatio,
+        input.summary.normalMultiple,
+      );
+  return appendForwardFairValue(
+    towardNextPrint,
+    estimates,
+    input.summary.fairValueRatio,
+    horizonYears,
+    input.summary.normalMultiple,
+  );
 }
