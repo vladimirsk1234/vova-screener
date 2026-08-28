@@ -33,6 +33,10 @@ import {
   valuationChartLogicalRange,
   valuationChartRange,
   VALUATION_WINDOW_CHIPS,
+  VALUATION_WINDOW_STEPS,
+  availableValuationWindows,
+  clampValuationWindow,
+  fundamentalsHistoryBounds,
   type AnnualFundamentalPoint,
 } from './fundamentalsValuation.ts';
 import {
@@ -167,11 +171,39 @@ describe('valuation windows', () => {
     assert.equal(zero.ratio, 8.5);
   });
 
-  it('exposes MAX + 19Y … 1Y window chips', () => {
-    assert.equal(VALUATION_WINDOW_CHIPS[0], null);
-    assert.equal(VALUATION_WINDOW_CHIPS[1], 19);
-    assert.equal(VALUATION_WINDOW_CHIPS[VALUATION_WINDOW_CHIPS.length - 1], 1);
-    assert.equal(VALUATION_WINDOW_CHIPS.length, 20);
+  it('exposes MAX + 15Y / 10Y / 8Y / 5Y / 3Y / 1Y window chips', () => {
+    assert.deepEqual(VALUATION_WINDOW_CHIPS, [null, 15, 10, 8, 5, 3, 1]);
+    assert.deepEqual([...VALUATION_WINDOW_STEPS], [1, 3, 5, 8, 10, 15]);
+  });
+
+  it('offers only lookbacks that fit FMP history, always including MAX', () => {
+    assert.deepEqual(availableValuationWindows(null), [null, 15, 10, 8, 5, 3, 1]);
+    assert.deepEqual(availableValuationWindows(20), [null, 15, 10, 8, 5, 3, 1]);
+    assert.deepEqual(availableValuationWindows(12), [null, 10, 8, 5, 3, 1]);
+    assert.deepEqual(availableValuationWindows(2), [null, 1]);
+    assert.deepEqual(availableValuationWindows(0), [null]);
+    assert.equal(clampValuationWindow(5, 20), 5);
+    assert.equal(clampValuationWindow(5, 2), null);
+    assert.equal(clampValuationWindow(null, 2), null);
+    assert.equal(clampValuationWindow(15, 15), 15);
+  });
+
+  it('measures FMP history span from complete fiscal years, not a 20Y pad', () => {
+    const longHist = mixedGrowthHistory();
+    const long = fundamentalsHistoryBounds(longHist);
+    assert.equal(long.firstDate, '2015-12-31');
+    assert.equal(long.lastDate, '2025-12-31');
+    assert.equal(long.spanYears, 10);
+    assert.deepEqual(availableValuationWindows(long.spanYears), [null, 10, 8, 5, 3, 1]);
+
+    const ipo = [fy(2024, 0.4, 22), fy(2025, 0.7, 28)];
+    const short = fundamentalsHistoryBounds(ipo);
+    assert.equal(short.firstDate, '2024-12-31');
+    assert.equal(short.lastDate, '2025-12-31');
+    assert.equal(short.spanYears, 1);
+    assert.deepEqual(availableValuationWindows(short.spanYears), [null, 1]);
+    assert.equal(clampValuationWindow(5, short.spanYears), null);
+    assert.equal(clampValuationWindow(DEFAULT_VALUATION_WINDOW, long.spanYears), 5);
   });
 
   it('keeps eight fiscal years for a 7Y window and twenty for 19Y when history exists', () => {
@@ -1017,16 +1049,59 @@ describe('valuationChartRange', () => {
     assert.ok(range.from < '2023-01-01');
   });
 
-  it('uses the first bar for MAX', () => {
+  it('uses the first bar for MAX when FMP history is as old as the series', () => {
     const range = valuationChartRange({
       firstBarDate: firstBar,
       lastBarDate: lastBar,
       windowYears: null,
       firstHistoricalDate: '2015-12-31',
+      historyStartDate: '2015-12-31',
       firstForecastDate: lastForecast,
     });
     assert.equal(range.from, firstBar);
     assert.equal(range.to, lastForecast);
+  });
+
+  it('clamps MAX and 15Y to the first FMP FY year on a short-history IPO', () => {
+    const ipoFirstFy = '2024-12-31';
+    const paddedFirstBar = '2006-01-06';
+    const maxRange = valuationChartRange({
+      firstBarDate: paddedFirstBar,
+      lastBarDate: lastBar,
+      windowYears: null,
+      firstHistoricalDate: ipoFirstFy,
+      historyStartDate: ipoFirstFy,
+      firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
+    });
+    assert.equal(maxRange.from, '2024-01-01');
+    assert.ok(maxRange.from > '2010-01-01', `MAX from=${maxRange.from} must not be a 20Y pad`);
+    assert.equal(maxRange.to, lastForecast);
+
+    const y15 = valuationChartRange({
+      firstBarDate: paddedFirstBar,
+      lastBarDate: lastBar,
+      windowYears: 15,
+      firstHistoricalDate: ipoFirstFy,
+      historyStartDate: ipoFirstFy,
+      firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
+    });
+    assert.equal(y15.from, '2024-01-01');
+  });
+
+  it('does not pull a 5Y window back to the first FMP year on long history', () => {
+    const range = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 5,
+      firstHistoricalDate: firstFy5,
+      historyStartDate: '2005-09-24',
+      firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
+    });
+    assert.ok(range.from <= firstFy5, `from=${range.from} should include ${firstFy5}`);
+    assert.ok(range.from > '2018-01-01', `from=${range.from} should stay a 5Y window, not MAX`);
   });
 
   it('keeps 5Y price history when the first FCF point is late', () => {
@@ -1102,6 +1177,38 @@ describe('valuationChartRange', () => {
     assert.ok(fromIso <= '2018-01-07', `fromIdx date ${fromIso} should be ~2017–2018`);
     assert.ok(fromIso < '2021-01-01', `fromIdx date ${fromIso} must not be 2021`);
     assert.ok(toIso >= '2028-12-29', `toIdx date ${toIso} should include the 3y forecast tail`);
+  });
+
+  it('maps a short-history IPO onto recent bars, not a 20Y padded axis', () => {
+    const weekMs = 7 * 86_400_000;
+    const start = Date.parse('2006-01-06T00:00:00Z');
+    const end = Date.parse('2028-12-29T00:00:00Z');
+    const timesMs: number[] = [];
+    for (let t = start; t <= end; t += weekMs) timesMs.push(t);
+    const range = valuationChartRange({
+      firstBarDate: '2006-01-06',
+      lastBarDate: lastBar,
+      windowYears: null,
+      firstHistoricalDate: '2024-12-31',
+      historyStartDate: '2024-12-31',
+      firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
+    });
+    const logical = valuationChartLogicalRange(timesMs, range);
+    const fromIso = new Date(timesMs[logical.fromIdx]!).toISOString().slice(0, 10);
+    assert.ok(fromIso >= '2023-12-01', `IPO fromIdx date ${fromIso} must not be 2006`);
+    assert.ok(fromIso <= '2024-01-10', `IPO fromIdx date ${fromIso} should be the first FMP year`);
+    const long = valuationChartRange({
+      firstBarDate: firstBar,
+      lastBarDate: lastBar,
+      windowYears: 10,
+      firstHistoricalDate: '2015-12-31',
+      historyStartDate: '2005-09-24',
+      firstForecastDate: lastForecast,
+      lastForecastDate: lastForecast,
+    });
+    assert.ok(long.from < '2017-01-01', `long-history 10Y from=${long.from}`);
+    assert.ok(long.from > '2014-01-01', `long-history 10Y should not jump to 2005 FMP start`);
   });
 
   it('plots 8Y fair value from the first window year even when early EPS is a loss', () => {

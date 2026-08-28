@@ -346,6 +346,7 @@ export function ChartPage() {
       view === 'fundamentals' ? 'fundamentals' : 'ta',
       view === 'fundamentals' ? fund.windowYears : undefined,
       dcfSeriesForChart,
+      view === 'fundamentals' ? fund.historyStartDate : undefined,
     );
     destroyRef.current = mounted.destroy;
     setCrosshair('');
@@ -414,6 +415,7 @@ export function ChartPage() {
     dcfSeriesForChart,
     view,
     fund.windowYears,
+    fund.historyStartDate,
     fundTab,
   ]);
 
@@ -634,14 +636,9 @@ export function ChartPage() {
         ) : (
           <Chips
             value={fund.windowYears == null ? 'max' : String(fund.windowYears)}
-            options={[
-              'max',
-              ...Array.from({ length: 19 }, (_, i) => String(19 - i)),
-            ]}
+            options={fund.windowChipOptions}
             format={(id) => (id === 'max' ? 'MAX' : `${id}Y`)}
-            onChange={(id) =>
-              fund.setWindowYears(id === 'max' ? null : Number(id))
-            }
+            onChange={(id) => fund.setWindowYears(id === 'max' ? null : Number(id))}
           />
         )}
       </div>
