@@ -587,7 +587,9 @@ export function FundamentalsPanel({
           Historical Graph Key uses trailing metric CAGR on the selected 1Y / 3Y / 5Y / 8Y / 10Y /
           15Y / MAX window:
           8.5+2g when 0 ≤ growth &lt; 5%, 15× when growth is negative or 5–15% (or a short CAGR
-          span), else P/E = growth %. Default chart metric is Op. EPS (NOPAT / diluted shares).
+          span), else P/E = growth %. Long windows do not take P/E=G from a stub early base
+          when the 5Y path is still below 15% (CRM 10Y). Default chart metric is Op. EPS (NOPAT /
+          diluted shares).
           FCF/sh is the cash-flow companion; both plot FV, last value, and a 3y dashed overlay.
           GAAP diluted EPS stays internal (Value cards, Street estimates, ADR scale) and is not
           a Summary chip. For ADRs / foreign books (filing currency ≠ listing, e.g. NOK EUR vs

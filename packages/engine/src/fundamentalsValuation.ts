@@ -5,6 +5,11 @@
  *   GDF          — 0 ≤ growth < 5%     → P/E = 8.5 + 2g (classic Graham-Dodd)
  *   GDF…P/E=G    — growth < 0 or 5–15% → P/E = 15 (FG NOK uses 15× at −2.5%)
  *   P/E=G        — growth ≥ 15%        → P/E = growth % (Lynch PEG=1)
+ * P/E=G is not capped (AAPL Historical 25.67×). Long windows (8Y/10Y/15Y/MAX)
+ * still must not take Lynch from a stub early base: if window CAGR ≥ 15% but
+ * the core 5Y path is still < 15% (CRM 10Y +45.9% vs 5Y +12.2%), the orange
+ * box follows the 5Y regime. Same spirit as the LYFT span<2 guard. FG’s
+ * adjusted operating series does not have that stub; FMP NOPAT does.
  * The multiple is fixed for the whole window; each point is metric × that ratio.
  * Summary chart chips are Op. EPS (default) and FCF/sh. `operatingEps` is
  * NOPAT / diluted shares and overshoots FG on some years (AAPL FY25 8.87 vs
@@ -68,6 +73,8 @@ export const GRAHAM_DODD_GROWTH_COEF = 2;
 export const GRAHAM_DODD_PE_MIN = 1;
 /** Growth at/above this uses P/E = growth % (Lynch PEG=1). */
 export const LYNCH_GROWTH_MIN = 15;
+/** Core lookback that must also be Lynch before a longer window may use P/E=G. Same as the default 5Y chip. */
+export const ORANGE_BOX_CORE_YEARS = 5;
 /** Fixed fair-value multiple for the 5–15% GDF…P/E=G band. */
 export const FAIR_VALUE_PE = 15;
 /** @deprecated Use FAIR_VALUE_PE / LYNCH_GROWTH_MIN. Kept for callers. */
@@ -529,6 +536,37 @@ export function windowLookbackYears(windowYears: ValuationWindowYears): number {
   return windowYears != null && windowYears > 0 ? windowYears : 1000;
 }
 
+/**
+ * Orange-box trailing growth for the selected window.
+ *
+ * FAST Graphs does not cap P/E=G (AAPL 25.67×). It also does not award a 45×
+ * Lynch multiple to CRM 10Y: the long-window endpoint CAGR is inflated by a
+ * near-zero early base (NOPAT / GAAP stub), while the established 5Y path is
+ * still GDF…P/E=G (~12%). When the window is longer than 5Y, window CAGR is
+ * Lynch, and the core 5Y CAGR is not, follow the 5Y rate for the orange box
+ * and the 3y overlay. 5Y / 3Y / 1Y are unchanged. Forecasting overrides skip
+ * this (Street-to-Street).
+ */
+export function orangeBoxTrailingGrowth(
+  points: AnnualFundamentalPoint[],
+  metric: ValuationMetric,
+  windowYears: ValuationWindowYears,
+): TrailingCagrResult {
+  const lookback = windowLookbackYears(windowYears);
+  const windowed = trailingMetricCagrDetail(points, metric, lookback);
+  const selected = windowYears != null && windowYears > 0 ? windowYears : lookback;
+  if (selected <= ORANGE_BOX_CORE_YEARS) return windowed;
+  const core = trailingMetricCagrDetail(points, metric, ORANGE_BOX_CORE_YEARS);
+  const windowLynch =
+    windowed.growthPct != null &&
+    finite(windowed.growthPct) &&
+    windowed.growthPct >= LYNCH_GROWTH_MIN;
+  const coreNotLynch =
+    core.growthPct != null && finite(core.growthPct) && core.growthPct < LYNCH_GROWTH_MIN;
+  if (windowLynch && coreNotLynch) return core;
+  return windowed;
+}
+
 /** Classic Graham-Dodd: 8.5 + 2g, floored so declining names stay plottable. */
 export function grahamDoddMultiple(growthPct: number): number {
   const pe = GRAHAM_DODD_CONSTANT + GRAHAM_DODD_GROWTH_COEF * growthPct;
@@ -616,7 +654,8 @@ export type FairValueRatioOpts = {
  *   g ≥ 15%          → P/E = g (P/E=G / Lynch)
  * When `windowYears` / `spanYears` are supplied: Lynch is blocked if the window
  * is not 1Y and the CAGR span is shorter than 2 years (IPO / GAAP turnaround
- * like LYFT 0.06→6.81) — still draw FV at 15×.
+ * like LYFT 0.06→6.81) — still draw FV at 15×. Long-window stub bases (CRM 10Y
+ * vs 5Y) are handled in `orangeBoxTrailingGrowth`, not by capping P/E=G here.
  */
 export function fairValueRatioFromGrowth(
   growthPct: number | null,
@@ -830,11 +869,7 @@ export function buildValuationSeries(
       ? { multiple: opts.normalMultiple, source: 'median_pe' as const }
       : computeNormalMultiple(sorted, metric);
 
-  const trailing = trailingMetricCagrDetail(
-    sorted,
-    metric,
-    windowLookbackYears(windowYears),
-  );
+  const trailing = orangeBoxTrailingGrowth(sorted, metric, windowYears);
   const useOverride = opts.growthRatePct !== undefined;
   const growthSource: 'trailing' | 'forward' = useOverride
     ? (opts.growthSource ?? 'trailing')
