@@ -6,18 +6,38 @@
  *   GDF…P/E=G    — growth < 0 or 5–15% → P/E = 15 (FG NOK uses 15× at −2.5%)
  *   P/E=G        — growth ≥ 15%        → P/E = growth % (Lynch PEG=1)
  * The multiple is fixed for the whole window; each point is metric × that ratio.
- * Default EPS is FMP GAAP diluted for same-currency US names — live FMP vs FG
- * matches “Adjusted (Operating) Earnings” in most AAPL/MSFT years. For ADRs /
- * foreign books (`reportedCurrency !== listingCurrency`), default `eps` is FMP
- * historical consensus in listing units (Street operating proxy). `gaapEps`
- * stays FX-scaled GAAP. `operatingEps` (NOPAT / shares) is a secondary series
- * and overshoots FG (AAPL FY25 8.87 vs 7.46). FMP has no FactSet operating EPS.
+ * Summary chart chips are Op. EPS (default) and FCF/sh. `operatingEps` is
+ * NOPAT / diluted shares and overshoots FG on some years (AAPL FY25 8.87 vs
+ * 7.46). Internal `eps` stays FMP GAAP diluted for same-currency US names
+ * (Value cards, Street, ADR scale) and FMP historical consensus in listing
+ * units for foreign books. `gaapEps` stays FX-scaled GAAP. FMP has no FactSet
+ * operating EPS.
  * Historical orange-box growth is trailing in the selected window.
  * Forecasting uses a separate Street-to-Street CAGR and can flip the rule.
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
  */
 
-export type ValuationMetric = 'eps' | 'operatingEps' | 'revenue' | 'fcf' | 'ownerEarnings';
+export type ValuationMetric = 'eps' | 'operatingEps' | 'fcf';
+/** User-selectable Fundamentals Summary / Forecasting chips. */
+export const CHART_VALUATION_METRICS = ['operatingEps', 'fcf'] as const;
+export type ChartValuationMetric = (typeof CHART_VALUATION_METRICS)[number];
+export const DEFAULT_CHART_VALUATION_METRIC: ChartValuationMetric = 'operatingEps';
+
+/** Map a persisted / query metric onto a chip. Removed chips (EPS, Sales/sh, Owner earn.) → Op. EPS. */
+export function coerceChartValuationMetric(
+  metric: string | null | undefined,
+): ChartValuationMetric {
+  return metric === 'fcf' ? 'fcf' : DEFAULT_CHART_VALUATION_METRIC;
+}
+
+/**
+ * API / engine metric. `eps` stays valid internally (Value cards, Street, ADR).
+ * Unknown and removed chart chips coerce to Op. EPS — not leftover GAAP FV.
+ */
+export function coerceValuationMetric(metric: string | null | undefined): ValuationMetric {
+  if (metric === 'eps' || metric === 'operatingEps' || metric === 'fcf') return metric;
+  return DEFAULT_CHART_VALUATION_METRIC;
+}
 
 /** FAST Graphs orange-box labels: GDF / GDF…P/E=G / P/E=G. */
 export type FairValueRule = 'gdf' | 'gdf_pe_g' | 'pe_g' | 'none';
@@ -190,12 +210,8 @@ export function pickMetric(point: AnnualFundamentalPoint, metric: ValuationMetri
     case 'operatingEps':
       if (finite(point.operatingEps)) return point.operatingEps;
       return finite(point.eps) ? point.eps : null;
-    case 'revenue':
-      return finite(point.revenuePerShare) ? point.revenuePerShare : null;
     case 'fcf':
       return finite(point.fcfPerShare) ? point.fcfPerShare : null;
-    case 'ownerEarnings':
-      return finite(point.ownerEarningsPerShare) ? point.ownerEarningsPerShare : null;
     default:
       return null;
   }
@@ -203,7 +219,7 @@ export function pickMetric(point: AnnualFundamentalPoint, metric: ValuationMetri
 
 /**
  * Normal multiple: median of historical price/metric for years with positive metric.
- * Falls back to 15 for EPS-like metrics and 3 for sales (P/S-style).
+ * Falls back to 15 when the window has no usable price/metric ratios.
  */
 export function computeNormalMultiple(
   points: AnnualFundamentalPoint[],
@@ -219,8 +235,7 @@ export function computeNormalMultiple(
   }
   const med = median(ratios);
   if (med != null && med > 0) return { multiple: roundMultiple(med), source: 'median_pe' };
-  const fallback = metric === 'revenue' ? 3 : 15;
-  return { multiple: fallback, source: 'fallback' };
+  return { multiple: 15, source: 'fallback' };
 }
 
 /** 1 decimal at ≥1× so 6.29 → 6.3; extra digits below 1 so 0.28 does not become 0.0. */
@@ -939,8 +954,8 @@ export function growthOverrideFromSummary(
 
 /**
  * Project the selected metric forward at `growthPct`: metric_t = last × (1+g)^Δt.
- * Used when FMP has no Street estimates for that metric (FCF, Sales, Owner
- * Earnings, Op. EPS) so the dashed FV stays in that metric's dollars.
+ * Used when FMP has no Street estimates for that metric (FCF, Op. EPS) so the
+ * dashed FV stays in that metric's dollars.
  */
 export function projectMetricByGrowth(opts: {
   lastMetric: number | null | undefined;
@@ -975,9 +990,8 @@ export function projectMetricByGrowth(opts: {
 
 /**
  * Chart series whose last fair-value point equals `summary.fairValue`.
- * Historical years stay `metric × ratio`. When `pinToday` is true (Sales /
- * Owner Earnings), a today-point is added so the solid line reaches today.
- * EPS / FCF pass `pinToday: false` and then `appendNextQuarterEstimate`.
+ * Historical years stay `metric × ratio`. Remaining chart metrics (Op. EPS /
+ * FCF) pass `pinToday: false` and then `appendNextQuarterEstimate`.
  */
 export function seriesForFairValueChart(
   series: ValuationSeriesPoint[],
@@ -1300,12 +1314,7 @@ export function appendForwardFairValue(
   return out;
 }
 
-/** Intra-year TTM steps + next-print dash. Sales / Owner Earnings pin a today-point instead. */
-export function pinsFairValueToday(metric: ValuationMetric): boolean {
-  return metric !== 'eps' && metric !== 'operatingEps' && metric !== 'fcf';
-}
-
-/** Street analyst years exist for GAAP/consensus EPS. Other chips project the metric. */
+/** Street analyst years exist for the internal GAAP/consensus EPS series. Chart chips project. */
 export function usesStreetForwardEstimates(metric: ValuationMetric): boolean {
   return metric === 'eps';
 }
@@ -1371,12 +1380,11 @@ export type FairValueChartInput = {
 
 /**
  * Chart series for one Summary / Forecasting metric: historical FV + Normal P/E,
- * current (TTM or today-pin) value, and the dashed 3y overlay.
+ * current (TTM / next-print) value, and the dashed 3y overlay.
  */
 export function buildFairValueChartSeries(input: FairValueChartInput): ValuationSeriesPoint[] {
   const asOfIso = input.asOfIso ?? new Date().toISOString().slice(0, 10);
   const horizonYears = input.horizonYears ?? FORWARD_FAIR_VALUE_YEARS;
-  const pinToday = pinsFairValueToday(input.metric);
   const withQuarters = input.quarters?.length
     ? appendIntraYearTtmSteps(
         input.series,
@@ -1386,7 +1394,9 @@ export function buildFairValueChartSeries(input: FairValueChartInput): Valuation
         input.summary.normalMultiple,
       )
     : input.series;
-  const historical = seriesForFairValueChart(withQuarters, input.summary, asOfIso, { pinToday });
+  const historical = seriesForFairValueChart(withQuarters, input.summary, asOfIso, {
+    pinToday: false,
+  });
   const lastHist = [...historical].reverse().find((p) => !p.estimated && !p.forecast);
   const estimates = chartEstimatesForMetric(input.metric, {
     lastMetric: input.summary.fairValueAnchor ?? lastHist?.metric ?? null,
@@ -1394,15 +1404,13 @@ export function buildFairValueChartSeries(input: FairValueChartInput): Valuation
     growthPct: input.summary.growthRatePct,
     estimates: input.estimates ?? [],
   });
-  const towardNextPrint = pinToday
-    ? historical
-    : appendNextQuarterEstimate(
-        historical,
-        input.nextEarningsDate,
-        estimates,
-        input.summary.fairValueRatio,
-        input.summary.normalMultiple,
-      );
+  const towardNextPrint = appendNextQuarterEstimate(
+    historical,
+    input.nextEarningsDate,
+    estimates,
+    input.summary.fairValueRatio,
+    input.summary.normalMultiple,
+  );
   return appendForwardFairValue(
     towardNextPrint,
     estimates,

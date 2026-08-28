@@ -11,6 +11,7 @@ import {
   compareValueRows,
   closeOnOrBefore,
   completeFiscalYears,
+  coerceValuationMetric,
   DEFAULT_VALUATION_WINDOW,
   estimateChainChgPct,
   forwardMetricCagr,
@@ -85,7 +86,6 @@ const DCF_TTL_MS = 60 * 60 * 1000;
 const FAIL_TTL_MS = 30 * 60 * 1000;
 const WARM_GAP_MS = 250;
 const WARM_QUEUE_CAP = 300;
-const METRICS: ValuationMetric[] = ['eps', 'operatingEps', 'revenue', 'fcf', 'ownerEarnings'];
 const CARD_BATCH_LIMIT = 150;
 const CARD_CONCURRENCY = 5;
 
@@ -501,7 +501,7 @@ function asPctPoints(n: number | null | undefined): number | null {
  * Estimates are for Forecasting only. Historical orange-box growth is trailing.
  */
 function forwardFor(metric: ValuationMetric, estimates: EstimateRow[]): ForwardMetricPoint[] {
-  if (metric !== 'eps' && metric !== 'operatingEps') return [];
+  if (metric !== 'eps') return [];
   return estimates.map((e) => ({ year: e.year, metric: e.eps }));
 }
 
@@ -804,7 +804,7 @@ export class FundamentalsService {
    * unless the user opened a chart — then we fill that one name live.
    */
   async get(yahooTicker: string, metric: ValuationMetric = 'eps'): Promise<FundamentalsPayload> {
-    if (!METRICS.includes(metric)) metric = 'eps';
+    metric = coerceValuationMetric(metric);
     const ticker = yahooTicker.toUpperCase();
     const cacheKey = `${ticker}|${metric}`;
     const hit = this.cache.get(cacheKey);
@@ -814,16 +814,16 @@ export class FundamentalsService {
 
     const stored = await this.loadStored(ticker);
     if (stored && this.payloadUsable(stored)) {
+      this.remember(ticker, stored);
       const payload = this.payloadForMetric(stored, metric);
-      this.remember(ticker, payload);
       return { ...payload, cached: true };
     }
 
     try {
       this.log.log(`Live-filling fundamentals for ${ticker} (not in Mongo or scale stale)`);
-      const payload = await this.fetchFresh(ticker, metric);
+      const payload = await this.fetchFresh(ticker);
       await this.persist(ticker, payload, 'full');
-      return payload;
+      return this.payloadForMetric(payload, metric);
     } catch (err) {
       if (!this.fmp.configured()) {
         throw new ServiceUnavailableException(
@@ -1567,7 +1567,7 @@ export class FundamentalsService {
   async refreshFull(yahooTicker: string): Promise<boolean> {
     const ticker = yahooTicker.toUpperCase();
     try {
-      const payload = await this.fetchFresh(ticker, 'eps');
+      const payload = await this.fetchFresh(ticker);
       await this.persist(ticker, payload, 'full');
       return true;
     } catch (err) {
@@ -2045,10 +2045,7 @@ export class FundamentalsService {
     return appendForwardFairValue(series, estimates, fairValueRatio);
   }
 
-  private async fetchFresh(
-    yahooTicker: string,
-    metric: ValuationMetric,
-  ): Promise<FundamentalsPayload> {
+  private async fetchFresh(yahooTicker: string): Promise<FundamentalsPayload> {
     const fmpSymbol = await this.fmp.resolveFmpSymbol(yahooTicker);
     const instrument = await this.universe.findOne(yahooTicker);
 
@@ -2197,8 +2194,8 @@ export class FundamentalsService {
     const price = profile.price ?? annual[annual.length - 1]?.price ?? null;
 
     // Estimates are parsed before the valuation because they drive the FG-style growth rate and
-    // the fair value anchor. Only EPS has forward data — revenue/FCF per share fall back to
-    // trailing growth.
+    // the fair value anchor. Only the internal EPS series has Street forward data — FCF / Op. EPS
+    // fall back to trailing growth.
     const lastHistYear = annual[annual.length - 1]?.year ?? 0;
     const estimateParsed: EstimateRow[] = estimatesRaw
       .map((row) => {
@@ -2284,25 +2281,11 @@ export class FundamentalsService {
       quarters.map((q) => ({ date: q.date, metric: q.fcfPerShare })),
     ).ttm;
 
-    const epsValuation =
-      metric === 'fcf'
-        ? buildValuationSeries(annual, 'eps', {
-            currentPrice: price,
-            windowYears: DEFAULT_VALUATION_WINDOW,
-            forward: forwardFor('eps', estimateParsed),
-            ttmMetric: ttmEps,
-          })
-        : null;
-    const valuation = buildValuationSeries(annual, metric, {
+    const valuation = buildValuationSeries(annual, 'eps', {
       currentPrice: price,
       windowYears: DEFAULT_VALUATION_WINDOW,
-      forward: forwardFor(metric, estimateParsed),
-      ttmMetric: ttmMetricFor(metric, {
-        ttmEps,
-        ttmOperatingEps,
-        ttmFcf,
-      }),
-      ...(metric === 'fcf' ? growthOverrideFromSummary(epsValuation?.summary) : {}),
+      forward: forwardFor('eps', estimateParsed),
+      ttmMetric: ttmEps,
     });
 
     const pbTTM = fmpNum(ratiosTtm?.priceToBookRatioTTM) ?? fmpNum(keyTtm?.pbRatioTTM);
@@ -2386,7 +2369,7 @@ export class FundamentalsService {
       });
 
     const nextEarningsDate = pickNextEarningsDate(earningsRows);
-    const forecastSeries = fairValueChartFrom(metric, valuation, {
+    const forecastSeries = fairValueChartFrom('eps', valuation, {
       quarters,
       estimates: estimateParsed,
       nextEarningsDate,

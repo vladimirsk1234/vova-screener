@@ -11,7 +11,7 @@ import {
   pickMetric,
   sliceToWindow,
   yoyChgPct,
-  type ValuationMetric,
+  type ChartValuationMetric,
   type ValuationSummary,
   type ValuationWindowYears,
 } from '@vova/engine';
@@ -32,20 +32,14 @@ import {
 } from '../lib/dcfChart';
 import { Chips } from '../components/Chips';
 
-const METRICS = [
-  { id: 'eps' as const, label: 'EPS' },
-  { id: 'operatingEps' as const, label: 'Op. EPS' },
-  { id: 'revenue' as const, label: 'Sales/sh' },
-  { id: 'fcf' as const, label: 'FCF/sh' },
-  { id: 'ownerEarnings' as const, label: 'Owner earn.' },
+const METRICS: { id: ChartValuationMetric; label: string }[] = [
+  { id: 'operatingEps', label: 'Op. EPS' },
+  { id: 'fcf', label: 'FCF/sh' },
 ];
 
-const METRIC_TABLE_LABEL: Record<ValuationMetric, string> = {
-  eps: 'EPS',
+const METRIC_TABLE_LABEL: Record<ChartValuationMetric, string> = {
   operatingEps: 'Op. EPS',
-  revenue: 'Sales/sh',
   fcf: 'FCF/sh',
-  ownerEarnings: 'Owner earn.',
 };
 
 export const FUND_TABS = ['summary', 'forecasting', 'dcf', 'performance', 'profile'] as const;
@@ -87,6 +81,17 @@ function multiple(n: number | null | undefined) {
   if (n == null || !Number.isFinite(n)) return '—';
   const digits = n >= 1 ? 1 : n >= 0.1 ? 2 : 3;
   return n.toFixed(digits);
+}
+
+function selectedTtm(
+  metric: ChartValuationMetric,
+  snap:
+    | { ttmEps: number | null; ttmOperatingEps?: number | null; ttmFcf?: number | null }
+    | undefined,
+): number | null {
+  if (!snap) return null;
+  if (metric === 'fcf') return snap.ttmFcf ?? null;
+  return snap.ttmOperatingEps ?? null;
 }
 
 function compact(n: number | null | undefined) {
@@ -153,8 +158,8 @@ export function FundamentalsPanel({
   onDcfChartSeries,
 }: {
   ticker: string;
-  metric: ValuationMetric;
-  setMetric: (metric: ValuationMetric) => void;
+  metric: ChartValuationMetric;
+  setMetric: (metric: ChartValuationMetric) => void;
   windowYears: ValuationWindowYears;
   fundQ: UseQueryResult<FundamentalsPayload>;
   valuation: { summary: ValuationSummary } | null;
@@ -210,6 +215,7 @@ export function FundamentalsPanel({
   const snap = fundQ.data?.snapshot;
   const profile = fundQ.data?.profile;
   const summary = valuation?.summary;
+  const forecastTtm = selectedTtm(metric, snap);
   const divStreak = useMemo(
     () => dividendStreak(fundQ.data?.annual ?? []),
     [fundQ.data?.annual],
@@ -269,6 +275,15 @@ export function FundamentalsPanel({
         </p>
       ) : null}
 
+      {tab === 'summary' || tab === 'forecasting' ? (
+        <Chips
+          value={metric}
+          options={METRICS.map((m) => m.id)}
+          format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
+          onChange={setMetric}
+        />
+      ) : null}
+
       {tab === 'forecasting' ? (
         <>
           <section className="fund-hero">
@@ -317,13 +332,6 @@ export function FundamentalsPanel({
 
       {tab === 'summary' ? (
         <>
-          <Chips
-            value={metric}
-            options={METRICS.map((m) => m.id)}
-            format={(id) => METRICS.find((m) => m.id === id)?.label ?? id}
-            onChange={setMetric}
-          />
-
           {snap ? (
             <div className="fund-layout">
               <aside className="fund-sidebar">
@@ -392,8 +400,8 @@ export function FundamentalsPanel({
             <Metric
               label="Fair Value $"
               value={money(
-                snap.ttmEps != null && forecast?.fairValueRatio != null
-                  ? snap.ttmEps * forecast.fairValueRatio
+                forecastTtm != null && forecast?.fairValueRatio != null
+                  ? forecastTtm * forecast.fairValueRatio
                   : summary?.fairValue,
               )}
             />
@@ -579,23 +587,22 @@ export function FundamentalsPanel({
           Historical Graph Key uses trailing metric CAGR on the selected 1Y / 3Y / 5Y / 8Y / 10Y /
           15Y / MAX window:
           8.5+2g when 0 ≤ growth &lt; 5%, 15× when growth is negative or 5–15% (or a short CAGR
-          span), else P/E = growth %. Default EPS is FMP GAAP diluted for same-currency US names
-          — live FMP vs FG (26 Aug 2026) matches AAPL operating EPS in most years (FY25 7.46 =
-          7.46); NOPAT / shares (Op. EPS chip) overshoots (AAPL FY25 8.87). For ADRs / foreign
-          books (filing currency ≠ listing, e.g. NOK EUR vs NYSE USD) the orange EPS line uses
-          FMP historical consensus (epsAvg) in listing units as an operating-earnings proxy;
-          FX-scaled GAAP stays on gaapEps. Street estimates are already listing-currency and are
-          not FX-converted again. 1 NOK ADR = 1 Helsinki share. Forecasting uses a separate
-          Street-to-Street CAGR and can flip the rule (AAPL Historical 25.67× vs Forecasting
-          15×). Est. ROR = (future price / today)^(1/horizon)
+          span), else P/E = growth %. Default chart metric is Op. EPS (NOPAT / diluted shares).
+          FCF/sh is the cash-flow companion; both plot FV, last value, and a 3y dashed overlay.
+          GAAP diluted EPS stays internal (Value cards, Street estimates, ADR scale) and is not
+          a Summary chip. For ADRs / foreign books (filing currency ≠ listing, e.g. NOK EUR vs
+          NYSE USD) that internal EPS line uses FMP historical consensus (epsAvg) in listing
+          units; FX-scaled GAAP stays on gaapEps. Street estimates are already listing-currency
+          and are not FX-converted again. 1 NOK ADR = 1 Helsinki share. Forecasting uses a
+          separate Street-to-Street CAGR and can flip the rule (AAPL Historical 25.67× vs
+          Forecasting 15×). Est. ROR = (future price / today)^(1/horizon)
           − 1 + dividend yield. First estimate % Chg is blank so history and Street are not mixed.
-          FCF / Sales / Owner earn. keep trailing growth. Owner earn. reads FMP
-          <code> ownersEarningsPerShare</code>. Dividends are summed on the fiscal year
-          (FG DPS), not the calendar year; streak / Div CAGR come from that series.
-          Normal P/E uses the last close on or before each FY-end. Value cards persist the
-          same 5Y default-EPS valuation as the Summary window. Snapshot DCF is FMP&apos;s
-          simple headline; the DCF tab is Custom DCF. FMP has no FactSet-adjusted operating
-          series, FG score, or S&amp;P credit rating.
+          FCF/sh keeps trailing growth (borrowed from the internal EPS orange box). Dividends are
+          summed on the fiscal year (FG DPS), not the calendar year; streak / Div CAGR come from
+          that series. Normal P/E uses the last close on or before each FY-end. Value cards
+          persist the same 5Y GAAP/Street EPS valuation. Snapshot DCF is FMP&apos;s simple
+          headline; the DCF tab is Custom DCF. FMP has no FactSet-adjusted operating series, FG
+          score, or S&amp;P credit rating.
           {snap?.ttmAsOf ? ` TTM through ${snap.ttmAsOf}.` : ''}
           {fundQ.data?.cached ? ' · cached' : ''}
         </p>
@@ -1082,9 +1089,9 @@ function PerformanceTab({
           </table>
         </div>
         <p className="muted small">
-          Price vs SPY from Yahoo bars. EPS CAGR uses the default EPS series (FMP GAAP diluted
-          for same-currency US names; FMP Street consensus for ADR / foreign books). No SPY EPS
-          line.
+          Price vs SPY from Yahoo bars. EPS CAGR uses the internal GAAP/Street EPS series (FMP
+          GAAP diluted for same-currency US names; FMP Street consensus for ADR / foreign
+          books). No SPY EPS line.
         </p>
       </section>
       {years.length ? (
