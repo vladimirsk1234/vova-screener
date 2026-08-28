@@ -23,6 +23,7 @@ import {
   estimateChainChgPct,
   fiscalYearForDate,
   forecastGrowthFromEstimates,
+  orangeBoxTrailingGrowth,
   ownerEarningsPerShareFromRow,
   sumDividendsByFiscalYear,
   closeOnOrBefore,
@@ -512,6 +513,151 @@ describe('valuation windows', () => {
     );
     assert.ok(five.summary.growthRatePct != null && ten.summary.growthRatePct != null);
     assert.ok(five.summary.growthRatePct > ten.summary.growthRatePct);
+  });
+
+  /**
+   * CRM (Aug 2026): 10Y endpoint CAGR +45.9% → P/E=G 45.9×, FV 771 vs price 252,
+   * 3y tail off the chart toward 1800+. 5Y +12.2% stays GDF…P/E=G 15×, FV ≈ price.
+   * FG 10Y Adjusted Operating does not explode — the 10Y stub base must not set
+   * the orange box. P/E=G itself stays unbounded (AAPL 25.67×).
+   */
+  function crmLikeOpEpsHistory(): AnnualFundamentalPoint[] {
+    const price = 252;
+    const rows: Array<[number, number]> = [
+      [2011, 0.13],
+      [2012, -0.2],
+      [2013, -0.4],
+      [2014, -0.3],
+      [2015, -0.15],
+      [2016, 0.419],
+      [2017, 0.55],
+      [2018, 0.72],
+      [2019, 1.1],
+      [2020, 2.4],
+      [2021, 9.44],
+      [2022, 10.59],
+      [2023, 11.88],
+      [2024, 13.33],
+      [2025, 14.96],
+      [2026, 16.79],
+    ];
+    return rows.map(([year, op]) => ({
+      ...fy(year, op, price),
+      date: `${year}-01-31`,
+      operatingEps: op,
+    }));
+  }
+
+  it('CRM-like 10Y stub CAGR must not produce a 45.9× FV ~3× price or a 3y tail off the chart', () => {
+    const hist = crmLikeOpEpsHistory();
+    const price = 252;
+    const ttm = 16.79;
+    const windowed10 = sliceToWindow(hist, 10);
+    const raw10 = trailingMetricCagr(windowed10, 'operatingEps', 10);
+    assert.ok(raw10 != null && raw10 > 40 && raw10 < 50, `raw 10Y CAGR=${raw10}`);
+    const explodedRatio = fairValueRatioFromGrowth(raw10);
+    assert.equal(explodedRatio.rule, 'pe_g');
+    assert.ok(explodedRatio.ratio != null && explodedRatio.ratio > 40);
+    const explodedFv = ttm * explodedRatio.ratio;
+    assert.ok(explodedFv > price * 2.8 && explodedFv < price * 3.3, `exploded fv=${explodedFv}`);
+
+    const five = buildValuationSeries(hist, 'operatingEps', {
+      currentPrice: price,
+      windowYears: 5,
+      ttmMetric: ttm,
+    });
+    assert.ok(five.summary.growthRatePct != null);
+    assert.ok(
+      five.summary.growthRatePct > 11 && five.summary.growthRatePct < 14,
+      `5Y g=${five.summary.growthRatePct}`,
+    );
+    assert.equal(five.summary.fairValueRule, 'gdf_pe_g');
+    assert.equal(five.summary.fairValueRatio, 15);
+    assert.ok(five.summary.fairValue != null);
+    assert.ok(Math.abs(five.summary.fairValue - ttm * 15) < 1e-6);
+    assert.ok(Math.abs(five.summary.fairValue - 251.85) < 0.05);
+    assert.ok(Math.abs(five.summary.fairValue - price) < 1);
+
+    const ten = buildValuationSeries(hist, 'operatingEps', {
+      currentPrice: price,
+      windowYears: 10,
+      ttmMetric: ttm,
+    });
+    const orange10 = orangeBoxTrailingGrowth(windowed10, 'operatingEps', 10);
+    assert.ok(orange10.growthPct != null);
+    assert.ok(Math.abs(orange10.growthPct - five.summary.growthRatePct!) < 1e-9);
+    assert.ok(ten.summary.growthRatePct != null);
+    assert.ok(Math.abs(ten.summary.growthRatePct - five.summary.growthRatePct!) < 1e-9);
+    assert.equal(ten.summary.fairValueRule, 'gdf_pe_g');
+    assert.equal(ten.summary.fairValueRatio, 15);
+    assert.ok(ten.summary.fairValue != null);
+    assert.ok(Math.abs(ten.summary.fairValue - ttm * 15) < 1e-6);
+    assert.ok(ten.summary.fairValue < price * 1.2, `10Y fv=${ten.summary.fairValue} must not be ~3× price`);
+    assert.ok(ten.summary.fairValueRatio < 20);
+    assert.notEqual(ten.summary.fairValueRatio, explodedRatio.ratio);
+
+    const chart = buildFairValueChartSeries({
+      series: ten.series,
+      summary: ten.summary,
+      metric: 'operatingEps',
+      estimates: [
+        { year: 2027, date: '2027-01-31' },
+        { year: 2028, date: '2028-01-31' },
+        { year: 2029, date: '2029-01-31' },
+      ],
+      asOfIso: '2026-08-16',
+    });
+    const tail = chart.filter((p) => p.forecast).map((p) => p.fairValue ?? 0);
+    assert.ok(tail.length >= 3, `forecast count=${tail.length}`);
+    const maxTail = Math.max(...tail);
+    const explodedTail = ttm * Math.pow(1 + raw10 / 100, 3) * explodedRatio.ratio!;
+    assert.ok(explodedTail > 1800, `pre-fix 3y tail would be ${explodedTail}`);
+    assert.ok(maxTail < 1000, `3y tail ${maxTail} must stay on a FG-like 0–1000 axis`);
+    assert.ok(maxTail < price * 2, `3y tail ${maxTail} must not shoot off vs price ${price}`);
+    assert.ok(maxTail > five.summary.fairValue!, '3y overlay still slopes up');
+
+    for (const w of [8, 15, null] as const) {
+      const long = buildValuationSeries(hist, 'operatingEps', {
+        currentPrice: price,
+        windowYears: w,
+        ttmMetric: ttm,
+      });
+      assert.equal(long.summary.fairValueRule, 'gdf_pe_g', `window=${w}`);
+      assert.equal(long.summary.fairValueRatio, 15, `window=${w}`);
+      assert.ok(
+        long.summary.fairValue != null && Math.abs(long.summary.fairValue - ttm * 15) < 1e-6,
+        `window=${w} fv=${long.summary.fairValue}`,
+      );
+    }
+  });
+
+  it('still uses unbounded P/E=G on a long window when the 5Y path is also Lynch', () => {
+    const hist = Array.from({ length: 11 }, (_, i) => {
+      const year = 2015 + i;
+      const eps = 2 * Math.pow(1.2, i);
+      return { ...fy(year, eps, eps * 22), operatingEps: eps };
+    });
+    const last = hist[hist.length - 1]!;
+    const ten = buildValuationSeries(hist, 'operatingEps', {
+      currentPrice: last.price,
+      windowYears: 10,
+      ttmMetric: last.operatingEps,
+    });
+    const five = buildValuationSeries(hist, 'operatingEps', {
+      currentPrice: last.price,
+      windowYears: 5,
+      ttmMetric: last.operatingEps,
+    });
+    assert.ok(five.summary.growthRatePct != null && five.summary.growthRatePct >= 15);
+    assert.equal(five.summary.fairValueRule, 'pe_g');
+    assert.equal(ten.summary.fairValueRule, 'pe_g');
+    assert.ok(ten.summary.fairValueRatio != null && ten.summary.fairValueRatio >= 15);
+    assert.ok(Math.abs((ten.summary.growthRatePct ?? 0) - 20) < 0.05);
+    assert.ok(
+      ten.summary.fairValueRatio != null &&
+        Math.abs(ten.summary.fairValueRatio - Math.round((ten.summary.growthRatePct as number) * 100) / 100) <
+          1e-9,
+    );
   });
 
   it('pins the last chart point to the headline fair value', () => {
