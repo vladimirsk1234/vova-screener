@@ -4,6 +4,7 @@ import {
   appendForwardFairValue,
   appendIntraYearTtmSteps,
   appendNextQuarterEstimate,
+  buildFairValueChartSeries,
   buildValuationSeries,
   cagrPct,
   fairValueFromEstimate,
@@ -1634,3 +1635,135 @@ describe('NOK-like ADR / foreign filing (EUR GAAP + USD Street)', () => {
     assert.ok((broken.summary.fairValue ?? 0) < 3, `gaap-only fv=${broken.summary.fairValue}`);
   });
 });
+
+/** Distinct per-share series so leftover EPS FV is obvious. */
+function multiMetricHistory(): AnnualFundamentalPoint[] {
+  const rows: Array<[number, number, number, number, number, number, number]> = [
+    [2020, 2.0, 2.4, 10, 1.5, 1.8, 40],
+    [2021, 2.4, 2.9, 12, 1.8, 2.1, 50],
+    [2022, 3.0, 3.6, 15, 2.2, 2.6, 62],
+    [2023, 3.6, 4.4, 18, 2.8, 3.2, 75],
+    [2024, 4.3, 5.2, 21, 3.4, 3.8, 88],
+    [2025, 5.0, 6.0, 25, 4.0, 4.5, 100],
+  ];
+  return rows.map(([year, eps, operatingEps, sales, fcf, owner, price]) => ({
+    ...fy(year, eps, price),
+    operatingEps,
+    revenuePerShare: sales,
+    fcfPerShare: fcf,
+    ownerEarningsPerShare: owner,
+  }));
+}
+
+describe('buildFairValueChartSeries per Summary metric', () => {
+  const asOf = '2026-08-16';
+  const street = [
+    { year: 2026, date: '2026-12-31', eps: 8 },
+    { year: 2027, date: '2027-12-31', eps: 9 },
+    { year: 2028, date: '2028-12-31', eps: 10 },
+  ];
+
+  function chartFor(
+    metric: 'eps' | 'operatingEps' | 'revenue' | 'fcf' | 'ownerEarnings',
+    opts: { ttmMetric?: number | null; growthRatePct?: number | null; growthSource?: 'trailing' | 'forward' } = {},
+  ) {
+    const hist = multiMetricHistory();
+    const valuation = buildValuationSeries(hist, metric, {
+      currentPrice: 100,
+      windowYears: 5,
+      ttmMetric: opts.ttmMetric,
+      growthRatePct: opts.growthRatePct,
+      growthSource: opts.growthSource,
+    });
+    const series = buildFairValueChartSeries({
+      series: valuation.series,
+      summary: valuation.summary,
+      metric,
+      estimates: street,
+      asOfIso: asOf,
+    });
+    return { valuation, series };
+  }
+
+  it('Sales/sh plots sales FV, current price, and 3y in sales dollars — not leftover EPS', () => {
+    const eps = chartFor('eps', { ttmMetric: 5 });
+    const sales = chartFor('revenue');
+    const lastFy = sales.series.find((p) => p.year === 2025 && !p.forecast && !p.estimated);
+    assert.ok(sales.valuation.summary.fairValueRatio);
+    assert.equal(lastFy?.fairValue, 25 * sales.valuation.summary.fairValueRatio);
+    assert.notEqual(lastFy?.fairValue, 5 * (eps.valuation.summary.fairValueRatio as number));
+    const today = sales.series.find((p) => p.date === asOf && p.estimated && !p.forecast);
+    assert.ok(today);
+    assert.equal(today.price, 100);
+    assert.equal(today.fairValue, sales.valuation.summary.fairValue);
+    assert.ok(today.normalValue != null && today.normalValue > 0);
+    const fwd = sales.series.filter((p) => p.forecast);
+    assert.ok(fwd.length >= 3, `sales forecast count=${fwd.length}`);
+    const y2026 = fwd.find((p) => p.year === 2026);
+    const g = sales.valuation.summary.growthRatePct as number;
+    const expectedMetric = 25 * Math.pow(1 + g / 100, 1);
+    assert.ok(y2026?.metric != null);
+    assert.ok(Math.abs(y2026.metric - expectedMetric) < 1e-6);
+    assert.notEqual(y2026.metric, 8);
+    assert.equal(y2026.fairValue, expectedMetric * (sales.valuation.summary.fairValueRatio as number));
+    assert.ok(y2026.normalValue != null);
+  });
+
+  it('Owner earn. plots owner-earnings FV and 3y, not EPS × ratio', () => {
+    const eps = chartFor('eps', { ttmMetric: 5 });
+    const owner = chartFor('ownerEarnings');
+    const lastFy = owner.series.find((p) => p.year === 2025 && !p.forecast && !p.estimated);
+    assert.ok(owner.valuation.summary.fairValueRatio);
+    assert.equal(lastFy?.fairValue, 4.5 * owner.valuation.summary.fairValueRatio);
+    assert.notEqual(lastFy?.fairValue, 5 * (eps.valuation.summary.fairValueRatio as number));
+    const today = owner.series.find((p) => p.date === asOf && p.estimated && !p.forecast);
+    assert.equal(today?.price, 100);
+    assert.equal(today?.fairValue, owner.valuation.summary.fairValue);
+    const fwd = owner.series.filter((p) => p.forecast);
+    assert.ok(fwd.length >= 3, `owner forecast count=${fwd.length}`);
+    const y2026 = fwd.find((p) => p.year === 2026);
+    const g = owner.valuation.summary.growthRatePct as number;
+    const expectedMetric = 4.5 * Math.pow(1 + g / 100, 1);
+    assert.ok(y2026?.metric != null);
+    assert.ok(Math.abs(y2026.metric - expectedMetric) < 1e-6);
+    assert.notEqual(y2026.metric, 8);
+    assert.equal(y2026.fairValue, expectedMetric * (owner.valuation.summary.fairValueRatio as number));
+  });
+
+  it('Forecasting tab uses Street growth and still draws a 3y overlay', () => {
+    const trailing = chartFor('revenue');
+    const box = forecastGrowthFromEstimates(street);
+    assert.ok(box.growthRatePct != null);
+    const forecast = chartFor('revenue', {
+      growthRatePct: box.growthRatePct,
+      growthSource: 'forward',
+    });
+    assert.equal(forecast.valuation.summary.growthSource, 'forward');
+    assert.equal(forecast.valuation.summary.growthRatePct, box.growthRatePct);
+    assert.notEqual(
+      forecast.valuation.summary.fairValueRatio,
+      trailing.valuation.summary.fairValueRatio,
+    );
+    const fwd = forecast.series.filter((p) => p.forecast);
+    assert.ok(fwd.length >= 3, `forecast-tab overlay count=${fwd.length}`);
+    assert.ok(fwd.every((p) => p.fairValue != null && p.fairValue > 0));
+    const y2026 = fwd.find((p) => p.year === 2026);
+    assert.ok(y2026?.metric != null && y2026.fairValue != null);
+    assert.ok(
+      Math.abs(y2026.fairValue / y2026.metric - (forecast.valuation.summary.fairValueRatio as number)) <
+        1e-6,
+    );
+    assert.notEqual(y2026.metric, 8);
+  });
+
+  it('EPS overlay still uses Street estimate levels, not (1+g) projection', () => {
+    const { valuation, series } = chartFor('eps', { ttmMetric: 5 });
+    const y2026 = series.find((p) => p.forecast && p.date === '2026-12-31');
+    assert.ok(y2026);
+    assert.equal(y2026.metric, 8);
+    assert.equal(y2026.fairValue, 8 * (valuation.summary.fairValueRatio as number));
+    const projected = 5 * Math.pow(1 + (valuation.summary.growthRatePct as number) / 100, 1);
+    assert.ok(Math.abs((y2026.metric as number) - projected) > 0.2);
+  });
+});
+

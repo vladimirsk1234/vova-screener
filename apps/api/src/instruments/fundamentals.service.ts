@@ -5,6 +5,7 @@ import {
   annualizedPriceReturnPct,
   appendForwardFairValue,
   bestValuePremium,
+  buildFairValueChartSeries,
   buildForecastScenarios,
   buildValuationSeries,
   compareValueRows,
@@ -21,7 +22,7 @@ import {
   impliedPe,
   interestRankOf,
   peInBand,
-  projectMetricByGrowth,
+  quarterlyPointsForMetric,
   rowMatchesStarsFilter,
   scaleDcf,
   scalePerShare,
@@ -29,6 +30,7 @@ import {
   scaleTev,
   applyStreetConsensusHistory,
   defaultEpsTtm,
+  usesStreetEpsHistory,
   scoreAnalystBeats,
   scoreValueStars,
   seqStructFromBars,
@@ -501,6 +503,38 @@ function asPctPoints(n: number | null | undefined): number | null {
 function forwardFor(metric: ValuationMetric, estimates: EstimateRow[]): ForwardMetricPoint[] {
   if (metric !== 'eps' && metric !== 'operatingEps') return [];
   return estimates.map((e) => ({ year: e.year, metric: e.eps }));
+}
+
+function ttmMetricFor(
+  metric: ValuationMetric,
+  snap: { ttmEps: number | null; ttmOperatingEps?: number | null; ttmFcf?: number | null },
+): number | null {
+  if (metric === 'eps') return snap.ttmEps;
+  if (metric === 'operatingEps') return snap.ttmOperatingEps ?? null;
+  if (metric === 'fcf') return snap.ttmFcf ?? null;
+  return null;
+}
+
+function fairValueChartFrom(
+  metric: ValuationMetric,
+  valuation: ReturnType<typeof buildValuationSeries>,
+  input: {
+    quarters?: FundamentalsPayload['quarters'];
+    estimates: EstimateRow[];
+    nextEarningsDate?: string | null;
+    scale?: FundamentalsPayload['scale'];
+  },
+): ValuationSeriesPoint[] {
+  return buildFairValueChartSeries({
+    series: valuation.series,
+    summary: valuation.summary,
+    metric,
+    quarters: quarterlyPointsForMetric(metric, input.quarters, {
+      streetEpsHistory: usesStreetEpsHistory(input.scale),
+    }),
+    estimates: input.estimates,
+    nextEarningsDate: input.nextEarningsDate,
+  });
 }
 
 /**
@@ -1640,12 +1674,7 @@ export class FundamentalsService {
 
   private payloadForMetric(stored: FundamentalsPayload, metric: ValuationMetric): FundamentalsPayload {
     if (metric === 'eps') return stored;
-    const ttmMetric =
-      metric === 'fcf'
-        ? stored.snapshot.ttmFcf ?? null
-        : metric === 'operatingEps'
-          ? stored.snapshot.ttmOperatingEps ?? null
-          : null;
+    const ttmMetric = ttmMetricFor(metric, stored.snapshot);
     const valuation = buildValuationSeries(stored.annual, metric, {
       currentPrice: stored.profile.price,
       windowYears: DEFAULT_VALUATION_WINDOW,
@@ -1653,28 +1682,15 @@ export class FundamentalsService {
       ttmMetric,
       ...(metric === 'fcf' ? growthOverrideFromSummary(stored.valuation?.summary) : {}),
     });
-    const lastHist = [...valuation.series].reverse().find((p) => !p.estimated && !p.forecast);
-    const forecastSeries =
-      metric === 'fcf'
-        ? appendForwardFairValue(
-            valuation.series,
-            projectMetricByGrowth({
-              lastMetric: valuation.summary.fairValueAnchor ?? lastHist?.metric ?? null,
-              lastYear: lastHist?.year ?? 0,
-              growthPct: valuation.summary.growthRatePct,
-              years: stored.estimates,
-            }),
-            valuation.summary.fairValueRatio,
-          )
-        : this.extendForecast(
-            valuation.series,
-            stored.estimates,
-            valuation.summary.fairValueRatio,
-          );
     return {
       ...stored,
       valuation,
-      forecastSeries,
+      forecastSeries: fairValueChartFrom(metric, valuation, {
+        quarters: stored.quarters,
+        estimates: stored.estimates,
+        nextEarningsDate: stored.snapshot.nextEarningsDate,
+        scale: stored.scale,
+      }),
     };
   }
 
@@ -2281,8 +2297,11 @@ export class FundamentalsService {
       currentPrice: price,
       windowYears: DEFAULT_VALUATION_WINDOW,
       forward: forwardFor(metric, estimateParsed),
-      ttmMetric:
-        metric === 'fcf' ? ttmFcf : metric === 'operatingEps' ? ttmOperatingEps : ttmEps,
+      ttmMetric: ttmMetricFor(metric, {
+        ttmEps,
+        ttmOperatingEps,
+        ttmFcf,
+      }),
       ...(metric === 'fcf' ? growthOverrideFromSummary(epsValuation?.summary) : {}),
     });
 
@@ -2366,20 +2385,13 @@ export class FundamentalsService {
         };
       });
 
-    const lastFy = annual[annual.length - 1];
-    const forecastSeries =
-      metric === 'fcf'
-        ? appendForwardFairValue(
-            valuation.series,
-            projectMetricByGrowth({
-              lastMetric: valuation.summary.fairValueAnchor ?? lastFy?.fcfPerShare ?? null,
-              lastYear: lastFy?.year ?? 0,
-              growthPct: valuation.summary.growthRatePct,
-              years: estimateParsed,
-            }),
-            fvRatio,
-          )
-        : this.extendForecast(valuation.series, estimateParsed, fvRatio);
+    const nextEarningsDate = pickNextEarningsDate(earningsRows);
+    const forecastSeries = fairValueChartFrom(metric, valuation, {
+      quarters,
+      estimates: estimateParsed,
+      nextEarningsDate,
+      scale: aligned.scale,
+    });
     const performance = this.buildPerformance(annual, tickerCloses, spyCloses);
 
     return {
@@ -2433,7 +2445,7 @@ export class FundamentalsService {
         dcfPremiumPct,
         altmanZScore: scores.altmanZScore,
         piotroskiScore: scores.piotroskiScore,
-        nextEarningsDate: pickNextEarningsDate(earningsRows),
+        nextEarningsDate,
       },
       valuation,
       forecastSeries,

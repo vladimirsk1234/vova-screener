@@ -1,19 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  FORWARD_FAIR_VALUE_YEARS,
-  appendForwardFairValue,
-  appendIntraYearTtmSteps,
-  appendNextQuarterEstimate,
   availableValuationWindows,
+  buildFairValueChartSeries,
   buildValuationSeries,
   clampValuationWindow,
   DEFAULT_VALUATION_WINDOW,
   forecastGrowthFromEstimates,
   fundamentalsHistoryBounds,
   growthOverrideFromSummary,
-  projectMetricByGrowth,
-  seriesForFairValueChart,
+  quarterlyPointsForMetric,
   usesStreetEpsHistory,
   type ValuationMetric,
   type ValuationSeriesPoint,
@@ -29,18 +25,11 @@ export type DividendHud = {
   trend: 'growing' | 'falling' | 'flat';
 };
 
-function quarterPoints(metric: ValuationMetric, data: FundamentalsPayload | undefined) {
-  if (metric === 'eps') {
-    if (usesStreetEpsHistory(data?.scale)) return [];
-    return (data?.quarters ?? []).map((q) => ({ date: q.date, eps: q.eps }));
-  }
-  if (metric === 'operatingEps') {
-    return (data?.quarters ?? []).map((q) => ({ date: q.date, eps: q.operatingEps ?? q.eps }));
-  }
-  if (metric === 'fcf') {
-    return (data?.quarters ?? []).map((q) => ({ date: q.date, metric: q.fcfPerShare }));
-  }
-  return [];
+function ttmMetricFor(metric: ValuationMetric, data: FundamentalsPayload): number | null {
+  if (metric === 'eps') return data.snapshot.ttmEps;
+  if (metric === 'operatingEps') return data.snapshot.ttmOperatingEps ?? null;
+  if (metric === 'fcf') return data.snapshot.ttmFcf ?? null;
+  return null;
 }
 
 function chartSeriesFromValuation(
@@ -48,48 +37,20 @@ function chartSeriesFromValuation(
   metric: ValuationMetric,
   data: FundamentalsPayload | undefined,
 ): ValuationSeriesPoint[] {
-  const quarterPts = quarterPoints(metric, data);
-  const withQuarters = quarterPts.length
-    ? appendIntraYearTtmSteps(
-        valuation.series,
-        quarterPts,
-        valuation.summary.fairValueRatio,
-        undefined,
-        valuation.summary.normalMultiple,
-      )
-    : valuation.series;
-  const pinToday = metric !== 'eps' && metric !== 'operatingEps' && metric !== 'fcf';
-  const historical = seriesForFairValueChart(withQuarters, valuation.summary, undefined, {
-    pinToday,
+  return buildFairValueChartSeries({
+    series: valuation.series,
+    summary: valuation.summary,
+    metric,
+    quarters: quarterlyPointsForMetric(metric, data?.quarters, {
+      streetEpsHistory: usesStreetEpsHistory(data?.scale),
+    }),
+    estimates: (data?.estimates ?? []).map((e) => ({
+      year: e.year,
+      date: e.date,
+      eps: e.eps,
+    })),
+    nextEarningsDate: data?.snapshot.nextEarningsDate,
   });
-  const lastHist = [...historical].reverse().find((p) => !p.estimated && !p.forecast);
-  const fcfEstimates =
-    metric === 'fcf'
-      ? projectMetricByGrowth({
-          lastMetric: valuation.summary.fairValueAnchor ?? lastHist?.metric ?? null,
-          lastYear: lastHist?.year ?? 0,
-          growthPct: valuation.summary.growthRatePct,
-          years: (data?.estimates ?? []).map((e) => ({ year: e.year, date: e.date })),
-        })
-      : [];
-  const estimates =
-    metric === 'fcf' ? fcfEstimates : metric === 'eps' ? (data?.estimates ?? []) : [];
-  const towardNextPrint = pinToday
-    ? historical
-    : appendNextQuarterEstimate(
-        historical,
-        data?.snapshot.nextEarningsDate,
-        estimates,
-        valuation.summary.fairValueRatio,
-        valuation.summary.normalMultiple,
-      );
-  return appendForwardFairValue(
-    towardNextPrint,
-    estimates,
-    valuation.summary.fairValueRatio,
-    FORWARD_FAIR_VALUE_YEARS,
-    valuation.summary.normalMultiple,
-  );
 }
 
 function asPctPoints(n: number | null | undefined): number | null {
@@ -154,12 +115,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
       return buildValuationSeries(fundQ.data.annual, metric, {
         ...common,
         forward: metric === 'eps' ? epsForward : [],
-        ttmMetric:
-          metric === 'eps'
-            ? fundQ.data.snapshot.ttmEps
-            : metric === 'operatingEps'
-              ? fundQ.data.snapshot.ttmOperatingEps ?? null
-              : null,
+        ttmMetric: ttmMetricFor(metric, fundQ.data),
       });
     }
     const epsVal = buildValuationSeries(fundQ.data.annual, 'eps', {
@@ -182,16 +138,12 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
 
   const forecastValuation = useMemo(() => {
     if (!fundQ.data) return null;
-    if (metric !== 'eps' && metric !== 'operatingEps') return null;
     const box = forecastGrowthFromEstimates(fundQ.data.estimates ?? []);
     if (box.growthRatePct == null) return null;
     return buildValuationSeries(fundQ.data.annual, metric, {
       currentPrice: fundQ.data.profile.price,
       windowYears: effectiveWindowYears,
-      ttmMetric:
-        metric === 'eps'
-          ? fundQ.data.snapshot.ttmEps
-          : (fundQ.data.snapshot.ttmOperatingEps ?? null),
+      ttmMetric: ttmMetricFor(metric, fundQ.data),
       growthRatePct: box.growthRatePct,
       growthSpanYears: box.growthSpanYears,
       growthSource: 'forward',
