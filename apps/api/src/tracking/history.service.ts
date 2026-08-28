@@ -17,12 +17,14 @@ import {
   type ResultRow,
   type TrackedUniverse,
 } from './tracked-signal';
+import { sortByUndervaluation } from './uv-sort';
 
 export type HistoryTf = Timeframe | 'All';
 /** Lookback on exit date. `max` is an alias of `all` (everything already in DB). */
 export type HistoryRange = 'all' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'max';
 export type PeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
-export type TradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
+export const TRADE_SORTS = ['date', 'pnl', 'r', 'rr', 'uv', 'interest', 'symbol'] as const;
+export type TradeSort = (typeof TRADE_SORTS)[number];
 export type SortDir = 'asc' | 'desc';
 
 export type HistoryPeriod = {
@@ -302,12 +304,26 @@ export class HistoryService {
     }
 
     // Resize before sort so a P&L sort follows the same Max risk the cards display.
+    const sort = opts.sort ?? 'date';
+    const dir = opts.dir ?? 'desc';
+    if (sort === 'uv') {
+      const docs = await this.tracked
+        .aggregate([{ $match: filter }, ...resizeStages(maxRiskUsd)])
+        .exec();
+      const mapped = (docs as any[]).map((doc) => toResultRow(resizeDoc(doc, maxRiskUsd)));
+      const cards = mapped.length
+        ? await this.fundamentals.getCardMetricsAll(mapped.map((r) => r.yahooTicker))
+        : {};
+      const sorted = sortByUndervaluation(mapped, cards, dir);
+      return { total: sorted.length, rows: sorted.slice(offset, offset + limit) };
+    }
+
     const [rows, total] = await Promise.all([
       this.tracked
         .aggregate([
           { $match: filter },
           ...resizeStages(maxRiskUsd),
-          { $sort: tradeSortSpec(opts.sort ?? 'date', opts.dir ?? 'desc') },
+          { $sort: tradeSortSpec(sort, dir) },
           { $skip: offset },
           { $limit: limit },
         ])

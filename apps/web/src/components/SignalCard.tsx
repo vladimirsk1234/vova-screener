@@ -121,8 +121,13 @@ export function SignalCard({
   const showPnl = bucket !== 'new' && row.pnlUsd != null;
   const positive = (row.pnlUsd ?? 0) >= 0;
 
-  const premiumPct = premiumVsFair(row, fundamentals ?? undefined);
-  const valuation = valuationLabel(premiumPct);
+  const epsPremium =
+    fundamentals?.epsPremiumPct != null && Number.isFinite(fundamentals.epsPremiumPct)
+      ? fundamentals.epsPremiumPct
+      : premiumVsFair(row, fundamentals ?? undefined);
+  const eps = valuationLabel(epsPremium);
+  const fcf = valuationLabel(fundamentals?.fcfPremiumPct ?? null);
+  const dcf = valuationLabel(fundamentals?.dcfPremiumPct ?? null);
   const debtPct = asPctPoints(fundamentals?.ltDebtToCapitalTTM ?? null);
 
   return (
@@ -206,7 +211,20 @@ export function SignalCard({
       </div>
 
       <div className="signal-card-fundamentals">
-        <span className={valuation.className}>{valuation.text}</span>
+        <span>
+          <span className="lbl">EPS</span>{' '}
+          <span className={eps.className}>{eps.text}</span>
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">FCF</span>{' '}
+          <span className={fcf.className}>{fcf.text}</span>
+        </span>
+        <span className="sep">·</span>
+        <span>
+          <span className="lbl">DCF</span>{' '}
+          <span className={dcf.className}>{dcf.text}</span>
+        </span>
         <span className="sep">·</span>
         <span>
           <span className="lbl">Growth</span> {pct(fundamentals?.growthRatePct)}

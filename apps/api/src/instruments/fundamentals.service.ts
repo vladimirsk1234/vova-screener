@@ -72,6 +72,7 @@ import {
 } from '../market/fmp.client';
 import type { FundamentalsFilter } from '../settings/settings.module';
 import { UniverseService } from '../universe/universe.service';
+import { cardFundamentalsFromStoredDoc, cardPremiaFromStored } from './card-premia';
 import {
   buildScaleForTicker,
   fxToListingByYear,
@@ -138,6 +139,12 @@ export type CardFundamentals = {
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
+  /** Star premia (EPS / FCF / FMP DCF). `premiumPct` stays the Settings default. */
+  epsPremiumPct: number | null;
+  fcfPremiumPct: number | null;
+  dcfPremiumPct: number | null;
+  /** Most undervalued of the three (most negative); null if all missing. */
+  bestPremiumPct: number | null;
 };
 
 export type TaSnapshotMap = {
@@ -1024,6 +1031,20 @@ export class FundamentalsService {
     return out;
   }
 
+  /**
+   * Card metrics for every ticker, chunked past the HTTP batch cap.
+   * Results UV sort needs the full bucket, not the first 150 names.
+   */
+  async getCardMetricsAll(tickers: string[]): Promise<Record<string, CardFundamentals>> {
+    const unique = uniqueTickers(tickers);
+    if (!unique.length) return {};
+    const out: Record<string, CardFundamentals> = {};
+    for (let i = 0; i < unique.length; i += CARD_BATCH_LIMIT) {
+      Object.assign(out, await this.getCardMetrics(unique.slice(i, i + CARD_BATCH_LIMIT)));
+    }
+    return out;
+  }
+
   /** Tickers that pass the Settings valuation filter, or null when the filter is off. */
   async tickersForFilter(
     filter: FundamentalsFilter,
@@ -1680,7 +1701,10 @@ export class FundamentalsService {
             blendedPe: metrics.blendedPe,
             ltDebtToCapitalTTM: metrics.ltDebtToCapitalTTM,
             epsFairValue: metrics.fairValue,
-            epsPremiumPct: metrics.premiumPct,
+            epsPremiumPct: metrics.epsPremiumPct ?? metrics.premiumPct,
+            fcfPremiumPct: metrics.fcfPremiumPct,
+            dcfPremiumPct: metrics.dcfPremiumPct,
+            bestPremiumPct: metrics.bestPremiumPct,
             cardValuationMetric: DEFAULT_CHART_VALUATION_METRIC,
             scaleVersion: scale?.version ?? FUNDAMENTALS_SCALE_VERSION,
             valuationReliable: scale?.reliable !== false,
@@ -1700,14 +1724,7 @@ export class FundamentalsService {
     }
     if (doc?.scaleVersion === FUNDAMENTALS_SCALE_VERSION) {
       if (doc?.premiumPct == null && doc?.fairValue == null) return null;
-      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-      return {
-        fairValue: num(doc.fairValue),
-        premiumPct: num(doc.premiumPct),
-        growthRatePct: num(doc.growthRatePct),
-        blendedPe: num(doc.blendedPe),
-        ltDebtToCapitalTTM: num(doc.ltDebtToCapitalTTM),
-      };
+      return cardFundamentalsFromStoredDoc(doc);
     }
     return null;
   }
@@ -1853,16 +1870,23 @@ export class FundamentalsService {
       currentPrice: payload.profile?.price ?? null,
       ttmOperatingEps: finiteNum(payload.snapshot?.ttmOperatingEps),
     });
+    const stars = starFieldsFromPayload(payload);
     return {
       fairValue: reliable ? opVal.summary.fairValue : null,
-      premiumPct: reliable ? opVal.summary.premiumPct : null,
       growthRatePct: opVal.summary.growthRatePct,
       blendedPe: payload.snapshot?.blendedPe ?? null,
       ltDebtToCapitalTTM: payload.snapshot?.ltDebtToCapitalTTM ?? null,
+      ...cardPremiaFromStored({
+        premiumPct: reliable ? opVal.summary.premiumPct : null,
+        epsPremiumPct: stars.epsPremiumPct,
+        fcfPremiumPct: stars.fcfPremiumPct,
+        dcfPremiumPct: stars.dcfPremiumPct,
+        bestPremiumPct: stars.bestPremiumPct,
+      }),
     };
   }
 
-  /** Income + TTM ratios + estimates + profile — enough for the four card fields. */
+  /** Income + TTM ratios + estimates + profile — enough for EPS card fields (FCF/DCF stay null). */
   private async fetchCardSlim(
     yahooTicker: string,
   ): Promise<{ metrics: CardFundamentals; scale: FundamentalsScale }> {
@@ -1976,13 +2000,14 @@ export class FundamentalsService {
       peForBlend != null && fwdPe != null ? (peForBlend + fwdPe) / 2 : peForBlend ?? fwdPe;
 
     const reliable = aligned.scale.reliable !== false;
+    const premiumPct = reliable ? valuation.summary.premiumPct : null;
     return {
       metrics: {
         fairValue: reliable ? valuation.summary.fairValue : null,
-        premiumPct: reliable ? valuation.summary.premiumPct : null,
         growthRatePct: valuation.summary.growthRatePct,
         blendedPe,
         ltDebtToCapitalTTM,
+        ...cardPremiaFromStored({ premiumPct, epsPremiumPct: premiumPct }),
       },
       scale: aligned.scale,
     };

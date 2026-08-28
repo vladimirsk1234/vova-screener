@@ -31,6 +31,7 @@ const BUCKET_LABEL: Record<Bucket, string> = {
 
 const SORTS: SortOption<ResultSort>[] = [
   { value: 'rr', label: 'RR' },
+  { value: 'uv', label: 'UV', from: 'asc' },
   { value: 'pnl', label: 'P&L' },
   { value: 'interest', label: 'Marked' },
   { value: 'symbol', label: 'A-Z', from: 'asc' },

@@ -4,13 +4,14 @@ import { HistoryRebuildService } from './history-rebuild.service';
 import { HistoryEpsService } from './history-eps.service';
 import {
   HistoryService,
+  TRADE_SORTS,
   type HistoryRange,
   type HistoryTf,
   type PeriodSort,
   type SortDir,
   type TradeSort,
 } from './history.service';
-import { ResultsService, type SortKey } from './results.service';
+import { ResultsService, SORT_KEYS, type SortKey } from './results.service';
 import { BUCKETS, TIMEFRAMES, UNIVERSES, type Bucket, type Interest, type TrackedUniverse } from './tracked-signal';
 
 const HISTORY_RANGES: readonly HistoryRange[] = ['all', 'ytd', '1m', '3m', '6m', '1y', 'max'];
@@ -63,9 +64,7 @@ export class ResultsController {
       universe: parseUniverse(universe),
       tf: parseTf(tf),
       bucket: parseBucket(bucket),
-      sort: (['rr', 'pnl', 'interest', 'symbol'] as SortKey[]).includes(sort as SortKey)
-        ? (sort as SortKey)
-        : 'rr',
+      sort: SORT_KEYS.includes(sort as SortKey) ? (sort as SortKey) : 'rr',
       dir: parseDir(dir),
       limit: parseInt0(limit),
       offset: parseInt0(offset),
@@ -161,11 +160,7 @@ export class HistoryController {
       periodKey,
       groupBy: parseTf(groupBy ?? tf),
       range: parseHistoryRange(range),
-      sort: (['date', 'pnl', 'r', 'rr', 'interest', 'symbol'] as TradeSort[]).includes(
-        sort as TradeSort,
-      )
-        ? (sort as TradeSort)
-        : 'date',
+      sort: TRADE_SORTS.includes(sort as TradeSort) ? (sort as TradeSort) : 'date',
       dir: parseDir(dir),
       limit: parseInt0(limit),
       offset: parseInt0(offset),
