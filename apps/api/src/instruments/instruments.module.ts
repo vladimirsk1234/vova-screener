@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Module, Param, Patch, Query } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
-import type { IndicatorParams, Timeframe, ValuationMetric } from '@vova/engine';
+import { coerceValuationMetric, type IndicatorParams, type Timeframe } from '@vova/engine';
 import { MarketModule } from '../market/market.module';
 import { UniverseModule } from '../universe/universe.module';
 import { FundamentalsRefreshService } from './fundamentals-refresh.service';
@@ -139,8 +139,7 @@ class InstrumentsController {
   /** Fast Graphs–style fundamental valuation. Reads Mongo; FMP only for unknown Manual tickers. */
   @Get(':ticker/fundamentals')
   fundamentals(@Param('ticker') ticker: string, @Query('metric') metric?: string) {
-    const allowed: ValuationMetric[] = ['eps', 'operatingEps', 'revenue', 'fcf', 'ownerEarnings'];
-    const m = allowed.includes(metric as ValuationMetric) ? (metric as ValuationMetric) : 'eps';
+    const m = coerceValuationMetric(metric);
     this.fundamentalsRefresh.kickIfNeeded();
     return this.fundamentalsSvc.get(ticker, m);
   }

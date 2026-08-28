@@ -5,13 +5,15 @@ import {
   buildFairValueChartSeries,
   buildValuationSeries,
   clampValuationWindow,
+  coerceChartValuationMetric,
+  DEFAULT_CHART_VALUATION_METRIC,
   DEFAULT_VALUATION_WINDOW,
   forecastGrowthFromEstimates,
   fundamentalsHistoryBounds,
   growthOverrideFromSummary,
   quarterlyPointsForMetric,
   usesStreetEpsHistory,
-  type ValuationMetric,
+  type ChartValuationMetric,
   type ValuationSeriesPoint,
   type ValuationSummary,
   type ValuationWindowYears,
@@ -25,8 +27,7 @@ export type DividendHud = {
   trend: 'growing' | 'falling' | 'flat';
 };
 
-function ttmMetricFor(metric: ValuationMetric, data: FundamentalsPayload): number | null {
-  if (metric === 'eps') return data.snapshot.ttmEps;
+function ttmMetricFor(metric: ChartValuationMetric, data: FundamentalsPayload): number | null {
   if (metric === 'operatingEps') return data.snapshot.ttmOperatingEps ?? null;
   if (metric === 'fcf') return data.snapshot.ttmFcf ?? null;
   return null;
@@ -34,7 +35,7 @@ function ttmMetricFor(metric: ValuationMetric, data: FundamentalsPayload): numbe
 
 function chartSeriesFromValuation(
   valuation: { series: ValuationSeriesPoint[]; summary: ValuationSummary },
-  metric: ValuationMetric,
+  metric: ChartValuationMetric,
   data: FundamentalsPayload | undefined,
 ): ValuationSeriesPoint[] {
   return buildFairValueChartSeries({
@@ -77,7 +78,8 @@ function dividendHud(data: FundamentalsPayload | undefined): DividendHud | null 
 }
 
 export function useFundamentalsValuation(ticker: string, enabled: boolean) {
-  const [metric, setMetric] = useState<ValuationMetric>('eps');
+  const [metric, setMetricState] = useState<ChartValuationMetric>(DEFAULT_CHART_VALUATION_METRIC);
+  const setMetric = (next: ChartValuationMetric) => setMetricState(coerceChartValuationMetric(next));
   const [windowYears, setWindowYears] = useState<ValuationWindowYears>(DEFAULT_VALUATION_WINDOW);
 
   const fundQ = useQuery({
@@ -114,7 +116,7 @@ export function useFundamentalsValuation(ticker: string, enabled: boolean) {
     if (metric !== 'fcf') {
       return buildValuationSeries(fundQ.data.annual, metric, {
         ...common,
-        forward: metric === 'eps' ? epsForward : [],
+        forward: [],
         ttmMetric: ttmMetricFor(metric, fundQ.data),
       });
     }
