@@ -22,8 +22,10 @@ import {
   type ResultRow,
   type TrackedUniverse,
 } from './tracked-signal';
+import { sortByUndervaluation } from './uv-sort';
 
-export type SortKey = 'rr' | 'pnl' | 'interest' | 'symbol';
+export const SORT_KEYS = ['rr', 'uv', 'pnl', 'interest', 'symbol'] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
 export type SortDir = 'asc' | 'desc';
 
 export type ScanMeta = {
@@ -121,6 +123,25 @@ export class ResultsService {
             await this.tracked.distinct('yahooTicker', filter),
           );
     const filtered = withYahooTickers(filter, matching);
+
+    if (sort === 'uv') {
+      const docs = await this.tracked.find(filtered).lean<any[]>().exec();
+      const mapped = docs.map(toResultRow);
+      const cards = mapped.length
+        ? await this.fundamentals.getCardMetricsAll(mapped.map((r) => r.yahooTicker))
+        : {};
+      const sorted = sortByUndervaluation(mapped, cards, dir);
+      return {
+        universe,
+        tf,
+        bucket,
+        sort,
+        dir,
+        total: sorted.length,
+        rows: sorted.slice(offset, offset + limit),
+        scan,
+      };
+    }
 
     const [rows, total] = await Promise.all([
       this.tracked
@@ -345,7 +366,8 @@ function bucketFilter(
 
 /**
  * Mongo sorts missing values first ascending, so a descending RR sort naturally pushes the
- * signals with no computable RR to the end of the list.
+ * signals with no computable RR to the end of the list. UV is not a Mongo sort — premiums live
+ * on instrumentFundamentals and are joined after the bucket is loaded.
  */
 function sortSpec(bucket: Bucket, sort: SortKey, dir: SortDir): Record<string, 1 | -1> {
   const order: 1 | -1 = dir === 'asc' ? 1 : -1;

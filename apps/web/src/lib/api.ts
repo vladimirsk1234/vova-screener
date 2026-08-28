@@ -148,7 +148,7 @@ export type ScanMeta = {
   status: string | null;
 };
 
-export type ResultSort = 'rr' | 'pnl' | 'interest' | 'symbol';
+export type ResultSort = 'rr' | 'uv' | 'pnl' | 'interest' | 'symbol';
 export type SortDir = 'asc' | 'desc';
 
 export type ResultsPage = {
@@ -459,6 +459,12 @@ export type CardFundamentals = {
   growthRatePct: number | null;
   blendedPe: number | null;
   ltDebtToCapitalTTM: number | null;
+  /** Star premia (EPS / FCF / FMP DCF). `premiumPct` stays the Settings default. */
+  epsPremiumPct: number | null;
+  fcfPremiumPct: number | null;
+  dcfPremiumPct: number | null;
+  /** Most undervalued of the three (most negative); null if all missing. */
+  bestPremiumPct: number | null;
 };
 
 export type SeqStructStatus = {
@@ -543,7 +549,7 @@ export type DelistedSummary = {
 };
 
 export type HistoryPeriodSort = 'period' | 'pnl' | 'winRate' | 'trades' | 'rr';
-export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'interest' | 'symbol';
+export type HistoryTradeSort = 'date' | 'pnl' | 'r' | 'rr' | 'uv' | 'interest' | 'symbol';
 
 export type FundamentalsFilter = 'all' | 'undervalued' | 'overvalued';
 export const FUNDAMENTALS_FILTERS = [

@@ -53,11 +53,12 @@ const PERIOD_SORTS: Array<{ value: HistoryPeriodSort; label: string }> = [
   { value: 'rr', label: 'RR' },
 ];
 
-const TRADE_SORTS: Array<{ value: HistoryTradeSort; label: string }> = [
+const TRADE_SORTS: Array<{ value: HistoryTradeSort; label: string; from?: 'asc' | 'desc' }> = [
   { value: 'date', label: 'Date' },
   { value: 'pnl', label: 'P&L' },
   { value: 'r', label: 'R' },
   { value: 'rr', label: 'RR' },
+  { value: 'uv', label: 'UV', from: 'asc' },
   { value: 'interest', label: 'Marked' },
 ];
 

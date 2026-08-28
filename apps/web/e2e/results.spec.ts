@@ -44,6 +44,8 @@ test.describe('results shell', () => {
     await expect(page).toHaveURL(/sort=pnl&dir=asc/);
     await page.getByRole('button', { name: /^Marked/ }).click();
     await expect(page).toHaveURL(/sort=interest/);
+    await page.getByRole('button', { name: /^UV/ }).click();
+    await expect(page).toHaveURL(/sort=uv&dir=asc/);
   });
 
   test('every bucket can be sorted by RR', async ({ page }) => {
