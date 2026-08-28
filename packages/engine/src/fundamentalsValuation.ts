@@ -13,10 +13,12 @@
  * The multiple is fixed for the whole window; each point is metric × that ratio.
  * Summary chart chips are Op. EPS (default) and FCF/sh. `operatingEps` is
  * NOPAT / diluted shares and overshoots FG on some years (AAPL FY25 8.87 vs
- * 7.46). Internal `eps` stays FMP GAAP diluted for same-currency US names
- * (Value cards, Street, ADR scale) and FMP historical consensus in listing
- * units for foreign books. `gaapEps` stays FX-scaled GAAP. FMP has no FactSet
- * operating EPS.
+ * 7.46). Results / Value cards persist that same 5Y Op. EPS trailing orange-box
+ * so ALS-like names cannot read undervalued on the card and overvalued on the
+ * chart. Internal `eps` stays FMP GAAP diluted for same-currency US names
+ * (Street, ADR scale, FCF/sh growth borrow) and FMP historical consensus in
+ * listing units for foreign books. `gaapEps` stays FX-scaled GAAP. FMP has no
+ * FactSet operating EPS.
  * Historical orange-box growth is trailing in the selected window.
  * Forecasting uses a separate Street-to-Street CAGR and can flip the rule.
  * Pure math — no I/O. Data comes from FMP (or any provider) via the API layer.
@@ -36,8 +38,9 @@ export function coerceChartValuationMetric(
 }
 
 /**
- * API / engine metric. `eps` stays valid internally (Value cards, Street, ADR).
+ * API / engine metric. `eps` stays valid internally (Street, ADR, FCF borrow).
  * Unknown and removed chart chips coerce to Op. EPS — not leftover GAAP FV.
+ * Results / Value cards use `DEFAULT_CHART_VALUATION_METRIC` via `buildCardValuation`.
  */
 export function coerceValuationMetric(metric: string | null | undefined): ValuationMetric {
   if (metric === 'eps' || metric === 'operatingEps' || metric === 'fcf') return metric;
@@ -966,6 +969,26 @@ export function buildValuationSeries(
       windowYears,
     },
   };
+}
+
+/**
+ * Results / Value cards: same 5Y Op. EPS trailing orange-box as the
+ * Fundamentals Summary default chip. Not Street CAGR, not leftover GAAP EPS.
+ * Chart chips can still switch metric / window; cards stay on this snapshot.
+ */
+export function buildCardValuation(
+  points: AnnualFundamentalPoint[],
+  opts: {
+    currentPrice?: number | null;
+    ttmOperatingEps?: number | null;
+  } = {},
+): { series: ValuationSeriesPoint[]; summary: ValuationSummary } {
+  return buildValuationSeries(points, DEFAULT_CHART_VALUATION_METRIC, {
+    currentPrice: opts.currentPrice,
+    windowYears: DEFAULT_VALUATION_WINDOW,
+    forward: [],
+    ttmMetric: opts.ttmOperatingEps,
+  });
 }
 
 /** Copy EPS orange-box growth onto FCF without mixing FCF/EPS CAGR endpoints. */

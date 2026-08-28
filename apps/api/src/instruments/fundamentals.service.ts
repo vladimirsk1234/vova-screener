@@ -5,6 +5,7 @@ import {
   annualizedPriceReturnPct,
   appendForwardFairValue,
   bestValuePremium,
+  buildCardValuation,
   buildFairValueChartSeries,
   buildForecastScenarios,
   buildValuationSeries,
@@ -12,6 +13,7 @@ import {
   closeOnOrBefore,
   completeFiscalYears,
   coerceValuationMetric,
+  DEFAULT_CHART_VALUATION_METRIC,
   DEFAULT_VALUATION_WINDOW,
   estimateChainChgPct,
   forwardMetricCagr,
@@ -128,7 +130,7 @@ function emptyProfile(symbol: string) {
 type CacheEntry = { at: number; payload: FundamentalsPayload };
 type DcfCacheEntry = { at: number; payload: CustomDcfPayload };
 
-/** Slim valuation fields for Results / History signal cards. */
+/** Slim valuation fields for Results / History signal cards. 5Y Op. EPS trailing. */
 export type CardFundamentals = {
   fairValue: number | null;
   /** (price − fairValue) / fairValue × 100. Null when either side is missing. */
@@ -745,8 +747,14 @@ function starFieldsFromPremia(
 
 function starFieldsFromPayload(payload: FundamentalsPayload): StarFields {
   const reliable = payload.scale?.reliable !== false;
-  const epsFairValue = reliable ? finiteNum(payload.valuation?.summary?.fairValue) : null;
-  const epsPremiumPct = reliable ? finiteNum(payload.valuation?.summary?.premiumPct) : null;
+  // EPS star = Summary default (5Y Op. EPS trailing). FCF/sh still borrows
+  // internal GAAP/Street EPS orange-box growth, same as the FCF chip.
+  const opVal = buildCardValuation(payload.annual ?? [], {
+    currentPrice: payload.profile?.price ?? null,
+    ttmOperatingEps: finiteNum(payload.snapshot?.ttmOperatingEps),
+  });
+  const epsFairValue = reliable ? finiteNum(opVal.summary.fairValue) : null;
+  const epsPremiumPct = reliable ? finiteNum(opVal.summary.premiumPct) : null;
   let fcfFairValue: number | null = null;
   let fcfPremiumPct: number | null = null;
   if (reliable && Array.isArray(payload.annual) && payload.annual.length) {
@@ -1025,6 +1033,11 @@ export class FundamentalsService {
     if (filter !== 'undervalued' && filter !== 'overvalued') return null;
     const unique = uniqueTickers(tickers);
     if (!unique.length) return [];
+    await this.backfillStarFields().catch((err) => {
+      this.log.warn(
+        `Card valuation backfill skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
     const premium = filter === 'undervalued' ? { $lt: 0 } : { $gt: 0 };
     const rows = await this.store
       .find({
@@ -1062,6 +1075,7 @@ export class FundamentalsService {
             dcfPremiumPct: 1,
             stars: 1,
             bestPremiumPct: 1,
+            cardValuationMetric: 1,
           },
           $set: {
             updatedAt: new Date(),
@@ -1191,28 +1205,51 @@ export class FundamentalsService {
   }
 
   /**
-   * Recompute EPS/FCF/DCF/LT-D/C N/4 stars.
-   * Docs missing stars rebuild from payload; everyone else is rescored from
-   * denormalized premia + LT D/C so the 4-star formula applies without a full FMP refill.
+   * Recompute EPS/FCF/DCF/LT-D/C N/4 stars and Results card premia.
+   * Docs on leftover GAAP/Street `eps` (or missing stars) rebuild 5Y Op. EPS
+   * trailing from payload so cards match the Fundamentals Summary default.
+   * Everyone else is rescored from denormalized premia + LT D/C so the 4-star
+   * formula applies without a full FMP refill.
    */
   async backfillStarFields(): Promise<number> {
     const now = new Date();
     const ops: Array<{
       updateOne: { filter: { yahooTicker: string }; update: { $set: Record<string, unknown> } };
     }> = [];
+    const rebuilt = new Set<string>();
 
     const missing = await this.store
-      .find({ payload: { $exists: true, $ne: null }, stars: { $exists: false } })
+      .find({
+        payload: { $exists: true, $ne: null },
+        $or: [
+          { stars: { $exists: false } },
+          { cardValuationMetric: { $exists: false } },
+          { cardValuationMetric: { $ne: DEFAULT_CHART_VALUATION_METRIC } },
+        ],
+      })
       .select('yahooTicker payload')
       .lean<Array<{ yahooTicker: string; payload: FundamentalsPayload }>>()
       .exec();
     for (const doc of missing) {
       if (!doc.payload || typeof doc.payload !== 'object') continue;
       if (!hasCurrentScale(doc.payload, FUNDAMENTALS_SCALE_VERSION)) continue;
+      const card = this.metricsFromPayload(doc.payload);
+      rebuilt.add(doc.yahooTicker);
       ops.push({
         updateOne: {
           filter: { yahooTicker: doc.yahooTicker },
-          update: { $set: { ...starFieldsFromPayload(doc.payload), updatedAt: now } },
+          update: {
+            $set: {
+              fairValue: card.fairValue,
+              premiumPct: card.premiumPct,
+              growthRatePct: card.growthRatePct,
+              blendedPe: card.blendedPe,
+              ltDebtToCapitalTTM: card.ltDebtToCapitalTTM,
+              ...starFieldsFromPayload(doc.payload),
+              cardValuationMetric: DEFAULT_CHART_VALUATION_METRIC,
+              updatedAt: now,
+            },
+          },
         },
       });
     }
@@ -1240,6 +1277,7 @@ export class FundamentalsService {
       >()
       .exec();
     for (const doc of stored) {
+      if (rebuilt.has(doc.yahooTicker)) continue;
       const next = starFieldsFromPremia({
         epsFairValue: finiteNum(doc.epsFairValue) ?? finiteNum(doc.fairValue),
         fcfFairValue: finiteNum(doc.fcfFairValue),
@@ -1614,6 +1652,7 @@ export class FundamentalsService {
       blendedPe: card.blendedPe,
       ltDebtToCapitalTTM: card.ltDebtToCapitalTTM,
       ...stars,
+      cardValuationMetric: DEFAULT_CHART_VALUATION_METRIC,
       updatedAt: now,
     };
     if (kind === 'full') set.fetchedAt = now;
@@ -1642,6 +1681,7 @@ export class FundamentalsService {
             ltDebtToCapitalTTM: metrics.ltDebtToCapitalTTM,
             epsFairValue: metrics.fairValue,
             epsPremiumPct: metrics.premiumPct,
+            cardValuationMetric: DEFAULT_CHART_VALUATION_METRIC,
             scaleVersion: scale?.version ?? FUNDAMENTALS_SCALE_VERSION,
             valuationReliable: scale?.reliable !== false,
             updatedAt: new Date(),
@@ -1809,12 +1849,16 @@ export class FundamentalsService {
 
   private metricsFromPayload(payload: FundamentalsPayload): CardFundamentals {
     const reliable = payload.scale?.reliable !== false;
+    const opVal = buildCardValuation(payload.annual ?? [], {
+      currentPrice: payload.profile?.price ?? null,
+      ttmOperatingEps: finiteNum(payload.snapshot?.ttmOperatingEps),
+    });
     return {
-      fairValue: reliable ? payload.valuation.summary.fairValue : null,
-      premiumPct: reliable ? payload.valuation.summary.premiumPct : null,
-      growthRatePct: payload.valuation.summary.growthRatePct,
-      blendedPe: payload.snapshot.blendedPe,
-      ltDebtToCapitalTTM: payload.snapshot.ltDebtToCapitalTTM,
+      fairValue: reliable ? opVal.summary.fairValue : null,
+      premiumPct: reliable ? opVal.summary.premiumPct : null,
+      growthRatePct: opVal.summary.growthRatePct,
+      blendedPe: payload.snapshot?.blendedPe ?? null,
+      ltDebtToCapitalTTM: payload.snapshot?.ltDebtToCapitalTTM ?? null,
     };
   }
 
@@ -1913,12 +1957,12 @@ export class FundamentalsService {
     const cardQuarters = quarterlyFundamentalRows(incomeQuarterly, []).map((q) =>
       scaleQuarterPoint(q, aligned.scale, price),
     );
-    const ttmGaap = ttmFromQuarterly(cardQuarters.map((q) => ({ date: q.date, eps: q.eps }))).ttm;
-    const valuation = buildValuationSeries(aligned.annual, 'eps', {
+    const ttmOp = ttmFromQuarterly(
+      cardQuarters.map((q) => ({ date: q.date, eps: q.operatingEps })),
+    ).ttm;
+    const valuation = buildCardValuation(aligned.annual, {
       currentPrice: price,
-      windowYears: DEFAULT_VALUATION_WINDOW,
-      forward: aligned.estimateEps.map((e) => ({ year: e.year, metric: e.eps })),
-      ttmMetric: defaultEpsTtm(aligned.annual, ttmGaap ?? aligned.ttmEps, aligned.scale),
+      ttmOperatingEps: ttmOp != null && ttmOp > 0 ? ttmOp : null,
     });
 
     const ltDebtToCapitalTTM =

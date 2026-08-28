@@ -297,6 +297,8 @@ export const InstrumentFundamentalsSchema = new Schema(
       monthly: { seq: Number, seqEmoji: String, structEmoji: String, structLabel: String },
       updatedAt: Date,
     },
+    /** `operatingEps` once Results / Value cards match the Summary default. */
+    cardValuationMetric: String,
     scaleVersion: Number,
     valuationReliable: Boolean,
     fetchedAt: Date,
