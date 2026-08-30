@@ -1,6 +1,8 @@
 /** Shared shapes and money maths for tracked signals (Results + History). */
 import { shortSymbol, type Timeframe } from '@vova/engine';
 
+export { TIMEFRAMES, type HistoryGroupBy, type HistoryTf, type UserTimeframe } from './tf';
+
 export type TrackedUniverse = 'Stocks' | 'ETF';
 export type Bucket = 'new' | 'valid' | 'closed';
 export type Interest = 'interested' | 'not_interested';
@@ -11,7 +13,6 @@ export type Interest = 'interested' | 'not_interested';
 export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost' | 'manual';
 
 export const UNIVERSES: readonly TrackedUniverse[] = ['Stocks', 'ETF'];
-export const TIMEFRAMES: readonly Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
 export const BUCKETS: readonly Bucket[] = ['new', 'valid', 'closed'];
 
 export const INTEREST_RANK: Record<Interest | 'none', number> = {

@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
 import { UniverseService } from '../universe/universe.service';
+import { isUserTimeframe } from '../tracking/tf';
 import { isPeriodClosed, periodKey } from './period';
 import { ProgressBus } from './progress.bus';
 import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
@@ -12,7 +13,7 @@ import { ScanRunnerService, type ScanParamsApi } from './scan-runner.service';
 const DEFAULTS: ScanParamsApi = {
   source: 'MANUAL SCAN',
   manualTickers: '',
-  tf: 'Daily',
+  tf: 'Weekly',
   direction: 'buy',
   minRr: 1.5,
   riskPerTrade: 100,
@@ -67,6 +68,9 @@ export class ScansService {
 
   async start(input: Partial<ScanParamsApi>, opts: StartOpts = {}) {
     const params: ScanParamsApi = { ...DEFAULTS, ...input };
+    if (!isUserTimeframe(params.tf)) {
+      throw new BadRequestException(`unsupported timeframe ${params.tf}`);
+    }
     const trigger = opts.trigger ?? 'manual';
     const key = periodKey(params.tf);
     const periodTf = params.tf;

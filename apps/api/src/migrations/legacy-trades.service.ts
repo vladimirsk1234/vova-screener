@@ -231,7 +231,10 @@ export class LegacyTradesMigration implements OnModuleInit {
     const entry = finiteOrNull(trade.entry);
     if (!yahooTicker || !trade.symbol || entry == null) return null;
 
-    const tf = (TIMEFRAMES.includes(trade.tf as Timeframe) ? trade.tf : 'Daily') as Timeframe;
+    // Daily (and anything else that is not a user timeframe) stays in the journal.
+    // Importing it would put Daily rows back on History after the cleanup pass.
+    if (!TIMEFRAMES.includes(trade.tf as (typeof TIMEFRAMES)[number])) return null;
+    const tf = trade.tf as Timeframe;
     const openedAt = trade.openedAt ?? trade.createdAt ?? new Date();
     const openedAsOf = trade.asOf ?? isoDay(openedAt);
     const openedPeriodKey =

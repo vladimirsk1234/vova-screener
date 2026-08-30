@@ -2,7 +2,7 @@
  * Background scans. Results always show the latest of these; `runNow` is the one way the UI can
  * ask for another, and it starts the same pass the cron does.
  *
- * One hourly pass covers Stocks + ETF across Daily, Weekly and Monthly. Whether the tracker treats
+ * One hourly pass covers Stocks + ETF across Weekly and Monthly. Whether the tracker treats
  * a run as a period close is decided from the clock in `ScansService` (`isPeriodClosed`), so the
  * 16:05 / 17:05 ticks after the cash close are themselves the close scans — no separate close
  * crons. A catch-up runs at boot when the newest scan predates the current period.
@@ -18,12 +18,13 @@ import type { Model } from 'mongoose';
 import type { Timeframe } from '@vova/engine';
 import { SCAN_RUN } from '../db/schemas';
 import { SettingsService } from '../settings/settings.module';
+import { TIMEFRAMES } from '../tracking/tf';
 import { MARKET_TZ, periodKey } from './period';
 import { ScansService } from './scans.service';
 import type { ScanParamsApi } from './scan-runner.service';
 
 const UNIVERSES = ['Stocks', 'ETF'] as const;
-export const SCAN_TIMEFRAMES: readonly Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
+export const SCAN_TIMEFRAMES: readonly Timeframe[] = TIMEFRAMES;
 
 /** Every hour from 09:05 through 17:05 ET, Mon–Fri. Post-close ticks are the period-close scans. */
 const PASS_CRON = process.env.VOVA_SESSION_SCAN_CRON || '5 9-17 * * 1-5';
@@ -112,8 +113,8 @@ export class PeriodSchedulerService implements OnApplicationBootstrap {
    * Whether the tracker treats the result as a period close is decided from the clock in
    * `ScansService`, not here.
    *
-   * Universe-major order keeps the three timeframes of one universe updating together, so Results
-   * for Stocks Daily / Weekly / Monthly do not lag each other by half a pass.
+   * Universe-major order keeps the timeframes of one universe updating together, so Results
+   * for Stocks Weekly / Monthly do not lag each other by half a pass.
    *
    * A throttled pass degrades instead of failing — `BarsService` falls back to the cached series
    * when Yahoo answers 429 — so the cache/download split is logged as the signal to watch. If

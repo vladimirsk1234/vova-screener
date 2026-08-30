@@ -1,13 +1,20 @@
 import {
   BUCKETS,
   HISTORY_RANGES,
-  TIMEFRAMES,
   UNIVERSES,
   type HistoryRange,
-  type HistoryTf,
-  type Timeframe,
   type Universe,
 } from './api';
+import {
+  DEFAULT_RESULTS_PATH,
+  TIMEFRAMES,
+  normalizeHistoryFilters,
+  rewriteLegacyResultsPath,
+  type HistoryGroupBy,
+  type HistoryTf,
+} from './userTimeframes';
+
+export { DEFAULT_RESULTS_PATH } from './userTimeframes';
 
 const RESULTS_KEY = 'vova.lastResultsPath';
 const APP_KEY = 'vova.lastAppPath';
@@ -15,9 +22,6 @@ const HISTORY_KEY = 'vova.historyFilters';
 /** Session-only: exact list URL + scroll when opening a chart card. */
 const CHART_RETURN_KEY = 'vova.chartReturn';
 
-export const DEFAULT_RESULTS_PATH = '/results/Stocks/Daily/new';
-
-const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
 const HISTORY_RANGE_OPTIONS = HISTORY_RANGES;
 
 const RESULTS_PATH_RE = new RegExp(
@@ -29,18 +33,6 @@ const MANUAL_PATH_RE = /^\/results\/manual(\/rejected\/[^/]+)?$/;
 const HISTORY_PATH_RE = /^\/history$/;
 const CHART_PATH_RE = /^\/chart\/[^/]+$/;
 const LEGACY_FUNDAMENTALS_PATH_RE = /^\/fundamentals\/([^/]+)$/;
-
-function isHistoryTf(value: string): value is HistoryTf {
-  return (HISTORY_TFS as readonly string[]).includes(value);
-}
-
-function isTimeframe(value: string): value is Timeframe {
-  return TIMEFRAMES.includes(value as Timeframe);
-}
-
-function isUniverse(value: string): value is Universe {
-  return UNIVERSES.includes(value as Universe);
-}
 
 function isHistoryRange(value: string): value is HistoryRange {
   return (HISTORY_RANGE_OPTIONS as readonly string[]).includes(value);
@@ -131,8 +123,9 @@ export function rememberResultsPath(pathname: string, search = ''): void {
 export function lastResultsPath(): string {
   const saved = migrateFromSession(RESULTS_KEY);
   if (saved) {
-    const { path } = splitPathSearch(saved);
-    if (isValidResultsPath(path)) return saved;
+    const { path, search } = splitPathSearch(saved);
+    const rewritten = rewriteLegacyResultsPath(path);
+    if (isValidResultsPath(rewritten)) return `${rewritten}${search}`;
   }
   return DEFAULT_RESULTS_PATH;
 }
@@ -148,7 +141,8 @@ export function lastAppPath(): string {
   const saved = migrateFromSession(APP_KEY);
   if (saved) {
     const { path, search } = splitPathSearch(saved);
-    const normalized = normalizeAppLocation(path, search);
+    const rewritten = rewriteLegacyResultsPath(path);
+    const normalized = normalizeAppLocation(rewritten, search);
     if (normalized) return `${normalized.path}${normalized.search}`;
   }
   // Fall back to last Results path (may itself migrate from sessionStorage).
@@ -165,13 +159,13 @@ export function resultsPathForUniverse(universe: Universe): string {
     parts[2] = universe;
     return query ? `${parts.join('/')}?${query}` : parts.join('/');
   }
-  return `/results/${universe}/Daily/new`;
+  return `/results/${universe}/Weekly/new`;
 }
 
 export type HistoryFilters = {
   universe: Universe;
   tf: HistoryTf;
-  groupBy: Timeframe;
+  groupBy: HistoryGroupBy;
   range: HistoryRange;
 };
 
@@ -179,26 +173,16 @@ export function loadHistoryFilters(): HistoryFilters {
   try {
     const raw = migrateFromSession(HISTORY_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<HistoryFilters>;
-      const universe =
-        typeof parsed.universe === 'string' && isUniverse(parsed.universe)
-          ? parsed.universe
-          : 'Stocks';
-      const tf = typeof parsed.tf === 'string' && isHistoryTf(parsed.tf) ? parsed.tf : 'Daily';
-      const groupBy =
-        typeof parsed.groupBy === 'string' && isTimeframe(parsed.groupBy)
-          ? parsed.groupBy
-          : tf === 'All'
-            ? 'Daily'
-            : tf;
+      const parsed = JSON.parse(raw) as Partial<HistoryFilters> & { groupBy?: string; tf?: string };
+      const normalized = normalizeHistoryFilters(parsed);
       const range =
         typeof parsed.range === 'string' && isHistoryRange(parsed.range) ? parsed.range : 'all';
-      return { universe, tf, groupBy, range };
+      return { ...normalized, range };
     }
   } catch {
     // ignore
   }
-  return { universe: 'Stocks', tf: 'Daily', groupBy: 'Daily', range: 'all' };
+  return { universe: 'Stocks', tf: 'All', groupBy: 'Day', range: 'all' };
 }
 
 export function saveHistoryFilters(filters: HistoryFilters): void {

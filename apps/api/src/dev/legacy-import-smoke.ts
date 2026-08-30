@@ -29,10 +29,10 @@ function trade(over: LegacyTrade): LegacyTrade {
   return {
     symbol: over.yahooTicker,
     companyName: `${over.yahooTicker} Inc`,
-    tf: 'Daily',
+    tf: 'Weekly',
     openedAt: OPENED,
     asOf: '2026-06-10',
-    periodKey: '2026-06-10',
+    periodKey: '2026-W24',
     entry: 100,
     tp: 130,
     sl: 90,
@@ -110,6 +110,15 @@ async function main() {
     // No entry price: nothing can be measured from it.
     trade({ yahooTicker: 'ZZOLD-JUNK', status: 'open', entry: null }),
     trade({ yahooTicker: 'ZZOLD-DUP', status: 'open' }),
+    // Daily journal rows must not come back as tracked signals.
+    trade({
+      yahooTicker: 'ZZOLD-DAILY',
+      tf: 'Daily',
+      periodKey: '2026-06-10',
+      status: 'closed',
+      exitPrice: 120,
+      exitDate: '2026-06-18',
+    }),
   ]);
 
   // ZZOLD-DUP is already tracked by a live scan, so the journal copy has nothing to add.
@@ -117,10 +126,10 @@ async function main() {
     yahooTicker: 'ZZOLD-DUP',
     symbol: 'ZZOLD-DUP',
     universe: 'Stocks',
-    tf: 'Daily',
+    tf: 'Weekly',
     status: 'active',
     provisional: false,
-    openedPeriodKey: '2026-07-31',
+    openedPeriodKey: '2026-W31',
     openedAsOf: '2026-07-31',
     entry: 200,
     sl: 180,
@@ -128,7 +137,7 @@ async function main() {
   });
 
   const first = await migration.run();
-  check('import counts', [first?.imported, first?.superseded, first?.skipped], [7, 1, 1]);
+  check('import counts', [first?.imported, first?.superseded, first?.skipped], [7, 1, 2]);
 
   const win = await tracked.findOne({ yahooTicker: 'ZZOLD-WIN' }).lean<any>();
   check(
@@ -139,7 +148,7 @@ async function main() {
   check(
     'closed trade lands in the right period',
     [win?.openedPeriodKey, win?.closedPeriodKey, win?.holdPeriods],
-    ['2026-06-10', '2026-06-19', 9],
+    ['2026-W24', '2026-W25', 1.29],
   );
   check('closed trade is not provisional', [win?.provisional, win?.shares], [false, 10]);
 
@@ -167,6 +176,7 @@ async function main() {
     '2026-W24',
   );
 
+  check('Daily journal rows stay behind', await tracked.countDocuments({ yahooTicker: 'ZZOLD-DAILY' }), 0);
   check('dismissed rows stay behind', await tracked.countDocuments({ yahooTicker: 'ZZOLD-DEAD' }), 0);
   check('unusable rows stay behind', await tracked.countDocuments({ yahooTicker: 'ZZOLD-JUNK' }), 0);
   check(
@@ -184,7 +194,7 @@ async function main() {
     8, // 7 imported + the one that was already tracked
   );
 
-  const stats = await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' });
+  const stats = await history.report({ universe: 'Stocks', tf: 'Weekly', groupBy: 'Day' });
   const closed = stats.periods.filter((p) => ['2026-06-12', '2026-06-15', '2026-06-19'].includes(p.periodKey));
   check(
     'imported trades show up in History',
@@ -199,7 +209,7 @@ async function main() {
   // An imported open trade is an open position, so it is on screen from the moment it is imported.
   // A record only leaves the live lists when a scan evaluates its symbol and stops reporting the
   // setup, and no scan has looked at these yet — so they sit in VALID on their imported numbers.
-  const valid = await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'valid' });
+  const valid = await results.list({ universe: 'Stocks', tf: 'Weekly', bucket: 'valid' });
   check(
     'imported open trades are on screen straight away',
     [
@@ -209,7 +219,7 @@ async function main() {
         .sort(),
       (
         await tracked
-          .find({ yahooTicker: { $in: TICKERS }, status: 'active', universe: 'Stocks', tf: 'Daily' })
+          .find({ yahooTicker: { $in: TICKERS }, status: 'active', universe: 'Stocks', tf: 'Weekly' })
           .select('symbol')
           .sort({ symbol: 1 })
           .lean<any[]>()

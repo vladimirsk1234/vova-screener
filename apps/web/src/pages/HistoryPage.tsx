@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  HISTORY_GROUP_BYS,
   HISTORY_RANGES,
-  TIMEFRAMES,
   UNIVERSES,
   api,
+  type HistoryGroupBy,
   type HistoryPeriodSort,
   type HistoryRange,
   type HistoryTf,
   type HistoryTimeframe,
   type HistoryTradeSort,
   type SortDir,
-  type Timeframe,
   type Universe,
 } from '../lib/api';
 import {
@@ -32,7 +32,7 @@ import { Chips, Switch } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
 
-const HISTORY_TFS = ['Daily', 'Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
+const HISTORY_TFS = ['Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
 
 type HistoryRangeChip = (typeof HISTORY_RANGES)[number];
 
@@ -91,7 +91,7 @@ function Sparkline({
 }
 
 /**
- * Daily, Weekly and Monthly are three strategies sharing one screener, and their curves are the
+ * Weekly and Monthly are two strategies sharing one screener, and their curves are the
  * quickest way to see which one is actually paying. Shown whatever the filter above is set to.
  */
 function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
@@ -125,7 +125,7 @@ function TimeframeGrowth({ rows }: { rows: HistoryTimeframe[] }) {
 export function HistoryPage() {
   const [universe, setUniverse] = useState<Universe>(() => loadHistoryFilters().universe);
   const [tf, setTf] = useState<HistoryTf>(() => loadHistoryFilters().tf);
-  const [groupBy, setGroupBy] = useState<Timeframe>(() => loadHistoryFilters().groupBy);
+  const [groupBy, setGroupBy] = useState<HistoryGroupBy>(() => loadHistoryFilters().groupBy);
   const [range, setRange] = useState<HistoryRangeChip>(() => {
     const saved = loadHistoryFilters().range;
     return (HISTORY_RANGES as readonly HistoryRange[]).includes(saved)
@@ -201,7 +201,7 @@ export function HistoryPage() {
     if (next !== 'All') setGroupBy(next);
   };
 
-  const onGroupBy = (next: Timeframe) => {
+  const onGroupBy = (next: HistoryGroupBy) => {
     setGroupBy(next);
     setOpenPeriod(null);
   };
@@ -218,12 +218,12 @@ export function HistoryPage() {
         <p className="muted small">
           Trades closed by a sell-to-close break, on bars that have finished. P&amp;L follows the
           current Max risk; Min RR from Settings filters what counts. Pick Stocks or ETF, then a
-          timeframe. Range filters by exit date (Daily bars go back ~2y, Weekly/Monthly ~10y after
+          timeframe. Range filters by exit date (Weekly/Monthly bars go back ~10y after
           Rebuild history).
         </p>
         <Chips label="Universe" value={universe} options={UNIVERSES} onChange={onUniverse} />
         <Chips label="Timeframe" value={tf} options={HISTORY_TFS} onChange={onTf} />
-        <Chips label="Group by" value={groupBy} options={TIMEFRAMES} onChange={onGroupBy} />
+        <Chips label="Group by" value={groupBy} options={HISTORY_GROUP_BYS} onChange={onGroupBy} />
         <Chips
           label="Range"
           value={range}

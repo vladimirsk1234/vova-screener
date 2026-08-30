@@ -1,5 +1,5 @@
 /** Display helpers shared by Results and History. */
-import type { HistoryTf, Timeframe } from './api';
+import type { HistoryGroupBy, HistoryTf, Timeframe } from './api';
 
 export function money(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -59,7 +59,10 @@ export function signedMultiple(n: number | null | undefined): string {
 }
 
 /** `YYYY-MM-DD` / `YYYY-Www` / `YYYY-MM` rendered for the selected granularity. */
-export function periodLabel(periodKey: string | null | undefined, tf: Timeframe | HistoryTf): string {
+export function periodLabel(
+  periodKey: string | null | undefined,
+  tf: Timeframe | HistoryTf | HistoryGroupBy,
+): string {
   if (!periodKey || periodKey === 'unknown') return periodKey || '—';
   if (tf === 'Monthly') {
     const [y, m] = periodKey.split('-');
@@ -107,10 +110,9 @@ export function barsLabel(bars: number | null | undefined): string {
 }
 
 export function holdLabel(tf: HistoryTf): string {
-  if (tf === 'Daily') return 'days';
   if (tf === 'Weekly') return 'weeks';
   if (tf === 'Monthly') return 'months';
   return 'periods';
 }
 
-export const TF_SHORT: Record<Timeframe, string> = { Daily: 'D', Weekly: 'W', Monthly: 'M' };
+export const TF_SHORT: Record<Timeframe, string> = { Weekly: 'W', Monthly: 'M' };

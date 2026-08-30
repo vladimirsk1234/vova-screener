@@ -55,7 +55,7 @@ pass over the same period adds nothing.
 
 ## History window is part of parity
 
-`intervalAndPeriod` must match `data_utils.interval_and_period` (Daily 2y, Weekly/Monthly 10y).
+`intervalAndPeriod` must match `data_utils.interval_and_period` (Weekly/Monthly 10y). Daily is not a user timeframe.
 The sequence walk is path-dependent: a shorter window can keep a stale confirmed trough/peak and
 silently change SL, RR and the reject reason. YMM Monthly with one leading bar dropped moves SL
 from 6.66 to 4.12 and RR from 1.51 to 0.80 — that case is pinned in

@@ -36,7 +36,7 @@ Required UX
    - Directly under the chart window: the same button row region as today (`.chart-actions`).
    - That row has exactly two view buttons: "TA" (or "Technical Analysis") and "Fundamentals" (or "Fundamental Analysis"). Selected state like existing `Chips` / `.selected`.
    - Under those two buttons (or in that same below-chart region): the view-specific metrics.
-3. TA view: keep Technical Analysis as it works now — Daily / Weekly / Monthly chips, overlays, watermark, settings, trade snapshot, RR / TP / SL, drawings, crosshair, Interested / Not Interested / TradingView. Do not redesign TA.
+3. TA view: keep Technical Analysis as it works now — Weekly / Monthly chips, overlays, watermark, settings, trade snapshot, RR / TP / SL, drawings, crosshair, Interested / Not Interested / TradingView. Do not redesign TA.
 4. Fundamentals view: the Weekly price chart does not change. Swap only the below-chart content to fundamental metrics already computed today, at minimum:
    - Fair value
    - Price vs fair / premium

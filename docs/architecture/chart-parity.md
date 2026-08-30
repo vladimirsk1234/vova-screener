@@ -19,7 +19,7 @@ Playwright cases:
 1. Chart page loads host + watermark (or pine card) for a known ticker.
 2. Settings sheet opens; toggling Fibonacci/EMA persists after Save preset (`/api/presets/chart`).
 3. Drawing toolbar: create trend line (two clicks), undo removes it, redo restores.
-4. Timeframe chip Daily → Weekly remounts chart without crash.
+4. Timeframe chip Weekly → Monthly remounts chart without crash.
 5. Snapshot: default Streamlit theme (`bg #707585`) on desktop 1280×720 and Pixel 7.
 
 ## Manual side-by-side gate

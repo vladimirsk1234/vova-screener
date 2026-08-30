@@ -10,7 +10,7 @@ Results nests three tab rows, all held in the URL (`/results/:universe/:tf/:buck
 view is linkable and survives a reload:
 
 1. Stocks · ETF · Manual
-2. D · W · M
+2. W · M
 3. New · Valid · Closed
 
 New holds the signals that appeared on the current bar of the selected timeframe, Valid the ones that
@@ -33,8 +33,8 @@ id (`?trade=`), and the chart then opens as a snapshot of that trade: the series
 broke on, entry and exit marked, its own TP and SL drawn, and a Snapshot/Live toggle for the chart
 as it stands today.
 
-History covers D / W / M / All over closed trades, groupable by day, week or month, with an equity
-curve per timeframe above the period list so the three can be compared at a glance.
+History covers W / M / All over closed trades, groupable by day, week or month, with an equity
+curve per timeframe above the period list so Weekly and Monthly can be compared at a glance.
 
 Results on phone = **cards**. TanStack Table only as desktop (≥1024px) enhancement.
 

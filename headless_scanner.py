@@ -189,7 +189,7 @@ def _source_options() -> list[str]:
 
 
 SOURCE_OPTIONS = _source_options()
-TF_OPTIONS = ["Daily", "Weekly", "Monthly"]
+TF_OPTIONS = ["Weekly", "Monthly"]
 
 
 def _results_table_height(n_rows: int) -> int:
@@ -293,7 +293,15 @@ if not is_sell_scan:
     use_last_hl_sl = st.sidebar.checkbox("Use last HL in SL (safety)", True, disabled=disabled)
 else:
     use_last_hl_sl = bool(st.session_state.get("run_params", {}).get("use_last_hl_sl", True))
-tf_p = st.sidebar.selectbox("TIMEFRAME", TF_OPTIONS, disabled=disabled)
+_saved_tf = st.session_state.get("run_params", {}).get("tf")
+if _saved_tf not in TF_OPTIONS:
+    _saved_tf = "Weekly"
+tf_p = st.sidebar.selectbox(
+    "TIMEFRAME",
+    TF_OPTIONS,
+    index=TF_OPTIONS.index(_saved_tf),
+    disabled=disabled,
+)
 new_p = st.sidebar.checkbox("NEW SIGNALS ONLY", True, disabled=disabled)
 
 # Buttons
@@ -351,7 +359,7 @@ class ScanConfig:
             min_rr=float(p.get("rr", 1.5)),
             no_rr_req=bool(p.get("no_rr_req", False)),
             use_last_hl_sl=bool(p.get("use_last_hl_sl", True)),
-            tf=str(p.get("tf", "Daily")),
+            tf=str(p.get("tf", "Weekly") if p.get("tf") in TF_OPTIONS else "Weekly"),
             new_only=bool(p.get("new", True)),
             is_manual_src=(p.get("src") == MANUAL_SRC),
             scan_direction=scan_direction,
@@ -1604,7 +1612,9 @@ else:
     table_rows = st.session_state.results
     rejected_reasons = st.session_state.rejected
     as_of = st.session_state.get("results_as_of")
-    as_of_tf = st.session_state.get("results_tf", "Daily")
+    as_of_tf = st.session_state.get("results_tf", "Weekly")
+    if as_of_tf not in TF_OPTIONS:
+        as_of_tf = "Weekly"
     as_of_dir = st.session_state.get("results_direction", "buy")
     as_of_scanner = st.session_state.get("results_scanner", "sequence_vova")
 

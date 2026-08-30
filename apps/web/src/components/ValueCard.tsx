@@ -117,7 +117,6 @@ export function ValueCard({ row }: { row: ValueScreenerRow }) {
       </div>
 
       <div className="value-card-ta" aria-label="TA sequence and structure">
-        <span>{taLine('D', row.ta.daily)}</span>
         <span>{taLine('W', row.ta.weekly)}</span>
         <span>{taLine('M', row.ta.monthly)}</span>
       </div>

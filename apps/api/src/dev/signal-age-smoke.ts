@@ -26,7 +26,7 @@ import { ResultsService } from '../tracking/results.service';
 import { SignalTrackerService } from '../tracking/signal-tracker.service';
 import { check, finish, useSmokeDatabase } from './smoke-harness';
 
-const TIMEFRAMES: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
+const TIMEFRAMES: Timeframe[] = ['Weekly', 'Monthly'];
 const DAYS_PER_BAR: Record<Timeframe, number> = { Daily: 1, Weekly: 7, Monthly: 30 };
 const INTERVAL: Record<Timeframe, string> = { Daily: '1d', Weekly: '1wk', Monthly: '1mo' };
 /** RR is not a gate here, the same as in the background scans. */

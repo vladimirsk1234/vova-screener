@@ -38,12 +38,12 @@ evaluate is a different thing and keeps showing on its last numbers.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/history?tf=Daily\|Weekly\|Monthly\|All&groupBy=Daily\|Weekly\|Monthly&range=all\|ytd\|1m\|3m\|6m\|1y\|max&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over realized trades; aggregated in Mongo. `range` filters by `exitDate` (`max` ≡ `all`). `sort` = `period`, `pnl`, `winRate`, `trades`, `rr` (avg RR at entry). Also carries `timeframes`: each of Daily / Weekly / Monthly with its own trades, win rate, net P&L, avg R and equity curve under the same `range`. Settings Min RR and `fundamentalsFilter` apply here the same way they do on Results |
+| GET | `/history?tf=Weekly\|Monthly\|All&groupBy=Day\|Weekly\|Monthly&range=all\|ytd\|1m\|3m\|6m\|1y\|max&sort&dir` | Win rate, net P&L, avg R, avg RR at entry, avg hold, equity curve and exit-reason histogram over realized trades; aggregated in Mongo. `range` filters by `exitDate` (`max` ≡ `all`). `sort` = `period`, `pnl`, `winRate`, `trades`, `rr` (avg RR at entry). `groupBy=Day` (legacy alias `Daily`) buckets by calendar exit date — not the retired Daily timeframe. Also carries `timeframes`: Weekly and Monthly with their own trades, win rate, net P&L, avg R and equity curve under the same `range`. Settings Min RR and `fundamentalsFilter` apply here the same way they do on Results |
 | GET | `/history/trades?tf&groupBy&periodKey&range&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket (intersected with `range`). `sort` = `date`, `pnl`, `r`, `rr`, `interest`, `symbol`. Settings Min RR and `fundamentalsFilter` apply the same way they do on `/history` |
-| POST | `/history/rebuild` | Start a background rebuild: `runCloseLedger` over every cached symbol in Stocks/ETF × Daily/Weekly/Monthly, insert missing closed trades into `trackedSignals`. Idempotent; does not delete. Returns `{ started }` immediately |
+| POST | `/history/rebuild` | Start a background rebuild: `runCloseLedger` over every cached symbol in Stocks/ETF × Weekly/Monthly, insert missing closed trades into `trackedSignals`. Idempotent; does not delete. Returns `{ started }` immediately |
 | GET | `/history/rebuild` | Rebuild job status: `idle\|running\|done\|failed`, progress and insert/skip/noBars counts |
 
-Yahoo bar windows bound how far rebuild can go: Daily `2y`, Weekly/Monthly `10y` (see `intervalAndPeriod`). History `range` filters what is already stored; it cannot invent bars beyond that cache.
+Yahoo bar windows bound how far rebuild can go: Weekly/Monthly `10y` (see `intervalAndPeriod`). History `range` filters what is already stored; it cannot invent bars beyond that cache.
 
 ## Settings
 
@@ -58,7 +58,7 @@ the UI refetches. Closed signals keep the size they were closed at.
 
 ## Scans
 
-Stocks and ETF are scanned by `PeriodSchedulerService`: one hourly pass covering Daily, Weekly and
+Stocks and ETF are scanned by `PeriodSchedulerService`: one hourly pass covering Weekly and
 Monthly together (09:05–17:05 ET, Mon–Fri), and on demand from the Settings sheet. Post-close ticks
 are themselves the period-close scans — `periodClose` is decided from the clock when the run
 starts — so there are no separate close crons. Passes are skipped, not queued, while an earlier
@@ -72,7 +72,7 @@ the bell and ran past it.
 |--------|------|-------|
 | GET | `/scans/defaults` | Server-side default params |
 | POST | `/scans` | Create a manual ticker run, start it out-of-request, return `{ runId, params }` |
-| POST | `/scans/run-now` | `{ tf?: 'Daily' \| 'Weekly' \| 'Monthly' \| 'all' }` — rescan Stocks and ETF now, re-downloading every symbol. Answers `{ started, timeframes, reason? }` as soon as the pass is queued, and `started: false` when one is already running. This is the background pass, so what it produces goes to Results and History; it runs even with `VOVA_BACKGROUND_SCANS=off` |
+| POST | `/scans/run-now` | `{ tf?: 'Weekly' \| 'Monthly' \| 'all' }` — rescan Stocks and ETF now, re-downloading every symbol. Answers `{ started, timeframes, reason? }` as soon as the pass is queued, and `started: false` when one is already running. Daily is rejected. This is the background pass, so what it produces goes to Results and History; it runs even with `VOVA_BACKGROUND_SCANS=off` |
 | GET | `/scans?limit=` | Run history, newest first |
 | GET | `/scans/:id` | Run detail: status, counters, `reasonCounts`, timings, `newSymbols`, sell summary, `asOf` (scored bar date), `barsOldestAt` (oldest Yahoo pull) |
 | GET | `/scans/:id/signals?limit&offset&onlyNew&onlyStrong` | Signal rows + run + `newSymbols` |

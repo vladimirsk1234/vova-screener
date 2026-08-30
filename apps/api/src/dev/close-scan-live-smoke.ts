@@ -29,7 +29,7 @@ function arg(name: string, env: string, fallback: string): string {
 }
 
 async function main() {
-  const tf = arg('tf', 'VOVA_SMOKE_TF', 'Daily') as Timeframe;
+  const tf = arg('tf', 'VOVA_SMOKE_TF', 'Weekly') as Timeframe;
   const limit = Number(arg('limit', 'VOVA_SMOKE_LIMIT', '300'));
   // The tracker is the thing under test; a cron firing a second pass mid-run would rewrite its
   // output underneath the assertions.

@@ -32,7 +32,7 @@ async function main() {
       yahooTicker,
       symbol: yahooTicker,
       universe: 'Stocks',
-      tf: 'Daily',
+      tf: 'Weekly',
       status: 'closed',
       openedPeriodKey: '2022-10-01',
       openedAsOf: '2022-10-01',
@@ -58,7 +58,7 @@ async function main() {
   const kept = live[0]?.yahoo;
   if (!kept) throw new Error('Stocks universe is empty — nothing to test against');
 
-  await tracked.deleteMany({ yahooTicker: { $in: [GONE, kept] }, tf: 'Daily' });
+  await tracked.deleteMany({ yahooTicker: { $in: [GONE, kept] }, tf: 'Weekly' });
   await tracked.insertMany([closedRow(GONE), closedRow(kept)]);
 
   const preview = await scans.delistedPreview();
@@ -70,14 +70,14 @@ async function main() {
   check('delisted row is gone', await tracked.countDocuments({ yahooTicker: GONE }).exec(), 0);
   check(
     'live row survives',
-    await tracked.countDocuments({ yahooTicker: kept, tf: 'Daily' }).exec(),
+    await tracked.countDocuments({ yahooTicker: kept, tf: 'Weekly' }).exec(),
     1,
   );
 
   const after = await scans.delistedPreview();
   check('nothing left to purge', after.records, 0);
 
-  await tracked.deleteMany({ yahooTicker: { $in: [GONE, kept] }, tf: 'Daily' });
+  await tracked.deleteMany({ yahooTicker: { $in: [GONE, kept] }, tf: 'Weekly' });
   await app.close();
   process.exit(process.exitCode ?? 0);
 }

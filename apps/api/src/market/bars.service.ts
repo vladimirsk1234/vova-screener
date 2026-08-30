@@ -152,7 +152,7 @@ export class BarsService {
     );
   }
 
-  async lastClose(yahooTicker: string, tf: Timeframe = 'Daily'): Promise<number | null> {
+  async lastClose(yahooTicker: string, tf: Timeframe = 'Weekly'): Promise<number | null> {
     const bars = await this.getCached(yahooTicker, tf);
     if (!bars?.length) return null;
     return bars[bars.length - 1].close;

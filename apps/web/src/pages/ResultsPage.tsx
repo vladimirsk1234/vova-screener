@@ -61,7 +61,7 @@ export function ResultsPage() {
   const queryClient = useQueryClient();
 
   const universe = isUniverse(params.universe) ? params.universe : null;
-  const tf = isTimeframe(params.tf) ? params.tf : 'Daily';
+  const tf = isTimeframe(params.tf) ? params.tf : 'Weekly';
   const bucket = isBucket(params.bucket) ? params.bucket : 'new';
   const sort = (search.get('sort') as ResultSort | null) ?? (bucket === 'closed' ? 'pnl' : 'rr');
   const dir = (search.get('dir') as SortDir | null) ?? 'desc';
@@ -132,6 +132,9 @@ export function ResultsPage() {
   }, [universe, tf, bucket, sort, dir, page.isLoading, queryClient]);
 
   if (!universe) return <Navigate to={lastResultsPath()} replace />;
+  if (params.tf && !isTimeframe(params.tf)) {
+    return <Navigate to={`/results/${universe}/Weekly/${bucket}${search.toString() ? `?${search}` : ''}`} replace />;
+  }
 
   const scanAge = formatAge(scan?.finishedAt);
 
