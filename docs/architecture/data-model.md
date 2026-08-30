@@ -97,7 +97,7 @@ Lifecycle:
   only the closed ones, because a position the app is still carrying, open or breaking on the bar in
   progress, is the same trade the replay is about to find. Rows are marked `backfilled: true`. Open
   ledger tails and `imported` journal rows are left alone. Depth is the Yahoo window already cached:
-  Daily ~2y, Weekly/Monthly ~10y (`intervalAndPeriod`).
+  Weekly/Monthly ~10y (`intervalAndPeriod`). Daily `1d` series may still be cached for chart overlays.
 - **A record's entry follows the replay, not the day the app first met the symbol.** A position met
   four months into its run is priced from the bar it actually started on, and its `entry`, `sl`,
   `tp`, `rrAtEntry` and `openedAsOf` are re-aligned to the replay on every scan. `imported` journal

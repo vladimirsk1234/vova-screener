@@ -1473,7 +1473,6 @@ export class FundamentalsService {
         interest,
         interestRank: finiteNum(doc.interestRank) ?? interestRankOf(interest),
         ta: {
-          daily: ta.daily ?? null,
           weekly: ta.weekly ?? null,
           monthly: ta.monthly ?? null,
         },
@@ -1544,6 +1543,7 @@ export class FundamentalsService {
     tf: Timeframe,
     status: SeqStructStatus,
   ): Promise<void> {
+    if (tf === 'Daily') return;
     const t = yahooTicker.toUpperCase();
     const key = tfKey(tf);
     await this.store
@@ -1566,7 +1566,7 @@ export class FundamentalsService {
     items: Array<{ yahooTicker: string; tf: Timeframe; status: SeqStructStatus }>,
   ): Promise<void> {
     if (!items.length) return;
-    const ops = items.map((item) => ({
+    const ops = items.filter((item) => item.tf !== 'Daily').map((item) => ({
       updateOne: {
         filter: { yahooTicker: item.yahooTicker.toUpperCase() },
         update: {
@@ -1580,10 +1580,12 @@ export class FundamentalsService {
         upsert: true,
       },
     }));
+    if (!ops.length) return;
     await this.store.bulkWrite(ops, { ordered: false });
   }
 
   async persistTaFromBars(yahooTicker: string, tf: Timeframe, bars: OhlcSeries | null): Promise<void> {
+    if (tf === 'Daily') return;
     if (!bars?.length) return;
     const status = seqStructFromBars(bars, tf);
     if (!status) return;
@@ -1591,10 +1593,8 @@ export class FundamentalsService {
   }
 
   private async fillTaForRows(rows: ValueScreenerRow[]): Promise<void> {
-    const tfs: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
-    const need = rows.filter(
-      (row) => !row.ta.daily || !row.ta.weekly || !row.ta.monthly,
-    );
+    const tfs: Timeframe[] = ['Weekly', 'Monthly'];
+    const need = rows.filter((row) => !row.ta.weekly || !row.ta.monthly);
     if (!need.length) return;
     const cached = await this.bars.getCachedMany(
       need.map((r) => r.yahooTicker),

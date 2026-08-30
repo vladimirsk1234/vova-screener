@@ -9,8 +9,16 @@ export type {
   ValuationSummary,
 } from '@vova/engine';
 
-export type Timeframe = 'Daily' | 'Weekly' | 'Monthly';
-export type HistoryTf = Timeframe | 'All';
+import {
+  HISTORY_GROUP_BYS,
+  TIMEFRAMES,
+  type HistoryGroupBy,
+  type HistoryTf,
+  type Timeframe,
+} from './userTimeframes';
+
+export type { HistoryGroupBy, HistoryTf, Timeframe };
+export { HISTORY_GROUP_BYS, TIMEFRAMES };
 /** Exit-date lookback on History. `max` is accepted by the API as an alias of `all`. */
 export type HistoryRange = 'all' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'max';
 export type Universe = 'Stocks' | 'ETF';
@@ -24,7 +32,6 @@ export type Interest = 'interested' | 'not_interested';
  */
 export type ExitReason = 'TP' | 'SL' | 'sell_to_close' | 'signal_lost' | 'manual';
 
-export const TIMEFRAMES = ['Daily', 'Weekly', 'Monthly'] as const satisfies readonly Timeframe[];
 export const UNIVERSES = ['Stocks', 'ETF'] as const satisfies readonly Universe[];
 export const BUCKETS = ['new', 'valid', 'closed'] as const satisfies readonly Bucket[];
 export const HISTORY_RANGES = ['all', 'ytd', '1m', '3m', '6m', '1y'] as const satisfies readonly HistoryRange[];
@@ -206,7 +213,7 @@ export type HistoryTimeframe = {
 export type HistoryReport = {
   universe: Universe;
   tf: HistoryTf;
-  groupBy: Timeframe;
+  groupBy: HistoryGroupBy;
   range: HistoryRange;
   holdUnit: string;
   periods: HistoryPeriod[];
@@ -495,7 +502,6 @@ export type ValueScreenerRow = {
   interest: Interest | null;
   interestRank: number;
   ta: {
-    daily?: SeqStructStatus | null;
     weekly?: SeqStructStatus | null;
     monthly?: SeqStructStatus | null;
   };
@@ -794,7 +800,7 @@ export const api = {
   history: (opts: {
     universe: Universe;
     tf: HistoryTf;
-    groupBy: Timeframe;
+    groupBy: HistoryGroupBy;
     range?: HistoryRange;
     sort?: HistoryPeriodSort;
     dir?: SortDir;
@@ -802,7 +808,7 @@ export const api = {
   historyTrades: (opts: {
     universe: Universe;
     tf: HistoryTf;
-    groupBy?: Timeframe;
+    groupBy?: HistoryGroupBy;
     periodKey?: string;
     range?: HistoryRange;
     sort?: HistoryTradeSort;

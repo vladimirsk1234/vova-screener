@@ -104,7 +104,8 @@ class InstrumentsController {
     assign('bb_length', bbLength);
     assign('bb_mult', bbMult);
 
-    return this.instruments.chart(ticker, (tf as Timeframe) || 'Daily', {
+    const chartTf: Timeframe = tf === 'Monthly' ? 'Monthly' : 'Weekly';
+    return this.instruments.chart(ticker, chartTf, {
       minRr: num(minRr),
       useLastHlSl: useLastHlSl ? useLastHlSl === 'true' : undefined,
       riskPerTrade: num(riskPerTrade),

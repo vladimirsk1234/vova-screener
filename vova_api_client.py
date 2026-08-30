@@ -134,7 +134,7 @@ def build_scan_params(run_params: dict[str, Any]) -> dict[str, Any]:
     return {
         "source": src,
         "manualTickers": str(run_params.get("txt") or ""),
-        "tf": str(run_params.get("tf") or "Daily"),
+        "tf": str(run_params.get("tf") or "Weekly"),
         "direction": direction,
         "minRr": float(run_params.get("rr") or 1.5),
         "riskPerTrade": float(run_params.get("risk_per_trade") or 100),

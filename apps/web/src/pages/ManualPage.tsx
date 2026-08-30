@@ -49,7 +49,7 @@ export function ManualPage() {
   const [ticker, setTicker] = useState(initialTicker);
   const [history, setHistory] = useState(readManualSearchHistory);
   const [lastScanned, setLastScanned] = useState(() => readManualSearchHistory()[0] ?? '');
-  const [tf, setTf] = useState<Timeframe>('Daily');
+  const [tf, setTf] = useState<Timeframe>('Weekly');
   const [runId, setRunId] = useState<string | null>(() => localStorage.getItem(ACTIVE_RUN_KEY));
   const [scanEpoch, setScanEpoch] = useState(0);
   const [starting, setStarting] = useState(false);

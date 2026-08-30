@@ -23,7 +23,7 @@ import { BarsService } from '../market/bars.service';
 import { UniverseService } from '../universe/universe.service';
 import { FundamentalsService, formatDailyChgStr } from './fundamentals.service';
 
-const TFS: Timeframe[] = ['Daily', 'Weekly', 'Monthly'];
+const TFS: Timeframe[] = ['Weekly', 'Monthly'];
 
 /** Same freshness the hourly scan uses for unknown Manual tickers. */
 const CHART_BARS_MAX_AGE_HOURS = 0.5;

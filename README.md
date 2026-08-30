@@ -58,10 +58,10 @@ Full guide: [docs/architecture/home-server.md](docs/architecture/home-server.md)
 
 ### What works locally
 
-- Stocks and ETF are scanned in the background — one hourly pass covering Daily, Weekly and Monthly
+- Stocks and ETF are scanned in the background — one hourly pass covering Weekly and Monthly
   together (09:05–17:05 ET, Mon–Fri); post-close ticks are themselves the period-close scans — so
   **Results** always shows the latest scan without pressing anything
-- Results is Stocks / ETF / Manual → D / W / M → New / Valid / Closed, sortable by RR, P&L, mark
+- Results is Stocks / ETF / Manual → W / M → New / Valid / Closed, sortable by RR, P&L, mark
   or ticker; Valid and Closed carry P&L
 - New is the signals that appeared on the current bar of that timeframe, Valid the ones that appeared
   on an earlier bar and still hold, and each Valid card says how many bars it has been running — a

@@ -1,32 +1,22 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import type { Timeframe } from '@vova/engine';
 import { HistoryRebuildService } from './history-rebuild.service';
 import { HistoryEpsService } from './history-eps.service';
 import {
   HistoryService,
   TRADE_SORTS,
   type HistoryRange,
-  type HistoryTf,
   type PeriodSort,
   type SortDir,
   type TradeSort,
 } from './history.service';
 import { ResultsService, SORT_KEYS, type SortKey } from './results.service';
-import { BUCKETS, TIMEFRAMES, UNIVERSES, type Bucket, type Interest, type TrackedUniverse } from './tracked-signal';
+import { parseHistoryGroupBy, parseHistoryTf, parseTf } from './tf';
+import { BUCKETS, UNIVERSES, type Bucket, type Interest, type TrackedUniverse } from './tracked-signal';
 
 const HISTORY_RANGES: readonly HistoryRange[] = ['all', 'ytd', '1m', '3m', '6m', '1y', 'max'];
 
 function parseUniverse(value?: string): TrackedUniverse {
   return UNIVERSES.includes(value as TrackedUniverse) ? (value as TrackedUniverse) : 'Stocks';
-}
-
-function parseTf(value?: string): Timeframe {
-  return TIMEFRAMES.includes(value as Timeframe) ? (value as Timeframe) : 'Daily';
-}
-
-function parseHistoryTf(value?: string): HistoryTf {
-  if (value === 'All') return 'All';
-  return parseTf(value);
 }
 
 function parseHistoryRange(value?: string): HistoryRange {
@@ -130,7 +120,7 @@ export class HistoryController {
     return this.history.report({
       universe: parseUniverse(universe),
       tf: parseHistoryTf(tf),
-      groupBy: parseTf(groupBy ?? tf),
+      groupBy: parseHistoryGroupBy(groupBy),
       range: parseHistoryRange(range),
       sort: (['period', 'pnl', 'winRate', 'trades', 'rr'] as PeriodSort[]).includes(
         sort as PeriodSort,
@@ -158,7 +148,7 @@ export class HistoryController {
       universe: parseUniverse(universe),
       tf: parseHistoryTf(tf),
       periodKey,
-      groupBy: parseTf(groupBy ?? tf),
+      groupBy: parseHistoryGroupBy(groupBy),
       range: parseHistoryRange(range),
       sort: TRADE_SORTS.includes(sort as TradeSort) ? (sort as TradeSort) : 'date',
       dir: parseDir(dir),

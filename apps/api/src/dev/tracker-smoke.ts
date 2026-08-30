@@ -461,7 +461,7 @@ async function main() {
       (await results.list({ universe: 'Stocks', tf: 'Daily', bucket: 'closed' })).rows
         .filter((r) => TICKERS.includes(r.yahooTicker))
         .map((r) => r.symbol),
-      (await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' })).totals.closed,
+      (await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Day' })).totals.closed,
     ],
     [['ZZTEST-G', 'ZZTEST-K'], 0],
   );
@@ -751,7 +751,7 @@ async function main() {
     5, // A, B, C, F and K all still run: none of them broke.
   );
 
-  const stats = await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' });
+  const stats = await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Day' });
   const day = stats.periods.find((p) => p.periodKey === '2026-07-16');
   // Only the break reaches History: the stop C took out and the target B reached are not exits.
   check('history bucket', [day?.trades, day?.wins, day?.pnlUsd], [1, 0, -72]);
@@ -774,7 +774,7 @@ async function main() {
   check('history counts confirmed positions only', stats.totals.active, 7);
   check(
     'history periods sortable by RR',
-    (await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily', sort: 'rr', dir: 'desc' }))
+    (await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Day', sort: 'rr', dir: 'desc' }))
       .periods[0]?.periodKey,
     '2026-07-16',
   );
@@ -782,7 +782,6 @@ async function main() {
     'growth is reported per timeframe',
     stats.timeframes.map((t) => [t.tf, t.closed, t.pnlUsd, t.equity.length]),
     [
-      ['Daily', 2, -132, 2],
       ['Weekly', 0, 0, 0],
       ['Monthly', 0, 0, 0],
     ],
@@ -815,7 +814,7 @@ async function main() {
   );
   check(
     'and History buckets it there',
-    (await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' })).periods.map((p) => [
+    (await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Day' })).periods.map((p) => [
       p.periodKey,
       p.trades,
     ]),
@@ -858,7 +857,7 @@ async function main() {
   const untouched = await tracked.findOne({ yahooTicker: 'ZZTEST-G' }).lean<any>();
   check('closed signals keep their size', [untouched?.shares, untouched?.pnlUsd], [6, -72]);
   // History still re-sizes under the current Max risk: G is $18 to the stop, so $200 → 11 shares.
-  const histAt200 = await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Daily' });
+  const histAt200 = await history.report({ universe: 'Stocks', tf: 'Daily', groupBy: 'Day' });
   check(
     'history P&L follows current max risk',
     histAt200.periods.find((p) => p.periodKey === '2026-07-16')?.pnlUsd,
@@ -869,7 +868,7 @@ async function main() {
   const drill = await history.trades({
     universe: 'Stocks',
     tf: 'Daily',
-    groupBy: 'Daily',
+    groupBy: 'Day',
     periodKey: '2026-07-16',
     sort: 'rr',
     dir: 'desc',

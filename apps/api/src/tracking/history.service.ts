@@ -7,7 +7,12 @@ import { TRACKED_SIGNAL } from '../db/schemas';
 import { FundamentalsService } from '../instruments/fundamentals.service';
 import { SettingsService, type FundamentalsFilter } from '../settings/settings.module';
 import {
+  HISTORY_GROUP_BYS,
   TIMEFRAMES,
+  withUserTf,
+  type HistoryGroupBy,
+} from './tf';
+import {
   computePnl,
   holdUnitLabel,
   round2,
@@ -19,6 +24,9 @@ import {
 } from './tracked-signal';
 import { sortByUndervaluation } from './uv-sort';
 
+export type { HistoryGroupBy } from './tf';
+export { HISTORY_GROUP_BYS };
+/** Service-layer filter; HTTP parsing never yields Daily. */
 export type HistoryTf = Timeframe | 'All';
 /** Lookback on exit date. `max` is an alias of `all` (everything already in DB). */
 export type HistoryRange = 'all' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'max';
@@ -51,8 +59,8 @@ export type HistoryPeriod = {
 export type EquityPoint = { periodKey: string; equity: number };
 
 /**
- * One timeframe's own record, independent of the filter above it. Daily, Weekly and Monthly are
- * three different strategies sharing one screener, so the growth of each is worth seeing side by
+ * One timeframe's own record, independent of the filter above it. Weekly and Monthly are
+ * different strategies sharing one screener, so the growth of each is worth seeing side by
  * side rather than one at a time.
  */
 export type HistoryTimeframe = {
@@ -75,7 +83,7 @@ export type HistoryTimeframe = {
 export type HistoryReport = {
   universe: TrackedUniverse;
   tf: HistoryTf;
-  groupBy: Timeframe;
+  groupBy: HistoryGroupBy;
   /** Exit-date lookback applied to closed trades (`max` normalised to `all`). */
   range: HistoryRange;
   holdUnit: string;
@@ -137,7 +145,7 @@ export class HistoryService {
   async report(opts: {
     universe: TrackedUniverse;
     tf: HistoryTf;
-    groupBy: Timeframe;
+    groupBy: HistoryGroupBy;
     range?: HistoryRange;
     sort?: PeriodSort;
     dir?: SortDir;
@@ -270,7 +278,7 @@ export class HistoryService {
     universe: TrackedUniverse;
     tf: HistoryTf;
     periodKey?: string;
-    groupBy?: Timeframe;
+    groupBy?: HistoryGroupBy;
     range?: HistoryRange;
     sort?: TradeSort;
     dir?: SortDir;
@@ -292,7 +300,7 @@ export class HistoryService {
       filter.epsPositiveAtEntry = { $ne: false };
     }
     if (opts.periodKey) {
-      const bucket = periodDateRange(opts.periodKey, opts.groupBy ?? 'Daily');
+      const bucket = periodDateRange(opts.periodKey, opts.groupBy ?? 'Day');
       if (bucket) {
         // Drill-down intersects the lookback window so a period outside the range stays empty.
         const existing = filter.exitDate as { $gte?: string; $lte?: string } | undefined;
@@ -340,8 +348,7 @@ export class HistoryService {
     fundamentalsFilter: FundamentalsFilter,
   ): Promise<string[] | null> {
     if (fundamentalsFilter === 'all') return null;
-    const scope: Record<string, unknown> = { universe };
-    if (tf !== 'All') scope.tf = tf;
+    const scope = withUserTf({ universe }, tf);
     return this.fundamentals.tickersForFilter(
       fundamentalsFilter,
       await this.tracked.distinct('yahooTicker', scope),
@@ -469,8 +476,7 @@ function closedMatch(
   minRr: number,
   range: HistoryRange = 'all',
 ): Record<string, unknown> {
-  const match: Record<string, unknown> = { status: 'closed', universe };
-  if (tf !== 'All') match.tf = tf;
+  const match: Record<string, unknown> = withUserTf({ status: 'closed', universe }, tf);
   if (minRr > 0) match.rrAtEntry = { $gte: minRr };
   const from = lookbackFrom(range);
   if (from) match.exitDate = { $gte: from };
@@ -514,20 +520,22 @@ function activeMatch(
   tf: HistoryTf,
   minRr: number,
 ): Record<string, unknown> {
-  const match: Record<string, unknown> = {
-    status: 'active',
-    provisional: { $ne: true },
-    universe,
-  };
-  if (tf !== 'All') match.tf = tf;
+  const match: Record<string, unknown> = withUserTf(
+    {
+      status: 'active',
+      provisional: { $ne: true },
+      universe,
+    },
+    tf,
+  );
   // Active / open count uses live RR, matching NEW/VALID on Results.
   if (minRr > 0) match.lastRr = { $gte: minRr };
   return match;
 }
 
 /** Bucket key derived from the exit date, so History can be grouped by day, week or month. */
-function bucketExpression(groupBy: Timeframe): Record<string, unknown> {
-  if (groupBy === 'Daily') return { $substrCP: [{ $ifNull: ['$exitDate', 'unknown'] }, 0, 10] };
+function bucketExpression(groupBy: HistoryGroupBy | 'Weekly' | 'Monthly'): Record<string, unknown> {
+  if (groupBy === 'Day') return { $substrCP: [{ $ifNull: ['$exitDate', 'unknown'] }, 0, 10] };
   if (groupBy === 'Monthly') return { $substrCP: [{ $ifNull: ['$exitDate', 'unknown'] }, 0, 7] };
 
   const exitAt = {
@@ -563,9 +571,9 @@ function bucketExpression(groupBy: Timeframe): Record<string, unknown> {
 /** Exit-date range covered by one history bucket, so drilling into a period stays an index scan. */
 function periodDateRange(
   periodKey: string,
-  groupBy: Timeframe,
+  groupBy: HistoryGroupBy,
 ): { $gte: string; $lte: string } | null {
-  if (groupBy === 'Daily') return { $gte: periodKey, $lte: periodKey };
+  if (groupBy === 'Day') return { $gte: periodKey, $lte: periodKey };
   if (groupBy === 'Monthly') return { $gte: `${periodKey}-01`, $lte: `${periodKey}-31` };
 
   const match = /^(\d{4})-W(\d{2})$/.exec(periodKey);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  TIMEFRAMES,
   api,
   type ChartDrawing,
   type ChartSettings,
@@ -174,7 +175,9 @@ export function ChartPage() {
 
   const goBack = () => navigate(chartReturnPath() ?? lastResultsPath(), { replace: true });
 
-  const [tf, setTf] = useState<Timeframe>(navState.row?.tf ?? 'Daily');
+  const [tf, setTf] = useState<Timeframe>(
+    navState.row?.tf === 'Monthly' ? 'Monthly' : 'Weekly',
+  );
   // A trade opens as a snapshot of itself: the series cut at the bar it broke on, so the structure
   // on screen is the structure that closed it. Everything after that is one tap away.
   const [snapshot, setSnapshot] = useState(true);
@@ -243,10 +246,10 @@ export function ChartPage() {
     enabled: Boolean(ticker) && !tradeId && tracked.isFetched && !row?.id,
   });
 
-  // The trade decides the timeframe: a Weekly trade read on the Daily chart is a different chart.
+  // The trade decides the timeframe: a Weekly trade read on the Monthly chart is a different chart.
   const tradeTf = trade.data?.tf;
   useEffect(() => {
-    if (tradeTf) setTf(tradeTf);
+    if (tradeTf === 'Weekly' || tradeTf === 'Monthly') setTf(tradeTf);
   }, [tradeTf]);
 
   const asOf = snapshot ? (trade.data?.exitDate ?? null) : null;
@@ -632,7 +635,7 @@ export function ChartPage() {
 
       <div className="chart-period-chips">
         {view === 'ta' ? (
-          <Chips value={tf} options={['Daily', 'Weekly', 'Monthly'] as const} onChange={setTf} />
+          <Chips value={tf} options={TIMEFRAMES} onChange={setTf} />
         ) : (
           <Chips
             value={fund.windowYears == null ? 'max' : String(fund.windowYears)}

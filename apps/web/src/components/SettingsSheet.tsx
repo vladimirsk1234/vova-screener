@@ -301,7 +301,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           ? `Scanning ${busy.universe} ${TF_SHORT[busy.tf]}. Stocks and ETF go one timeframe at a time, and the lists fill in as each finishes.`
           : running
             ? 'Starting. Stocks and ETF go one timeframe at a time, and the lists fill in as each finishes.'
-            : 'Re-downloads every symbol in Stocks and ETF and rebuilds the lists from it. Scans otherwise run on their own — one hourly pass over Daily, Weekly and Monthly together.'}
+            : 'Re-downloads every symbol in Stocks and ETF and rebuilds the lists from it. Scans otherwise run on their own — one hourly pass over Weekly and Monthly together.'}
         {scanAge ? ` Last finished ${scanAge}.` : ' No scan has finished yet.'}
       </p>
       {rescan.data && !rescan.data.started ? (
@@ -330,7 +330,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
       </div>
       <p className="muted small">
         Fills History from the close-scan replay on the bar cache (run a scan first if bars are
-        cold). Does not delete anything. Yahoo windows: Daily ~2y, Weekly and Monthly ~10y — that is
+        cold). Does not delete anything. Yahoo windows: Weekly and Monthly ~10y — that is
         as far back as rebuild can go.
         {rebuildStatus.data?.status === 'running' && rebuildStatus.data.progress.tf
           ? ` Now ${rebuildStatus.data.progress.universe} ${TF_SHORT[rebuildStatus.data.progress.tf]} (${rebuildStatus.data.progress.symbolsDone}/${rebuildStatus.data.progress.symbolsTotal}).`

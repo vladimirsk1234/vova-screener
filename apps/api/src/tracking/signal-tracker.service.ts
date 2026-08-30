@@ -206,7 +206,7 @@ export class SignalTrackerService implements OnModuleInit {
     const universe = run.params?.source as TrackedUniverse;
     if (universe !== 'Stocks' && universe !== 'ETF') return null;
 
-    const tf = (run.periodTf ?? run.params?.tf ?? 'Daily') as Timeframe;
+    const tf = (run.periodTf ?? run.params?.tf ?? 'Weekly') as Timeframe;
     const periodKey = run.periodKey as string | undefined;
     if (!periodKey) return null;
 
