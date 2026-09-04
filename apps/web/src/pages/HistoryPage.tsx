@@ -171,12 +171,17 @@ export function HistoryPage() {
 
   useRestoreChartScroll(!report.isLoading && !trades.isLoading);
 
+  const invalidateHistory = () => {
+    void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
+    void queryClient.invalidateQueries({ queryKey: ['history'] });
+  };
   const enrichEps = useMutation({
     mutationFn: () => api.enrichHistoryEps(80),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['history-trades'] });
-      void queryClient.invalidateQueries({ queryKey: ['history'] });
-    },
+    onSuccess: invalidateHistory,
+  });
+  const enrichPremium = useMutation({
+    mutationFn: () => api.enrichHistoryPremium(80),
+    onSuccess: invalidateHistory,
   });
   const data = report.data;
   const unit = holdLabel(tf);
@@ -249,6 +254,19 @@ export function HistoryPage() {
               tagged {enrichEps.data.updated}, remaining {enrichEps.data.remaining}
             </span>
           ) : null}
+          <button
+            type="button"
+            className="btn-sm ghost"
+            disabled={enrichPremium.isPending}
+            onClick={() => enrichPremium.mutate()}
+          >
+            {enrichPremium.isPending ? 'Tagging UV…' : 'Tag UV at entry'}
+          </button>
+          {enrichPremium.data ? (
+            <span className="muted small">
+              tagged {enrichPremium.data.updated}, remaining {enrichPremium.data.remaining}
+            </span>
+          ) : null}
         </div>
         {enrichEps.error ? (
           <p className="error">
@@ -256,6 +274,9 @@ export function HistoryPage() {
               ? 'Set FMP_API_KEY to tag History EPS at entry.'
               : (enrichEps.error as Error).message}
           </p>
+        ) : null}
+        {enrichPremium.error ? (
+          <p className="error">{(enrichPremium.error as Error).message}</p>
         ) : null}
       </section>
 

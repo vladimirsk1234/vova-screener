@@ -1,6 +1,6 @@
 /**
- * Results / History UV sort. Premiums live on instrumentFundamentals, not the trade,
- * so the bucket is loaded first and then joined by yahooTicker.
+ * Results / History UV sort. Prefer the trade's `premiumPctAtEntry` so the
+ * order matches the Settings UV/OV filter; live card premia fill gaps.
  */
 
 export type UvPremia = {
@@ -11,6 +11,7 @@ export type UvPremia = {
 export type UvRow = {
   yahooTicker: string;
   symbol: string;
+  premiumPctAtEntry?: number | null;
 };
 
 function finite(n: number | null | undefined): number | null {
@@ -21,8 +22,13 @@ function lookup<T>(ticker: string, cards: Record<string, T | undefined>): T | un
   return cards[ticker] ?? cards[ticker.toUpperCase()];
 }
 
-/** Sort key: most undervalued = lowest premium. Falls back to EPS when best is missing. */
-export function uvSortKey(card: UvPremia | undefined): number | null {
+/** Sort key: most undervalued = lowest premium. Entry snapshot wins over live cards. */
+export function uvSortKey(
+  card: UvPremia | undefined,
+  entryPremium?: number | null,
+): number | null {
+  const entry = finite(entryPremium);
+  if (entry != null) return entry;
   const best = finite(card?.bestPremiumPct);
   if (best != null) return best;
   return finite(card?.epsPremiumPct);
@@ -45,7 +51,11 @@ export function compareUvRows<T extends UvRow>(
   const sign = dir === 'asc' ? 1 : -1;
   const aCard = lookup(a.yahooTicker, cards);
   const bCard = lookup(b.yahooTicker, cards);
-  const byBest = compareNullable(uvSortKey(aCard), uvSortKey(bCard), sign);
+  const byBest = compareNullable(
+    uvSortKey(aCard, a.premiumPctAtEntry),
+    uvSortKey(bCard, b.premiumPctAtEntry),
+    sign,
+  );
   if (byBest !== 0) return byBest;
   const byEps = compareNullable(finite(aCard?.epsPremiumPct), finite(bCard?.epsPremiumPct), sign);
   if (byEps !== 0) return byEps;

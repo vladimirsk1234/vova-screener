@@ -51,8 +51,11 @@ function ratio(n: number | null | undefined, digits = 1): string {
   return n.toFixed(digits);
 }
 
-/** Current premium vs fair value — same number Settings uses to filter lists. */
+/** Entry snapshot when stamped; otherwise today's card premium. */
 function premiumVsFair(row: ResultRow, fund: CardFundamentals | undefined): number | null {
+  if (row.premiumPctAtEntry != null && Number.isFinite(row.premiumPctAtEntry)) {
+    return row.premiumPctAtEntry;
+  }
   if (fund?.premiumPct != null && Number.isFinite(fund.premiumPct)) return fund.premiumPct;
   if (!fund?.fairValue || fund.fairValue <= 0) return null;
   const price = row.lastPrice ?? row.entry;

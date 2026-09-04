@@ -11,7 +11,10 @@ export type AppSettings = {
   maxRiskUsd: number;
   /** Floor on live RR for NEW/VALID (and History active); CLOSED/History closed use entry RR. 0 = no filter. */
   minRr: number;
-  /** Current fair-value premium: undervalued / overvalued / all. Display filter only. */
+  /**
+   * Fair-value premium at trade open (`premiumPctAtEntry`) for History / CLOSED.
+   * NEW/VALID use the stamp when present, else today's live premium. Display filter only.
+   */
   fundamentalsFilter: FundamentalsFilter;
 };
 

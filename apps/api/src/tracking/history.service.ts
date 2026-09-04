@@ -12,13 +12,13 @@ import {
   withUserTf,
   type HistoryGroupBy,
 } from './tf';
+import { withEntryPremiumFilter } from './entry-premium';
 import {
   computePnl,
   holdUnitLabel,
   round2,
   sharesFromRisk,
   toResultRow,
-  withYahooTickers,
   type ResultRow,
   type TrackedUniverse,
 } from './tracked-signal';
@@ -189,8 +189,10 @@ export class HistoryService {
     const sort = opts.sort ?? 'period';
     const dir = opts.dir ?? 'desc';
     const { maxRiskUsd, minRr, fundamentalsFilter } = await this.settings.get();
-    const matching = await this.fundamentalsTickers(universe, tf, fundamentalsFilter);
-    const match = withYahooTickers(closedMatch(universe, tf, minRr, range), matching);
+    const match = withEntryPremiumFilter(
+      closedMatch(universe, tf, minRr, range),
+      fundamentalsFilter,
+    );
 
     const now = new Date();
     const rangeFrom = lookbackFrom(range, now);
@@ -214,9 +216,11 @@ export class HistoryService {
           },
         ])
         .exec(),
-      this.tracked.countDocuments(withYahooTickers(activeMatch(universe, tf, minRr), matching)).exec(),
-      this.byTimeframe(universe, minRr, maxRiskUsd, range, matching),
-      this.capitalTrades(universe, tf, minRr, maxRiskUsd, range, matching),
+      this.tracked
+        .countDocuments(withEntryPremiumFilter(activeMatch(universe, tf, minRr), fundamentalsFilter))
+        .exec(),
+      this.byTimeframe(universe, minRr, maxRiskUsd, range, fundamentalsFilter),
+      this.capitalTrades(universe, tf, minRr, maxRiskUsd, range, fundamentalsFilter),
     ]);
 
     const raw = (facet?.[0]?.periods ?? []) as any[];
@@ -282,12 +286,12 @@ export class HistoryService {
     minRr: number,
     maxRiskUsd: number,
     range: HistoryRange,
-    matching: string[] | null,
+    fundamentalsFilter: FundamentalsFilter,
   ): Promise<CapitalTrade[]> {
     const match = {
       $or: [
-        withYahooTickers(closedMatch(universe, tf, minRr, range), matching),
-        withYahooTickers(activeMatch(universe, tf, minRr), matching),
+        withEntryPremiumFilter(closedMatch(universe, tf, minRr, range), fundamentalsFilter),
+        withEntryPremiumFilter(activeMatch(universe, tf, minRr), fundamentalsFilter),
       ],
     };
     const docs = await this.tracked
@@ -333,13 +337,18 @@ export class HistoryService {
     minRr: number,
     maxRiskUsd: number,
     range: HistoryRange,
-    matching: string[] | null,
+    fundamentalsFilter: FundamentalsFilter,
   ): Promise<HistoryTimeframe[]> {
     return Promise.all(
       TIMEFRAMES.map(async (tf) => {
         const facet = await this.tracked
           .aggregate([
-            { $match: withYahooTickers(closedMatch(universe, tf, minRr, range), matching) },
+            {
+              $match: withEntryPremiumFilter(
+                closedMatch(universe, tf, minRr, range),
+                fundamentalsFilter,
+              ),
+            },
             ...resizeStages(maxRiskUsd),
             { $addFields: { bucket: bucketExpression(tf) } },
             {
@@ -392,10 +401,9 @@ export class HistoryService {
     const offset = Math.max(opts.offset ?? 0, 0);
     const { maxRiskUsd, minRr, fundamentalsFilter } = await this.settings.get();
     const lookback = normalizeRange(opts.range);
-    const matching = await this.fundamentalsTickers(opts.universe, opts.tf, fundamentalsFilter);
-    const filter: Record<string, unknown> = withYahooTickers(
+    const filter: Record<string, unknown> = withEntryPremiumFilter(
       closedMatch(opts.universe, opts.tf, minRr, lookback),
-      matching,
+      fundamentalsFilter,
     );
     if (opts.hideUnprofitable) {
       // Keep unknown (not tagged yet) and profitable; hide known EPS≤0 at entry.
@@ -441,20 +449,6 @@ export class HistoryService {
       this.tracked.countDocuments(filter).exec(),
     ]);
     return { total, rows: (rows as any[]).map((doc) => toResultRow(resizeDoc(doc, maxRiskUsd))) };
-  }
-
-  /** One FMP classify per History request, shared by closed stats and the open-count. */
-  private async fundamentalsTickers(
-    universe: TrackedUniverse,
-    tf: HistoryTf,
-    fundamentalsFilter: FundamentalsFilter,
-  ): Promise<string[] | null> {
-    if (fundamentalsFilter === 'all') return null;
-    const scope = withUserTf({ universe }, tf);
-    return this.fundamentals.tickersForFilter(
-      fundamentalsFilter,
-      await this.tracked.distinct('yahooTicker', scope),
-    );
   }
 }
 

@@ -133,6 +133,9 @@ export type ResultRow = {
   /** FMP EPS on/before openedAsOf. null = not tagged yet. */
   epsAtEntry: number | null;
   epsPositiveAtEntry: boolean | null;
+  /** Card premium (5Y Op. EPS) as of openedAsOf. null = tagged unknown; omit until stamped. */
+  premiumPctAtEntry: number | null;
+  undervaluedAtEntry: boolean | null;
 };
 
 export function toResultRow(doc: any): ResultRow {
@@ -183,5 +186,8 @@ export function toResultRow(doc: any): ResultRow {
     epsAtEntry: finiteOrNull(doc.epsAtEntry),
     epsPositiveAtEntry:
       doc.epsPositiveAtEntry == null ? null : Boolean(doc.epsPositiveAtEntry),
+    premiumPctAtEntry: finiteOrNull(doc.premiumPctAtEntry),
+    undervaluedAtEntry:
+      doc.undervaluedAtEntry == null ? null : Boolean(doc.undervaluedAtEntry),
   };
 }

@@ -9,8 +9,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
-import { runCloseLedger, shortSymbol, type CloseTrade, type Timeframe } from '@vova/engine';
+import {
+  runCloseLedger,
+  shortSymbol,
+  stampIfResolvable,
+  type CloseTrade,
+  type Timeframe,
+} from '@vova/engine';
 import { TRACKED_SIGNAL } from '../db/schemas';
+import type { FundamentalsPayload } from '../instruments/fundamentals.service';
+import { FundamentalsService } from '../instruments/fundamentals.service';
 import { BarsService } from '../market/bars.service';
 import { barPeriodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
@@ -66,6 +74,7 @@ export class HistoryRebuildService {
     private readonly bars: BarsService,
     private readonly universe: UniverseService,
     private readonly settings: SettingsService,
+    private readonly fundamentals: FundamentalsService,
   ) {}
 
   status(): RebuildStatus {
@@ -161,6 +170,7 @@ export class HistoryRebuildService {
     },
   ) {
     const recorded = await this.loadRecorded(universe, tf);
+    const payloads = await this.fundamentals.loadPayloads(symbols.map((s) => s.yahooTicker));
     const queue = [...symbols];
 
     const worker = async () => {
@@ -194,7 +204,7 @@ export class HistoryRebuildService {
           recorded.add(exited);
           ops.push({
             insertOne: {
-              document: closedDocument(row, trade, universe, tf, maxRiskUsd),
+              document: closedDocument(row, trade, universe, tf, maxRiskUsd, payloads),
             },
           });
           this.state.counts.inserted += 1;
@@ -251,6 +261,7 @@ function closedDocument(
   universe: TrackedUniverse,
   tf: Timeframe,
   maxRiskUsd: number,
+  payloads: Map<string, FundamentalsPayload> = new Map(),
 ) {
   const entry = round2(trade.entry_price);
   const sl = Number.isFinite(trade.entry_sl) ? round2(trade.entry_sl) : null;
@@ -260,6 +271,12 @@ function closedDocument(
   const shares = sharesFromRisk(entry, sl, maxRiskUsd);
   const pnl = computePnl(entry, sl, shares, exitPrice);
   const exitDate = trade.exit_date as string;
+  const premium =
+    stampIfResolvable(
+      trade.entry_date,
+      entry,
+      payloads.get(row.yahooTicker.toUpperCase()) ?? payloads.get(row.yahooTicker) ?? null,
+    ) ?? {};
   return {
     yahooTicker: row.yahooTicker,
     symbol: row.symbol,
@@ -301,6 +318,7 @@ function closedDocument(
     holdPeriods: holdPeriods(tf, trade.entry_date, exitDate),
     interest: null,
     interestRank: 1,
+    ...premium,
   };
 }
 

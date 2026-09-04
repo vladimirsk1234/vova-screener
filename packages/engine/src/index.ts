@@ -22,3 +22,4 @@ export * from './forecastReturns';
 export * from './fundamentalsScale';
 export * from './dcfFairValue';
 export * from './valueScore';
+export * from './entryPremium';

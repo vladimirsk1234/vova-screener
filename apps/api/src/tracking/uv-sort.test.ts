@@ -44,4 +44,19 @@ describe('sortByUndervaluation', () => {
       ['B', 'A'],
     );
   });
+
+  it('prefers premiumPctAtEntry over live cards so History UV matches the filter', () => {
+    const rows = [
+      { symbol: 'OV_AT_OPEN', yahooTicker: 'OV', premiumPctAtEntry: 10 },
+      { symbol: 'UV_AT_OPEN', yahooTicker: 'UV', premiumPctAtEntry: -50 },
+    ];
+    const cards = {
+      OV: { bestPremiumPct: -90, epsPremiumPct: -90 },
+      UV: { bestPremiumPct: 80, epsPremiumPct: 80 },
+    };
+    assert.deepEqual(
+      sortByUndervaluation(rows, cards, 'asc').map((r) => r.symbol),
+      ['UV_AT_OPEN', 'OV_AT_OPEN'],
+    );
+  });
 });

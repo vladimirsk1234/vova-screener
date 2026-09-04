@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { HistoryRebuildService } from './history-rebuild.service';
 import { HistoryEpsService } from './history-eps.service';
+import { HistoryPremiumService } from './history-premium.service';
 import {
   HistoryService,
   TRADE_SORTS,
@@ -90,6 +91,7 @@ export class HistoryController {
     private readonly history: HistoryService,
     private readonly rebuild: HistoryRebuildService,
     private readonly historyEps: HistoryEpsService,
+    private readonly historyPremium: HistoryPremiumService,
   ) {}
 
   @Get('rebuild')
@@ -106,6 +108,12 @@ export class HistoryController {
   @Post('enrich-eps')
   enrichEps(@Query('limit') limit?: string) {
     return this.historyEps.enrich(parseInt0(limit) ?? 40);
+  }
+
+  /** Fill `premiumPctAtEntry` from stored fundamentals as of `openedAsOf`. */
+  @Post('enrich-premium')
+  enrichPremium(@Query('limit') limit?: string) {
+    return this.historyPremium.enrich(parseInt0(limit) ?? 80);
   }
 
   @Get()
