@@ -14,6 +14,51 @@ export type HistoryEpsEnrichResult = {
   remaining: number;
 };
 
+export type EpsHit = { eps: number | null; date: string | null };
+
+/**
+ * Explicit null = looked up or failed (same spirit as premium-at-entry).
+ * Never invent an EPS number.
+ */
+export const EPS_UNKNOWN_STAMP = {
+  epsAtEntry: null,
+  epsPositiveAtEntry: null,
+  epsAtEntryAsOf: null,
+} as const;
+
+export function epsStampFromHit(hit: EpsHit): {
+  epsAtEntry: number | null;
+  epsPositiveAtEntry: boolean | null;
+  epsAtEntryAsOf: string | null;
+} {
+  if (hit.eps == null) return { ...EPS_UNKNOWN_STAMP };
+  return {
+    epsAtEntry: hit.eps,
+    epsPositiveAtEntry: hit.eps > 0,
+    epsAtEntryAsOf: hit.date,
+  };
+}
+
+export function enrichRemaining(remainingBefore: number, written: number): number {
+  return Math.max(0, remainingBefore - written);
+}
+
+/**
+ * `epsAsOf` uses up to 2 FMP calls per ticker (annual then quarterly income).
+ * 200ms between tickers → ≤600 calls/min if both fire and HTTP is instant,
+ * leaving headroom under a 750/min key when a batch is 50–100.
+ */
+export const FMP_EPS_ENRICH_TICKER_GAP_MS = 200;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const PENDING = {
+  openedAsOf: { $type: 'string', $ne: '' },
+  epsPositiveAtEntry: { $exists: false },
+};
+
 @Injectable()
 export class HistoryEpsService {
   private readonly log = new Logger(HistoryEpsService.name);
@@ -23,39 +68,36 @@ export class HistoryEpsService {
     private readonly fmp: FmpClient,
   ) {}
 
-  async enrich(limit = 40): Promise<HistoryEpsEnrichResult> {
+  async enrich(limit = 40, opts?: { tickerGapMs?: number }): Promise<HistoryEpsEnrichResult> {
     if (!this.fmp.configured()) {
       throw new ServiceUnavailableException(
         'FMP_API_KEY is not set. Add your Financial Modeling Prep key to tag History EPS at entry.',
       );
     }
     const cap = Math.min(Math.max(limit, 1), 200);
+    const gapMs = opts?.tickerGapMs ?? FMP_EPS_ENRICH_TICKER_GAP_MS;
     const pending = await this.tracked
-      .find({
-        openedAsOf: { $type: 'string', $ne: '' },
-        epsPositiveAtEntry: { $exists: false },
-      })
+      .find(PENDING)
       .select('_id yahooTicker openedAsOf')
       .limit(cap)
       .lean<Array<{ _id: unknown; yahooTicker: string; openedAsOf: string }>>()
       .exec();
 
-    const remainingBefore = await this.tracked
-      .countDocuments({
-        openedAsOf: { $type: 'string', $ne: '' },
-        epsPositiveAtEntry: { $exists: false },
-      })
-      .exec();
+    const remainingBefore = await this.tracked.countDocuments(PENDING).exec();
 
     let updated = 0;
     let skipped = 0;
     let errors = 0;
-    const epsCache = new Map<string, { eps: number | null; date: string | null }>();
+    const epsCache = new Map<string, EpsHit>();
 
-    for (const doc of pending) {
+    for (let i = 0; i < pending.length; i += 1) {
+      if (i > 0 && gapMs > 0) await sleep(gapMs);
+      const doc = pending[i];
       const asOf = doc.openedAsOf;
       const ticker = String(doc.yahooTicker || '').trim();
       if (!ticker || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
+        await this.tracked.updateOne({ _id: doc._id }, { $set: { ...EPS_UNKNOWN_STAMP } });
+        updated += 1;
         skipped += 1;
         continue;
       }
@@ -67,27 +109,25 @@ export class HistoryEpsService {
           hit = await this.fmp.epsAsOf(fmpSymbol, asOf);
           epsCache.set(cacheKey, hit);
         }
-        const eps = hit.eps;
-        await this.tracked.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              epsAtEntry: eps,
-              epsPositiveAtEntry: eps == null ? null : eps > 0,
-              epsAtEntryAsOf: hit.date,
-            },
-          },
-        );
+        await this.tracked.updateOne({ _id: doc._id }, { $set: epsStampFromHit(hit) });
         updated += 1;
       } catch (err) {
         errors += 1;
         this.log.warn(
           `EPS-at-entry failed for ${ticker} @ ${asOf}: ${(err as Error).message}`,
         );
+        try {
+          await this.tracked.updateOne({ _id: doc._id }, { $set: { ...EPS_UNKNOWN_STAMP } });
+          updated += 1;
+        } catch (writeErr) {
+          this.log.warn(
+            `EPS-at-entry null stamp failed for ${ticker}: ${(writeErr as Error).message}`,
+          );
+        }
       }
     }
 
-    const remaining = Math.max(0, remainingBefore - updated - skipped);
+    const remaining = enrichRemaining(remainingBefore, updated);
     return {
       configured: true,
       scanned: pending.length,

@@ -229,6 +229,7 @@ export const TrackedSignalSchema = new Schema(
     /**
      * FMP diluted EPS on the last report dated on or before `openedAsOf`.
      * `epsPositiveAtEntry === false` means the name was not profitable at entry.
+     * Missing field = not tagged yet; explicit null = looked up or failed, unknown.
      */
     epsAtEntry: Number,
     epsPositiveAtEntry: Boolean,

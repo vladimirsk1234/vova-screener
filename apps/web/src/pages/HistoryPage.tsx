@@ -26,6 +26,7 @@ import {
   signedMoney,
   signedMultiple,
 } from '../lib/format';
+import { runHistoryEpsEnrichLoop } from '../lib/historyEpsEnrich';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
@@ -176,7 +177,7 @@ export function HistoryPage() {
     void queryClient.invalidateQueries({ queryKey: ['history'] });
   };
   const enrichEps = useMutation({
-    mutationFn: () => api.enrichHistoryEps(80),
+    mutationFn: () => runHistoryEpsEnrichLoop((limit) => api.enrichHistoryEps(limit)),
     onSuccess: invalidateHistory,
   });
   const enrichPremium = useMutation({
