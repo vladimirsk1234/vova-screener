@@ -2,15 +2,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EPS_UNKNOWN_STAMP,
+  PENDING_EPS,
+  enrichHistoryEps,
   enrichRemaining,
   epsStampFromHit,
-  HistoryEpsService,
-} from './history-eps.service.ts';
+} from './history-eps.ts';
 
 describe('epsStampFromHit', () => {
   it('does not invent an EPS number when FMP has no report', () => {
     assert.deepEqual(epsStampFromHit({ eps: null, date: null }), { ...EPS_UNKNOWN_STAMP });
-    assert.equal(typeof EPS_UNKNOWN_STAMP.epsAtEntry, 'object');
     assert.equal(EPS_UNKNOWN_STAMP.epsAtEntry, null);
   });
 
@@ -38,14 +38,10 @@ describe('enrichRemaining', () => {
 
 function trackedMock(docs: Array<{ _id: string; yahooTicker: string; openedAsOf: string }>) {
   const updates: Array<{ filter: { _id: unknown }; update: { $set: Record<string, unknown> } }> = [];
-  const pending = {
-    openedAsOf: { $type: 'string', $ne: '' },
-    epsPositiveAtEntry: { $exists: false },
-  };
   return {
     updates,
     find(filter: unknown) {
-      assert.deepEqual(filter, pending);
+      assert.deepEqual(filter, PENDING_EPS);
       return {
         select() {
           return {
@@ -61,7 +57,7 @@ function trackedMock(docs: Array<{ _id: string; yahooTicker: string; openedAsOf:
       };
     },
     countDocuments(filter: unknown) {
-      assert.deepEqual(filter, pending);
+      assert.deepEqual(filter, PENDING_EPS);
       return { exec: async () => docs.length + 5 };
     },
     async updateOne(filter: { _id: unknown }, update: { $set: Record<string, unknown> }) {
@@ -70,21 +66,19 @@ function trackedMock(docs: Array<{ _id: string; yahooTicker: string; openedAsOf:
   };
 }
 
-describe('HistoryEpsService.enrich', () => {
+describe('enrichHistoryEps', () => {
   it('writes null on FMP error so remaining decreases and no EPS is invented', async () => {
     const tracked = trackedMock([
       { _id: 'a', yahooTicker: 'AAA', openedAsOf: '2024-01-15' },
       { _id: 'b', yahooTicker: 'BBB', openedAsOf: '2024-02-01' },
     ]);
     const fmp = {
-      configured: () => true,
       resolveFmpSymbol: async (ticker: string) => ticker,
       epsAsOf: async () => {
         throw new Error('FMP request failed (429) for /income-statement');
       },
     };
-    const svc = new HistoryEpsService(tracked as never, fmp as never);
-    const result = await svc.enrich(80, { tickerGapMs: 0 });
+    const result = await enrichHistoryEps(tracked, fmp, { limit: 80, tickerGapMs: 0 });
 
     assert.equal(result.errors, 2);
     assert.equal(result.updated, 2);
@@ -101,12 +95,10 @@ describe('HistoryEpsService.enrich', () => {
   it('writes reported EPS on success and never substitutes another number', async () => {
     const tracked = trackedMock([{ _id: 'a', yahooTicker: 'AAPL', openedAsOf: '2024-03-01' }]);
     const fmp = {
-      configured: () => true,
       resolveFmpSymbol: async () => 'AAPL',
       epsAsOf: async () => ({ eps: 6.42, date: '2023-09-30' }),
     };
-    const svc = new HistoryEpsService(tracked as never, fmp as never);
-    const result = await svc.enrich(40, { tickerGapMs: 0 });
+    const result = await enrichHistoryEps(tracked, fmp, { limit: 40, tickerGapMs: 0 });
 
     assert.equal(result.errors, 0);
     assert.equal(result.updated, 1);
@@ -121,7 +113,6 @@ describe('HistoryEpsService.enrich', () => {
   it('stamps invalid ticker/asOf as unknown so they leave the pending queue', async () => {
     const tracked = trackedMock([{ _id: 'bad', yahooTicker: '', openedAsOf: 'not-a-date' }]);
     const fmp = {
-      configured: () => true,
       resolveFmpSymbol: async () => {
         throw new Error('should not fetch');
       },
@@ -129,8 +120,7 @@ describe('HistoryEpsService.enrich', () => {
         throw new Error('should not fetch');
       },
     };
-    const svc = new HistoryEpsService(tracked as never, fmp as never);
-    const result = await svc.enrich(10, { tickerGapMs: 0 });
+    const result = await enrichHistoryEps(tracked, fmp, { limit: 10, tickerGapMs: 0 });
 
     assert.equal(result.updated, 1);
     assert.equal(result.skipped, 1);
