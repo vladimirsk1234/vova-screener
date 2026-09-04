@@ -1,6 +1,7 @@
 /** Yahoo Finance chart API client (same endpoints yfinance uses). */
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  barDateFromUnix,
   collapseInProgressPeriodBars,
   dropIncompleteBars,
   fillLastBarOhlc,
@@ -25,6 +26,7 @@ type ChartResponse = {
           close?: (number | null)[];
           volume?: (number | null)[];
         }>;
+        adjclose?: Array<{ adjclose?: (number | null)[] }>;
       };
       meta?: { shortName?: string; longName?: string; exchangeName?: string; symbol?: string };
     }>;
@@ -105,5 +107,57 @@ export class YahooClient {
       }
     }
     return { bars: null };
+  }
+
+  /**
+   * Daily closes for a long window (History S&P compare). Prefers Yahoo
+   * adjusted close so SPY is a total-return proxy; falls back to raw close.
+   */
+  async fetchDailyCloses(
+    yahooTicker: string,
+    opts: { range?: string; signal?: AbortSignal; retries?: number } = {},
+  ): Promise<Array<{ date: string; close: number }> | null> {
+    const range = opts.range ?? 'max';
+    const url =
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker)}` +
+      `?interval=1d&range=${encodeURIComponent(range)}&includePrePost=false&events=div%2Csplit`;
+
+    const retries = opts.retries ?? 2;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (opts.signal?.aborted) return null;
+      try {
+        const res = await fetch(url, {
+          signal: opts.signal,
+          headers: { 'User-Agent': UA, Accept: 'application/json' },
+        });
+        if (res.status === 429 || res.status >= 500) {
+          await sleep(400 * (attempt + 1));
+          continue;
+        }
+        if (!res.ok) return null;
+        const json = (await res.json()) as ChartResponse;
+        const result = json.chart?.result?.[0];
+        if (!result?.timestamp?.length) return null;
+        const close = result.indicators?.quote?.[0]?.close;
+        const adj = result.indicators?.adjclose?.[0]?.adjclose;
+        const out: Array<{ date: string; close: number }> = [];
+        for (let i = 0; i < result.timestamp.length; i++) {
+          const px = Number(adj?.[i] ?? close?.[i]);
+          if (!Number.isFinite(px) || px <= 0) continue;
+          const date = barDateFromUnix(result.timestamp[i]);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+          out.push({ date, close: px });
+        }
+        return out.length ? out : null;
+      } catch (err) {
+        if (opts.signal?.aborted) return null;
+        if (attempt === retries) {
+          this.log.debug(`${yahooTicker} daily: ${(err as Error).message}`);
+          return null;
+        }
+        await sleep(300 * (attempt + 1));
+      }
+    }
+    return null;
   }
 }

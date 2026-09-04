@@ -3,6 +3,7 @@ import { InstrumentsModule } from '../instruments/instruments.module';
 import { MarketModule } from '../market/market.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UniverseModule } from '../universe/universe.module';
+import { BenchmarkService } from './benchmark.service';
 import { HistoryRebuildService } from './history-rebuild.service';
 import { HistoryEpsService } from './history-eps.service';
 import { HistoryService } from './history.service';
@@ -13,7 +14,14 @@ import { HistoryController, ResultsController } from './tracking.controller';
 @Module({
   imports: [MarketModule, SettingsModule, UniverseModule, InstrumentsModule],
   controllers: [ResultsController, HistoryController],
-  providers: [SignalTrackerService, ResultsService, HistoryService, HistoryRebuildService, HistoryEpsService],
+  providers: [
+    SignalTrackerService,
+    ResultsService,
+    HistoryService,
+    HistoryRebuildService,
+    HistoryEpsService,
+    BenchmarkService,
+  ],
   exports: [SignalTrackerService, ResultsService],
 })
 export class TrackingModule {}

@@ -380,10 +380,75 @@ export function HistoryPage() {
                     {pct(data.totals.roiOnPeakPct)}
                   </strong>
                 </div>
+                <div>
+                  <span>Avg capital</span>
+                  <strong>{money(data.totals.avgCapitalUsd)}</strong>
+                </div>
+                <div>
+                  <span>ROI on avg</span>
+                  <strong
+                    className={
+                      data.totals.roiOnAvgPct == null
+                        ? undefined
+                        : data.totals.roiOnAvgPct >= 0
+                          ? 'up-text'
+                          : 'down-text'
+                    }
+                  >
+                    {pct(data.totals.roiOnAvgPct)}
+                  </strong>
+                </div>
+                <div>
+                  <span>S&amp;P (period) return</span>
+                  <strong
+                    className={
+                      data.totals.benchmarkReturnPct == null
+                        ? undefined
+                        : data.totals.benchmarkReturnPct >= 0
+                          ? 'up-text'
+                          : 'down-text'
+                    }
+                  >
+                    {pct(data.totals.benchmarkReturnPct)}
+                    {data.totals.benchmarkSymbol ? (
+                      <span className="muted small"> · {data.totals.benchmarkSymbol}</span>
+                    ) : null}
+                  </strong>
+                </div>
+                <div>
+                  <span>Alpha vs S&amp;P (on peak)</span>
+                  <strong
+                    className={
+                      data.totals.alphaVsBenchmarkPct == null
+                        ? undefined
+                        : data.totals.alphaVsBenchmarkPct >= 0
+                          ? 'up-text'
+                          : 'down-text'
+                    }
+                  >
+                    {pct(data.totals.alphaVsBenchmarkPct)}
+                  </strong>
+                </div>
+                <div>
+                  <span>Alpha vs S&amp;P (on avg)</span>
+                  <strong
+                    className={
+                      data.totals.alphaOnAvgPct == null
+                        ? undefined
+                        : data.totals.alphaOnAvgPct >= 0
+                          ? 'up-text'
+                          : 'down-text'
+                    }
+                  >
+                    {pct(data.totals.alphaOnAvgPct)}
+                  </strong>
+                </div>
               </div>
               <p className="muted small" style={{ margin: '8px 0 0' }}>
                 Min. cash to take every signal at the current Max risk. A close frees size for a
-                new trade the same day.
+                new trade the same day. Avg is the calendar-day mean of that sweep (idle days
+                count). S&amp;P is SPY total return (Yahoo adjusted close) over the selected
+                range; alpha is ROI minus that return.
               </p>
             </div>
           </div>

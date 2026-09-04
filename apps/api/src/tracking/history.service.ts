@@ -22,7 +22,9 @@ import {
   type ResultRow,
   type TrackedUniverse,
 } from './tracked-signal';
-import { computePeakCapital, roiOnPeakPct, type CapitalTrade } from './peak-capital';
+import { withBenchmark } from './benchmark';
+import { BenchmarkService } from './benchmark.service';
+import { computePeakCapital, roiOnAvgPct, roiOnPeakPct, type CapitalTrade } from './peak-capital';
 import { sortByUndervaluation } from './uv-sort';
 
 export type { HistoryGroupBy } from './tf';
@@ -125,6 +127,24 @@ export type HistoryReport = {
     openCapitalUsd: number;
     /** Closed P&L / peakCapitalUsd × 100; null when the pool is 0. */
     roiOnPeakPct: number | null;
+    /**
+     * Calendar-day mean of the same capital sweep (forward-filled between
+     * event days so idle stretches count).
+     */
+    avgCapitalUsd: number;
+    /** Closed P&L / avgCapitalUsd × 100; null when avg is 0. */
+    roiOnAvgPct: number | null;
+    /**
+     * SPY (fallback ^GSPC) total-return proxy over the History range start→end
+     * (Yahoo adjusted close; FMP unadjusted close if Yahoo fails).
+     */
+    benchmarkReturnPct: number | null;
+    /** `SPY` or `^GSPC` when the fetch worked; null if benchmark is unavailable. */
+    benchmarkSymbol: string | null;
+    /** roiOnPeakPct − benchmarkReturnPct — primary alpha vs the conservative pool. */
+    alphaVsBenchmarkPct: number | null;
+    /** roiOnAvgPct − benchmarkReturnPct. */
+    alphaOnAvgPct: number | null;
   };
 };
 
@@ -153,6 +173,7 @@ export class HistoryService {
     @InjectModel(TRACKED_SIGNAL) private readonly tracked: Model<any>,
     private readonly settings: SettingsService,
     private readonly fundamentals: FundamentalsService,
+    private readonly benchmark: BenchmarkService,
   ) {}
 
   async report(opts: {
@@ -206,6 +227,9 @@ export class HistoryService {
     const totals = totalsRaw ? finalizePeriod(totalsRaw) : emptyPeriod();
     const risk = riskStats(totals.trades, totals.pnlUsd, maxRiskUsd);
     const peak = computePeakCapital(capitalTrades, { rangeFrom, rangeEnd });
+    const roiPeak = roiOnPeakPct(totals.pnlUsd, peak.peakCapitalUsd);
+    const roiAvg = roiOnAvgPct(totals.pnlUsd, peak.avgCapitalUsd);
+    const bench = await this.benchmark.periodReturn(peak.windowFrom, peak.windowTo).catch(() => null);
 
     return {
       universe,
@@ -236,8 +260,14 @@ export class HistoryService {
         avgLossPct: totals.avgLossPct,
         avgPnlPct: totals.avgPnlPct,
         ...risk,
-        ...peak,
-        roiOnPeakPct: roiOnPeakPct(totals.pnlUsd, peak.peakCapitalUsd),
+        peakCapitalUsd: peak.peakCapitalUsd,
+        peakCapitalAsOf: peak.peakCapitalAsOf,
+        peakConcurrentPositions: peak.peakConcurrentPositions,
+        openCapitalUsd: peak.openCapitalUsd,
+        roiOnPeakPct: roiPeak,
+        avgCapitalUsd: peak.avgCapitalUsd,
+        roiOnAvgPct: roiAvg,
+        ...withBenchmark(roiPeak, roiAvg, bench),
       },
     };
   }

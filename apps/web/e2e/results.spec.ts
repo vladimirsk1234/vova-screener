@@ -145,6 +145,11 @@ test.describe('results shell', () => {
     await expect(page.getByText('Peak capital')).toBeVisible();
     await expect(page.getByText('Open now')).toBeVisible();
     await expect(page.getByText('ROI on peak')).toBeVisible();
+    await expect(page.getByText('Avg capital')).toBeVisible();
+    await expect(page.getByText('ROI on avg')).toBeVisible();
+    await expect(page.getByText('S&P (period) return')).toBeVisible();
+    await expect(page.getByText('Alpha vs S&P (on peak)')).toBeVisible();
+    await expect(page.getByText('Alpha vs S&P (on avg)')).toBeVisible();
   });
 
   test('Results status and timeframe survive a trip through History', async ({ page }) => {

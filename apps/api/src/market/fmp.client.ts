@@ -434,6 +434,36 @@ export class FmpClient {
     }
     return out;
   }
+
+  /**
+   * Daily EOD closes for a History S&P fallback (price return, not adjusted).
+   * Empty when FMP is off or the request fails — callers must not throw.
+   */
+  async historicalCloses(
+    symbol: string,
+    from: string,
+  ): Promise<Array<{ date: string; close: number }>> {
+    if (!this.configured()) return [];
+    let rows: Json[] = [];
+    try {
+      rows = asArr(await this.get('/historical-price-eod/light', { symbol, from }));
+    } catch {
+      try {
+        rows = asArr(await this.get('/historical-price-eod/full', { symbol, from }));
+      } catch {
+        return [];
+      }
+    }
+    const out: Array<{ date: string; close: number }> = [];
+    for (const r of rows) {
+      const date = str(r.date);
+      const close = num(r.close) ?? num(r.price);
+      if (!date || close == null || !(close > 0)) continue;
+      out.push({ date: date.slice(0, 10), close });
+    }
+    out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return out;
+  }
 }
 
 function forexPairFor(currency: string): { symbol: string; fallback: number; multiplier: number } | null {
