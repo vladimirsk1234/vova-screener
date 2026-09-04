@@ -270,10 +270,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         />
       </div>
       <p className="muted small">
-        Current price vs fair value from stored fundamentals (Mongo, refreshed daily/weekly).
-        Applies to Results lists and counts and to History trades and stats. Names without a fair
-        value only appear in All. Scans still track every signal; this only filters what the lists
-        and stats include.
+        Fair-value premium at the trade&apos;s open (stored on each trade), not today&apos;s
+        price. Undervalued / overvalued use that snapshot; names without a snapshot only appear
+        in All. Open Results rows that are not yet tagged still use today&apos;s premium until
+        stamped. Scans still track every signal; this only filters what the lists and stats
+        include.
       </p>
 
       <div className="field">

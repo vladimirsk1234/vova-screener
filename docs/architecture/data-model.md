@@ -69,7 +69,9 @@ signalValid, imported, backfilled, openedPeriodKey, openedAsOf, entry, tp, sl, r
 lastSeenPeriodKey, lastSeenAsOf, lastPrice, lastRr, barsSinceValid, validSinceAsOf, isStrong,
 unrealizedUsd, unrealizedR, unrealizedPct,
 closedPeriodKey, exitDate, exitPrice, exitReason, pnlUsd, pnlR, pnlPct, holdPeriods,
-interest, interestRank, interestAt, runId }`.
+interest, interestRank, interestAt,
+epsAtEntry, epsPositiveAtEntry, epsAtEntryAsOf,
+premiumPctAtEntry, undervaluedAtEntry, premiumPctAtEntryAsOf, runId }`.
 
 **A tracked position is the Streamlit close scan's trade.** That scan replays a symbol's whole
 history — take the long on the bar a buy signal appears, give it up on the bar the sequence closes
@@ -159,6 +161,12 @@ Lifecycle:
   that wrote it: a record last priced days ago was new on that bar, not on this one. VALID is the
   exact complement, so the two tab counts always add up and a record nobody has priced this period
   lands in VALID rather than nowhere.
+- `premiumPctAtEntry` is the Results/Value card premium (5Y Op. EPS trailing) as of `openedAsOf`,
+  computed from stored `instrumentFundamentals.payload` sliced to that date and the trade's entry
+  price. Settings UV/OV on History and CLOSED filter this field (`< 0` / `> 0`); null/missing
+  trades only appear in All. `POST /history/enrich-premium` backfills existing rows; new opens
+  and rebuild inserts stamp it when a payload exists. Live `instrumentFundamentals.premiumPct`
+  is unchanged and still feeds the Fundamentals page and unstamped NEW/VALID rows.
 - CLOSED is everything with `closedPeriodKey` on the period the scan reports on, realized or
   `provisionalClose`. That period comes from the bars rather than the clock because
   `closedPeriodKey` does: over a weekend a Monthly scan already runs under the next month while the

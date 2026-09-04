@@ -234,6 +234,15 @@ export const TrackedSignalSchema = new Schema(
     epsPositiveAtEntry: Boolean,
     epsAtEntryAsOf: String,
 
+    /**
+     * Card fair-value premium on/before `openedAsOf` (5Y Op. EPS trailing).
+     * `undervaluedAtEntry === true` means `premiumPctAtEntry < 0`.
+     * Missing field = not tagged yet; explicit null = looked up, unknown.
+     */
+    premiumPctAtEntry: Number,
+    undervaluedAtEntry: Boolean,
+    premiumPctAtEntryAsOf: String,
+
     runId: Schema.Types.ObjectId,
   },
   { timestamps: true },

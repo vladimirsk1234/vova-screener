@@ -143,6 +143,8 @@ export type ResultRow = {
   interest: Interest | null;
   epsAtEntry: number | null;
   epsPositiveAtEntry: boolean | null;
+  premiumPctAtEntry: number | null;
+  undervaluedAtEntry: boolean | null;
 };
 
 export type ScanMeta = {
@@ -557,6 +559,13 @@ export type HistoryEpsEnrichResult = {
   remaining: number;
 };
 
+export type HistoryPremiumEnrichResult = {
+  scanned: number;
+  updated: number;
+  skipped: number;
+  remaining: number;
+};
+
 /** Tracked signals whose ticker has since left its universe list file. */
 export type DelistedSummary = {
   symbols: number;
@@ -835,6 +844,10 @@ export const api = {
   historyRebuildStatus: () => request<HistoryRebuildStatus>('/history/rebuild'),
   enrichHistoryEps: (limit = 40) =>
     request<HistoryEpsEnrichResult>(`/history/enrich-eps${query({ limit })}`, { method: 'POST' }),
+  enrichHistoryPremium: (limit = 80) =>
+    request<HistoryPremiumEnrichResult>(`/history/enrich-premium${query({ limit })}`, {
+      method: 'POST',
+    }),
 
   // Settings
   settings: () => request<AppSettings>('/settings'),

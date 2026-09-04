@@ -10,13 +10,13 @@ import { SCAN_RUN, TRACKED_SIGNAL } from '../db/schemas';
 import { FundamentalsService } from '../instruments/fundamentals.service';
 import { BarsService } from '../market/bars.service';
 import { barPeriodKey, periodKey as currentPeriodKey } from '../scans/period';
-import { SettingsService } from '../settings/settings.module';
+import { SettingsService, type FundamentalsFilter } from '../settings/settings.module';
+import { withEntryPremiumFilter, withLiveOrEntryPremiumFilter } from './entry-premium';
 import {
   INTEREST_RANK,
   TIMEFRAMES,
   UNIVERSES,
   toResultRow,
-  withYahooTickers,
   type Bucket,
   type Interest,
   type ResultRow,
@@ -115,14 +115,7 @@ export class ResultsService {
     if (bucket !== 'closed') await this.revalidateLiveAges(universe, tf);
     const { minRr, fundamentalsFilter } = await this.settings.get();
     const filter = bucketFilter(universe, tf, bucket, scan, minRr);
-    const matching =
-      fundamentalsFilter === 'all'
-        ? null
-        : await this.fundamentals.tickersForFilter(
-            fundamentalsFilter,
-            await this.tracked.distinct('yahooTicker', filter),
-          );
-    const filtered = withYahooTickers(filter, matching);
+    const filtered = await this.applyFundamentalsFilterAsync(filter, fundamentalsFilter, bucket);
 
     if (sort === 'uv') {
       const docs = await this.tracked.find(filtered).lean<any[]>().exec();
@@ -160,7 +153,7 @@ export class ResultsService {
   /** Bucket counts for every universe + timeframe, for the tab badges. */
   async summary() {
     const { minRr, fundamentalsFilter } = await this.settings.get();
-    const matching =
+    const liveTickers =
       fundamentalsFilter === 'all'
         ? null
         : await this.fundamentals.tickersForFilter(
@@ -180,14 +173,32 @@ export class ResultsService {
         await this.revalidateLiveAges(universe, tf);
         const [newCount, valid, closed] = await Promise.all([
           this.tracked
-            .countDocuments(withYahooTickers(bucketFilter(universe, tf, 'new', scan, minRr), matching))
-            .exec(),
-          this.tracked
-            .countDocuments(withYahooTickers(bucketFilter(universe, tf, 'valid', scan, minRr), matching))
+            .countDocuments(
+              this.applyFundamentalsFilter(
+                bucketFilter(universe, tf, 'new', scan, minRr),
+                fundamentalsFilter,
+                'new',
+                liveTickers,
+              ),
+            )
             .exec(),
           this.tracked
             .countDocuments(
-              withYahooTickers(bucketFilter(universe, tf, 'closed', scan, minRr), matching),
+              this.applyFundamentalsFilter(
+                bucketFilter(universe, tf, 'valid', scan, minRr),
+                fundamentalsFilter,
+                'valid',
+                liveTickers,
+              ),
+            )
+            .exec(),
+          this.tracked
+            .countDocuments(
+              this.applyFundamentalsFilter(
+                bucketFilter(universe, tf, 'closed', scan, minRr),
+                fundamentalsFilter,
+                'closed',
+              ),
             )
             .exec(),
         ]);
@@ -299,6 +310,37 @@ export class ResultsService {
     }
     if (ops.length) await this.tracked.bulkWrite(ops, { ordered: false });
   }
+
+  /**
+   * CLOSED / History-style lists: per-trade `premiumPctAtEntry` only.
+   * NEW/VALID: stamp when present; unstamped rows (`$exists: false`) still use
+   * today's live `tickersForFilter` until the open stamp or backfill lands.
+   */
+  private applyFundamentalsFilter(
+    match: Record<string, unknown>,
+    fundamentalsFilter: FundamentalsFilter,
+    bucket: Bucket,
+    liveTickers: string[] | null = null,
+  ): Record<string, unknown> {
+    if (fundamentalsFilter === 'all') return match;
+    if (bucket === 'closed') return withEntryPremiumFilter(match, fundamentalsFilter);
+    return withLiveOrEntryPremiumFilter(match, fundamentalsFilter, liveTickers);
+  }
+
+  private async applyFundamentalsFilterAsync(
+    match: Record<string, unknown>,
+    fundamentalsFilter: FundamentalsFilter,
+    bucket: Bucket,
+  ): Promise<Record<string, unknown>> {
+    if (fundamentalsFilter === 'all' || bucket === 'closed') {
+      return this.applyFundamentalsFilter(match, fundamentalsFilter, bucket);
+    }
+    const liveTickers = await this.fundamentals.tickersForFilter(
+      fundamentalsFilter,
+      await this.tracked.distinct('yahooTicker', match),
+    );
+    return this.applyFundamentalsFilter(match, fundamentalsFilter, bucket, liveTickers);
+  }
 }
 
 function bucketFilter(
@@ -366,8 +408,8 @@ function bucketFilter(
 
 /**
  * Mongo sorts missing values first ascending, so a descending RR sort naturally pushes the
- * signals with no computable RR to the end of the list. UV is not a Mongo sort — premiums live
- * on instrumentFundamentals and are joined after the bucket is loaded.
+ * signals with no computable RR to the end of the list. UV prefers `premiumPctAtEntry`
+ * on the trade, then live card premia for rows not yet stamped.
  */
 function sortSpec(bucket: Bucket, sort: SortKey, dir: SortDir): Record<string, 1 | -1> {
   const order: 1 | -1 = dir === 'asc' ? 1 : -1;

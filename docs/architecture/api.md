@@ -16,7 +16,7 @@ reports the same `barsSinceValid` as the tabs whatever `minRr` it is called with
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED. Settings `fundamentalsFilter` (`all` / `undervalued` / `overvalued`) further restricts rows to tickers whose Mongo `premiumPct` matches; it does not fetch FMP on the read path. Names without a fair value only appear in `all` |
+| GET | `/results?universe&tf&bucket&sort&dir&limit&offset` | `bucket` = `new` (became valid on the latest bar of `tf`) / `valid` (became valid earlier and still is, marked to market) / `closed` (sold to close in the current period). `sort` = `rr`, `pnl`, `interest`, `symbol`, available in every bucket; sorting and paging happen in Mongo. `rr` reads `rrAtEntry` in CLOSED and `lastRr` elsewhere, matching the number on the card. Settings Min RR filters the same way: `lastRr` for NEW/VALID, `rrAtEntry` for CLOSED. Settings `fundamentalsFilter` (`all` / `undervalued` / `overvalued`) restricts CLOSED on per-trade `premiumPctAtEntry` (`< 0` / `> 0`); NEW/VALID use that stamp when present and otherwise today's live `instrumentFundamentals.premiumPct`. Names without a snapshot (or live fair value, for unstamped open rows) only appear in `all` |
 | GET | `/results/summary` | Bucket counts and scan freshness for every universe × timeframe, for the tab badges |
 | GET | `/results/lookup?yahooTicker&tf` | The active tracked signal for a symbol, so a chart opened by URL can show and toggle the mark |
 | GET | `/results/signal/:id` | One tracked signal whatever its state — how a closed trade from History is opened on the chart |
@@ -42,6 +42,8 @@ evaluate is a different thing and keeps showing on its last numbers.
 | GET | `/history/trades?tf&groupBy&periodKey&range&sort&dir&limit&offset` | Closed rows, optionally drilled into one period bucket (intersected with `range`). `sort` = `date`, `pnl`, `r`, `rr`, `interest`, `symbol`. Settings Min RR and `fundamentalsFilter` apply the same way they do on `/history` |
 | POST | `/history/rebuild` | Start a background rebuild: `runCloseLedger` over every cached symbol in Stocks/ETF × Weekly/Monthly, insert missing closed trades into `trackedSignals`. Idempotent; does not delete. Returns `{ started }` immediately |
 | GET | `/history/rebuild` | Rebuild job status: `idle\|running\|done\|failed`, progress and insert/skip/noBars counts |
+| POST | `/history/enrich-eps` | Tag `epsAtEntry` / `epsPositiveAtEntry` from FMP as of `openedAsOf` |
+| POST | `/history/enrich-premium` | Tag `premiumPctAtEntry` / `undervaluedAtEntry` from stored fundamentals as of `openedAsOf` (no FMP). Missing payload is a no-op so a later EOD refresh can fill it |
 
 Yahoo bar windows bound how far rebuild can go: Weekly/Monthly `10y` (see `intervalAndPeriod`). History `range` filters what is already stored; it cannot invent bars beyond that cache.
 
@@ -49,7 +51,7 @@ Yahoo bar windows bound how far rebuild can go: Weekly/Monthly `10y` (see `inter
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET/PUT | `/settings` | `{ maxRiskUsd, minRr, fundamentalsFilter }` — user-facing settings; scan parameters are fixed in code. `minRr` floors Results NEW/VALID (and History active) on live `lastRr`, and CLOSED / History closed on entry `rrAtEntry`; `0` disables the filter. `fundamentalsFilter` is `all` (default) / `undervalued` / `overvalued` on current fair-value premium and applies to the same Results lists/counts and History trades/stats; scans still write every signal |
+| GET/PUT | `/settings` | `{ maxRiskUsd, minRr, fundamentalsFilter }` — user-facing settings; scan parameters are fixed in code. `minRr` floors Results NEW/VALID (and History active) on live `lastRr`, and CLOSED / History closed on entry `rrAtEntry`; `0` disables the filter. `fundamentalsFilter` is `all` (default) / `undervalued` / `overvalued` on **premium at trade open** (`premiumPctAtEntry`) for History and CLOSED; NEW/VALID use the stamp when present, else today's live premium. Scans still write every signal |
 
 One risk for every signal: `maxRiskUsd` divided by the distance to SL is the position size
 everywhere — background scans, manual scans, the tracked signals and the chart. A `PUT` re-sizes

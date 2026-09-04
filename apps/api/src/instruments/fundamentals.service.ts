@@ -1643,6 +1643,24 @@ export class FundamentalsService {
     return doc.payload as FundamentalsPayload;
   }
 
+  /** Stored FMP payloads for as-of premium at trade open. Missing tickers are omitted. */
+  async loadPayloads(tickers: string[]): Promise<Map<string, FundamentalsPayload>> {
+    const unique = uniqueTickers(tickers);
+    const out = new Map<string, FundamentalsPayload>();
+    if (!unique.length) return out;
+    const docs = await this.store
+      .find({ yahooTicker: { $in: unique } })
+      .select('yahooTicker payload')
+      .lean<Array<{ yahooTicker: string; payload?: unknown }>>()
+      .exec();
+    for (const doc of docs) {
+      if (doc.payload && typeof doc.payload === 'object') {
+        out.set(String(doc.yahooTicker).toUpperCase(), doc.payload as FundamentalsPayload);
+      }
+    }
+    return out;
+  }
+
   private payloadUsable(stored: FundamentalsPayload): boolean {
     return Array.isArray(stored.annual) && stored.annual.length > 0;
   }

@@ -28,9 +28,12 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Types, type Model } from 'mongoose';
 import { runCloseLedger, runStructureOverlay, type CloseTrade, type Timeframe } from '@vova/engine';
 import { REJECTION, SCAN_RUN, SIGNAL, TRACKED_SIGNAL } from '../db/schemas';
+import type { FundamentalsPayload } from '../instruments/fundamentals.service';
+import { FundamentalsService } from '../instruments/fundamentals.service';
 import { BarsService } from '../market/bars.service';
 import { barPeriodKey } from '../scans/period';
 import { SettingsService } from '../settings/settings.module';
+import { stampIfResolvable, type EntryPremiumFields } from '@vova/engine';
 import {
   computePnl,
   holdPeriods,
@@ -151,6 +154,7 @@ export class SignalTrackerService implements OnModuleInit {
     @InjectModel(REJECTION) private readonly rejections: Model<any>,
     private readonly bars: BarsService,
     private readonly settings: SettingsService,
+    private readonly fundamentals: FundamentalsService,
   ) {}
 
   onModuleInit() {
@@ -248,6 +252,11 @@ export class SignalTrackerService implements OnModuleInit {
     // both questions at once: whether the position has been given up, and — for one still
     // running — the bar it was entered on, which is rarely the day this app first saw it.
     const ledgerOpts = this.ledgerOpts(run, maxRiskUsd);
+    const payloads = await this.fundamentals.loadPayloads([
+      ...active.map((doc) => doc.yahooTicker),
+      ...seen.keys(),
+      ...closes.keys(),
+    ]);
     const positions = await this.replay(
       active.filter((doc) => !doc.provisional).map((doc) => doc.yahooTicker),
       tf,
@@ -262,7 +271,9 @@ export class SignalTrackerService implements OnModuleInit {
       // it, and nothing can end a trade that has not started.
       if (doc.provisional) {
         if (snapshot) {
-          ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, confirmed));
+          ops.push(
+            this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, confirmed, null, undefined, payloads),
+          );
           report.refreshed += 1;
         } else if (confirmed) {
           ops.push({ deleteOne: { filter: { _id: doc._id } } });
@@ -282,7 +293,7 @@ export class SignalTrackerService implements OnModuleInit {
         // scanning. A break on any earlier bar is settled — a close scan missed for a week, or a
         // catch-up after a migration, realizes it straight away rather than parking it.
         const pending = !confirmed && barPeriodKey(tf, exit.date) === periodKey;
-        ops.push(this.exitOp(doc, trade, exit, tf, maxRiskUsd, pending));
+        ops.push(this.exitOp(doc, trade, exit, tf, maxRiskUsd, pending, payloads));
         if (pending) {
           report.pendingClose += 1;
           continue;
@@ -293,7 +304,17 @@ export class SignalTrackerService implements OnModuleInit {
         if (snapshot && snapshot.asOf > exit.date) {
           reopens.push({
             insertOne: {
-              document: this.newDocument(snapshot, null, universe, tf, periodKey, maxRiskUsd, confirmed, runId),
+              document: this.newDocument(
+                snapshot,
+                null,
+                universe,
+                tf,
+                periodKey,
+                maxRiskUsd,
+                confirmed,
+                runId,
+                payloads,
+              ),
             },
           });
           report.opened += 1;
@@ -306,12 +327,12 @@ export class SignalTrackerService implements OnModuleInit {
       // sight; one Yahoo could not price says nothing either way and stays exactly as it was.
       if (!snapshot) {
         const evaluated = !unevaluated.has(doc.yahooTicker);
-        const op = this.missingOp(doc, trade, tf, periodKey, maxRiskUsd, evaluated);
+        const op = this.missingOp(doc, trade, tf, periodKey, maxRiskUsd, evaluated, payloads);
         if (op) ops.push(op);
         if (evaluated && doc.signalValid !== false) report.hidden += 1;
         continue;
       }
-      ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, confirmed, trade, tf));
+      ops.push(this.refreshOp(doc, snapshot, periodKey, maxRiskUsd, confirmed, trade, tf, payloads));
       report.refreshed += 1;
     }
 
@@ -333,6 +354,7 @@ export class SignalTrackerService implements OnModuleInit {
             maxRiskUsd,
             confirmed,
             runId,
+            payloads,
           ),
         },
       });
@@ -351,7 +373,7 @@ export class SignalTrackerService implements OnModuleInit {
       const pending = !confirmed && barPeriodKey(tf, row.exitAsOf) === periodKey;
       ops.push({
         insertOne: {
-          document: this.adoptedDocument(row, universe, tf, maxRiskUsd, pending, runId),
+          document: this.adoptedDocument(row, universe, tf, maxRiskUsd, pending, runId, payloads),
         },
       });
       report.adopted += 1;
@@ -526,12 +548,16 @@ export class SignalTrackerService implements OnModuleInit {
     confirm: boolean,
     trade: CloseTrade | null = null,
     tf?: Timeframe,
+    payloads: Map<string, FundamentalsPayload> = new Map(),
   ) {
     const aligned = tf ? alignment(doc, trade, tf, maxRiskUsd) : null;
     const entry = aligned ? (aligned.entry as number) : doc.entry;
     const sl = aligned ? (aligned.sl as number | null) : doc.sl;
     const shares = sharesFromRisk(entry, sl, maxRiskUsd);
     const pnl = computePnl(entry, sl, shares, snapshot.entry);
+    const premium = aligned
+      ? alignmentPremium(doc.yahooTicker, aligned, payloads)
+      : NO_PREMIUM;
     return {
       updateOne: {
         filter: { _id: doc._id },
@@ -560,8 +586,9 @@ export class SignalTrackerService implements OnModuleInit {
             signalValid: true,
             ...(confirm ? { provisional: false } : {}),
             ...aligned,
+            ...premium.set,
           },
-          ...(doc.provisionalClose ? { $unset: EXIT_FIELDS } : {}),
+          ...unsetPatch(doc.provisionalClose, premium.unset),
         },
       },
     };
@@ -579,6 +606,7 @@ export class SignalTrackerService implements OnModuleInit {
     tf: Timeframe,
     maxRiskUsd: number,
     pending: boolean,
+    payloads: Map<string, FundamentalsPayload> = new Map(),
   ) {
     // The trade closes on the entry the replay gives it, which is the one Streamlit prices its
     // close list from — not the day this app happened to start following the symbol.
@@ -588,12 +616,19 @@ export class SignalTrackerService implements OnModuleInit {
     const openedAsOf = aligned ? (aligned.openedAsOf as string) : doc.openedAsOf;
     const shares = aligned ? (aligned.shares as number) : (doc.shares ?? 0);
     const pnl = computePnl(entry, sl, shares, exit.price);
+    const premium = aligned
+      ? alignmentPremium(doc.yahooTicker, aligned, payloads)
+      : NO_PREMIUM;
+    const closeUnset: Record<string, string> = pending
+      ? {}
+      : { unrealizedUsd: '', unrealizedR: '', unrealizedPct: '' };
     return {
       updateOne: {
         filter: { _id: doc._id },
         update: {
           $set: {
             ...aligned,
+            ...premium.set,
             status: pending ? 'active' : 'closed',
             provisional: false,
             provisionalClose: pending,
@@ -611,7 +646,7 @@ export class SignalTrackerService implements OnModuleInit {
             pnlPct: pnl.pct,
             holdPeriods: holdPeriods(tf, openedAsOf, exit.date),
           },
-          ...(pending ? {} : { $unset: { unrealizedUsd: '', unrealizedR: '', unrealizedPct: '' } }),
+          ...unsetPatch(false, { ...closeUnset, ...premium.unset }),
         },
       },
     };
@@ -629,15 +664,21 @@ export class SignalTrackerService implements OnModuleInit {
     periodKey: string,
     maxRiskUsd: number,
     evaluated: boolean,
+    payloads: Map<string, FundamentalsPayload> = new Map(),
   ) {
-    const set: Record<string, unknown> = { ...alignment(doc, trade, tf, maxRiskUsd) };
+    const aligned = alignment(doc, trade, tf, maxRiskUsd);
+    const premium = aligned ? alignmentPremium(doc.yahooTicker, aligned, payloads) : NO_PREMIUM;
+    const set: Record<string, unknown> = { ...aligned, ...premium.set };
     if (doc.provisionalClose) set.provisionalClose = false;
     if (evaluated && doc.signalValid !== false) set.signalValid = false;
-    if (!Object.keys(set).length) return null;
+    if (!Object.keys(set).length && !premium.unset) return null;
     return {
       updateOne: {
         filter: { _id: doc._id },
-        update: { $set: set, ...(doc.provisionalClose ? { $unset: EXIT_FIELDS } : {}) },
+        update: {
+          ...(Object.keys(set).length ? { $set: set } : {}),
+          ...unsetPatch(doc.provisionalClose, premium.unset),
+        },
       },
     };
   }
@@ -656,6 +697,7 @@ export class SignalTrackerService implements OnModuleInit {
     maxRiskUsd: number,
     confirmed: boolean,
     runId: string,
+    payloads: Map<string, FundamentalsPayload> = new Map(),
   ) {
     const entry = open ? round2(open.entry_price) : round2(snapshot.entry);
     const sl = open ? finite(open.entry_sl) : snapshot.sl;
@@ -667,6 +709,7 @@ export class SignalTrackerService implements OnModuleInit {
     // A position taken months ago is already worth something, so the card says so from the first
     // scan that meets it rather than reading flat until the next one marks it to market.
     const pnl = computePnl(entry, sl, shares, snapshot.entry);
+    const premium = openStamp(snapshot.yahooTicker, openedAsOf, entry, payloads);
     return {
       yahooTicker: snapshot.yahooTicker,
       symbol: snapshot.symbol,
@@ -702,6 +745,7 @@ export class SignalTrackerService implements OnModuleInit {
       interest: null,
       interestRank: 1,
       runId: new Types.ObjectId(runId),
+      ...premium,
     };
   }
 
@@ -721,10 +765,12 @@ export class SignalTrackerService implements OnModuleInit {
     maxRiskUsd: number,
     pending: boolean,
     runId: string,
+    payloads: Map<string, FundamentalsPayload> = new Map(),
   ) {
     const entry = round2(row.entry);
     const shares = sharesFromRisk(entry, row.entrySl, maxRiskUsd);
     const pnl = computePnl(entry, row.entrySl, shares, row.exit);
+    const premium = openStamp(row.yahooTicker, row.entryAsOf, entry, payloads);
     return {
       yahooTicker: row.yahooTicker,
       symbol: row.symbol,
@@ -765,6 +811,7 @@ export class SignalTrackerService implements OnModuleInit {
       interest: null,
       interestRank: 1,
       runId: new Types.ObjectId(runId),
+      ...premium,
     };
   }
 
@@ -829,6 +876,55 @@ function alignment(
     shares: sharesFromRisk(entry, sl, maxRiskUsd),
     riskUsd: maxRiskUsd,
   };
+}
+
+const PREMIUM_UNSET = {
+  premiumPctAtEntry: '',
+  undervaluedAtEntry: '',
+  premiumPctAtEntryAsOf: '',
+} as const;
+
+const NO_PREMIUM: { set: Partial<EntryPremiumFields>; unset?: Record<string, string> } = {
+  set: {},
+};
+
+function payloadOf(
+  ticker: string,
+  payloads: Map<string, FundamentalsPayload>,
+): FundamentalsPayload | null {
+  return payloads.get(ticker.toUpperCase()) ?? payloads.get(ticker) ?? null;
+}
+
+function openStamp(
+  ticker: string,
+  openedAsOf: string,
+  entry: number,
+  payloads: Map<string, FundamentalsPayload>,
+): Partial<EntryPremiumFields> {
+  return stampIfResolvable(openedAsOf, entry, payloadOf(ticker, payloads)) ?? {};
+}
+
+function alignmentPremium(
+  ticker: string,
+  aligned: Record<string, unknown>,
+  payloads: Map<string, FundamentalsPayload>,
+): { set: Partial<EntryPremiumFields>; unset?: Record<string, string> } {
+  const openedAsOf = typeof aligned.openedAsOf === 'string' ? aligned.openedAsOf : '';
+  const entry = typeof aligned.entry === 'number' ? aligned.entry : null;
+  const stamp = stampIfResolvable(openedAsOf, entry, payloadOf(ticker, payloads));
+  if (stamp) return { set: stamp };
+  return { set: {}, unset: { ...PREMIUM_UNSET } };
+}
+
+function unsetPatch(
+  clearExit: boolean | undefined,
+  extra?: Record<string, string>,
+): { $unset: Record<string, string> } | Record<string, never> {
+  const unset = {
+    ...(clearExit ? EXIT_FIELDS : {}),
+    ...(extra ?? {}),
+  };
+  return Object.keys(unset).length ? { $unset: unset } : {};
 }
 
 function finite(n: number): number | null {
