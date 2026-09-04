@@ -323,12 +323,12 @@ export class FmpClient {
   /**
    * Last reported diluted EPS on or before `asOf` (annual preferred, else quarterly).
    * Used for History "profitable at entry".
+   *
+   * Up to 2 FMP calls per ticker: annual income, then quarterly only if annual
+   * has no report on/before `asOf`. Sequential (not Promise.all) so History
+   * enrich can stay under a 750/min key when paced ~200ms/ticker.
    */
   async epsAsOf(symbol: string, asOf: string): Promise<{ eps: number | null; date: string | null }> {
-    const [annual, quarterly] = await Promise.all([
-      this.incomeAnnual(symbol, 30),
-      this.incomeQuarterly(symbol, 40),
-    ]);
     const pick = (rows: Json[]) => {
       let best: { date: string; eps: number } | null = null;
       for (const r of rows) {
@@ -339,8 +339,10 @@ export class FmpClient {
       }
       return best;
     };
+    const annual = await this.incomeAnnual(symbol, 30);
     const a = pick(annual);
     if (a) return { eps: a.eps, date: a.date };
+    const quarterly = await this.incomeQuarterly(symbol, 40);
     const q = pick(quarterly);
     return { eps: q?.eps ?? null, date: q?.date ?? null };
   }
