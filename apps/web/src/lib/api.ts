@@ -11,6 +11,7 @@ export type {
 
 import {
   HISTORY_GROUP_BYS,
+  HISTORY_TFS,
   TIMEFRAMES,
   type HistoryGroupBy,
   type HistoryTf,
@@ -18,7 +19,7 @@ import {
 } from './userTimeframes';
 
 export type { HistoryGroupBy, HistoryTf, Timeframe };
-export { HISTORY_GROUP_BYS, TIMEFRAMES };
+export { HISTORY_GROUP_BYS, HISTORY_TFS, TIMEFRAMES };
 /** Exit-date lookback on History. `max` is accepted by the API as an alias of `all`. */
 export type HistoryRange = 'all' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'max';
 export type Universe = 'Stocks' | 'ETF';

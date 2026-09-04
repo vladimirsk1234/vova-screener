@@ -1,5 +1,7 @@
 /** Peak concurrent capital: the cash pool needed to take every selected signal. */
-import { round2 } from './tracked-signal';
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 export type CapitalTrade = {
   id: string;

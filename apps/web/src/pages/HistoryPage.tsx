@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   HISTORY_GROUP_BYS,
   HISTORY_RANGES,
+  HISTORY_TFS,
   UNIVERSES,
   api,
   type HistoryGroupBy,
@@ -31,8 +32,6 @@ import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 import { Chips, Switch } from '../components/Chips';
 import { SignalCard } from '../components/SignalCard';
 import { SortChips } from '../components/SortChips';
-
-const HISTORY_TFS = ['Weekly', 'Monthly', 'All'] as const satisfies readonly HistoryTf[];
 
 type HistoryRangeChip = (typeof HISTORY_RANGES)[number];
 
