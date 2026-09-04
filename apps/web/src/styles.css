@@ -330,6 +330,14 @@ a {
   gap: 16px;
 }
 
+@media (min-width: 720px) {
+  .history-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: start;
+  }
+}
+
 .history-stats-label {
   margin: 0 0 8px;
   font-size: 0.68rem;

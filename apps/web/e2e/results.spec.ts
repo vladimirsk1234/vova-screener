@@ -142,6 +142,9 @@ test.describe('results shell', () => {
     await expect(page.getByText('Avg winner')).toBeVisible();
     await expect(page.getByText('Avg loser')).toBeVisible();
     await expect(page.getByText('Profit / risk')).toBeVisible();
+    await expect(page.getByText('Peak capital')).toBeVisible();
+    await expect(page.getByText('Open now')).toBeVisible();
+    await expect(page.getByText('ROI on peak')).toBeVisible();
   });
 
   test('Results status and timeframe survive a trip through History', async ({ page }) => {

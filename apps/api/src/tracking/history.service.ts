@@ -22,6 +22,7 @@ import {
   type ResultRow,
   type TrackedUniverse,
 } from './tracked-signal';
+import { computePeakCapital, roiOnPeakPct, type CapitalTrade } from './peak-capital';
 import { sortByUndervaluation } from './uv-sort';
 
 export type { HistoryGroupBy } from './tf';
@@ -112,6 +113,18 @@ export type HistoryReport = {
     totalRiskUsd: number;
     /** Net P&L / total risked; null when nothing was risked. */
     profitToRisk: number | null;
+    /**
+     * Max $ in open positions at once (closes recycle same-day before opens).
+     * The cash pool needed to take every selected signal at the current Max risk.
+     */
+    peakCapitalUsd: number;
+    /** Calendar day the sweep first reached `peakCapitalUsd`. */
+    peakCapitalAsOf: string | null;
+    peakConcurrentPositions: number;
+    /** Capital still tied in non-closed positions at the end of the range / now. */
+    openCapitalUsd: number;
+    /** Closed P&L / peakCapitalUsd × 100; null when the pool is 0. */
+    roiOnPeakPct: number | null;
   };
 };
 
@@ -158,7 +171,11 @@ export class HistoryService {
     const matching = await this.fundamentalsTickers(universe, tf, fundamentalsFilter);
     const match = withYahooTickers(closedMatch(universe, tf, minRr, range), matching);
 
-    const [facet, active, timeframes] = await Promise.all([
+    const now = new Date();
+    const rangeFrom = lookbackFrom(range, now);
+    const rangeEnd = now.toISOString().slice(0, 10);
+
+    const [facet, active, timeframes, capitalTrades] = await Promise.all([
       this.tracked
         .aggregate([
           { $match: match },
@@ -178,6 +195,7 @@ export class HistoryService {
         .exec(),
       this.tracked.countDocuments(withYahooTickers(activeMatch(universe, tf, minRr), matching)).exec(),
       this.byTimeframe(universe, minRr, maxRiskUsd, range, matching),
+      this.capitalTrades(universe, tf, minRr, maxRiskUsd, range, matching),
     ]);
 
     const raw = (facet?.[0]?.periods ?? []) as any[];
@@ -187,6 +205,7 @@ export class HistoryService {
     const totalsRaw = (facet?.[0]?.totals ?? [])[0];
     const totals = totalsRaw ? finalizePeriod(totalsRaw) : emptyPeriod();
     const risk = riskStats(totals.trades, totals.pnlUsd, maxRiskUsd);
+    const peak = computePeakCapital(capitalTrades, { rangeFrom, rangeEnd });
 
     return {
       universe,
@@ -217,8 +236,61 @@ export class HistoryService {
         avgLossPct: totals.avgLossPct,
         avgPnlPct: totals.avgPnlPct,
         ...risk,
+        ...peak,
+        roiOnPeakPct: roiOnPeakPct(totals.pnlUsd, peak.peakCapitalUsd),
       },
     };
+  }
+
+  /**
+   * Closed-in-range plus still-open (confirmed) positions, resized to today's Max risk.
+   * Same universe / timeframe / Min RR / fundamentals scope as the History totals.
+   */
+  private async capitalTrades(
+    universe: TrackedUniverse,
+    tf: HistoryTf,
+    minRr: number,
+    maxRiskUsd: number,
+    range: HistoryRange,
+    matching: string[] | null,
+  ): Promise<CapitalTrade[]> {
+    const match = {
+      $or: [
+        withYahooTickers(closedMatch(universe, tf, minRr, range), matching),
+        withYahooTickers(activeMatch(universe, tf, minRr), matching),
+      ],
+    };
+    const docs = await this.tracked
+      .aggregate([
+        { $match: match },
+        ...resizeStages(maxRiskUsd),
+        {
+          $project: {
+            openedAsOf: 1,
+            exitDate: 1,
+            entry: 1,
+            shares: 1,
+            status: 1,
+          },
+        },
+      ])
+      .exec();
+
+    const seen = new Set<string>();
+    const rows: CapitalTrade[] = [];
+    for (const doc of docs as any[]) {
+      const id = String(doc._id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      rows.push({
+        id,
+        openedAsOf: typeof doc.openedAsOf === 'string' ? doc.openedAsOf : null,
+        exitDate:
+          doc.status === 'closed' && typeof doc.exitDate === 'string' ? doc.exitDate : null,
+        positionValue: round2((doc.entry ?? 0) * (doc.shares ?? 0)),
+      });
+    }
+    return rows;
   }
 
   /**
