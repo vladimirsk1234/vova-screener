@@ -244,6 +244,12 @@ export type HistoryReport = {
     peakConcurrentPositions: number;
     openCapitalUsd: number;
     roiOnPeakPct: number | null;
+    avgCapitalUsd: number;
+    roiOnAvgPct: number | null;
+    benchmarkReturnPct: number | null;
+    benchmarkSymbol: string | null;
+    alphaVsBenchmarkPct: number | null;
+    alphaOnAvgPct: number | null;
   };
 };
 

@@ -15,6 +15,15 @@ export type PeakCapitalStats = {
   peakCapitalAsOf: string | null;
   peakConcurrentPositions: number;
   openCapitalUsd: number;
+  /**
+   * Calendar-day mean of the same sweep, forward-filled between event days.
+   * Idle stretches (and the lookback before the first event) count as whatever
+   * was open that day — often $0.
+   */
+  avgCapitalUsd: number;
+  /** Inclusive YYYY-MM-DD window the average (and S&P compare) cover. */
+  windowFrom: string | null;
+  windowTo: string | null;
 };
 
 type CapitalEvent = {
@@ -74,6 +83,7 @@ export function computePeakCapital(
     return eventRank(a) - eventRank(b);
   });
 
+  const initial = current;
   let peak = current;
   let peakAsOf: string | null = current > 0 ? rangeFrom : null;
   let peakPositions = positions;
@@ -93,18 +103,90 @@ export function computePeakCapital(
     }
   }
 
+  const firstEvent = events[0]?.date ?? null;
+  const lastEvent = events[events.length - 1]?.date ?? null;
+  const windowFrom = rangeFrom ?? firstEvent;
+  const windowTo = rangeEnd ?? lastEvent ?? windowFrom;
+  const avgCapitalUsd = averageDeployedCapital(events, {
+    start: windowFrom,
+    end: windowTo,
+    initial,
+  });
+
   return {
     peakCapitalUsd: round2(Math.max(0, peak)),
     peakCapitalAsOf: peak > 0 ? peakAsOf : null,
     peakConcurrentPositions: Math.max(0, peakPositions),
     openCapitalUsd: round2(Math.max(0, current)),
+    avgCapitalUsd,
+    windowFrom,
+    windowTo,
   };
+}
+
+/** Realized closed P&L ÷ a capital-pool size, as a percent. */
+export function roiOnCapitalPct(pnlUsd: number, capitalUsd: number): number | null {
+  if (!(capitalUsd > 0)) return null;
+  return round2((pnlUsd / capitalUsd) * 100);
 }
 
 /** Realized closed P&L ÷ peak concurrent capital, as a percent. */
 export function roiOnPeakPct(pnlUsd: number, peakCapitalUsd: number): number | null {
-  if (!(peakCapitalUsd > 0)) return null;
-  return round2((pnlUsd / peakCapitalUsd) * 100);
+  return roiOnCapitalPct(pnlUsd, peakCapitalUsd);
+}
+
+/** Realized closed P&L ÷ calendar-day average deployed capital, as a percent. */
+export function roiOnAvgPct(pnlUsd: number, avgCapitalUsd: number): number | null {
+  return roiOnCapitalPct(pnlUsd, avgCapitalUsd);
+}
+
+/**
+ * End-of-day capital after that day's sweep (closes before opens), then hold
+ * that step until the next event day so idle calendar days are in the mean.
+ */
+function averageDeployedCapital(
+  events: CapitalEvent[],
+  opts: { start: string | null; end: string | null; initial: number },
+): number {
+  const start = opts.start;
+  const end = opts.end;
+  if (!start || !end || start > end) return 0;
+
+  let current = opts.initial;
+  let i = 0;
+  while (i < events.length && events[i].date < start) {
+    current = applyEvent(current, events[i]);
+    i += 1;
+  }
+
+  let sum = 0;
+  let days = 0;
+  const cursor = parseUtcDay(start);
+  const last = parseUtcDay(end);
+  if (!cursor || !last) return 0;
+
+  while (cursor.getTime() <= last.getTime()) {
+    const day = cursor.toISOString().slice(0, 10);
+    while (i < events.length && events[i].date === day) {
+      current = applyEvent(current, events[i]);
+      i += 1;
+    }
+    sum += Math.max(0, current);
+    days += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return days ? round2(sum / days) : 0;
+}
+
+function applyEvent(current: number, event: CapitalEvent): number {
+  return event.kind === 'close' ? current - event.value : current + event.value;
+}
+
+function parseUtcDay(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const dt = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
 function dedupeTrades(trades: CapitalTrade[]): CapitalTrade[] {
