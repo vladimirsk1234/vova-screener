@@ -336,7 +336,56 @@ export function HistoryPage() {
                     {signedMultiple(data.totals.profitToRisk)}
                   </strong>
                 </div>
+                <div>
+                  <span>Closed invested</span>
+                  <strong>{money(data.totals.invested)}</strong>
+                </div>
               </div>
+            </div>
+            <div>
+              <p className="history-stats-label">Capital pool</p>
+              <div className="history-stats-grid">
+                <div>
+                  <span>Peak capital</span>
+                  <strong>{money(data.totals.peakCapitalUsd)}</strong>
+                </div>
+                <div>
+                  <span>Peaked</span>
+                  <strong>
+                    {data.totals.peakCapitalAsOf
+                      ? periodLabel(data.totals.peakCapitalAsOf, 'Day')
+                      : '—'}
+                    {data.totals.peakConcurrentPositions > 0 ? (
+                      <span className="muted small">
+                        {' '}
+                        · {data.totals.peakConcurrentPositions} open
+                      </span>
+                    ) : null}
+                  </strong>
+                </div>
+                <div>
+                  <span>Open now</span>
+                  <strong>{money(data.totals.openCapitalUsd)}</strong>
+                </div>
+                <div>
+                  <span>ROI on peak</span>
+                  <strong
+                    className={
+                      data.totals.roiOnPeakPct == null
+                        ? undefined
+                        : data.totals.roiOnPeakPct >= 0
+                          ? 'up-text'
+                          : 'down-text'
+                    }
+                  >
+                    {pct(data.totals.roiOnPeakPct)}
+                  </strong>
+                </div>
+              </div>
+              <p className="muted small" style={{ margin: '8px 0 0' }}>
+                Min. cash to take every signal at the current Max risk. A close frees size for a
+                new trade the same day.
+              </p>
             </div>
           </div>
           <p className="muted small" style={{ margin: '10px 0 0' }}>

@@ -238,6 +238,11 @@ export type HistoryReport = {
     maxRiskUsd: number;
     totalRiskUsd: number;
     profitToRisk: number | null;
+    peakCapitalUsd: number;
+    peakCapitalAsOf: string | null;
+    peakConcurrentPositions: number;
+    openCapitalUsd: number;
+    roiOnPeakPct: number | null;
   };
 };
 
