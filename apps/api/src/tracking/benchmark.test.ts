@@ -1,7 +1,13 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { alphaPct, periodReturnPct, withBenchmark, type DailyClose } from './benchmark.ts';
-import { BenchmarkService } from './benchmark.service.ts';
+import {
+  alphaPct,
+  benchmarkFromSeries,
+  loadBenchmarkSeries,
+  periodReturnPct,
+  withBenchmark,
+  type DailyClose,
+} from './benchmark.ts';
 
 function bars(rows: Array<[string, number]>): DailyClose[] {
   return rows.map(([date, close]) => ({ date, close }));
@@ -72,49 +78,55 @@ describe('alphaPct / withBenchmark', () => {
   });
 });
 
-describe('BenchmarkService', () => {
-  it('computes the period return from mocked Yahoo closes and does not call FMP', async () => {
-    const fetchDailyCloses = mock.fn(async () =>
-      bars([
+describe('loadBenchmarkSeries / benchmarkFromSeries', () => {
+  it('uses mocked Yahoo closes and does not call FMP', async () => {
+    const fetchYahoo = mock.fn(async (symbol: string) => {
+      assert.equal(symbol, 'SPY');
+      return bars([
         ['2025-12-31', 100],
         ['2026-09-04', 108],
-      ]),
-    );
-    const historicalCloses = mock.fn(async () => {
+      ]);
+    });
+    const fetchFmp = mock.fn(async () => {
       throw new Error('FMP should not run');
     });
-    const svc = new BenchmarkService(
-      { fetchDailyCloses } as any,
-      { configured: () => true, historicalCloses } as any,
-    );
-    const hit = await svc.periodReturn('2026-01-01', '2026-09-04');
-    assert.deepEqual(hit, { symbol: 'SPY', returnPct: 8 });
-    assert.equal(fetchDailyCloses.mock.callCount(), 1);
-    assert.equal(historicalCloses.mock.callCount(), 0);
+    const series = await loadBenchmarkSeries({
+      fetchYahoo,
+      fmpConfigured: () => true,
+      fetchFmp,
+    });
+    assert.deepEqual(benchmarkFromSeries(series, '2026-01-01', '2026-09-04'), {
+      symbol: 'SPY',
+      returnPct: 8,
+    });
+    assert.equal(fetchYahoo.mock.callCount(), 1);
+    assert.equal(fetchFmp.mock.callCount(), 0);
   });
 
   it('falls back to FMP when Yahoo returns nothing', async () => {
-    const svc = new BenchmarkService(
-      { fetchDailyCloses: async () => null } as any,
-      {
-        configured: () => true,
-        historicalCloses: async () =>
-          bars([
-            ['2026-01-02', 400],
-            ['2026-09-04', 440],
-          ]),
-      } as any,
-    );
-    const hit = await svc.periodReturn('2026-01-01', '2026-09-04');
-    assert.deepEqual(hit, { symbol: 'SPY', returnPct: 10 });
+    const series = await loadBenchmarkSeries({
+      fetchYahoo: async () => null,
+      fmpConfigured: () => true,
+      fetchFmp: async () =>
+        bars([
+          ['2026-01-02', 400],
+          ['2026-09-04', 440],
+        ]),
+    });
+    assert.deepEqual(benchmarkFromSeries(series, '2026-01-01', '2026-09-04'), {
+      symbol: 'SPY',
+      returnPct: 10,
+    });
   });
 
   it('returns null when every source fails, so History stays up', async () => {
-    const svc = new BenchmarkService(
-      { fetchDailyCloses: async () => null } as any,
-      { configured: () => false, historicalCloses: async () => [] } as any,
-    );
-    assert.equal(await svc.periodReturn('2026-01-01', '2026-09-04'), null);
-    assert.equal(await svc.periodReturn(null, '2026-09-04'), null);
+    const series = await loadBenchmarkSeries({
+      fetchYahoo: async () => null,
+      fmpConfigured: () => false,
+      fetchFmp: async () => [],
+    });
+    assert.equal(series, null);
+    assert.equal(benchmarkFromSeries(null, '2026-01-01', '2026-09-04'), null);
+    assert.equal(benchmarkFromSeries(null, null, '2026-09-04'), null);
   });
 });

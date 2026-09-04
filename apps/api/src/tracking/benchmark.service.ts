@@ -3,44 +3,39 @@ import { Injectable, Logger } from '@nestjs/common';
 import { FmpClient } from '../market/fmp.client';
 import { YahooClient } from '../market/yahoo.client';
 import {
-  BENCHMARK_SYMBOL,
-  periodReturnPct,
+  benchmarkFromSeries,
+  loadBenchmarkSeries,
   type BenchmarkReturn,
-  type DailyClose,
+  type BenchmarkSeries,
 } from './benchmark';
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8_000;
-const CANDIDATES = [BENCHMARK_SYMBOL, '^GSPC'] as const;
-
-type Series = { symbol: string; bars: DailyClose[] };
 
 @Injectable()
 export class BenchmarkService {
   private readonly log = new Logger(BenchmarkService.name);
-  private cache: { at: number; series: Series | null } | null = null;
-  private inflight: Promise<Series | null> | null = null;
+  private cache: { at: number; series: BenchmarkSeries | null } | null = null;
+  private inflight: Promise<BenchmarkSeries | null> | null = null;
+  private readonly yahoo: YahooClient;
+  private readonly fmp: FmpClient;
 
-  constructor(
-    private readonly yahoo: YahooClient,
-    private readonly fmp: FmpClient,
-  ) {}
+  constructor(yahoo: YahooClient, fmp: FmpClient) {
+    this.yahoo = yahoo;
+    this.fmp = fmp;
+  }
 
   async periodReturn(from: string | null, to: string | null): Promise<BenchmarkReturn | null> {
-    if (!from || !to || from > to) return null;
     try {
       const series = await this.series();
-      if (!series?.bars.length) return null;
-      const returnPct = periodReturnPct(series.bars, from, to);
-      if (returnPct == null) return null;
-      return { symbol: series.symbol, returnPct };
+      return benchmarkFromSeries(series, from, to);
     } catch (err) {
       this.log.debug(`benchmark ${from}→${to}: ${(err as Error).message}`);
       return null;
     }
   }
 
-  private async series(): Promise<Series | null> {
+  private async series(): Promise<BenchmarkSeries | null> {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return this.cache.series;
     if (this.inflight) return this.inflight;
     this.inflight = this.load()
@@ -58,18 +53,17 @@ export class BenchmarkService {
     return this.inflight;
   }
 
-  private async load(): Promise<Series | null> {
-    for (const symbol of CANDIDATES) {
-      const bars = await this.withTimeout((signal) =>
-        this.yahoo.fetchDailyCloses(symbol, { range: 'max', signal }),
-      );
-      if (bars?.length) return { symbol, bars };
-    }
-    if (this.fmp.configured()) {
-      const bars = await this.fmp.historicalCloses(BENCHMARK_SYMBOL, '1993-01-22');
-      if (bars.length) return { symbol: BENCHMARK_SYMBOL, bars };
-    }
-    return null;
+  private async load(): Promise<BenchmarkSeries | null> {
+    const yahoo = this.yahoo;
+    const fmp = this.fmp;
+    return loadBenchmarkSeries({
+      fetchYahoo: (symbol, signal) =>
+        this.withTimeout((abort) =>
+          yahoo.fetchDailyCloses(symbol, { range: 'max', signal: signal ?? abort }),
+        ),
+      fmpConfigured: () => fmp.configured(),
+      fetchFmp: (symbol, from) => fmp.historicalCloses(symbol, from),
+    });
   }
 
   private async withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T | null> {
