@@ -1,4 +1,8 @@
-# Sequence Vova — Streamlit (production) + React/Mongo candidate
+# Sequence Vova
+
+The iPhone app in [`apps/ios`](apps/ios) is the client. It stores bars, signals and History on the phone (SQLite) and does not use Railway or MongoDB. See [apps/ios/README.md](apps/ios/README.md) for TestFlight and for the two things that cannot move onto the phone: unattended background scans, and the old Mongo trade journal.
+
+# Streamlit (legacy) + React/Mongo candidate
 
 Two apps live in this repo during migration:
 

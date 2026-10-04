@@ -1,7 +1,7 @@
 # ADR 005: Mobile-first web only (no Expo)
 
 ## Status
-Accepted
+Superseded by the on-device iPhone app in `apps/ios` (`packages/device`). The phone stores bars and signals in SQLite and does not use the Railway web UI.
 
 ## Context
 Operator wants phone UX without building/maintaining a standalone app.

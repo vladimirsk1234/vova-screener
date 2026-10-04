@@ -1,0 +1,28 @@
+name: ios
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/ios/**'
+      - 'packages/device/**'
+      - 'packages/engine/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck -w @vova/engine
+      - run: npm run test -w @vova/engine
+      - run: npm run typecheck -w @vova/device
+      - run: npm run test -w @vova/device
+      - run: npm run typecheck -w @vova/ios

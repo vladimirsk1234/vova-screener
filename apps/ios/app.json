@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Sequence Vova",
+    "slug": "sequence-vova",
+    "scheme": "sequencevova",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sequencevova.screener",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": ["expo-sqlite"],
+    "extra": {
+      "eas": {}
+    }
+  }
+}
