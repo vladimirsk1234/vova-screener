@@ -11,5 +11,12 @@
         "simulator": false
       }
     }
+  },
+  "submit": {
+    "testflight": {
+      "ios": {
+        "appleTeamId": "8F5M9YCRZG"
+      }
+    }
   }
 }

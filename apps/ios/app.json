@@ -10,6 +10,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.sequencevova.screener",
+      "appleTeamId": "8F5M9YCRZG",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

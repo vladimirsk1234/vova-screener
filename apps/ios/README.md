@@ -11,11 +11,9 @@ Technical analysis and the existing History statistics are included: win rate, P
 
 ## TestFlight
 
-This run did **not** upload a build. These secrets are not in the environment:
+`expo.ios.appleTeamId` in `app.json` and `submit.testflight.ios.appleTeamId` in `eas.json` are `8F5M9YCRZG`. No other Apple id is set.
 
-- `EXPO_TOKEN` (Expo account token)
-- Apple Team ID (`appleTeamId`)
-- App Store Connect API key (key id, issuer id, and `.p8`) for a non-interactive TestFlight submit
+A TestFlight upload still needs `EXPO_TOKEN`. It is not in the environment, so the upload does not run. An App Store Connect API key (key id, issuer id, and `.p8`) is also still required for a non-interactive submit. Do not commit the token.
 
 There is no App Store listing in this repo. After the secrets exist:
 
