@@ -10,32 +10,62 @@ const PERMISSION_TEXT: Record<string, string> = {
   unavailable: 'Notifications are not available here.',
 };
 
+/** Same seed as `DEFAULT_ALERT_PREFS` on the phone. Used when the saved choices have not loaded. */
+const DEFAULT_ALERT_PREFS: AlertPrefs = {
+  newSignals: false,
+  sellToClose: false,
+  closing: false,
+  scanFinished: false,
+  weeklyCloseReminder: false,
+  monthlyCloseReminder: false,
+  stocks: true,
+  etf: true,
+  weekly: true,
+  monthly: true,
+  onlyInterested: false,
+};
+
 /** iPhone app only: which local notifications to raise, written to the phone by Save. */
 export function AlertSettings({ open }: { open: boolean }) {
   const queryClient = useQueryClient();
   const state = useQuery({ queryKey: ['device-alerts'], queryFn: api.deviceAlerts, enabled: open });
-  const [draft, setDraft] = useState<AlertPrefs | null>(null);
+  const [draft, setDraft] = useState<AlertPrefs>(DEFAULT_ALERT_PREFS);
+  const [edited, setEdited] = useState(false);
 
   useEffect(() => {
-    if (state.data && !draft) setDraft(state.data.prefs);
-  }, [state.data, draft]);
+    if (!state.data || edited) return;
+    setDraft(state.data.prefs);
+  }, [state.data, edited]);
 
   const save = useMutation({
     mutationFn: (prefs: AlertPrefs) => api.saveDeviceAlerts(prefs),
     onSuccess: (next) => {
       queryClient.setQueryData(['device-alerts'], next);
       setDraft(next.prefs);
+      setEdited(false);
     },
   });
 
-  if (!draft) return null;
-  const set = (key: keyof AlertPrefs) => (v: boolean) => setDraft({ ...draft, [key]: v });
-  const dirty = JSON.stringify(draft) !== JSON.stringify(state.data?.prefs);
+  const set = (key: keyof AlertPrefs) => (v: boolean) => {
+    setEdited(true);
+    setDraft((prev) => ({ ...prev, [key]: v }));
+  };
+  const serverPrefs = state.data?.prefs;
+  const dirty = !serverPrefs || JSON.stringify(draft) !== JSON.stringify(serverPrefs);
   const permission = save.data?.permission ?? state.data?.permission ?? 'undetermined';
+  const loading = state.isPending && !state.data;
+  const loadError = state.isError ? (state.error as Error).message : null;
 
   return (
     <>
       <span className="field-label">Alerts</span>
+      {loading ? <p className="muted small">Loading alert choices…</p> : null}
+      {loadError ? (
+        <p className="error">
+          Could not load saved alerts ({loadError}). These switches start from the defaults — Save writes them to
+          this iPhone.
+        </p>
+      ) : null}
       <Switch label="New signals" checked={draft.newSignals} onChange={set('newSignals')} />
       <Switch label="Sell to close" checked={draft.sellToClose} onChange={set('sellToClose')} />
       <Switch label="Closing on the bar in progress" checked={draft.closing} onChange={set('closing')} />
@@ -60,7 +90,7 @@ export function AlertSettings({ open }: { open: boolean }) {
         <button
           type="button"
           className="btn-sm btn-accent"
-          disabled={save.isPending || (!dirty && !save.isError)}
+          disabled={save.isPending || (loading && !loadError) || (!dirty && !save.isError)}
           onClick={() => save.mutate(draft)}
         >
           {save.isPending ? 'Saving…' : !dirty && save.isSuccess ? 'Saved' : 'Save alerts'}

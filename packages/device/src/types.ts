@@ -32,7 +32,7 @@ export type AppSettings = {
   minRr: number;
 };
 
-export const DEFAULT_SETTINGS: AppSettings = { maxRiskUsd: 100, minRr: 0 };
+export const DEFAULT_SETTINGS: AppSettings = { maxRiskUsd: 200, minRr: 2 };
 
 export type TrackedSignal = {
   id: string;

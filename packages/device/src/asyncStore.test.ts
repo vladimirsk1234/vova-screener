@@ -131,6 +131,55 @@ describe('SQLite store with device-like async calls', () => {
     await scanWrite;
   });
 
+  it('replaces the signal set and still finishes while another read is waiting', async () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'vova-replace-')), 'sequence-vova.db');
+    const sql = deviceLikeSql(file);
+    await migrate(sql);
+    const store = createCachedStore(createSqlStore(sql));
+    await store.saveSignals([signal(1), signal(2), signal(3)]);
+    const rewritten = [signal(2), signal(4)];
+    const write = store.saveSignals(rewritten);
+    const read = store.listSignals();
+    const [, listed] = await Promise.all([write, read]);
+    const during = listed.map((row) => row.id).sort().join();
+    // A read that overlaps the rewrite sees the previous set or the committed one, never an empty table.
+    assert.ok(during === 's1,s2,s3' || during === 's2,s4', during);
+    const cold = createSqlStore(deviceLikeSql(file));
+    assert.deepEqual((await cold.listSignals()).map((row) => row.id).sort(), ['s2', 's4']);
+  });
+
+  it('does not wipe signals when a rewrite is interrupted before the new rows are stored', async () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'vova-wipe-')), 'sequence-vova.db');
+    const real = deviceLikeSql(file);
+    await migrate(real);
+    await createSqlStore(real).saveSignals([signal(1), signal(2)]);
+
+    // expo-sqlite has committed a statement even when the JS transaction later fails. Model that:
+    // BEGIN/COMMIT are ignored, and a full-table DELETE before any insert aborts the rewrite.
+    let inserted = false;
+    const autocommit: SqlAsync = {
+      async exec(sql) {
+        if (/^\s*BEGIN/i.test(sql) || /^\s*COMMIT/i.test(sql) || /^\s*ROLLBACK/i.test(sql)) return;
+        await real.exec(sql);
+      },
+      async run(sql, params) {
+        const wipe = /^\s*DELETE\s+FROM\s+signals\s*$/i.test(sql);
+        if (wipe && !inserted) {
+          await real.run(sql, params);
+          throw new Error('wiped before insert');
+        }
+        if (/^\s*INSERT/i.test(sql)) inserted = true;
+        await real.run(sql, params);
+      },
+      all: (sql, params) => real.all(sql, params),
+      get: (sql, params) => real.get(sql, params),
+    };
+    const store = createCachedStore(createSqlStore(autocommit));
+    await store.saveSignals([signal(9)]);
+    const ids = (await createSqlStore(deviceLikeSql(file)).listSignals()).map((row) => row.id).sort();
+    assert.deepEqual(ids, ['s9']);
+  });
+
   it('does not report a Save as done when the disk write failed', async () => {
     const file = path.join(mkdtempSync(path.join(tmpdir(), 'vova-fail-')), 'sequence-vova.db');
     const sql = deviceLikeSql(file);

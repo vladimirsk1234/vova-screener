@@ -88,7 +88,7 @@ export class InstrumentsService {
       ...(opts.chartParams ?? {}),
       min_rr: opts.minRr ?? opts.chartParams?.min_rr ?? 1.5,
       use_last_hl_sl: opts.useLastHlSl ?? opts.chartParams?.use_last_hl_sl ?? true,
-      risk_dollars: opts.riskPerTrade ?? opts.chartParams?.risk_dollars ?? 100,
+      risk_dollars: opts.riskPerTrade ?? opts.chartParams?.risk_dollars ?? 200,
       no_rr_req: opts.noRrReq ?? opts.chartParams?.no_rr_req ?? false,
       atr_len: ATR_LEN,
     });

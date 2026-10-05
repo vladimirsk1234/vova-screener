@@ -141,7 +141,7 @@ export function ManualPage() {
         noRrReq: true,
         useLastHlSl: true,
         newOnly: false,
-        riskPerTrade: settings.data?.maxRiskUsd ?? 100,
+        riskPerTrade: settings.data?.maxRiskUsd ?? 200,
         // Backend sets forceRefresh only when the ticker is not in STOCK-TICKERS / ETF.
         forceRefresh: false,
       });

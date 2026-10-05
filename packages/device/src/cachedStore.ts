@@ -58,7 +58,7 @@ export function createCachedStore(disk: ScreenerStore): ScreenerStore {
     },
     async saveSignals(rows) {
       await disk.saveSignals(rows);
-      signals = rows;
+      signals = rows.slice();
     },
     async upsertSignals(rows) {
       await disk.upsertSignals(rows);

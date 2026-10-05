@@ -21,8 +21,8 @@ export type AppSettings = {
 export type SettingsListener = (next: AppSettings, prev: AppSettings) => Promise<void> | void;
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  maxRiskUsd: 100,
-  minRr: 0,
+  maxRiskUsd: 200,
+  minRr: 2,
   fundamentalsFilter: 'all',
 };
 

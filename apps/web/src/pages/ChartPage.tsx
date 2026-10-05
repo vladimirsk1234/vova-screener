@@ -437,7 +437,7 @@ export function ChartPage() {
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
   // A tracked signal carries the risk it was sized at; anything else uses the current setting.
-  const riskUsd = row?.riskUsd || maxRiskUsd || 100;
+  const riskUsd = row?.riskUsd || maxRiskUsd || 200;
 
   const tradeMetrics = useMemo(() => {
     const entry = row?.entry ?? pine?.close ?? null;

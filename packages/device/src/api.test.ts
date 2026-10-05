@@ -98,7 +98,7 @@ describe('device /api', () => {
   it('answers Results, summary and settings in the web shapes', async () => {
     const { call } = await setup();
     const settings = await call('GET', '/settings');
-    assert.deepEqual(settings.data, { maxRiskUsd: 100, minRr: 0, fundamentalsFilter: 'all' });
+    assert.deepEqual(settings.data, { maxRiskUsd: 200, minRr: 2, fundamentalsFilter: 'all' });
 
     const page = await call('GET', '/results?universe=Stocks&tf=Weekly&bucket=new&sort=rr&dir=desc&limit=100&offset=0');
     assert.equal(page.status, 200);
