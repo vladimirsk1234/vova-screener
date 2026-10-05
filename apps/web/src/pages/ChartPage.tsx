@@ -28,6 +28,7 @@ import {
 } from '../lib/chartSettings';
 import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
 import { chartReturnPath, lastResultsPath } from '../lib/tabMemory';
+import { IS_DEVICE } from '../lib/platform';
 import { useFundamentalsValuation } from '../lib/useFundamentalsValuation';
 import {
   EMPTY_DCF_SCENARIO_SERIES,
@@ -160,7 +161,7 @@ export function ChartPage() {
   const queryClient = useQueryClient();
   const navState = (location.state as ChartNavState | null) ?? {};
   const tradeId = search.get('trade');
-  const view: ChartView = search.get('view') === 'fundamentals' ? 'fundamentals' : 'ta';
+  const view: ChartView = !IS_DEVICE && search.get('view') === 'fundamentals' ? 'fundamentals' : 'ta';
 
   const setView = (next: ChartView) => {
     const params = new URLSearchParams(search);
@@ -743,6 +744,9 @@ export function ChartPage() {
         </div>
       ) : null}
 
+      {IS_DEVICE ? (
+        <div className="chart-view-toggle" aria-hidden />
+      ) : (
       <div className="chart-view-toggle" role="tablist" aria-label="Chart view">
         <button
           type="button"
@@ -763,6 +767,7 @@ export function ChartPage() {
           Fundamentals
         </button>
       </div>
+      )}
 
       {view === 'fundamentals' ? (
         <div className="chart-fund-metrics">

@@ -1,6 +1,8 @@
 /** REST client for @vova/api. Same-origin /api (Vite proxy in dev). */
 
 import { parseApiErrorBody } from './apiError';
+import { deviceFetch } from './deviceBridge';
+import { IS_DEVICE } from './platform';
 
 export type {
   AnnualFundamentalPoint,
@@ -768,6 +770,11 @@ export type ChartPayload = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (IS_DEVICE) {
+    const res = await deviceFetch(init?.method ?? 'GET', path, init?.body as string | undefined);
+    if (res.status >= 400) throw new Error(parseApiErrorBody(res.status, res.body));
+    return JSON.parse(res.body) as T;
+  }
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
@@ -777,6 +784,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(parseApiErrorBody(res.status, text));
   }
   return res.json() as Promise<T>;
+}
+
+/** iPhone build: fundamentals come from FMP and are not part of the app. */
+function noFundamentals<T>(): Promise<T> {
+  return Promise.reject(new Error('Fundamentals are not part of the iPhone app.'));
 }
 
 function query(params: Record<string, string | number | boolean | undefined>): string {
@@ -842,12 +854,16 @@ export const api = {
   rebuildHistory: () =>
     request<{ started: boolean; reason?: string }>('/history/rebuild', { method: 'POST' }),
   historyRebuildStatus: () => request<HistoryRebuildStatus>('/history/rebuild'),
-  enrichHistoryEps: (limit = 40) =>
-    request<HistoryEpsEnrichResult>(`/history/enrich-eps${query({ limit })}`, { method: 'POST' }),
-  enrichHistoryPremium: (limit = 80) =>
-    request<HistoryPremiumEnrichResult>(`/history/enrich-premium${query({ limit })}`, {
-      method: 'POST',
-    }),
+  enrichHistoryEps: IS_DEVICE
+    ? (_limit = 40) => noFundamentals<HistoryEpsEnrichResult>()
+    : (limit = 40) =>
+        request<HistoryEpsEnrichResult>(`/history/enrich-eps${query({ limit })}`, { method: 'POST' }),
+  enrichHistoryPremium: IS_DEVICE
+    ? (_limit = 80) => noFundamentals<HistoryPremiumEnrichResult>()
+    : (limit = 80) =>
+        request<HistoryPremiumEnrichResult>(`/history/enrich-premium${query({ limit })}`, {
+          method: 'POST',
+        }),
 
   // Settings
   settings: () => request<AppSettings>('/settings'),
@@ -870,6 +886,8 @@ export const api = {
   cancelScan: (runId: string) =>
     request<{ ok: boolean }>(`/scans/${runId}/cancel`, { method: 'POST' }),
   run: (runId: string) => request<ScanRun>(`/scans/${runId}`),
+  /** iPhone build: the latest progress frame for a run, since there is no SSE stream to subscribe to. */
+  scanProgress: (runId: string) => request<ScanProgressEvent | null>(`/scans/${runId}/progress`),
   signals: (runId: string, opts: { onlyStrong?: boolean; limit?: number } = {}) =>
     request<{ run: ScanRun; count: number; rows: BuySignal[]; newSymbols: string[] }>(
       `/scans/${runId}/signals${query({
@@ -929,36 +947,58 @@ export const api = {
     }
     return request<ChartPayload>(`/instruments/${encodeURIComponent(ticker)}/chart?${q.toString()}`);
   },
-  fundamentals: (ticker: string, metric: import('@vova/engine').ValuationMetric = 'eps') =>
-    request<FundamentalsPayload>(
-      `/instruments/${encodeURIComponent(ticker)}/fundamentals${query({ metric })}`,
-    ),
+  fundamentals: IS_DEVICE
+    ? (_ticker: string, _metric: import('@vova/engine').ValuationMetric = 'eps') =>
+        noFundamentals<FundamentalsPayload>()
+    : (ticker: string, metric: import('@vova/engine').ValuationMetric = 'eps') =>
+        request<FundamentalsPayload>(
+          `/instruments/${encodeURIComponent(ticker)}/fundamentals${query({ metric })}`,
+        ),
   /** Unlevered Custom DCF. Rates as decimals (0.08 = 8%). Empty object = FMP defaults. */
-  customDcf: (ticker: string, assumptions: CustomDcfAssumptions = {}) =>
-    request<CustomDcfPayload>(
-      `/instruments/${encodeURIComponent(ticker)}/dcf${query(assumptions)}`,
-    ),
+  customDcf: IS_DEVICE
+    ? (_ticker: string, _assumptions: CustomDcfAssumptions = {}) => noFundamentals<CustomDcfPayload>()
+    : (ticker: string, assumptions: CustomDcfAssumptions = {}) =>
+        request<CustomDcfPayload>(
+          `/instruments/${encodeURIComponent(ticker)}/dcf${query(assumptions)}`,
+        ),
   /** Batch slim valuation for signal cards. Empty `{}` when FMP key is missing. */
-  fundamentalsCards: (tickers: string[]) => {
-    const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
-    if (!unique.length) return Promise.resolve({} as Record<string, CardFundamentals>);
-    return request<Record<string, CardFundamentals>>(
-      `/instruments/fundamentals-cards${query({ tickers: unique.join(',') })}`,
-    );
-  },
-  fundamentalsRefresh: () =>
-    request<{
-      coverage: ValueScreenerPage['coverage'];
-      lastRun: ValueScreenerPage['lastRun'];
-      lastFullAt: string | null;
-    }>('/instruments/fundamentals-refresh'),
-  fundamentalsScreener: (opts: {
-    stars?: ValueStarsFilter;
-    sort?: ValueScreenerSort;
-    dir?: SortDir;
-    limit?: number;
-    offset?: number;
-  }) => request<ValueScreenerPage>(`/instruments/fundamentals-screener${query(opts)}`),
+  fundamentalsCards: IS_DEVICE
+    ? (_tickers: string[]) => Promise.resolve({} as Record<string, CardFundamentals>)
+    : (tickers: string[]) => {
+        const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+        if (!unique.length) return Promise.resolve({} as Record<string, CardFundamentals>);
+        return request<Record<string, CardFundamentals>>(
+          `/instruments/fundamentals-cards${query({ tickers: unique.join(',') })}`,
+        );
+      },
+  fundamentalsRefresh: IS_DEVICE
+    ? () =>
+        noFundamentals<{
+          coverage: ValueScreenerPage['coverage'];
+          lastRun: ValueScreenerPage['lastRun'];
+          lastFullAt: string | null;
+        }>()
+    : () =>
+        request<{
+          coverage: ValueScreenerPage['coverage'];
+          lastRun: ValueScreenerPage['lastRun'];
+          lastFullAt: string | null;
+        }>('/instruments/fundamentals-refresh'),
+  fundamentalsScreener: IS_DEVICE
+    ? (_opts: {
+        stars?: ValueStarsFilter;
+        sort?: ValueScreenerSort;
+        dir?: SortDir;
+        limit?: number;
+        offset?: number;
+      }) => noFundamentals<ValueScreenerPage>()
+    : (opts: {
+        stars?: ValueStarsFilter;
+        sort?: ValueScreenerSort;
+        dir?: SortDir;
+        limit?: number;
+        offset?: number;
+      }) => request<ValueScreenerPage>(`/instruments/fundamentals-screener${query(opts)}`),
   universeSummary: () => request<{ stocks: number; etf: number; total: number }>('/universe/summary'),
   getPreset: <T>(key: string) => request<T>(`/presets/${key}`),
   putPreset: (key: string, data: unknown) =>

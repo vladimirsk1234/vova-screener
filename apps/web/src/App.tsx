@@ -6,6 +6,7 @@ import { RejectedPage } from './pages/RejectedPage';
 import { ResultsPage } from './pages/ResultsPage';
 import { ValuePage } from './pages/ValuePage';
 import { SettingsSheet } from './components/SettingsSheet';
+import { IS_DEVICE } from './lib/platform';
 import {
   isChartLocation,
   isChartReturnSourcePath,
@@ -20,9 +21,9 @@ import {
 const ChartPage = lazy(() =>
   import('./pages/ChartPage').then((m) => ({ default: m.ChartPage })),
 );
-const FundamentalsPage = lazy(() =>
-  import('./pages/FundamentalsPage').then((m) => ({ default: m.FundamentalsPage })),
-);
+const FundamentalsPage = IS_DEVICE
+  ? () => null
+  : lazy(() => import('./pages/FundamentalsPage').then((m) => ({ default: m.FundamentalsPage })));
 
 /**
  * Restores the remembered route on a cold open. A plain replace would leave the restored screen as
@@ -118,7 +119,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<RestoreEntry appTo={appTo} resultsTo={resultsTo} />} />
             <Route path="/results" element={<Navigate to={resultsTo} replace />} />
-            <Route path="/results/value" element={<ValuePage />} />
+            {IS_DEVICE ? null : <Route path="/results/value" element={<ValuePage />} />}
             <Route path="/results/manual" element={<ManualPage />} />
             <Route path="/results/manual/rejected/:runId" element={<RejectedPage />} />
             <Route path="/results/:universe" element={<ResultsPage />} />
@@ -126,7 +127,7 @@ export function App() {
             <Route path="/results/:universe/:tf/:bucket" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/chart/:ticker" element={<ChartPage />} />
-            <Route path="/fundamentals/:ticker" element={<FundamentalsPage />} />
+            {IS_DEVICE ? null : <Route path="/fundamentals/:ticker" element={<FundamentalsPage />} />}
             <Route path="*" element={<RestoreEntry appTo={appTo} resultsTo={resultsTo} />} />
           </Routes>
         </Suspense>
