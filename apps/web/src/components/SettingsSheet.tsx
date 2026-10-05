@@ -13,6 +13,7 @@ import {
 } from '../lib/api';
 import { formatAge, TF_SHORT } from '../lib/format';
 import { IS_DEVICE } from '../lib/platform';
+import { AlertSettings } from './AlertSettings';
 import { Chips } from './Chips';
 
 /** Every list the tracked universes feed, invalidated together when a scan changes them. */
@@ -316,6 +317,8 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         <p className="muted small">{rescan.data.reason ?? 'A scan is already running.'}</p>
       ) : null}
       {rescan.error ? <p className="error">{(rescan.error as Error).message}</p> : null}
+
+      {IS_DEVICE ? <AlertSettings open={open} /> : null}
 
       <div className="chart-settings-actions">
         <button

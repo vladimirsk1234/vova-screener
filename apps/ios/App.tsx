@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { openPhoneStore } from './src/db';
+import { phoneNotifier } from './src/notifier';
 import { ETF_TEXT, STOCKS_TEXT } from './src/universeData';
 import { WEB_APP_HTML } from './src/webApp.generated';
 
@@ -32,6 +33,7 @@ export function App() {
         createDeviceApi({
           store: createCachedStore(disk),
           universe,
+          notifier: phoneNotifier,
           onDataChanged: () =>
             webRef.current?.injectJavaScript('window.__vovaDataChanged && window.__vovaDataChanged(); true;'),
         }),
@@ -40,7 +42,9 @@ export function App() {
   );
 
   useEffect(() => {
-    apiPromise.catch((err: Error) => setError(err.message));
+    apiPromise
+      .then((api) => api.restoreAlerts().catch(() => undefined))
+      .catch((err: Error) => setError(err.message));
   }, [apiPromise]);
 
   const onMessage = async (event: WebViewMessageEvent) => {

@@ -1,15 +1,16 @@
 /**
  * Runs the iPhone app's bundled web UI in Chromium at iPhone size, wired to the same on-device
  * /api (SQLite + Yahoo) the WebView bridge uses, and saves screenshots. Not part of the app.
+ * A second launch on the same SQLite file checks that saved settings come back after a restart.
  *
  *   node node_modules/tsx/dist/cli.mjs apps/ios/scripts/preview-harness.mts <outDir> [stocks] [etfs]
  */
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { chromium } from '@playwright/test';
+import { chromium, type Browser, type Page } from '@playwright/test';
 import { createCachedStore } from '../../../packages/device/src/cachedStore';
-import { createDeviceApi } from '../../../packages/device/src/api';
+import { createDeviceApi, type Notifier } from '../../../packages/device/src/api';
 import { openNodeStore } from '../../../packages/device/src/nodeStore.test-helper';
 import { parseUniverse } from '../../../packages/device/src/scan';
 
@@ -18,6 +19,7 @@ const outDir = path.resolve(process.argv[2] ?? '/tmp/vova-preview');
 const stockCount = Number(process.argv[3] ?? 40);
 const etfCount = Number(process.argv[4] ?? 15);
 const BASE_URL = 'https://sv-screener.app/';
+const dbFile = path.join(mkdtempSync(path.join(tmpdir(), 'vova-preview-')), 'sequence-vova.db');
 
 const generated = readFileSync(path.join(root, 'apps/ios/src/webApp.generated.ts'), 'utf8');
 const html = JSON.parse(generated.slice(generated.indexOf('= ') + 2, generated.lastIndexOf(';'))) as string;
@@ -26,117 +28,136 @@ const full = parseUniverse(
   readFileSync(path.join(root, 'TV-LIST-ETF.txt'), 'utf8'),
 );
 const universe = { Stocks: full.Stocks.slice(0, stockCount), ETF: full.ETF.slice(0, etfCount) };
-
 mkdirSync(outDir, { recursive: true });
-const disk = await openNodeStore(path.join(mkdtempSync(path.join(tmpdir(), 'vova-preview-')), 'vova.db'));
-const browser = await chromium.launch();
-const context = await browser.newContext({
-  viewport: { width: 390, height: 844 },
-  deviceScaleFactor: 2,
-  isMobile: true,
-  hasTouch: true,
-});
-const page = await context.newPage();
-const errors: string[] = [];
-page.on('pageerror', (err) => errors.push(String(err)));
-page.on('console', (msg) => {
-  if (msg.type() === 'error') errors.push(msg.text());
-});
 
-let calls = 0;
-const api = createDeviceApi({
-  store: createCachedStore(disk),
-  universe,
-  onDataChanged: () => void page.evaluate('window.__vovaDataChanged && window.__vovaDataChanged()').catch(() => undefined),
-});
-await page.exposeFunction('__nativePost', async (raw: string) => {
-  const msg = JSON.parse(raw) as { id: number; method: string; path: string; body: string | null };
-  calls += 1;
-  const res = await api.handle(msg.method, msg.path, msg.body);
-  // Same call App.tsx injects into the WebView. Strings, because tsx rewrites serialized functions.
-  await page.evaluate(`window.__vovaReply(${msg.id}, ${res.status}, ${JSON.stringify(res.body)})`);
-});
-await page.addInitScript({
-  content: 'window.ReactNativeWebView = { postMessage: function (m) { window.__nativePost(m); } };',
-});
-await page.route(`${BASE_URL}**`, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html }));
+let permission: 'granted' | 'undetermined' = 'undetermined';
+const notifications: string[] = [];
+const notifier: Notifier = {
+  permission: async () => permission,
+  request: async () => {
+    permission = 'granted';
+    return permission;
+  },
+  notify: async (title, body) => {
+    notifications.push(`${title} — ${body}`);
+  },
+  scheduleReminders: async (reminders) => {
+    console.log(`scheduled reminders: ${reminders.map((r) => `${r.id}@${r.at.toISOString()}`).join(', ') || 'none'}`);
+  },
+};
 
-const shot = async (name: string) => {
+/** One app launch: fresh WebView and a fresh device API over the same SQLite file. */
+async function launch(browser: Browser, label: string) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('dialog', (dialog) => void dialog.accept());
+  const counter = { calls: 0 };
+  const api = createDeviceApi({
+    store: createCachedStore(await openNodeStore(dbFile)),
+    universe,
+    notifier,
+    onDataChanged: () => void page.evaluate('window.__vovaDataChanged && window.__vovaDataChanged()').catch(() => undefined),
+  });
+  await api.restoreAlerts();
+  await page.exposeFunction('__nativePost', async (raw: string) => {
+    const msg = JSON.parse(raw) as { id: number; method: string; path: string; body: string | null };
+    counter.calls += 1;
+    const res = await api.handle(msg.method, msg.path, msg.body);
+    // Same call App.tsx injects into the WebView. Strings, because tsx rewrites serialized functions.
+    await page.evaluate(`window.__vovaReply(${msg.id}, ${res.status}, ${JSON.stringify(res.body)})`);
+  });
+  await page.addInitScript({ content: 'window.ReactNativeWebView = { postMessage: function (m) { window.__nativePost(m); } };' });
+  await page.route(`${BASE_URL}**`, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: html }));
+  await page.goto(BASE_URL);
+  await page.waitForSelector('.app-header');
+  console.log(`launch ${label}`);
+  return { page, context, errors, counter };
+}
+
+async function shot(page: Page, name: string) {
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(outDir, `${name}.png`) });
   console.log(`saved ${name}.png`);
-};
+}
 
-await page.goto(BASE_URL);
-await page.waitForSelector('.app-header');
-await shot('01-results-empty');
+async function waitWhile(page: Page, name: RegExp, ms: number) {
+  const started = Date.now();
+  while (Date.now() - started < ms) {
+    if (!(await page.getByRole('button', { name }).count())) return;
+    await page.waitForTimeout(500);
+  }
+}
 
-// Settings → Run scan now (All), exactly as on the web.
+const browser = await chromium.launch();
+const first = await launch(browser, '1');
+const page = first.page;
+
+// Settings → Alerts: turn some on and Save (asks for permission), then run a scan.
 await page.getByRole('button', { name: 'Settings' }).click();
+await page.getByText('New signals', { exact: true }).click();
+await page.getByText('Sell to close', { exact: true }).click();
+await page.getByText('Scan finished', { exact: true }).click();
+await page.getByText('Weekly close reminder (Fri 16:15 ET)', { exact: true }).click();
+await page.getByRole('button', { name: 'Save alerts' }).click();
+await page.getByRole('button', { name: 'Saved' }).waitFor();
+await page.getByText('Alerts', { exact: true }).scrollIntoViewIfNeeded();
+await shot(page, '01-settings-alerts-saved');
 await page.getByRole('button', { name: 'Run scan now' }).click();
-await shot('02-settings-scanning');
-const started = Date.now();
-while (Date.now() - started < 240_000) {
-  const busy = await page.getByRole('button', { name: /Scanning…/ }).count();
-  if (!busy) break;
-  await page.waitForTimeout(1000);
-}
-// Settings → Rebuild history (confirm dialog), so History has closed trades to chart.
-page.on('dialog', (dialog) => void dialog.accept());
+await waitWhile(page, /Scanning…/, 240_000);
 await page.getByRole('button', { name: 'Rebuild history' }).click();
-const rebuildStarted = Date.now();
-while (Date.now() - rebuildStarted < 240_000) {
-  if (!(await page.getByRole('button', { name: /Rebuilding…/ }).count())) break;
-  await page.waitForTimeout(500);
-}
-await shot('02b-settings-rebuilt');
+await waitWhile(page, /Rebuilding…/, 240_000);
 await page.getByRole('button', { name: 'Close' }).click();
+console.log(`notifications raised during the scan:\n  ${notifications.join('\n  ') || 'none'}`);
 
-await page.goto(`${BASE_URL}#/results/Stocks/Weekly/closed`);
-await page.waitForSelector('.results-head');
-await shot('04-results-stocks-weekly-closed');
 await page.goto(`${BASE_URL}#/results/Stocks/Weekly/valid`);
 await page.waitForSelector('.signal-card');
-await shot('03-results-stocks-weekly-valid');
+await shot(page, '02-results-valid');
+await page.locator('.signal-card').first().click();
+await page.waitForSelector('.chart-host canvas', { timeout: 20_000 });
+await page.mouse.move(5, 5);
+await shot(page, '03-chart-defaults');
+const ticker = decodeURIComponent(new URL(page.url()).hash.split('/chart/')[1] ?? '');
 
-const card = page.locator('.signal-card').first();
-if (await card.count()) {
-  const before = calls;
-  await card.click();
-  await page.waitForSelector('.chart-host canvas', { timeout: 20_000 });
-  await shot('05-chart-from-results');
-  console.log(`chart open used ${calls - before} bridge calls`);
-  await page.getByRole('button', { name: 'Back' }).click();
-  const back = calls;
-  await page.waitForSelector('.results-head');
-  await page.waitForTimeout(300);
-  console.log(`back to Results used ${calls - back} bridge calls`);
-}
+// Visibility switches under the chart: turn Fibonacci and Bollinger Bands on, then Save preset.
+await page.locator('.chart-visibility').getByText('Fibonacci').click();
+await page.locator('.chart-visibility').getByText('Bollinger Bands').click();
+await shot(page, '04-chart-visibility-on');
+await page.getByRole('button', { name: 'Settings' }).click();
+await shot(page, '05-chart-settings-no-visibility');
+await page.getByRole('button', { name: 'Save preset' }).click();
+await page.getByRole('button', { name: 'Saved' }).waitFor();
+await page.getByRole('button', { name: 'Close' }).click();
+// Same session: open another chart and come back — the saved preset must be what loads.
+await page.getByRole('button', { name: 'Back' }).click();
+await page.waitForSelector('.results-head');
+await page.locator('.signal-card').nth(1).click();
+await page.waitForSelector('.chart-visibility');
+const sameSession = await page.locator('.chart-visibility input').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).checked));
+console.log(`same session, next chart: visibility ${JSON.stringify(sameSession)}`);
+console.log(`page errors (launch 1): ${first.errors.join(' | ') || 'none'}`);
+await first.context.close();
 
-await page.locator('.bottom-nav a', { hasText: 'History' }).click();
-await page.waitForSelector('.history-stats', { timeout: 20_000 }).catch(() => undefined);
-await shot('06-history');
-await page.locator('.sparkline').first().scrollIntoViewIfNeeded().catch(() => undefined);
-await shot('07-history-equity');
-await page.locator('.tf-growth').first().scrollIntoViewIfNeeded().catch(() => undefined);
-await shot('07b-history-growth-by-timeframe');
-const historyCard = page.locator('.signal-card').first();
-if (await historyCard.count()) {
-  await historyCard.scrollIntoViewIfNeeded();
-  await shot('07c-history-closed-cards');
-  const before = calls;
-  await historyCard.click();
-  await page.waitForSelector('.chart-host canvas', { timeout: 20_000 });
-  await page.mouse.move(5, 5);
-  await shot('08-chart-from-history-snapshot');
-  console.log(`history chart open used ${calls - before} bridge calls`);
-  await page.getByRole('button', { name: 'Back' }).click();
-  const back = calls;
-  await page.waitForSelector('.history-stats');
-  await page.waitForTimeout(300);
-  console.log(`back to History used ${calls - back} bridge calls`);
-}
-
-console.log(`bridge calls: ${calls}`);
-console.log(errors.length ? `page errors:\n${errors.join('\n')}` : 'page errors: none');
+// Relaunch on the same SQLite file: what a cold start or an app update sees.
+const second = await launch(browser, '2 (same SQLite file)');
+await second.page.goto(`${BASE_URL}#/chart/${encodeURIComponent(ticker)}`);
+await second.page.waitForSelector('.chart-host canvas', { timeout: 20_000 });
+await second.page.mouse.move(5, 5);
+const afterRelaunch = await second.page.locator('.chart-visibility input').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).checked));
+console.log(`after relaunch: visibility ${JSON.stringify(afterRelaunch)}`);
+await shot(second.page, '06-chart-after-relaunch');
+await second.page.getByRole('button', { name: 'Back' }).click().catch(() => undefined);
+await second.page.goto(BASE_URL);
+await second.page.getByRole('button', { name: 'Settings' }).click();
+await second.page.getByText('Alerts', { exact: true }).scrollIntoViewIfNeeded();
+const alertState = await second.page.locator('.switch-row input').evaluateAll((els) =>
+  els.map((el) => `${(el.parentElement?.textContent ?? '').trim()}=${(el as HTMLInputElement).checked}`),
+);
+console.log(`alerts after relaunch: ${alertState.join(', ')}`);
+await shot(second.page, '07-settings-alerts-after-relaunch');
+console.log(`page errors (launch 2): ${second.errors.join(' | ') || 'none'}`);
 await browser.close();

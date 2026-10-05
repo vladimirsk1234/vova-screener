@@ -13,6 +13,7 @@
     "@vova/device": "*",
     "@vova/engine": "*",
     "expo": "~57.0.26",
+    "expo-notifications": "~57.0.21",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",

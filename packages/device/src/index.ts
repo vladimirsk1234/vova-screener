@@ -10,4 +10,5 @@ export * from './chart';
 export * from './scan';
 export * from './rebuild';
 export * from './api';
+export * from './alerts';
 export { parseListEntry, type ParsedEntry } from '../../engine/src/tickers.ts';

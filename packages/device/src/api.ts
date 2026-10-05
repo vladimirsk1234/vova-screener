@@ -18,6 +18,14 @@ import {
 } from '../../engine/src/tickers.ts';
 import { inferTvSymbol } from '../../engine/src/tradingview.ts';
 import type { OhlcSeries } from '../../engine/src/types.ts';
+import {
+  anyAlertEnabled,
+  closeReminders,
+  sanitizeAlertPrefs,
+  scanAlerts,
+  type AlertPrefs,
+  type Reminder,
+} from './alerts';
 import { buildChartPayload, ChartError } from './chart';
 import { historyReport, historyTrades } from './history';
 import { newId } from './id';
@@ -52,6 +60,17 @@ import { fetchYahooDailyCloses, fetchYahooOhlc } from './yahoo';
 
 export type ApiResponse = { status: number; body: string };
 
+export type NotificationPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+
+/** Local notifications on the phone (expo-notifications in the app, a fake in tests). */
+export type Notifier = {
+  permission(): Promise<NotificationPermission>;
+  request(): Promise<NotificationPermission>;
+  notify(title: string, body: string): Promise<void>;
+  /** Replace every scheduled close reminder with these. */
+  scheduleReminders(reminders: Reminder[]): Promise<void>;
+};
+
 export type DeviceApiDeps = {
   store: ScreenerStore;
   universe: Record<Universe, ParsedEntry[]>;
@@ -59,6 +78,7 @@ export type DeviceApiDeps = {
   fetchCloses?: typeof fetchYahooDailyCloses;
   /** Lists changed without the UI asking (a background scan finished a universe). */
   onDataChanged?: () => void;
+  notifier?: Notifier;
   now?: () => Date;
 };
 
@@ -82,6 +102,8 @@ const DAILY_REFRESH_MS = 24 * 60 * 60 * 1000;
 const BENCHMARK_REFRESH_MS = 24 * 60 * 60 * 1000;
 const MANUAL_RUNS_KEY = 'device:manualRuns';
 const TICKER_INTEREST_KEY = 'device:tickerInterest';
+/** Not tied to an app version, so an App Store / TestFlight update keeps the choices. */
+export const ALERT_PREFS_KEY = 'device:alerts';
 
 type ScanCounters = {
   total: number;
@@ -460,12 +482,17 @@ export function createDeviceApi(deps: DeviceApiDeps) {
     const controller = new AbortController();
     scanAbort = controller;
     void (async () => {
+      const prefs = await alertPrefs();
+      let newCount = 0;
+      let closedCount = 0;
+      let finished = false;
       try {
         for (const universe of UNIVERSES) {
           for (const frame of tfs) {
             if (controller.signal.aborted) return;
             scanning = { universe, tf: frame };
-            await scanUniverse({
+            const before = await store.listSignals();
+            const result = await scanUniverse({
               store,
               entries: deps.universe[universe],
               universe,
@@ -478,16 +505,66 @@ export function createDeviceApi(deps: DeviceApiDeps) {
               now: now(),
             });
             deps.onDataChanged?.();
+            if (result.phase !== 'completed') continue;
+            const alerts = scanAlerts({
+              before,
+              after: await store.listSignals(),
+              universe,
+              tf: frame,
+              scan: await scanMeta(universe, frame),
+              prefs,
+            });
+            for (const item of alerts) {
+              if (item.kind === 'new') newCount += item.symbols.length;
+              if (item.kind === 'closed') closedCount += item.symbols.length;
+              await notify(item.title, item.body);
+            }
           }
         }
+        finished = !controller.signal.aborted;
       } finally {
         scanning = null;
         scanBusy = false;
         scanAbort = null;
         deps.onDataChanged?.();
+        if (finished && prefs.scanFinished) {
+          await notify('Scan finished', `${newCount} new · ${closedCount} sell to close`);
+        }
       }
     })();
     return { started: true, timeframes: tfs };
+  }
+
+  // ---------------------------------------------------------------- Alerts
+
+  async function alertPrefs(): Promise<AlertPrefs> {
+    return sanitizeAlertPrefs(await store.getPreset(ALERT_PREFS_KEY));
+  }
+
+  async function notify(title: string, body: string) {
+    if (!deps.notifier) return;
+    if ((await deps.notifier.permission()) !== 'granted') return;
+    await deps.notifier.notify(title, body).catch(() => undefined);
+  }
+
+  async function permission(): Promise<NotificationPermission> {
+    return deps.notifier ? deps.notifier.permission() : 'unavailable';
+  }
+
+  /** Re-arm the close reminders from the saved choices; called on every launch and Save. */
+  async function syncReminders(prefs: AlertPrefs) {
+    if (!deps.notifier) return;
+    const granted = (await deps.notifier.permission()) === 'granted';
+    await deps.notifier.scheduleReminders(granted ? closeReminders(prefs, now()) : []);
+  }
+
+  async function saveAlerts(body: unknown) {
+    const prefs = sanitizeAlertPrefs(body);
+    await store.putPreset(ALERT_PREFS_KEY, prefs);
+    let state = await permission();
+    if (anyAlertEnabled(prefs) && state === 'undetermined' && deps.notifier) state = await deps.notifier.request();
+    await syncReminders(prefs);
+    return { prefs, permission: state };
   }
 
   // ---------------------------------------------------------------- Manual scans
@@ -970,6 +1047,11 @@ export function createDeviceApi(deps: DeviceApiDeps) {
       }
     }
 
+    if (head === 'device' && a === 'alerts') {
+      if (M === 'GET') return { prefs: await alertPrefs(), permission: await permission() };
+      if (M === 'PUT') return saveAlerts(body);
+    }
+
     if (head === 'universe' && a === 'summary') {
       const stocks = deps.universe.Stocks.length;
       const etf = deps.universe.ETF.length;
@@ -980,6 +1062,10 @@ export function createDeviceApi(deps: DeviceApiDeps) {
   }
 
   return {
+    /** App launch: put back the close reminders the saved choices ask for. */
+    async restoreAlerts() {
+      await syncReminders(await alertPrefs());
+    },
     async handle(method: string, path: string, rawBody?: string | null): Promise<ApiResponse> {
       try {
         const body = rawBody ? JSON.parse(rawBody) : undefined;

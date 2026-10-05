@@ -17,7 +17,7 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "plugins": ["expo-sqlite"],
+    "plugins": ["expo-sqlite", "expo-notifications"],
     "extra": {
       "eas": {}
     }

@@ -593,6 +593,26 @@ export type AppSettings = {
   fundamentalsFilter: FundamentalsFilter;
 };
 
+/** iPhone app: which local notifications to raise. Saved on the phone, kept across app updates. */
+export type AlertPrefs = {
+  newSignals: boolean;
+  sellToClose: boolean;
+  closing: boolean;
+  scanFinished: boolean;
+  weeklyCloseReminder: boolean;
+  monthlyCloseReminder: boolean;
+  stocks: boolean;
+  etf: boolean;
+  weekly: boolean;
+  monthly: boolean;
+  onlyInterested: boolean;
+};
+
+export type AlertState = {
+  prefs: AlertPrefs;
+  permission: 'granted' | 'denied' | 'undetermined' | 'unavailable';
+};
+
 /** What `POST /scans/run-now` answers: the pass is queued, or one was already going. */
 export type ScanNowResult = { started: boolean; timeframes: Timeframe[]; reason?: string };
 
@@ -864,6 +884,11 @@ export const api = {
         request<HistoryPremiumEnrichResult>(`/history/enrich-premium${query({ limit })}`, {
           method: 'POST',
         }),
+
+  // iPhone alerts
+  deviceAlerts: () => request<AlertState>('/device/alerts'),
+  saveDeviceAlerts: (prefs: AlertPrefs) =>
+    request<AlertState>('/device/alerts', { method: 'PUT', body: JSON.stringify(prefs) }),
 
   // Settings
   settings: () => request<AppSettings>('/settings'),
