@@ -1,5 +1,6 @@
 import type { ChartSettings } from '../lib/api';
 import { DEFAULT_CHART_SETTINGS } from '../lib/chartSettings';
+import { IS_DEVICE } from '../lib/platform';
 
 type Props = {
   open: boolean;
@@ -8,6 +9,7 @@ type Props = {
   onClose: () => void;
   onSave: () => void;
   onReset: () => void;
+  saveState?: 'idle' | 'saving' | 'saved' | 'error';
 };
 
 function Toggle({
@@ -75,7 +77,49 @@ function Color({
   );
 }
 
-export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onReset }: Props) {
+/** Fibonacci · Short EMA · Center EMA · SMA · Bollinger Bands · TP / SL lines. */
+export function VisibilityToggles({
+  value,
+  onChange,
+}: {
+  value: ChartSettings;
+  onChange: (next: ChartSettings) => void;
+}) {
+  const set = <K extends keyof ChartSettings>(key: K, v: ChartSettings[K]) =>
+    onChange({ ...value, [key]: v });
+  return (
+    <>
+      <Toggle label="Fibonacci" checked={value.show_fib} onChange={(v) => set('show_fib', v)} />
+      <Toggle
+        label="Short EMA"
+        checked={value.show_short_ema}
+        onChange={(v) => set('show_short_ema', v)}
+      />
+      <Toggle
+        label="Center EMA"
+        checked={value.show_center_ema}
+        onChange={(v) => set('show_center_ema', v)}
+      />
+      <Toggle
+        label={`SMA ${value.length_major}`}
+        checked={value.show_sma_major}
+        onChange={(v) => set('show_sma_major', v)}
+      />
+      <Toggle label="Bollinger Bands" checked={value.show_bb} onChange={(v) => set('show_bb', v)} />
+      <Toggle label="TP / SL lines" checked={value.show_tp_sl} onChange={(v) => set('show_tp_sl', v)} />
+    </>
+  );
+}
+
+export function ChartSettingsPanel({
+  open,
+  value,
+  onChange,
+  onClose,
+  onSave,
+  onReset,
+  saveState = 'idle',
+}: Props) {
   if (!open) return null;
   const set = <K extends keyof ChartSettings>(key: K, v: ChartSettings[K]) =>
     onChange({ ...value, [key]: v });
@@ -91,27 +135,12 @@ export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onR
       <p className="muted small">Changes apply immediately (no re-scan). Numeric MA/BB params recompute overlays.</p>
 
       <div className="chart-settings-grid">
-        <section>
-          <h4>Visibility</h4>
-          <Toggle label="Fibonacci" checked={value.show_fib} onChange={(v) => set('show_fib', v)} />
-          <Toggle
-            label="Short EMA"
-            checked={value.show_short_ema}
-            onChange={(v) => set('show_short_ema', v)}
-          />
-          <Toggle
-            label="Center EMA"
-            checked={value.show_center_ema}
-            onChange={(v) => set('show_center_ema', v)}
-          />
-          <Toggle
-            label={`SMA ${value.length_major}`}
-            checked={value.show_sma_major}
-            onChange={(v) => set('show_sma_major', v)}
-          />
-          <Toggle label="Bollinger Bands" checked={value.show_bb} onChange={(v) => set('show_bb', v)} />
-          <Toggle label="TP / SL lines" checked={value.show_tp_sl} onChange={(v) => set('show_tp_sl', v)} />
-        </section>
+        {IS_DEVICE ? null : (
+          <section>
+            <h4>Visibility</h4>
+            <VisibilityToggles value={value} onChange={onChange} />
+          </section>
+        )}
 
         <section>
           <h4>Moving averages</h4>
@@ -196,8 +225,19 @@ export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onR
         <button type="button" className="btn-sm" onClick={onReset}>
           Reset to defaults
         </button>
-        <button type="button" className="btn-sm btn-accent" onClick={onSave}>
-          Save preset
+        <button
+          type="button"
+          className="btn-sm btn-accent"
+          disabled={saveState === 'saving'}
+          onClick={onSave}
+        >
+          {saveState === 'saving'
+            ? 'Saving…'
+            : saveState === 'saved'
+              ? 'Saved'
+              : saveState === 'error'
+                ? 'Save failed — retry'
+                : 'Save preset'}
         </button>
         <button
           type="button"

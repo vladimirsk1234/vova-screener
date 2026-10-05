@@ -12,7 +12,7 @@ import {
   type ValuationSeriesPoint,
 } from '../lib/api';
 import { Chips } from '../components/Chips';
-import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
+import { ChartSettingsPanel, VisibilityToggles } from '../components/ChartSettingsPanel';
 import { FundamentalsPanel, type FundTab } from '../components/FundamentalsPanel';
 import {
   mountSequenceChart,
@@ -279,7 +279,10 @@ export function ChartPage() {
   }, [chart.isSuccess, chart.dataUpdatedAt, asOf, queryClient, ticker, tf]);
 
   const savePreset = useMutation({
-    mutationFn: () => api.putPreset('chart', settings),
+    mutationFn: (saved: ChartSettings) => api.putPreset('chart', saved),
+    // The next chart opened this session seeds itself from this cache entry; leaving the old
+    // preset in it made a saved change look lost until the app restarted.
+    onSuccess: (_res, saved) => queryClient.setQueryData(['preset', 'chart'], saved),
   });
 
   const markInterest = useMutation({
@@ -670,6 +673,12 @@ export function ChartPage() {
         ) : null}
       </div>
 
+      {IS_DEVICE && view === 'ta' ? (
+        <div className="chart-visibility" aria-label="Visibility">
+          <VisibilityToggles value={settings} onChange={setSettings} />
+        </div>
+      ) : null}
+
       {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
       {chart.error ? (
         <p className="error chart-status-line">{(chart.error as Error).message}</p>
@@ -791,7 +800,16 @@ export function ChartPage() {
         value={settings}
         onChange={setSettings}
         onClose={() => setSettingsOpen(false)}
-        onSave={() => savePreset.mutate()}
+        onSave={() => savePreset.mutate(settings)}
+        saveState={
+          savePreset.isPending
+            ? 'saving'
+            : savePreset.isError
+              ? 'error'
+              : savePreset.isSuccess && savePreset.variables === settings
+                ? 'saved'
+                : 'idle'
+        }
         onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
       />
     </div>

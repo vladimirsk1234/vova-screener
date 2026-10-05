@@ -1053,6 +1053,15 @@ a {
   font-size: 13px;
 }
 
+/* iPhone: the Visibility switches sit under the chart instead of in the settings sheet. */
+.chart-visibility {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  padding: 4px 4px 0;
+}
+
 .chart-toggle,
 .chart-field {
   display: flex;

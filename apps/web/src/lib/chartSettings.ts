@@ -1,7 +1,8 @@
 /** Streamlit IndicatorParams defaults + hardcoded visibility rules. */
 import type { ChartSettings } from './api';
+import { IS_DEVICE } from './platform';
 
-export const DEFAULT_CHART_SETTINGS: ChartSettings = {
+const WEB_DEFAULT_CHART_SETTINGS: ChartSettings = {
   len_fast: 20,
   len_slow: 40,
   length_major: 200,
@@ -51,6 +52,11 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   show_tp_sl: false,
   show_watermark: true,
 };
+
+/** The iPhone app's defaults: black chart background and black watermark text. */
+export const DEFAULT_CHART_SETTINGS: ChartSettings = IS_DEVICE
+  ? { ...WEB_DEFAULT_CHART_SETTINGS, bg_color: '#000000', wm_text_color: '#000000' }
+  : WEB_DEFAULT_CHART_SETTINGS;
 
 /** Match Streamlit `_apply_hardcoded_params`. */
 export function applyHardcodedSettings(p: ChartSettings): ChartSettings {
