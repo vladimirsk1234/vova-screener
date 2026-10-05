@@ -1,4 +1,5 @@
 import {
+  bridgeReplyScript,
   createCachedStore,
   createDeviceApi,
   parseUniverse,
@@ -15,7 +16,6 @@ import { WEB_APP_HTML } from './src/webApp.generated';
 /** Origin the inline page runs under, so its localStorage (tab memory, filters) persists. */
 const BASE_URL = 'https://sv-screener.app/';
 
-type BridgeMessage = { id: number; method: string; path: string; body: string | null };
 type DeviceApi = ReturnType<typeof createDeviceApi>;
 
 /**
@@ -29,15 +29,18 @@ export function App() {
 
   const apiPromise = useMemo<Promise<DeviceApi>>(
     () =>
-      openPhoneStore().then((disk) =>
-        createDeviceApi({
+      openPhoneStore().then(async (disk) => {
+        const api = createDeviceApi({
           store: createCachedStore(disk),
           universe,
           notifier: phoneNotifier,
           onDataChanged: () =>
             webRef.current?.injectJavaScript('window.__vovaDataChanged && window.__vovaDataChanged(); true;'),
-        }),
-      ),
+        });
+        // Before the WebView's first request, so the chart never reads a preset mid-migration.
+        await api.migratePresets().catch(() => undefined);
+        return api;
+      }),
     [universe],
   );
 
@@ -48,17 +51,8 @@ export function App() {
   }, [apiPromise]);
 
   const onMessage = async (event: WebViewMessageEvent) => {
-    let msg: BridgeMessage;
-    try {
-      msg = JSON.parse(event.nativeEvent.data) as BridgeMessage;
-    } catch {
-      return;
-    }
-    const api = await apiPromise;
-    const res = await api.handle(msg.method, msg.path, msg.body);
-    webRef.current?.injectJavaScript(
-      `window.__vovaReply && window.__vovaReply(${msg.id}, ${res.status}, ${JSON.stringify(res.body)}); true;`,
-    );
+    const script = await bridgeReplyScript(await apiPromise, event.nativeEvent.data);
+    if (script) webRef.current?.injectJavaScript(script);
   };
 
   if (error) {

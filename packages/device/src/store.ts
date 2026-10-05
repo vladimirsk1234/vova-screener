@@ -71,7 +71,30 @@ function parse<T>(json: string | null | undefined): T | null {
   return JSON.parse(json) as T;
 }
 
-export function createSqlStore(db: SqlAsync): ScreenerStore {
+/**
+ * expo-sqlite answers each call asynchronously over the native bridge, so callers interleave on
+ * the one connection: a second `BEGIN` failed and its `ROLLBACK` undid the first caller's open
+ * transaction, taking any write that had landed inside it (a chart Save) with it. Every store
+ * operation runs alone, one after another; a transaction is a single queued job.
+ */
+function serialized(db: SqlAsync): SqlAsync & { job<T>(work: (db: SqlAsync) => Promise<T>): Promise<T> } {
+  let tail: Promise<unknown> = Promise.resolve();
+  const job = <T>(work: (db: SqlAsync) => Promise<T>): Promise<T> => {
+    const next = tail.then(() => work(db));
+    tail = next.catch(() => undefined);
+    return next;
+  };
+  return {
+    job,
+    exec: (sql) => job((d) => d.exec(sql)),
+    run: (sql, params) => job((d) => d.run(sql, params)),
+    all: <T>(sql: string, params?: readonly (string | number | null)[]) => job((d) => d.all<T>(sql, params)),
+    get: <T>(sql: string, params?: readonly (string | number | null)[]) => job((d) => d.get<T>(sql, params)),
+  };
+}
+
+export function createSqlStore(raw: SqlAsync): ScreenerStore {
+  const db = serialized(raw);
   return {
     async getSettings() {
       const row = await db.get<{ json: string }>('SELECT json FROM settings WHERE id = 1');
@@ -106,31 +129,35 @@ export function createSqlStore(db: SqlAsync): ScreenerStore {
       return rows.map((r) => JSON.parse(r.json) as TrackedSignal);
     },
     async saveSignals(rows) {
-      await db.exec('BEGIN');
-      try {
-        await db.run('DELETE FROM signals');
-        for (const row of rows) {
-          await db.run('INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)', [
-            row.id,
-            row.universe,
-            row.tf,
-            JSON.stringify(row),
-          ]);
+      await db.job(async (tx) => {
+        await tx.exec('BEGIN');
+        try {
+          await tx.run('DELETE FROM signals');
+          for (const row of rows) {
+            await tx.run('INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)', [
+              row.id,
+              row.universe,
+              row.tf,
+              JSON.stringify(row),
+            ]);
+          }
+          await tx.exec('COMMIT');
+        } catch (err) {
+          await tx.exec('ROLLBACK').catch(() => undefined);
+          throw err;
         }
-        await db.exec('COMMIT');
-      } catch (err) {
-        await db.exec('ROLLBACK');
-        throw err;
-      }
+      });
     },
     async upsertSignals(rows) {
-      for (const row of rows) {
-        await db.run(
-          `INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET universe = excluded.universe, tf = excluded.tf, json = excluded.json`,
-          [row.id, row.universe, row.tf, JSON.stringify(row)],
-        );
-      }
+      await db.job(async (tx) => {
+        for (const row of rows) {
+          await tx.run(
+            `INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET universe = excluded.universe, tf = excluded.tf, json = excluded.json`,
+            [row.id, row.universe, row.tf, JSON.stringify(row)],
+          );
+        }
+      });
     },
     async getScanMeta(universe, tf) {
       const row = await db.get<{ json: string }>(
