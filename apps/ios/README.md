@@ -1,29 +1,42 @@
 # Sequence Vova for iPhone
 
-The screener runs on the phone. Bars, tracked signals, settings, manual-scan history and the S&P series are stored in a local SQLite file (`sequence-vova.db`) and stay there after the app restarts. The app does not call Railway and does not use MongoDB.
+The app runs the web UI from `apps/web` inside a WebView: the same React screens, `styles.css`, Lightweight Charts `mountSequenceChart`, chart watermark position, History statistics and sparklines, and the same React Query caching when you move between pages. Its `/api` requests do not go to a server. They cross a bridge into `packages/device/src/api.ts`, which answers the same routes the NestJS API did from a SQLite file on the phone (`sequence-vova.db`) and Yahoo bars. The app does not call Railway and does not use MongoDB. It sends no push or local notifications.
 
-Technical analysis and the existing History statistics are included: win rate, P&L, average R, RR at entry, hold, equity curve, capital pool, and S&P alpha from Yahoo `SPY` (then `^GSPC` if SPY fails). Fundamental fields that come from Financial Modeling Prep are not requested and are not shown. That includes the Value tab, EPS / FCF / DCF premia, P/E, market cap, earnings dates, the undervalued filter, and UV sort.
+The icon is the web app's own icon (`apps/web/public/icon-512.png`), scaled to 1024×1024 for iOS.
+
+## What is left out
+
+Everything that comes from Financial Modeling Prep: the Value tab, the Fundamentals chart view, EPS / FCF / DCF premia on cards, the undervalued filter and UV sort, and the EPS / UV tagging in History. The iPhone build of the web UI (`VITE_TARGET=device`) leaves those screens and controls out, and the device API answers fundamentals routes with 404. The chart watermark keeps its lines and its place, but without the FMP market cap and the `PE / Earn` line.
 
 ## What cannot live only on the phone
 
-- **Unattended hourly scans.** A full Stocks + ETF pass downloads Yahoo bars while the app is in the foreground. iOS suspends a backgrounded app, so the old server cron (09:05–17:05 ET) cannot keep running after you leave the app. Start **Run scan now** in Settings and leave Sequence Vova open until it finishes. Bars already stored are reused for six hours, so a stopped pass can be continued later.
-- **The old trade journal.** Those rows lived in MongoDB (`legacyTrades`) and are not in this repository. History on the phone starts from trades this app closes, plus **Rebuild history** over bars already on the device. Railway is not kept as a back door to that journal.
+- **Unattended hourly scans.** **Run scan now** in Settings downloads Stocks and ETF onto the phone while the app is open. iOS suspends a backgrounded app, so the old 09:05–17:05 ET cron cannot keep running on its own.
+- **The old trade journal.** Those rows lived in MongoDB (`legacyTrades`) and are not in this repository. History on the phone starts from trades this app closes, plus **Rebuild history** over bars already stored on the device.
+
+## Working on it
+
+After changing anything under `apps/web` or `packages/engine`, rebuild the bundled UI:
+
+```bash
+npm run build:web-app -w @vova/ios
+```
+
+CI checks that `src/webApp.generated.ts` matches the web sources.
+
+To see the iPhone UI against the on-device API without a phone (Chromium at iPhone size, real Yahoo data, screenshots):
+
+```bash
+npx playwright install chromium
+node node_modules/tsx/dist/cli.mjs apps/ios/scripts/preview-harness.mts /tmp/vova-preview 40 15
+```
 
 ## TestFlight
 
-`expo.ios.appleTeamId` in `app.json` and `submit.testflight.ios.appleTeamId` in `eas.json` are `8F5M9YCRZG`. No other Apple id is set.
-
-A TestFlight upload still needs `EXPO_TOKEN`. It is not in the environment, so the upload does not run. An App Store Connect API key (key id, issuer id, and `.p8`) is also still required for a non-interactive submit. Do not commit the token.
-
-There is no App Store listing in this repo. After the secrets exist:
+`expo.ios.appleTeamId` in `app.json` and `submit.testflight.ios.appleTeamId` in `eas.json` are `8F5M9YCRZG`. No other Apple id is set. There is no App Store listing, and the repo stays private.
 
 ```bash
 cd apps/ios
-npx eas login
-npx eas init
 npx eas build -p ios --profile testflight
 ```
 
-`eas init` writes the Expo project id into `app.json`. Do not invent one. `eas build -p ios --profile testflight` is the upload path (`distribution: store` produces the IPA EAS can send to TestFlight). A submit still needs the Apple credentials above; without them the build cannot be attached to TestFlight.
-
-The repo stays private. CI on Linux typechecks this package and runs the device tests. It does not compile an iOS binary (that needs macOS or EAS).
+A build needs `EXPO_TOKEN` (or `npx eas login`). A non-interactive submit also needs an App Store Connect API key (key id, issuer id, and `.p8`). Do not commit them.
