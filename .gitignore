@@ -28,4 +28,8 @@ scripts/home-server/bin/
 apps/web/test-results/
 apps/web/playwright-report/
 apps/web/e2e/__snapshots__/
+.expo/
+apps/ios/.expo/
 
+
+apps/web/dist-device/

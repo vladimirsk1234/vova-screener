@@ -1,0 +1,36 @@
+name: ios
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/ios/**'
+      - 'apps/web/**'
+      - 'packages/device/**'
+      - 'packages/engine/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck -w @vova/engine
+      - run: npm run test -w @vova/engine
+      - run: npm run typecheck -w @vova/web
+      - run: npm run test -w @vova/web
+      - run: npm run typecheck -w @vova/device
+      - run: npm run test -w @vova/device
+      - run: npm run typecheck -w @vova/ios
+      # The app ships apps/web built into one HTML string; it must match the web sources.
+      - run: npm run build:web-app -w @vova/ios
+      - run: git diff --exit-code apps/ios/src/webApp.generated.ts
+      - run: npx expo export --platform ios --output-dir /tmp/ios-export
+        working-directory: apps/ios

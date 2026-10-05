@@ -12,6 +12,8 @@ import {
   type Universe,
 } from '../lib/api';
 import { formatAge, TF_SHORT } from '../lib/format';
+import { IS_DEVICE } from '../lib/platform';
+import { AlertSettings } from './AlertSettings';
 import { Chips } from './Chips';
 
 /** Every list the tracked universes feed, invalidated together when a scan changes them. */
@@ -254,6 +256,8 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         what the lists and stats include.
       </p>
 
+      {IS_DEVICE ? null : (
+      <>
       <div className="field">
         <Chips
           label="Fundamentals"
@@ -276,6 +280,8 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         stamped. Scans still track every signal; this only filters what the lists and stats
         include.
       </p>
+      </>
+      )}
 
       <div className="field">
         <Chips
@@ -302,13 +308,17 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           ? `Scanning ${busy.universe} ${TF_SHORT[busy.tf]}. Stocks and ETF go one timeframe at a time, and the lists fill in as each finishes.`
           : running
             ? 'Starting. Stocks and ETF go one timeframe at a time, and the lists fill in as each finishes.'
-            : 'Re-downloads every symbol in Stocks and ETF and rebuilds the lists from it. Scans otherwise run on their own — one hourly pass over Weekly and Monthly together.'}
+            : IS_DEVICE
+              ? 'Re-downloads every symbol in Stocks and ETF onto this iPhone and rebuilds the lists from it. Keep the app open until it finishes — iOS pauses a backgrounded app, so there is no hourly pass on its own.'
+              : 'Re-downloads every symbol in Stocks and ETF and rebuilds the lists from it. Scans otherwise run on their own — one hourly pass over Weekly and Monthly together.'}
         {scanAge ? ` Last finished ${scanAge}.` : ' No scan has finished yet.'}
       </p>
       {rescan.data && !rescan.data.started ? (
         <p className="muted small">{rescan.data.reason ?? 'A scan is already running.'}</p>
       ) : null}
       {rescan.error ? <p className="error">{(rescan.error as Error).message}</p> : null}
+
+      {IS_DEVICE ? <AlertSettings open={open} /> : null}
 
       <div className="chart-settings-actions">
         <button

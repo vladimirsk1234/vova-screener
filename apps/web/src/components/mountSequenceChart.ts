@@ -21,6 +21,7 @@ import {
   type ValuationWindowYears,
 } from '@vova/engine';
 import type { ChartDrawing, ChartPayload, ChartSettings, ValuationSeriesPoint } from '../lib/api';
+import { IS_DEVICE } from '../lib/platform';
 import {
   EMPTY_DCF_SCENARIO_SERIES,
   flattenDcfScenarioSeries,
@@ -640,6 +641,8 @@ export function mountSequenceChart(
     },
     rightPriceScale: {
       borderColor: settings.grid_color,
+      // iPhone: the price numbers take the grid colour. Price tags keep their own colours.
+      ...(IS_DEVICE ? { textColor: settings.grid_color } : {}),
       ...(mode === 'fundamentals' ? { scaleMargins: { ...PRICE_SCALE_MARGINS_CHART } } : {}),
     },
     timeScale: {

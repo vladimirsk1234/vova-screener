@@ -8,6 +8,7 @@ import { readManualSearchHistory, rememberManualSearch, rememberResolvedManualSe
 import { Chips } from '../components/Chips';
 import { UniverseTabs } from '../components/UniverseTabs';
 import { useScanProgress } from '../lib/useScanProgress';
+import { IS_DEVICE } from '../lib/platform';
 import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
 
 const ACTIVE_RUN_KEY = 'vova.manualRunId';
@@ -140,7 +141,7 @@ export function ManualPage() {
         noRrReq: true,
         useLastHlSl: true,
         newOnly: false,
-        riskPerTrade: settings.data?.maxRiskUsd ?? 100,
+        riskPerTrade: settings.data?.maxRiskUsd ?? 200,
         // Backend sets forceRefresh only when the ticker is not in STOCK-TICKERS / ETF.
         forceRefresh: false,
       });
@@ -315,18 +316,24 @@ function ManualResultCard({
         </div>
       ) : (
         <p className="muted small" style={{ margin: '6px 0 0' }}>
-          {rejection
-            ? 'No valid signal — TA and Fundamentals are still available.'
-            : 'Scan finished without a signal. TA and Fundamentals are still available.'}
+          {IS_DEVICE
+            ? rejection
+              ? 'No valid signal — TA is still available.'
+              : 'Scan finished without a signal. TA is still available.'
+            : rejection
+              ? 'No valid signal — TA and Fundamentals are still available.'
+              : 'Scan finished without a signal. TA and Fundamentals are still available.'}
         </p>
       )}
       <div className="card-actions">
         <button type="button" className="btn-sm ghost" onClick={() => onOpen(taPath)}>
           TA
         </button>
-        <button type="button" className="btn-sm ghost" onClick={() => onOpen(fundPath)}>
-          Fundamentals
-        </button>
+        {IS_DEVICE ? null : (
+          <button type="button" className="btn-sm ghost" onClick={() => onOpen(fundPath)}>
+            Fundamentals
+          </button>
+        )}
       </div>
     </article>
   );

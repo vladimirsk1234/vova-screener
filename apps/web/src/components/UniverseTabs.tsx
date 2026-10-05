@@ -1,4 +1,5 @@
 import { UNIVERSES, type Bucket, type Timeframe } from '../lib/api';
+import { IS_DEVICE } from '../lib/platform';
 import { resultsPathForUniverse } from '../lib/tabMemory';
 import { SegmentedTabs } from './SegmentedTabs';
 
@@ -30,7 +31,7 @@ export function UniverseTabs({
       label="Universe"
       segments={[
         ...stocksEtf,
-        { value: 'value' as const, to: '/results/value', label: 'Value' },
+        ...(IS_DEVICE ? [] : [{ value: 'value' as const, to: '/results/value', label: 'Value' }]),
         { value: 'manual' as const, to: '/results/manual', label: 'Manual' },
       ]}
     />

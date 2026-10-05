@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { ScanProgressEvent } from './api';
+import { api, type ScanProgressEvent } from './api';
+import { IS_DEVICE } from './platform';
 
 const TERMINAL = ['completed', 'cancelled', 'failed'];
 
@@ -13,6 +14,25 @@ export function useScanProgress(runId: string | null, generation = 0) {
       return;
     }
     setEvent(null);
+    if (IS_DEVICE) {
+      let stopped = false;
+      const tick = async () => {
+        if (stopped) return;
+        try {
+          const next = await api.scanProgress(runId);
+          if (stopped) return;
+          if (next) setEvent(next);
+          if (next && TERMINAL.includes(next.phase)) return;
+        } catch {
+          return;
+        }
+        setTimeout(() => void tick(), 400);
+      };
+      void tick();
+      return () => {
+        stopped = true;
+      };
+    }
     const source = new EventSource(`/api/scans/${runId}/events`);
     source.onmessage = (msg) => {
       try {

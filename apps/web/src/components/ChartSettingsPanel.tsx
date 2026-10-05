@@ -1,5 +1,6 @@
 import type { ChartSettings } from '../lib/api';
 import { DEFAULT_CHART_SETTINGS } from '../lib/chartSettings';
+import { IS_DEVICE } from '../lib/platform';
 
 type Props = {
   open: boolean;
@@ -8,6 +9,7 @@ type Props = {
   onClose: () => void;
   onSave: () => void;
   onReset: () => void;
+  saveState?: 'idle' | 'saving' | 'saved' | 'error';
 };
 
 function Toggle({
@@ -75,7 +77,129 @@ function Color({
   );
 }
 
-export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onReset }: Props) {
+/** Fibonacci · Short EMA · Center EMA · SMA · Bollinger Bands · TP / SL lines. */
+export function VisibilityToggles({
+  value,
+  onChange,
+}: {
+  value: ChartSettings;
+  onChange: (next: ChartSettings) => void;
+}) {
+  const set = <K extends keyof ChartSettings>(key: K, v: ChartSettings[K]) =>
+    onChange({ ...value, [key]: v });
+  return (
+    <>
+      <Toggle label="Fibonacci" checked={value.show_fib} onChange={(v) => set('show_fib', v)} />
+      <Toggle
+        label="Short EMA"
+        checked={value.show_short_ema}
+        onChange={(v) => set('show_short_ema', v)}
+      />
+      <Toggle
+        label="Center EMA"
+        checked={value.show_center_ema}
+        onChange={(v) => set('show_center_ema', v)}
+      />
+      <Toggle
+        label={`SMA ${value.length_major}`}
+        checked={value.show_sma_major}
+        onChange={(v) => set('show_sma_major', v)}
+      />
+      <Toggle label="Bollinger Bands" checked={value.show_bb} onChange={(v) => set('show_bb', v)} />
+      <Toggle label="TP / SL lines" checked={value.show_tp_sl} onChange={(v) => set('show_tp_sl', v)} />
+    </>
+  );
+}
+
+/** A moving-average switch and its length on one line. */
+function ToggleWithLength({
+  label,
+  checked,
+  onToggle,
+  length,
+  onLength,
+  lengthLabel,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: (v: boolean) => void;
+  length: number;
+  onLength: (v: number) => void;
+  lengthLabel: string;
+}) {
+  return (
+    <div className="chart-toggle chart-toggle-ma">
+      <label>
+        <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+        <span>{label}</span>
+      </label>
+      <input
+        type="number"
+        aria-label={lengthLabel}
+        inputMode="numeric"
+        value={length}
+        min={1}
+        onChange={(e) => onLength(Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
+/**
+ * iPhone chart controls under the chart: each moving-average switch carries its length
+ * (Short EMA + Fast EMA, Center EMA + Center EMA, SMA + Major SMA), then the other switches.
+ */
+export function DeviceChartControls({
+  value,
+  onChange,
+}: {
+  value: ChartSettings;
+  onChange: (next: ChartSettings) => void;
+}) {
+  const set = <K extends keyof ChartSettings>(key: K, v: ChartSettings[K]) =>
+    onChange({ ...value, [key]: v });
+  return (
+    <>
+      <ToggleWithLength
+        label="Short EMA"
+        checked={value.show_short_ema}
+        onToggle={(v) => set('show_short_ema', v)}
+        length={value.len_fast}
+        onLength={(v) => set('len_fast', v)}
+        lengthLabel="Fast EMA"
+      />
+      <ToggleWithLength
+        label="Center EMA"
+        checked={value.show_center_ema}
+        onToggle={(v) => set('show_center_ema', v)}
+        length={value.len_slow}
+        onLength={(v) => set('len_slow', v)}
+        lengthLabel="Center EMA length"
+      />
+      <ToggleWithLength
+        label="SMA"
+        checked={value.show_sma_major}
+        onToggle={(v) => set('show_sma_major', v)}
+        length={value.length_major}
+        onLength={(v) => set('length_major', v)}
+        lengthLabel="Major SMA"
+      />
+      <Toggle label="Fibonacci" checked={value.show_fib} onChange={(v) => set('show_fib', v)} />
+      <Toggle label="Bollinger Bands" checked={value.show_bb} onChange={(v) => set('show_bb', v)} />
+      <Toggle label="TP / SL lines" checked={value.show_tp_sl} onChange={(v) => set('show_tp_sl', v)} />
+    </>
+  );
+}
+
+export function ChartSettingsPanel({
+  open,
+  value,
+  onChange,
+  onClose,
+  onSave,
+  onReset,
+  saveState = 'idle',
+}: Props) {
   if (!open) return null;
   const set = <K extends keyof ChartSettings>(key: K, v: ChartSettings[K]) =>
     onChange({ ...value, [key]: v });
@@ -91,34 +215,21 @@ export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onR
       <p className="muted small">Changes apply immediately (no re-scan). Numeric MA/BB params recompute overlays.</p>
 
       <div className="chart-settings-grid">
-        <section>
-          <h4>Visibility</h4>
-          <Toggle label="Fibonacci" checked={value.show_fib} onChange={(v) => set('show_fib', v)} />
-          <Toggle
-            label="Short EMA"
-            checked={value.show_short_ema}
-            onChange={(v) => set('show_short_ema', v)}
-          />
-          <Toggle
-            label="Center EMA"
-            checked={value.show_center_ema}
-            onChange={(v) => set('show_center_ema', v)}
-          />
-          <Toggle
-            label={`SMA ${value.length_major}`}
-            checked={value.show_sma_major}
-            onChange={(v) => set('show_sma_major', v)}
-          />
-          <Toggle label="Bollinger Bands" checked={value.show_bb} onChange={(v) => set('show_bb', v)} />
-          <Toggle label="TP / SL lines" checked={value.show_tp_sl} onChange={(v) => set('show_tp_sl', v)} />
-        </section>
+        {IS_DEVICE ? null : (
+          <section>
+            <h4>Visibility</h4>
+            <VisibilityToggles value={value} onChange={onChange} />
+          </section>
+        )}
 
-        <section>
-          <h4>Moving averages</h4>
-          <Num label="Fast EMA" value={value.len_fast} onChange={(v) => set('len_fast', v)} />
-          <Num label="Center EMA" value={value.len_slow} onChange={(v) => set('len_slow', v)} />
-          <Num label="Major SMA" value={value.length_major} onChange={(v) => set('length_major', v)} />
-        </section>
+        {IS_DEVICE ? null : (
+          <section>
+            <h4>Moving averages</h4>
+            <Num label="Fast EMA" value={value.len_fast} onChange={(v) => set('len_fast', v)} />
+            <Num label="Center EMA" value={value.len_slow} onChange={(v) => set('len_slow', v)} />
+            <Num label="Major SMA" value={value.length_major} onChange={(v) => set('length_major', v)} />
+          </section>
+        )}
 
         <section>
           <h4>Theme</h4>
@@ -196,8 +307,19 @@ export function ChartSettingsPanel({ open, value, onChange, onClose, onSave, onR
         <button type="button" className="btn-sm" onClick={onReset}>
           Reset to defaults
         </button>
-        <button type="button" className="btn-sm btn-accent" onClick={onSave}>
-          Save preset
+        <button
+          type="button"
+          className="btn-sm btn-accent"
+          disabled={saveState === 'saving'}
+          onClick={onSave}
+        >
+          {saveState === 'saving'
+            ? 'Saving…'
+            : saveState === 'saved'
+              ? 'Saved'
+              : saveState === 'error'
+                ? 'Save failed — retry'
+                : 'Save preset'}
         </button>
         <button
           type="button"

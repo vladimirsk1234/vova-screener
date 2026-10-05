@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type CardFundamentals } from './api';
+import { IS_DEVICE } from './platform';
 
 function normalizeTickers(tickers: string[]): string[] {
   const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
@@ -16,7 +17,7 @@ export function useCardFundamentals(tickers: string[]) {
   return useQuery({
     queryKey: ['fundamentals-cards', key],
     queryFn: () => api.fundamentalsCards(key),
-    enabled: key.length > 0,
+    enabled: !IS_DEVICE && key.length > 0,
     staleTime: 60 * 60_000,
   });
 }

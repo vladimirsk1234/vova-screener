@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Sequence Vova",
+    "slug": "sequence-vova",
+    "scheme": "sequencevova",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#050505",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.sequencevova.screener",
+      "appleTeamId": "8F5M9YCRZG",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": ["expo-sqlite", "expo-notifications"],
+    "extra": {
+      "eas": {}
+    }
+  }
+}

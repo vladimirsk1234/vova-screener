@@ -27,6 +27,7 @@ import {
   signedMultiple,
 } from '../lib/format';
 import { runHistoryEpsEnrichLoop } from '../lib/historyEpsEnrich';
+import { IS_DEVICE } from '../lib/platform';
 import { loadHistoryFilters, saveHistoryFilters } from '../lib/tabMemory';
 import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
@@ -58,7 +59,7 @@ const TRADE_SORTS: Array<{ value: HistoryTradeSort; label: string; from?: 'asc' 
   { value: 'pnl', label: 'P&L' },
   { value: 'r', label: 'R' },
   { value: 'rr', label: 'RR' },
-  { value: 'uv', label: 'UV', from: 'asc' },
+  ...(IS_DEVICE ? [] : [{ value: 'uv' as const, label: 'UV', from: 'asc' as const }]),
   { value: 'interest', label: 'Marked' },
 ];
 
@@ -236,6 +237,8 @@ export function HistoryPage() {
           onChange={onRange}
           format={(v) => RANGE_LABELS[v]}
         />
+        {IS_DEVICE ? null : (
+        <>
         <Switch
           label="Hide EPS≤0 at entry"
           checked={hideUnprofitable}
@@ -279,6 +282,8 @@ export function HistoryPage() {
         {enrichPremium.error ? (
           <p className="error">{(enrichPremium.error as Error).message}</p>
         ) : null}
+        </>
+        )}
       </section>
 
       {report.isLoading ? <p className="empty">Loading…</p> : null}

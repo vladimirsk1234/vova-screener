@@ -168,10 +168,15 @@ export function buildWatermarkParts(opts: {
   chartTf: Timeframe;
   ticker: string;
   tradeLine: string;
+  /**
+   * Technical analysis watermark: price change, ATR/ADX, sequence lines and the trade line.
+   * Skips market cap, P/E, earnings date and the company description — those come from FMP.
+   */
+  omitFundamentals?: boolean;
 }): { main: string; lines: string[]; description: string | null } {
   const { fundamentals, full, params, dwmLines, chartTf, ticker, tradeLine } = opts;
   const name = String(fundamentals.company_name || ticker);
-  const rawDesc = fundamentals.description;
+  const rawDesc = opts.omitFundamentals ? null : fundamentals.description;
   const description =
     rawDesc && String(rawDesc).trim().toLowerCase() !== name.toLowerCase()
       ? String(rawDesc).trim()
@@ -179,9 +184,13 @@ export function buildWatermarkParts(opts: {
 
   const rows: string[] = [];
   const dChg = fundamentals.daily_chg_str ?? '';
-  const mcap = fundamentals.mcap_str ?? 'N/A';
-  rows.push(`${ticker} (${chartTf}) | ${dChg} | ${mcap}`);
-  rows.push(`PE: ${fundamentals.pe_str ?? 'N/A'} | Earn: ${fundamentals.earn_str ?? 'N/A'}`);
+  if (opts.omitFundamentals) {
+    rows.push(dChg ? `${ticker} (${chartTf}) | ${dChg}` : `${ticker} (${chartTf})`);
+  } else {
+    const mcap = fundamentals.mcap_str ?? 'N/A';
+    rows.push(`${ticker} (${chartTf}) | ${dChg} | ${mcap}`);
+    rows.push(`PE: ${fundamentals.pe_str ?? 'N/A'} | Earn: ${fundamentals.earn_str ?? 'N/A'}`);
+  }
 
   const atrE = atrEmoji(full.ATR_pct, params.atr_low_thresh, params.atr_high_thresh);
   const adxSuffix = full.Valid ? `   ADX: ${full.ADX.toFixed(2)}` : '';

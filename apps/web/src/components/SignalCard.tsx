@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Bucket, type CardFundamentals, type Interest, type ResultRow } from '../lib/api';
 import { barsLabel, money, num, pct, signedMoney } from '../lib/format';
+import { IS_DEVICE } from '../lib/platform';
 
 /**
  * A trade this app takes ends on the sell-to-close break and on nothing else. The other codes are
@@ -161,7 +162,7 @@ export function SignalCard({
       </div>
 
       <div className="signal-card-badges">
-        {row.epsPositiveAtEntry === false ? (
+        {!IS_DEVICE && row.epsPositiveAtEntry === false ? (
           <span className="badge down" title="FMP EPS was ≤ 0 on the last report before entry">
             EPS≤0 AT ENTRY
           </span>
@@ -213,6 +214,7 @@ export function SignalCard({
         </span>
       </div>
 
+      {IS_DEVICE ? null : (
       <div className="signal-card-fundamentals">
         <span>
           <span className="lbl">EPS</span>{' '}
@@ -242,6 +244,7 @@ export function SignalCard({
           {debtPct == null ? '—' : `${debtPct.toFixed(0)}%`}
         </span>
       </div>
+      )}
 
       <p className="muted small signal-card-foot">
         {bucket === 'closed'

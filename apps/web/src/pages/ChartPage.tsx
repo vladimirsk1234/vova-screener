@@ -12,7 +12,7 @@ import {
   type ValuationSeriesPoint,
 } from '../lib/api';
 import { Chips } from '../components/Chips';
-import { ChartSettingsPanel } from '../components/ChartSettingsPanel';
+import { ChartSettingsPanel, DeviceChartControls } from '../components/ChartSettingsPanel';
 import { FundamentalsPanel, type FundTab } from '../components/FundamentalsPanel';
 import {
   mountSequenceChart,
@@ -28,6 +28,7 @@ import {
 } from '../lib/chartSettings';
 import { investedFromShares, sharesFromRisk } from '../lib/positionSize';
 import { chartReturnPath, lastResultsPath } from '../lib/tabMemory';
+import { IS_DEVICE } from '../lib/platform';
 import { useFundamentalsValuation } from '../lib/useFundamentalsValuation';
 import {
   EMPTY_DCF_SCENARIO_SERIES,
@@ -160,7 +161,7 @@ export function ChartPage() {
   const queryClient = useQueryClient();
   const navState = (location.state as ChartNavState | null) ?? {};
   const tradeId = search.get('trade');
-  const view: ChartView = search.get('view') === 'fundamentals' ? 'fundamentals' : 'ta';
+  const view: ChartView = !IS_DEVICE && search.get('view') === 'fundamentals' ? 'fundamentals' : 'ta';
 
   const setView = (next: ChartView) => {
     const params = new URLSearchParams(search);
@@ -278,7 +279,10 @@ export function ChartPage() {
   }, [chart.isSuccess, chart.dataUpdatedAt, asOf, queryClient, ticker, tf]);
 
   const savePreset = useMutation({
-    mutationFn: () => api.putPreset('chart', settings),
+    mutationFn: (saved: ChartSettings) => api.putPreset('chart', saved),
+    // The next chart opened this session seeds itself from this cache entry; leaving the old
+    // preset in it made a saved change look lost until the app restarted.
+    onSuccess: (_res, saved) => queryClient.setQueryData(['preset', 'chart'], saved),
   });
 
   const markInterest = useMutation({
@@ -433,7 +437,7 @@ export function ChartPage() {
   const pine = chart.data?.pine;
   const wm = chart.data?.watermark;
   // A tracked signal carries the risk it was sized at; anything else uses the current setting.
-  const riskUsd = row?.riskUsd || maxRiskUsd || 100;
+  const riskUsd = row?.riskUsd || maxRiskUsd || 200;
 
   const tradeMetrics = useMemo(() => {
     const entry = row?.entry ?? pine?.close ?? null;
@@ -669,6 +673,12 @@ export function ChartPage() {
         ) : null}
       </div>
 
+      {IS_DEVICE && view === 'ta' ? (
+        <div className="chart-visibility" aria-label="Visibility">
+          <DeviceChartControls value={settings} onChange={setSettings} />
+        </div>
+      ) : null}
+
       {chart.isLoading ? <p className="muted small chart-status-line">Loading bars…</p> : null}
       {chart.error ? (
         <p className="error chart-status-line">{(chart.error as Error).message}</p>
@@ -743,6 +753,7 @@ export function ChartPage() {
         </div>
       ) : null}
 
+      {IS_DEVICE ? null : (
       <div className="chart-view-toggle" role="tablist" aria-label="Chart view">
         <button
           type="button"
@@ -763,6 +774,7 @@ export function ChartPage() {
           Fundamentals
         </button>
       </div>
+      )}
 
       {view === 'fundamentals' ? (
         <div className="chart-fund-metrics">
@@ -786,7 +798,16 @@ export function ChartPage() {
         value={settings}
         onChange={setSettings}
         onClose={() => setSettingsOpen(false)}
-        onSave={() => savePreset.mutate()}
+        onSave={() => savePreset.mutate(settings)}
+        saveState={
+          savePreset.isPending
+            ? 'saving'
+            : savePreset.isError
+              ? 'error'
+              : savePreset.isSuccess && savePreset.variables === settings
+                ? 'saved'
+                : 'idle'
+        }
         onReset={() => setSettings(DEFAULT_CHART_SETTINGS)}
       />
     </div>

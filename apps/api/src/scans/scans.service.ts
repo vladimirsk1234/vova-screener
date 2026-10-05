@@ -16,7 +16,7 @@ const DEFAULTS: ScanParamsApi = {
   tf: 'Weekly',
   direction: 'buy',
   minRr: 1.5,
-  riskPerTrade: 100,
+  riskPerTrade: 200,
   noRrReq: true,
   useLastHlSl: true,
   newOnly: false,

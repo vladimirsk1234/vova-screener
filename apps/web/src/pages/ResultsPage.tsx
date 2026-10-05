@@ -13,6 +13,7 @@ import {
   type Universe,
 } from '../lib/api';
 import { formatAge, TF_SHORT } from '../lib/format';
+import { IS_DEVICE } from '../lib/platform';
 import { lastResultsPath } from '../lib/tabMemory';
 import { useCardFundamentals } from '../lib/useCardFundamentals';
 import { useRestoreChartScroll } from '../lib/useRestoreChartScroll';
@@ -31,7 +32,7 @@ const BUCKET_LABEL: Record<Bucket, string> = {
 
 const SORTS: SortOption<ResultSort>[] = [
   { value: 'rr', label: 'RR' },
-  { value: 'uv', label: 'UV', from: 'asc' },
+  ...(IS_DEVICE ? [] : [{ value: 'uv' as const, label: 'UV', from: 'asc' as const }]),
   { value: 'pnl', label: 'P&L' },
   { value: 'interest', label: 'Marked' },
   { value: 'symbol', label: 'A-Z', from: 'asc' },
