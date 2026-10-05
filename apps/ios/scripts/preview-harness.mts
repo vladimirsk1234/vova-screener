@@ -8,7 +8,7 @@
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { chromium, type Browser, type Page } from '@playwright/test';
+import { chromium, devices, webkit, type Browser, type Page } from '@playwright/test';
 import { createCachedStore } from '../../../packages/device/src/cachedStore';
 import { createDeviceApi, type Notifier } from '../../../packages/device/src/api';
 import { openNodeStore } from '../../../packages/device/src/nodeStore.test-helper';
@@ -48,7 +48,11 @@ const notifier: Notifier = {
 
 /** One app launch: fresh WebView and a fresh device API over the same SQLite file. */
 async function launch(browser: Browser, label: string) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const context = await browser.newContext(
+    process.env.ENGINE === 'webkit'
+      ? { ...devices['iPhone 14'] }
+      : { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  );
   const page = await context.newPage();
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
@@ -63,6 +67,7 @@ async function launch(browser: Browser, label: string) {
     notifier,
     onDataChanged: () => void page.evaluate('window.__vovaDataChanged && window.__vovaDataChanged()').catch(() => undefined),
   });
+  await api.migratePresets();
   await api.restoreAlerts();
   await page.exposeFunction('__nativePost', async (raw: string) => {
     const msg = JSON.parse(raw) as { id: number; method: string; path: string; body: string | null };
@@ -93,7 +98,8 @@ async function waitWhile(page: Page, name: RegExp, ms: number) {
   }
 }
 
-const browser = await chromium.launch();
+// ENGINE=webkit runs WebKit, the engine behind WKWebView on the iPhone.
+const browser = await (process.env.ENGINE === 'webkit' ? webkit : chromium).launch();
 const first = await launch(browser, '1');
 const page = first.page;
 
@@ -126,6 +132,7 @@ const ticker = decodeURIComponent(new URL(page.url()).hash.split('/chart/')[1] ?
 // Visibility switches under the chart: turn Fibonacci and Bollinger Bands on, then Save preset.
 await page.locator('.chart-visibility').getByText('Fibonacci').click();
 await page.locator('.chart-visibility').getByText('Bollinger Bands').click();
+await page.locator('.chart-visibility input[type="number"]').first().fill('9');
 await shot(page, '04-chart-visibility-on');
 await page.getByRole('button', { name: 'Settings' }).click();
 await shot(page, '05-chart-settings-no-visibility');
@@ -135,9 +142,14 @@ await page.getByRole('button', { name: 'Close' }).click();
 // Same session: open another chart and come back — the saved preset must be what loads.
 await page.getByRole('button', { name: 'Back' }).click();
 await page.waitForSelector('.results-head');
-await page.locator('.signal-card').nth(1).click();
+await page.locator('.signal-card').first().click();
 await page.waitForSelector('.chart-visibility');
-const sameSession = await page.locator('.chart-visibility input').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).checked));
+await page.waitForTimeout(800);
+const readControls = (p: Page) =>
+  p.locator('.chart-visibility input').evaluateAll((els) =>
+    els.map((el) => ((el as HTMLInputElement).type === 'checkbox' ? (el as HTMLInputElement).checked : (el as HTMLInputElement).value)),
+  );
+const sameSession = await readControls(page);
 console.log(`same session, next chart: visibility ${JSON.stringify(sameSession)}`);
 console.log(`page errors (launch 1): ${first.errors.join(' | ') || 'none'}`);
 await first.context.close();
@@ -147,7 +159,8 @@ const second = await launch(browser, '2 (same SQLite file)');
 await second.page.goto(`${BASE_URL}#/chart/${encodeURIComponent(ticker)}`);
 await second.page.waitForSelector('.chart-host canvas', { timeout: 20_000 });
 await second.page.mouse.move(5, 5);
-const afterRelaunch = await second.page.locator('.chart-visibility input').evaluateAll((els) => els.map((el) => (el as HTMLInputElement).checked));
+await second.page.waitForTimeout(800);
+const afterRelaunch = await readControls(second.page);
 console.log(`after relaunch: visibility ${JSON.stringify(afterRelaunch)}`);
 await shot(second.page, '06-chart-after-relaunch');
 await second.page.getByRole('button', { name: 'Back' }).click().catch(() => undefined);

@@ -1062,38 +1062,52 @@ a {
 .chart-visibility {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 16px;
-  padding: 4px 8px calc(6px + var(--safe-bottom));
+  grid-template-columns: repeat(3, auto);
+  justify-content: space-between;
+  gap: 0 8px;
+  padding: 2px 6px calc(2px + var(--safe-bottom));
 }
 
 .chart-visibility .chart-toggle {
   justify-content: flex-start;
-  gap: 8px;
-  min-height: 32px;
-}
-
-.chart-visibility-ma {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 16px;
-}
-
-.chart-visibility-ma .chart-field {
-  justify-content: flex-start;
-  gap: 8px;
-  min-width: 0;
-  font-size: 13px;
-}
-
-.chart-visibility-ma .chart-field span {
+  gap: 5px;
+  min-height: 28px;
+  font-size: 12px;
   white-space: nowrap;
+  min-width: 0;
 }
 
-.chart-visibility-ma .chart-field input[type='number'] {
-  width: 52px;
+.chart-visibility .chart-toggle input[type='checkbox'] {
+  margin: 0;
+  width: 15px;
+  height: 15px;
   flex: 0 0 auto;
+}
+
+.chart-toggle-ma label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.chart-toggle-ma input[type='number'] {
+  width: 38px;
+  flex: 0 0 auto;
+  padding: 1px 3px;
+  font-size: 12px;
+  background: #0f131a;
+  border: 1px solid #333948;
+  color: var(--text);
+  border-radius: 5px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.chart-toggle-ma input[type='number']::-webkit-inner-spin-button,
+.chart-toggle-ma input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .chart-toggle,

@@ -104,6 +104,9 @@ const MANUAL_RUNS_KEY = 'device:manualRuns';
 const TICKER_INTEREST_KEY = 'device:tickerInterest';
 /** Not tied to an app version, so an App Store / TestFlight update keeps the choices. */
 export const ALERT_PREFS_KEY = 'device:alerts';
+const CHART_DEFAULTS_MIGRATION_KEY = 'device:migration:chartGrayBackground';
+/** Streamlit `IndicatorParams.bg_color`, the web default. */
+const GRAY_CHART_BACKGROUND = '#707585';
 
 type ScanCounters = {
   total: number;
@@ -1065,6 +1068,18 @@ export function createDeviceApi(deps: DeviceApiDeps) {
     /** App launch: put back the close reminders the saved choices ask for. */
     async restoreAlerts() {
       await syncReminders(await alertPrefs());
+    },
+    /**
+     * App launch, once: a chart preset saved while the iPhone default background was black carries
+     * that black; the default is gray again. A black chosen after this keeps.
+     */
+    async migratePresets() {
+      if (await store.getPreset(CHART_DEFAULTS_MIGRATION_KEY)) return;
+      const chart = await store.getPreset<Record<string, unknown>>('chart');
+      if (chart && String(chart.bg_color).toLowerCase() === '#000000') {
+        await store.putPreset('chart', { ...chart, bg_color: GRAY_CHART_BACKGROUND });
+      }
+      await store.putPreset(CHART_DEFAULTS_MIGRATION_KEY, { done: true });
     },
     async handle(method: string, path: string, rawBody?: string | null): Promise<ApiResponse> {
       try {

@@ -53,9 +53,9 @@ const WEB_DEFAULT_CHART_SETTINGS: ChartSettings = {
   show_watermark: true,
 };
 
-/** The iPhone app's defaults: black chart background and black watermark text. */
+/** The iPhone app's defaults: the Streamlit-era gray background with black watermark text. */
 export const DEFAULT_CHART_SETTINGS: ChartSettings = IS_DEVICE
-  ? { ...WEB_DEFAULT_CHART_SETTINGS, bg_color: '#000000', wm_text_color: '#000000' }
+  ? { ...WEB_DEFAULT_CHART_SETTINGS, wm_text_color: '#000000' }
   : WEB_DEFAULT_CHART_SETTINGS;
 
 /** Match Streamlit `_apply_hardcoded_params`. */

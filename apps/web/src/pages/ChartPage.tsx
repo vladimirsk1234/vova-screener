@@ -12,7 +12,7 @@ import {
   type ValuationSeriesPoint,
 } from '../lib/api';
 import { Chips } from '../components/Chips';
-import { ChartSettingsPanel, MovingAverageFields, VisibilityToggles } from '../components/ChartSettingsPanel';
+import { ChartSettingsPanel, DeviceChartControls } from '../components/ChartSettingsPanel';
 import { FundamentalsPanel, type FundTab } from '../components/FundamentalsPanel';
 import {
   mountSequenceChart,
@@ -675,10 +675,7 @@ export function ChartPage() {
 
       {IS_DEVICE && view === 'ta' ? (
         <div className="chart-visibility" aria-label="Visibility">
-          <VisibilityToggles value={settings} onChange={setSettings} />
-          <div className="chart-visibility-ma">
-            <MovingAverageFields value={settings} onChange={setSettings} />
-          </div>
+          <DeviceChartControls value={settings} onChange={setSettings} />
         </div>
       ) : null}
 

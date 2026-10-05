@@ -111,8 +111,45 @@ export function VisibilityToggles({
   );
 }
 
-/** Fast EMA, Center EMA and Major SMA lengths. Same fields the settings sheet uses. */
-export function MovingAverageFields({
+/** A moving-average switch and its length on one line. */
+function ToggleWithLength({
+  label,
+  checked,
+  onToggle,
+  length,
+  onLength,
+  lengthLabel,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: (v: boolean) => void;
+  length: number;
+  onLength: (v: number) => void;
+  lengthLabel: string;
+}) {
+  return (
+    <div className="chart-toggle chart-toggle-ma">
+      <label>
+        <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+        <span>{label}</span>
+      </label>
+      <input
+        type="number"
+        aria-label={lengthLabel}
+        inputMode="numeric"
+        value={length}
+        min={1}
+        onChange={(e) => onLength(Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
+/**
+ * iPhone chart controls under the chart: each moving-average switch carries its length
+ * (Short EMA + Fast EMA, Center EMA + Center EMA, SMA + Major SMA), then the other switches.
+ */
+export function DeviceChartControls({
   value,
   onChange,
 }: {
@@ -123,9 +160,33 @@ export function MovingAverageFields({
     onChange({ ...value, [key]: v });
   return (
     <>
-      <Num label="Fast EMA" value={value.len_fast} onChange={(v) => set('len_fast', v)} />
-      <Num label="Center EMA" value={value.len_slow} onChange={(v) => set('len_slow', v)} />
-      <Num label="Major SMA" value={value.length_major} onChange={(v) => set('length_major', v)} />
+      <ToggleWithLength
+        label="Short EMA"
+        checked={value.show_short_ema}
+        onToggle={(v) => set('show_short_ema', v)}
+        length={value.len_fast}
+        onLength={(v) => set('len_fast', v)}
+        lengthLabel="Fast EMA"
+      />
+      <ToggleWithLength
+        label="Center EMA"
+        checked={value.show_center_ema}
+        onToggle={(v) => set('show_center_ema', v)}
+        length={value.len_slow}
+        onLength={(v) => set('len_slow', v)}
+        lengthLabel="Center EMA length"
+      />
+      <ToggleWithLength
+        label="SMA"
+        checked={value.show_sma_major}
+        onToggle={(v) => set('show_sma_major', v)}
+        length={value.length_major}
+        onLength={(v) => set('length_major', v)}
+        lengthLabel="Major SMA"
+      />
+      <Toggle label="Fibonacci" checked={value.show_fib} onChange={(v) => set('show_fib', v)} />
+      <Toggle label="Bollinger Bands" checked={value.show_bb} onChange={(v) => set('show_bb', v)} />
+      <Toggle label="TP / SL lines" checked={value.show_tp_sl} onChange={(v) => set('show_tp_sl', v)} />
     </>
   );
 }
@@ -164,7 +225,9 @@ export function ChartSettingsPanel({
         {IS_DEVICE ? null : (
           <section>
             <h4>Moving averages</h4>
-            <MovingAverageFields value={value} onChange={onChange} />
+            <Num label="Fast EMA" value={value.len_fast} onChange={(v) => set('len_fast', v)} />
+            <Num label="Center EMA" value={value.len_slow} onChange={(v) => set('len_slow', v)} />
+            <Num label="Major SMA" value={value.length_major} onChange={(v) => set('length_major', v)} />
           </section>
         )}
 
