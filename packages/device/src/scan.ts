@@ -1,12 +1,7 @@
 /** On-device scan. Bars come from Yahoo and stay in the local store. */
-import {
-  evaluateClose,
-  evaluateSymbol,
-  parseListText,
-  type EvaluateParams,
-  type OhlcSeries,
-  type ParsedEntry,
-} from '../../engine/src/index.ts';
+import { evaluateClose, evaluateSymbol, type EvaluateParams } from '../../engine/src/evaluate.ts';
+import { parseListText, type ParsedEntry } from '../../engine/src/tickers.ts';
+import type { OhlcSeries } from '../../engine/src/types.ts';
 import { barPeriodKey, isPeriodClosed, periodKey } from '../../../apps/api/src/scans/period.ts';
 import type { ScreenerStore } from './store';
 import { applyScanResult, type ScanOutcome } from './tracker';

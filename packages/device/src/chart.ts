@@ -1,17 +1,11 @@
 /** Technical chart payload. Company name and daily price change stay; FMP fields do not. */
-import {
-  buildDwmLines,
-  buildTradeLine,
-  buildWatermarkParts,
-  defaultIndicatorParams,
-  indicatorParamsFromDict,
-  maxBarsForTf,
-  runSequenceVovaFull,
-  runSequenceVovaPine,
-  signalAge,
-  type OhlcBar,
-  type OhlcSeries,
-} from '../../engine/src/index.ts';
+import { maxBarsForTf } from '../../engine/src/dataUtils.ts';
+import { defaultIndicatorParams, indicatorParamsFromDict } from '../../engine/src/indicatorParams.ts';
+import { runSequenceVovaPine } from '../../engine/src/sequenceVova.ts';
+import { runSequenceVovaFull } from '../../engine/src/sequenceVovaFull.ts';
+import { signalAge } from '../../engine/src/signalAge.ts';
+import type { OhlcBar, OhlcSeries } from '../../engine/src/types.ts';
+import { buildDwmLines, buildTradeLine, buildWatermarkParts } from '../../engine/src/watermark.ts';
 import type { UserTf } from './types';
 
 export type ChartPayload = {

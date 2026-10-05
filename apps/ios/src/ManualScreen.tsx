@@ -1,5 +1,4 @@
-import { evaluateBars, fetchYahooOhlc, type Rejection, type UserTf } from '@vova/device';
-import { parseListEntry } from '@vova/engine';
+import { evaluateBars, fetchYahooOhlc, parseListEntry, type Rejection, type UserTf } from '@vova/device';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { money, num } from './format';

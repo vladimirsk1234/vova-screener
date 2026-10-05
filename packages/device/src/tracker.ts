@@ -2,15 +2,12 @@
  * Turns a finished scan into tracked signals.
  * Same rules as the server tracker, without FMP premium stamps.
  */
-import {
-  runCloseLedger,
-  runStructureOverlay,
-  type BuySignal,
-  type CloseTrade,
-  type OhlcSeries,
-  type SellSignal,
-} from '../../engine/src/index.ts';
+import type { BuySignal, SellSignal } from '../../engine/src/evaluate.ts';
+import { runCloseLedger } from '../../engine/src/sequenceVova.ts';
+import { runStructureOverlay } from '../../engine/src/sequenceVovaFull.ts';
+import type { CloseTrade, OhlcSeries } from '../../engine/src/types.ts';
 import { barPeriodKey } from '../../../apps/api/src/scans/period.ts';
+import { newId } from './id';
 import type { ExitReason } from './types';
 import { computePnl, finiteOrNull, holdPeriods, interestRank, round2, sharesFromRisk } from './money';
 import type { TrackedSignal, Universe, UserTf } from './types';
@@ -494,8 +491,4 @@ function adoptedDocument(
 
 function atNoon(date: string): string {
   return new Date(`${date}T12:00:00Z`).toISOString();
-}
-
-function newId(): string {
-  return globalThis.crypto.randomUUID();
 }

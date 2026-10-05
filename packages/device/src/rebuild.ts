@@ -1,6 +1,9 @@
 /** Replay the close-scan ledger over cached bars and insert missing closed trades. */
-import { runCloseLedger, shortSymbol, type CloseTrade } from '../../engine/src/index.ts';
+import { runCloseLedger } from '../../engine/src/sequenceVova.ts';
+import { shortSymbol } from '../../engine/src/tickers.ts';
+import type { CloseTrade } from '../../engine/src/types.ts';
 import { barPeriodKey } from '../../../apps/api/src/scans/period.ts';
+import { newId } from './id';
 import { computePnl, finiteOrNull, holdPeriods, round2, sharesFromRisk } from './money';
 import type { ScreenerStore } from './store';
 import type { TrackedSignal, Universe, UserTf } from './types';
@@ -73,7 +76,7 @@ function closedFromTrade(
   const pnl = computePnl(entry, sl, shares, exitPrice);
   const symbol = shortSymbol(cached.yahooTicker);
   return {
-    id: globalThis.crypto.randomUUID(),
+    id: newId(),
     yahooTicker: cached.yahooTicker,
     symbol,
     tvSymbol: symbol,

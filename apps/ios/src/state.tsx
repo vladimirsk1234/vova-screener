@@ -7,9 +7,9 @@ import {
   type ScanProgress,
   type ScreenerStore,
   type Universe,
+  type ParsedEntry,
   type UserTf,
 } from '@vova/device';
-import type { ParsedEntry } from '@vova/engine';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { openPhoneStore } from './db';
 import { ETF_TEXT, STOCKS_TEXT } from './universeData';

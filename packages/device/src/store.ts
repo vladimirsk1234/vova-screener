@@ -1,5 +1,5 @@
 /** SQLite-shaped store. The phone and the Node tests share this schema. */
-import type { OhlcBar } from '../../engine/src/index.ts';
+import type { OhlcBar } from '../../engine/src/types.ts';
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -199,28 +199,6 @@ export function createSqlStore(db: SqlAsync): ScreenerStore {
       );
     },
   };
-}
-
-/** Node's built-in sqlite, used by tests and any local check of the same file format. */
-export async function openNodeStore(filename: string): Promise<ScreenerStore> {
-  const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(filename);
-  const sql: SqlAsync = {
-    async exec(sqlText) {
-      db.exec(sqlText);
-    },
-    async run(sqlText, params = []) {
-      db.prepare(sqlText).run(...params);
-    },
-    async all<T>(sqlText: string, params: readonly (string | number | null)[] = []) {
-      return db.prepare(sqlText).all(...params) as T[];
-    },
-    async get<T>(sqlText: string, params: readonly (string | number | null)[] = []) {
-      return (db.prepare(sqlText).get(...params) as T | undefined) ?? null;
-    },
-  };
-  await migrate(sql);
-  return createSqlStore(sql);
 }
 
 export type { OhlcBar };

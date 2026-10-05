@@ -5,11 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { buildChart } from './chart';
-import { assertNoFundamentalFields } from './index';
 import { historyReport } from './history';
 import { bucketCounts, listResults } from './results';
 import { evaluateBars } from './scan';
-import { openNodeStore } from './store';
+import { assertNoFundamentalFields, openNodeStore } from './nodeStore.test-helper';
 import { applyScanResult, resizeActive, type ScanOutcome } from './tracker';
 import type { ScanMeta, TrackedSignal } from './types';
 import { parseYahooChart } from './yahoo';
@@ -280,11 +279,24 @@ describe('history', () => {
   });
 });
 
+describe('iOS bundle', () => {
+  it('app code never imports a node: builtin that Metro cannot resolve', () => {
+    const root = fileURLToPath(new URL('../../..', import.meta.url));
+    const files = [
+      ...walk(path.join(root, 'packages/device/src')).filter((file) => !file.includes('test-helper')),
+      ...walk(path.join(root, 'apps/ios')),
+    ];
+    for (const file of files) {
+      assert.equal(/from ['"]node:|import\(['"]node:|require\(['"]node:/.test(readFileSync(file, 'utf8')), false, file);
+    }
+  });
+});
+
 describe('no FMP in the phone app', () => {
   it('does not request fundamentals, DCF, EPS tags, or Financial Modeling Prep', () => {
     const root = fileURLToPath(new URL('../../..', import.meta.url));
     const files = [
-      ...walk(path.join(root, 'packages/device/src')).filter((file) => !file.endsWith(`${path.sep}index.ts`)),
+      ...walk(path.join(root, 'packages/device/src')).filter((file) => !file.includes('test-helper')),
       ...walk(path.join(root, 'apps/ios')).filter((file) => !file.endsWith('universeData.ts')),
     ];
     const text = files.map((file) => readFileSync(file, 'utf8')).join('\n');

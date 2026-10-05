@@ -5,9 +5,8 @@ import {
   fillLastBarOhlc,
   intervalAndPeriod,
   toOhlcSeries,
-  type OhlcSeries,
-  type Timeframe,
-} from '../../engine/src/index.ts';
+} from '../../engine/src/dataUtils.ts';
+import type { OhlcSeries, Timeframe } from '../../engine/src/types.ts';
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
