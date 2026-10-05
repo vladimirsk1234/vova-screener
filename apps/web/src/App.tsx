@@ -87,7 +87,7 @@ export function App() {
   }, [pathname, search]);
 
   return (
-    <div className={`app-shell${isChart ? ' app-shell--chart' : ''}`}>
+    <div className={`app-shell${isChart ? ' app-shell--chart' : ''}${IS_DEVICE ? ' app-shell--device' : ''}`}>
       {!isChart && (
         <header className="app-header">
           <div className="app-header-row">

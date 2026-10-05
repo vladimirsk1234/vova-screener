@@ -111,6 +111,25 @@ export function VisibilityToggles({
   );
 }
 
+/** Fast EMA, Center EMA and Major SMA lengths. Same fields the settings sheet uses. */
+export function MovingAverageFields({
+  value,
+  onChange,
+}: {
+  value: ChartSettings;
+  onChange: (next: ChartSettings) => void;
+}) {
+  const set = <K extends keyof ChartSettings>(key: K, v: ChartSettings[K]) =>
+    onChange({ ...value, [key]: v });
+  return (
+    <>
+      <Num label="Fast EMA" value={value.len_fast} onChange={(v) => set('len_fast', v)} />
+      <Num label="Center EMA" value={value.len_slow} onChange={(v) => set('len_slow', v)} />
+      <Num label="Major SMA" value={value.length_major} onChange={(v) => set('length_major', v)} />
+    </>
+  );
+}
+
 export function ChartSettingsPanel({
   open,
   value,
@@ -142,12 +161,12 @@ export function ChartSettingsPanel({
           </section>
         )}
 
-        <section>
-          <h4>Moving averages</h4>
-          <Num label="Fast EMA" value={value.len_fast} onChange={(v) => set('len_fast', v)} />
-          <Num label="Center EMA" value={value.len_slow} onChange={(v) => set('len_slow', v)} />
-          <Num label="Major SMA" value={value.length_major} onChange={(v) => set('length_major', v)} />
-        </section>
+        {IS_DEVICE ? null : (
+          <section>
+            <h4>Moving averages</h4>
+            <MovingAverageFields value={value} onChange={onChange} />
+          </section>
+        )}
 
         <section>
           <h4>Theme</h4>

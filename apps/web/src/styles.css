@@ -1053,13 +1053,47 @@ a {
   font-size: 13px;
 }
 
-/* iPhone: the Visibility switches sit under the chart instead of in the settings sheet. */
+/* iPhone chart fills the screen; the parameter switches sit on the bottom edge.
+   The shell's nav padding stays on for the web, where this block does not exist. */
+.app-shell--device.app-shell--chart {
+  padding-bottom: 0;
+}
+
 .chart-visibility {
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 16px;
-  padding: 4px 4px 0;
+  padding: 4px 8px calc(6px + var(--safe-bottom));
+}
+
+.chart-visibility .chart-toggle {
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.chart-visibility-ma {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+}
+
+.chart-visibility-ma .chart-field {
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.chart-visibility-ma .chart-field span {
+  white-space: nowrap;
+}
+
+.chart-visibility-ma .chart-field input[type='number'] {
+  width: 52px;
+  flex: 0 0 auto;
 }
 
 .chart-toggle,
