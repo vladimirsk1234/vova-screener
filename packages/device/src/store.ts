@@ -71,32 +71,7 @@ function parse<T>(json: string | null | undefined): T | null {
   return JSON.parse(json) as T;
 }
 
-/**
- * expo-sqlite answers each call asynchronously over the native bridge, so callers interleave on
- * the one connection: a second `BEGIN` failed and its `ROLLBACK` undid the first caller's open
- * transaction, taking any write that had landed inside it (a chart Save) with it. Every store
- * operation runs alone, one after another; a transaction is a single queued job.
- */
-function serialized(raw: SqlAsync): SqlAsync & { job<T>(work: (tx: SqlAsync) => Promise<T>): Promise<T> } {
-  let tail: Promise<unknown> = Promise.resolve();
-  // `work` receives the raw connection, never this wrapper. A statement issued through the
-  // wrapper would queue behind the job that is already running and wait forever.
-  const job = <T>(work: (tx: SqlAsync) => Promise<T>): Promise<T> => {
-    const next = tail.then(() => work(raw));
-    tail = next.catch(() => undefined);
-    return next;
-  };
-  return {
-    job,
-    exec: (sql) => job((tx) => tx.exec(sql)),
-    run: (sql, params) => job((tx) => tx.run(sql, params)),
-    all: <T>(sql: string, params?: readonly (string | number | null)[]) => job((tx) => tx.all<T>(sql, params)),
-    get: <T>(sql: string, params?: readonly (string | number | null)[]) => job((tx) => tx.get<T>(sql, params)),
-  };
-}
-
-export function createSqlStore(raw: SqlAsync): ScreenerStore {
-  const db = serialized(raw);
+export function createSqlStore(db: SqlAsync): ScreenerStore {
   return {
     async getSettings() {
       const row = await db.get<{ json: string }>('SELECT json FROM settings WHERE id = 1');
@@ -131,47 +106,31 @@ export function createSqlStore(raw: SqlAsync): ScreenerStore {
       return rows.map((r) => JSON.parse(r.json) as TrackedSignal);
     },
     async saveSignals(rows) {
-      // Copy first: the caller keeps using its array, and a rewrite must not depend on it mutating.
-      const next = rows.slice();
-      await db.job(async (tx) => {
-        // Upsert before any delete. A full-table DELETE that commits on its own (expo-sqlite can
-        // finish a statement before COMMIT if the transaction does not stick) leaves Results empty
-        // when a later insert never lands. New rows are written first; only then are stale ids removed.
-        await tx.exec('BEGIN IMMEDIATE');
-        try {
-          for (const row of next) {
-            await tx.run(
-              `INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET universe = excluded.universe, tf = excluded.tf, json = excluded.json`,
-              [row.id, row.universe, row.tf, JSON.stringify(row)],
-            );
-          }
-          if (next.length === 0) {
-            await tx.run('DELETE FROM signals');
-          } else {
-            const keep = new Set(next.map((row) => row.id));
-            const existing = await tx.all<{ id: string }>('SELECT id FROM signals');
-            for (const row of existing) {
-              if (!keep.has(row.id)) await tx.run('DELETE FROM signals WHERE id = ?', [row.id]);
-            }
-          }
-          await tx.exec('COMMIT');
-        } catch (err) {
-          await tx.exec('ROLLBACK').catch(() => undefined);
-          throw err;
+      await db.exec('BEGIN');
+      try {
+        await db.run('DELETE FROM signals');
+        for (const row of rows) {
+          await db.run('INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)', [
+            row.id,
+            row.universe,
+            row.tf,
+            JSON.stringify(row),
+          ]);
         }
-      });
+        await db.exec('COMMIT');
+      } catch (err) {
+        await db.exec('ROLLBACK');
+        throw err;
+      }
     },
     async upsertSignals(rows) {
-      await db.job(async (tx) => {
-        for (const row of rows) {
-          await tx.run(
-            `INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET universe = excluded.universe, tf = excluded.tf, json = excluded.json`,
-            [row.id, row.universe, row.tf, JSON.stringify(row)],
-          );
-        }
-      });
+      for (const row of rows) {
+        await db.run(
+          `INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET universe = excluded.universe, tf = excluded.tf, json = excluded.json`,
+          [row.id, row.universe, row.tf, JSON.stringify(row)],
+        );
+      }
     },
     async getScanMeta(universe, tf) {
       const row = await db.get<{ json: string }>(

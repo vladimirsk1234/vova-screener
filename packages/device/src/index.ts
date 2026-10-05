@@ -11,5 +11,4 @@ export * from './scan';
 export * from './rebuild';
 export * from './api';
 export * from './alerts';
-export * from './bridge';
 export { parseListEntry, type ParsedEntry } from '../../engine/src/tickers.ts';
