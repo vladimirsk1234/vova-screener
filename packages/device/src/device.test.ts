@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
-import { buildChart } from './chart';
+import { buildChartPayload } from './chart';
 import { historyReport } from './history';
 import { bucketCounts, listResults } from './results';
 import { evaluateBars } from './scan';
@@ -297,10 +297,32 @@ describe('no FMP in the phone app', () => {
     const root = fileURLToPath(new URL('../../..', import.meta.url));
     const files = [
       ...walk(path.join(root, 'packages/device/src')).filter((file) => !file.includes('test-helper')),
-      ...walk(path.join(root, 'apps/ios')).filter((file) => !file.endsWith('universeData.ts')),
+      ...walk(path.join(root, 'apps/ios')).filter(
+        (file) => !file.endsWith('universeData.ts') && !file.endsWith('webApp.generated.ts'),
+      ),
     ];
     const text = files.map((file) => readFileSync(file, 'utf8')).join('\n');
-    assert.equal(/financialmodelingprep|FMP_API_KEY|fundamentals-cards|fundamentals-screener|enrich-eps|enrich-premium|premiumPctAtEntry|epsAtEntry/i.test(text), false);
+    assert.equal(/financialmodelingprep|FMP_API_KEY|fundamentals-screener|enrich-eps|enrich-premium|premiumPctAtEntry|epsAtEntry/i.test(text), false);
+
+    // The web UI bundled into the app: no FMP endpoint and no fundamentals screen or control.
+    const web = readFileSync(path.join(root, 'apps/ios/src/webApp.generated.ts'), 'utf8');
+    for (const banned of [
+      '/instruments/fundamentals',
+      'fundamentals-screener',
+      '/dcf',
+      'enrich-eps',
+      'enrich-premium',
+      'financialmodelingprep',
+      'Tag EPS at entry',
+      'Hide EPS',
+      'Fair value',
+      'FundamentalsPage',
+    ]) {
+      assert.equal(web.includes(banned), false, banned);
+    }
+    for (const kept of ['Growth by timeframe', 'Capital pool', 'Rebuild history', 'chart-watermark', '__vovaReply']) {
+      assert.equal(web.includes(kept), true, kept);
+    }
     const bundled = readFileSync(path.join(root, 'apps/ios/src/universeData.ts'), 'utf8');
     const stocks = readFileSync(path.join(root, 'STOCK-TICKERS.txt'), 'utf8');
     const etf = readFileSync(path.join(root, 'TV-LIST-ETF.txt'), 'utf8');
@@ -308,6 +330,20 @@ describe('no FMP in the phone app', () => {
     assert.equal(bundled.includes(JSON.stringify(etf)), true);
   });
 });
+
+export function syntheticBars(count: number, stepDays: number) {
+  return Array.from({ length: count }, (_, i) => {
+    const close = 20 + Math.sin(i / 5) * 3 + i * 0.05;
+    return {
+      date: new Date(Date.UTC(2020, 0, 6 + i * stepDays)).toISOString().slice(0, 10),
+      open: close - 0.4,
+      high: close + 0.6,
+      low: close - 0.8,
+      close,
+      volume: 1000 + i,
+    };
+  });
+}
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -342,34 +378,39 @@ describe('yahoo and chart', () => {
     assert.ok(parsed.bars && parsed.bars.length >= 1);
   });
 
-  it('builds a technical chart without P/E, market cap or a description', () => {
-    const bars = Array.from({ length: 80 }, (_, i) => {
-      const close = 20 + Math.sin(i / 5) * 2 + i * 0.05;
-      return {
-        date: new Date(Date.UTC(2022, 0, 3 + i * 7)).toISOString().slice(0, 10),
-        open: close - 0.4,
-        high: close + 0.6,
-        low: close - 0.8,
-        close,
-        volume: 1000 + i,
-      };
-    });
-    const chart = buildChart({
+  it('builds the web ChartPayload with the technical watermark and no P/E, market cap or description', () => {
+    const weekly = syntheticBars(200, 7);
+    const daily = syntheticBars(400, 1);
+    const { payload } = buildChartPayload({
       yahooTicker: 'AAA',
-      symbol: 'AAA',
+      tvSymbol: 'NASDAQ:AAA',
       companyName: 'Acme',
       tf: 'Weekly',
-      bars,
-      dailyClose: 24,
-      prevDailyClose: 23,
+      bars: weekly,
+      dailyBars: daily,
+      weeklyBars: weekly,
+      monthlyBars: null,
     });
-    const text = chart.watermarkLines.join('\n');
+    const lines = payload.watermark?.lines ?? [];
+    assert.equal(lines[0], 'Acme');
+    assert.match(lines[1], /^AAA \(Weekly\) \| [+-]\d+\.\d{2}%$/);
+    assert.ok(lines.some((l) => l.startsWith('ATR: ')));
+    assert.ok(lines.some((l) => l.startsWith('D: Seq ')));
+    assert.ok(lines.some((l) => l.startsWith('W: Seq ')));
+    const text = lines.join('\n');
     assert.equal(text.includes('PE:'), false);
     assert.equal(text.includes('Earn:'), false);
-    assert.equal(text.includes('+'), true);
-    assert.ok(chart.bars.length > 0);
-    assert.ok(chart.overlay);
-    assertNoFundamentalFields(chart);
+    assert.equal(payload.watermark?.description, null);
+    // Shape mountSequenceChart reads.
+    assert.equal(payload.bars.length, 80);
+    assert.equal(payload.symbol, 'AAA');
+    assert.equal(payload.tvSymbol, 'NASDAQ:AAA');
+    assert.ok(payload.overlay);
+    assert.equal(payload.overlay.critical.length, payload.bars.length);
+    assert.equal(payload.overlay.overlays.emaFast.length, payload.bars.length);
+    assert.ok(payload.overlay.extensionLines.every((l) => 'rawX0Idx' in l && 'rawX1Idx' in l));
+    assert.ok(payload.pine && 'barsSinceValid' in payload.pine && 'validSinceAsOf' in payload.pine);
+    assertNoFundamentalFields(payload);
   });
 
   it('marks a short series as unevaluated rather than a fundamental reject', () => {

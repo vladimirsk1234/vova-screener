@@ -7,6 +7,7 @@ import {
 } from '../../../apps/api/src/tracking/benchmark.ts';
 import { computePeakCapital, roiOnAvgPct, roiOnPeakPct, type CapitalTrade } from '../../../apps/api/src/tracking/peak-capital.ts';
 import { computePnl, holdUnitLabel, round2, sharesFromRisk } from './money';
+import { mongoCompare } from './results';
 import type {
   HistoryGroupBy,
   HistoryPeriodSort,
@@ -350,24 +351,24 @@ function sortPeriods(periods: HistoryPeriod[], sort: HistoryPeriodSort, dir: Sor
   });
 }
 
+/** `tradeSortSpec`: the chosen field, then newest exit first — Mongo order, missing values lowest. */
 function compareTrades(a: TrackedSignal, b: TrackedSignal, sort: HistoryTradeSort, dir: SortDir): number {
-  const sign = dir === 'asc' ? 1 : -1;
-  if (sort === 'symbol') return a.symbol.localeCompare(b.symbol) * sign || cmpDate(a, b);
-  if (sort === 'interest') return (a.interestRank - b.interestRank) * sign || cmpDate(a, b);
-  const num = (n: number | null) => (n == null || !Number.isFinite(n) ? null : n);
-  const av =
-    sort === 'pnl' ? num(a.pnlUsd) : sort === 'r' ? num(a.pnlR) : sort === 'rr' ? num(a.rrAtEntry) : null;
-  const bv =
-    sort === 'pnl' ? num(b.pnlUsd) : sort === 'r' ? num(b.pnlR) : sort === 'rr' ? num(b.rrAtEntry) : null;
-  if (sort === 'date') return cmpDate(a, b) * sign;
-  if (av == null && bv == null) return cmpDate(a, b);
-  if (av == null) return 1;
-  if (bv == null) return -1;
-  return (av - bv) * sign || cmpDate(a, b);
-}
-
-function cmpDate(a: TrackedSignal, b: TrackedSignal): number {
-  return (b.exitDate ?? '').localeCompare(a.exitDate ?? '');
+  const order = dir === 'asc' ? 1 : -1;
+  const key = (row: TrackedSignal): number | string | null =>
+    sort === 'pnl'
+      ? row.pnlUsd
+      : sort === 'r'
+        ? row.pnlR
+        : sort === 'rr'
+          ? row.rrAtEntry
+          : sort === 'interest'
+            ? row.interestRank
+            : sort === 'symbol'
+              ? row.symbol
+              : row.exitDate;
+  const primary = mongoCompare(key(a), key(b)) * order;
+  if (primary || sort === 'date') return primary;
+  return mongoCompare(b.exitDate, a.exitDate);
 }
 
 export function normalizeRange(range?: HistoryRange): HistoryRange {

@@ -84,6 +84,8 @@ export async function scanUniverse(opts: {
   onProgress?: (progress: ScanProgress) => void;
   concurrency?: number;
   maxAgeMs?: number;
+  /** Settings "Run scan now": re-download every symbol instead of reusing stored bars. */
+  forceRefresh?: boolean;
   fetchBars?: typeof fetchYahooOhlc;
   now?: Date;
 }): Promise<ScanProgress> {
@@ -100,7 +102,8 @@ export async function scanUniverse(opts: {
   let signals = 0;
   let closes = 0;
   let rejected = 0;
-  let asOf: string | null = null;
+  let signalAsOf: string | null = null;
+  let evaluatedAsOf: string | null = null;
 
   const publish = (phase: ScanProgress['phase'], message: string) => {
     opts.onProgress?.({ phase, evaluated, total, signals, closes, rejected, message });
@@ -113,18 +116,20 @@ export async function scanUniverse(opts: {
       const entry = queue.shift();
       if (!entry) return;
       const cached = await opts.store.getBars(entry.yahoo, opts.tf);
-      const fresh = cached && Date.now() - Date.parse(cached.fetchedAt) < maxAge ? cached : null;
+      const fresh =
+        !opts.forceRefresh && cached && Date.now() - Date.parse(cached.fetchedAt) < maxAge ? cached : null;
       let bars = fresh?.bars ?? null;
-      let companyName = fresh?.companyName || entry.name || entry.yahoo;
+      let companyName = entry.name || fresh?.companyName || entry.yahoo;
       if (!fresh) {
         const pulled = await fetchBars(entry.yahoo, opts.tf, { signal: opts.signal });
-        bars = pulled.bars;
-        if (pulled.companyName) companyName = pulled.companyName;
-        if (bars) {
+        // A throttled or failed download falls back to the stored series, as BarsService does.
+        bars = pulled.bars ?? cached?.bars ?? null;
+        if (!entry.name && pulled.companyName) companyName = pulled.companyName;
+        if (pulled.bars) {
           await opts.store.putBars({
             yahooTicker: entry.yahoo,
             tf: opts.tf,
-            bars,
+            bars: pulled.bars,
             fetchedAt: new Date().toISOString(),
             companyName,
           });
@@ -139,12 +144,15 @@ export async function scanUniverse(opts: {
         riskPerTrade: opts.settings.maxRiskUsd,
       });
       outcomes.push(outcome);
-      if (outcome.buy) signals += 1;
+      if (outcome.buy) {
+        signals += 1;
+        if (!signalAsOf || outcome.buy.asOf < signalAsOf) signalAsOf = outcome.buy.asOf;
+      }
       if (outcome.sell) closes += 1;
       if (!outcome.buy && outcome.reason) rejected += 1;
       if (bars?.length) {
         const barDate = bars[bars.length - 1].date;
-        if (!asOf || barDate < asOf) asOf = barDate;
+        if (!evaluatedAsOf || barDate < evaluatedAsOf) evaluatedAsOf = barDate;
         const key = barPeriodKey(opts.tf, barDate);
         const slot = periods.get(key);
         if (!slot) periods.set(key, { count: 1, newest: barDate });
@@ -173,7 +181,8 @@ export async function scanUniverse(opts: {
   const cancelled = Boolean(opts.signal?.aborted);
   const existing = await opts.store.listSignals();
   const barMap = new Map<string, OhlcSeries>();
-  const tickers = new Set<string>(outcomes.map((o) => o.yahooTicker));
+  // The close-ledger replay only runs for open positions and fresh buy setups.
+  const tickers = new Set<string>(outcomes.filter((o) => o.buy).map((o) => o.yahooTicker));
   for (const row of existing) {
     if (row.universe === opts.universe && row.tf === opts.tf && row.status === 'active') tickers.add(row.yahooTicker);
   }
@@ -196,7 +205,7 @@ export async function scanUniverse(opts: {
   if (!cancelled) {
     const meta: ScanMeta = {
       periodKey: clockKey,
-      asOf,
+      asOf: signalAsOf ?? evaluatedAsOf,
       newestAsOf: consensusAsOf(periods),
       finishedAt: new Date().toISOString(),
       running: false,

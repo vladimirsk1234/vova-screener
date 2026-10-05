@@ -5,7 +5,6 @@ import {
   type AppSettings,
   type BenchmarkCache,
   type CachedBars,
-  type ManualRun,
   type ScanMeta,
   type TrackedSignal,
   type Universe,
@@ -39,48 +38,32 @@ CREATE TABLE IF NOT EXISTS scan_meta (
   json TEXT NOT NULL,
   PRIMARY KEY (universe, tf)
 );
-CREATE TABLE IF NOT EXISTS manual_run (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS benchmark (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS manual_history (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS chart_settings (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS presets (key TEXT PRIMARY KEY, json TEXT NOT NULL);
 `;
 
 export async function migrate(db: SqlAsync): Promise<void> {
   await db.exec(SCHEMA);
 }
 
+export type BarsTf = UserTf | 'Daily';
+
 export type ScreenerStore = {
   getSettings(): Promise<AppSettings>;
   putSettings(next: AppSettings): Promise<void>;
-  getBars(ticker: string, tf: UserTf): Promise<CachedBars | null>;
+  getBars(ticker: string, tf: BarsTf): Promise<CachedBars | null>;
   putBars(row: CachedBars): Promise<void>;
-  listBarKeys(): Promise<Array<{ yahooTicker: string; tf: UserTf }>>;
+  listBarKeys(): Promise<Array<{ yahooTicker: string; tf: BarsTf }>>;
   listSignals(): Promise<TrackedSignal[]>;
   saveSignals(rows: TrackedSignal[]): Promise<void>;
+  upsertSignals(rows: TrackedSignal[]): Promise<void>;
   getScanMeta(universe: Universe, tf: UserTf): Promise<ScanMeta | null>;
   putScanMeta(universe: Universe, tf: UserTf, meta: ScanMeta): Promise<void>;
-  getManualRun(): Promise<ManualRun | null>;
-  putManualRun(run: ManualRun | null): Promise<void>;
+  clearScanMeta(): Promise<void>;
   getBenchmark(): Promise<BenchmarkCache | null>;
   putBenchmark(row: BenchmarkCache): Promise<void>;
-  getManualHistory(): Promise<string[]>;
-  putManualHistory(tickers: string[]): Promise<void>;
-  getChartSettings(): Promise<ChartPrefs>;
-  putChartSettings(prefs: ChartPrefs): Promise<void>;
-};
-
-export type ChartPrefs = {
-  showFib: boolean;
-  showEma: boolean;
-  showBb: boolean;
-  showTpSl: boolean;
-};
-
-export const DEFAULT_CHART_PREFS: ChartPrefs = {
-  showFib: false,
-  showEma: false,
-  showBb: false,
-  showTpSl: false,
+  getPreset<T>(key: string): Promise<T | null>;
+  putPreset(key: string, data: unknown): Promise<void>;
 };
 
 function parse<T>(json: string | null | undefined): T | null {
@@ -116,7 +99,7 @@ export function createSqlStore(db: SqlAsync): ScreenerStore {
     },
     async listBarKeys() {
       const rows = await db.all<{ yahoo_ticker: string; tf: string }>('SELECT yahoo_ticker, tf FROM bars');
-      return rows.map((r) => ({ yahooTicker: r.yahoo_ticker, tf: r.tf as UserTf }));
+      return rows.map((r) => ({ yahooTicker: r.yahoo_ticker, tf: r.tf as BarsTf }));
     },
     async listSignals() {
       const rows = await db.all<{ json: string }>('SELECT json FROM signals');
@@ -140,6 +123,15 @@ export function createSqlStore(db: SqlAsync): ScreenerStore {
         throw err;
       }
     },
+    async upsertSignals(rows) {
+      for (const row of rows) {
+        await db.run(
+          `INSERT INTO signals (id, universe, tf, json) VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET universe = excluded.universe, tf = excluded.tf, json = excluded.json`,
+          [row.id, row.universe, row.tf, JSON.stringify(row)],
+        );
+      }
+    },
     async getScanMeta(universe, tf) {
       const row = await db.get<{ json: string }>(
         'SELECT json FROM scan_meta WHERE universe = ? AND tf = ?',
@@ -154,19 +146,8 @@ export function createSqlStore(db: SqlAsync): ScreenerStore {
         [universe, tf, JSON.stringify(meta)],
       );
     },
-    async getManualRun() {
-      const row = await db.get<{ json: string }>('SELECT json FROM manual_run WHERE id = 1');
-      return parse<ManualRun>(row?.json);
-    },
-    async putManualRun(run) {
-      if (!run) {
-        await db.run('DELETE FROM manual_run WHERE id = 1');
-        return;
-      }
-      await db.run(
-        'INSERT INTO manual_run (id, json) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json',
-        [JSON.stringify(run)],
-      );
+    async clearScanMeta() {
+      await db.run('DELETE FROM scan_meta');
     },
     async getBenchmark() {
       const row = await db.get<{ json: string }>('SELECT json FROM benchmark WHERE id = 1');
@@ -178,24 +159,14 @@ export function createSqlStore(db: SqlAsync): ScreenerStore {
         [JSON.stringify(row)],
       );
     },
-    async getManualHistory() {
-      const row = await db.get<{ json: string }>('SELECT json FROM manual_history WHERE id = 1');
-      return parse<string[]>(row?.json) ?? [];
+    async getPreset<T>(key: string) {
+      const row = await db.get<{ json: string }>('SELECT json FROM presets WHERE key = ?', [key]);
+      return parse<T>(row?.json);
     },
-    async putManualHistory(tickers) {
+    async putPreset(key, data) {
       await db.run(
-        'INSERT INTO manual_history (id, json) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json',
-        [JSON.stringify(tickers.slice(0, 10))],
-      );
-    },
-    async getChartSettings() {
-      const row = await db.get<{ json: string }>('SELECT json FROM chart_settings WHERE id = 1');
-      return { ...DEFAULT_CHART_PREFS, ...(parse<Partial<ChartPrefs>>(row?.json) ?? {}) };
-    },
-    async putChartSettings(prefs) {
-      await db.run(
-        'INSERT INTO chart_settings (id, json) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json',
-        [JSON.stringify(prefs)],
+        'INSERT INTO presets (key, json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json',
+        [key, JSON.stringify(data ?? null)],
       );
     },
   };

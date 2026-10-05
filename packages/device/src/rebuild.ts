@@ -1,86 +1,107 @@
-/** Replay the close-scan ledger over cached bars and insert missing closed trades. */
-import { runCloseLedger } from '../../engine/src/sequenceVova.ts';
-import { shortSymbol } from '../../engine/src/tickers.ts';
-import type { CloseTrade } from '../../engine/src/types.ts';
+/** Mirrors `HistoryRebuildService`: replay the close-scan ledger over cached bars, insert missing closes. */
 import { barPeriodKey } from '../../../apps/api/src/scans/period.ts';
+import { runCloseLedger } from '../../engine/src/sequenceVova.ts';
+import { shortSymbol, type ParsedEntry } from '../../engine/src/tickers.ts';
+import type { CloseTrade, OhlcSeries } from '../../engine/src/types.ts';
 import { newId } from './id';
 import { computePnl, finiteOrNull, holdPeriods, round2, sharesFromRisk } from './money';
-import type { ScreenerStore } from './store';
-import type { TrackedSignal, Universe, UserTf } from './types';
+import { TIMEFRAMES, UNIVERSES, type TrackedSignal, type Universe, type UserTf } from './types';
 
-export type RebuildCounts = { inserted: number; skipped: number; noBars: number; symbols: number };
+export type RebuildStatus = {
+  status: 'idle' | 'running' | 'done' | 'failed';
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  progress: { universe: Universe | null; tf: UserTf | null; symbolsDone: number; symbolsTotal: number };
+  counts: { inserted: number; skipped: number; noBars: number; symbols: number };
+};
 
-export async function rebuildHistory(
-  store: ScreenerStore,
-  opts: { maxRiskUsd: number; onProgress?: (counts: RebuildCounts) => void } = { maxRiskUsd: 100 },
-): Promise<RebuildCounts> {
-  const counts: RebuildCounts = { inserted: 0, skipped: 0, noBars: 0, symbols: 0 };
-  const signals = await store.listSignals();
-  const keys = await store.listBarKeys();
-  const recorded = new Set<string>();
-  for (const row of signals) {
-    if (row.openedAsOf) recorded.add(entryKey(row.yahooTicker, row.openedAsOf));
-    if (row.exitDate) recorded.add(exitKey(row.yahooTicker, row.exitDate));
-  }
-  const next = [...signals];
-  for (const key of keys) {
-    counts.symbols += 1;
-    const cached = await store.getBars(key.yahooTicker, key.tf);
-    if (!cached?.bars.length) {
-      counts.noBars += 1;
-      continue;
-    }
-    const ledger = runCloseLedger(cached.bars, {
-      min_rr: 0,
-      no_rr_req: true,
-      use_last_hl_sl: true,
-      risk_dollars: opts.maxRiskUsd,
-    });
-    if (!ledger) continue;
-    const universe = guessUniverse(key.yahooTicker, signals);
-    for (const trade of ledger.trades) {
-      if (trade.exit_index == null || !trade.exit_date) continue;
-      const entered = entryKey(key.yahooTicker, trade.entry_date);
-      const exited = exitKey(key.yahooTicker, trade.exit_date);
-      if (recorded.has(entered) || recorded.has(exited)) {
-        counts.skipped += 1;
-        continue;
-      }
-      recorded.add(entered);
-      recorded.add(exited);
-      next.push(closedFromTrade(cached, trade, universe, key.tf, opts.maxRiskUsd));
-      counts.inserted += 1;
-    }
-    opts.onProgress?.(counts);
-  }
-  if (counts.inserted) await store.saveSignals(next);
-  return counts;
+export function emptyRebuildStatus(): RebuildStatus {
+  return {
+    status: 'idle',
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+    progress: { universe: null, tf: null, symbolsDone: 0, symbolsTotal: 0 },
+    counts: { inserted: 0, skipped: 0, noBars: 0, symbols: 0 },
+  };
 }
 
-function guessUniverse(ticker: string, signals: TrackedSignal[]): Universe {
-  return signals.find((s) => s.yahooTicker === ticker)?.universe ?? 'Stocks';
+export async function rebuildHistory(opts: {
+  signals: TrackedSignal[];
+  universe: Record<Universe, ParsedEntry[]>;
+  barsFor: (ticker: string, tf: UserTf) => Promise<OhlcSeries | null>;
+  maxRiskUsd: number;
+  state: RebuildStatus;
+  yieldEvery?: () => Promise<void>;
+}): Promise<TrackedSignal[]> {
+  const { state } = opts;
+  const next = [...opts.signals];
+  for (const universe of UNIVERSES) {
+    for (const tf of TIMEFRAMES) {
+      const entries = opts.universe[universe];
+      state.progress = { universe, tf, symbolsDone: 0, symbolsTotal: entries.length };
+      const recorded = new Set<string>();
+      for (const row of next) {
+        if (row.universe !== universe || row.tf !== tf) continue;
+        if (row.openedAsOf) recorded.add(`${row.yahooTicker}@entry@${row.openedAsOf}`);
+        if (row.exitDate) recorded.add(`${row.yahooTicker}@exit@${row.exitDate}`);
+      }
+      for (const entry of entries) {
+        state.counts.symbols += 1;
+        state.progress.symbolsDone += 1;
+        const bars = await opts.barsFor(entry.yahoo, tf);
+        if (!bars?.length) {
+          state.counts.noBars += 1;
+          continue;
+        }
+        const ledger = runCloseLedger(bars, {
+          min_rr: 0,
+          no_rr_req: true,
+          use_last_hl_sl: true,
+          risk_dollars: opts.maxRiskUsd,
+        });
+        if (!ledger) continue;
+        for (const trade of ledger.trades) {
+          if (trade.exit_index == null || !trade.exit_date) continue;
+          const entered = `${entry.yahoo}@entry@${trade.entry_date}`;
+          const exited = `${entry.yahoo}@exit@${trade.exit_date}`;
+          if (recorded.has(entered) || recorded.has(exited)) {
+            state.counts.skipped += 1;
+            continue;
+          }
+          recorded.add(entered);
+          recorded.add(exited);
+          next.push(closedFromTrade(entry, trade, universe, tf, opts.maxRiskUsd));
+          state.counts.inserted += 1;
+        }
+        if (opts.yieldEvery && state.progress.symbolsDone % 50 === 0) await opts.yieldEvery();
+      }
+    }
+  }
+  return next;
 }
 
 function closedFromTrade(
-  cached: { yahooTicker: string; companyName: string | null },
+  entry: ParsedEntry,
   trade: CloseTrade,
   universe: Universe,
   tf: UserTf,
   maxRiskUsd: number,
 ): TrackedSignal {
-  const entry = round2(trade.entry_price);
+  const tv = entry.tv || entry.yahoo;
+  const price = round2(trade.entry_price);
   const sl = finiteOrNull(trade.entry_sl);
   const exitDate = trade.exit_date as string;
   const exitPrice = round2(trade.exit_price);
-  const shares = sharesFromRisk(entry, sl, maxRiskUsd);
-  const pnl = computePnl(entry, sl, shares, exitPrice);
-  const symbol = shortSymbol(cached.yahooTicker);
+  const shares = sharesFromRisk(price, sl, maxRiskUsd);
+  const pnl = computePnl(price, sl, shares, exitPrice);
   return {
     id: newId(),
-    yahooTicker: cached.yahooTicker,
-    symbol,
-    tvSymbol: symbol,
-    companyName: cached.companyName || symbol,
+    yahooTicker: entry.yahoo,
+    symbol: shortSymbol(tv),
+    tvSymbol: tv,
+    companyName: entry.name ?? entry.yahoo,
     universe,
     tf,
     status: 'closed',
@@ -91,7 +112,7 @@ function closedFromTrade(
     openedPeriodKey: barPeriodKey(tf, trade.entry_date),
     openedAsOf: trade.entry_date,
     openedAt: new Date(`${trade.entry_date}T12:00:00Z`).toISOString(),
-    entry,
+    entry: price,
     tp: finiteOrNull(trade.entry_tp),
     sl,
     rrAtEntry: finiteOrNull(trade.entry_rr),
@@ -119,12 +140,4 @@ function closedFromTrade(
     interest: null,
     interestRank: 1,
   };
-}
-
-function entryKey(ticker: string, date: string): string {
-  return `${ticker}@entry@${date}`;
-}
-
-function exitKey(ticker: string, date: string): string {
-  return `${ticker}@exit@${date}`;
 }

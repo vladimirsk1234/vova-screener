@@ -121,7 +121,7 @@ export type ManualRun = {
 
 export type CachedBars = {
   yahooTicker: string;
-  tf: UserTf;
+  tf: UserTf | 'Daily';
   bars: import('../../engine/src/types.ts').OhlcBar[];
   fetchedAt: string;
   companyName: string | null;
